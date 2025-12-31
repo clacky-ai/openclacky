@@ -1,6 +1,8 @@
 # frozen_string_literal: true
 
 require "clacky"
+require "tmpdir"
+require_relative "support/test_helpers"
 
 RSpec.configure do |config|
   # Enable flags like --only-failures and --next-failure

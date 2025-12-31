@@ -16,19 +16,20 @@ module Clacky
       @base_url = data["base_url"] || "https://api.openai.com"
     end
 
-    def self.load
-      if File.exist?(CONFIG_FILE)
-        data = YAML.load_file(CONFIG_FILE) || {}
+    def self.load(config_file = CONFIG_FILE)
+      if File.exist?(config_file)
+        data = YAML.load_file(config_file) || {}
         new(data)
       else
         new
       end
     end
 
-    def save
-      FileUtils.mkdir_p(CONFIG_DIR)
-      File.write(CONFIG_FILE, to_yaml)
-      FileUtils.chmod(0o600, CONFIG_FILE) # Secure the config file
+    def save(config_file = CONFIG_FILE)
+      config_dir = File.dirname(config_file)
+      FileUtils.mkdir_p(config_dir)
+      File.write(config_file, to_yaml)
+      FileUtils.chmod(0o600, config_file)
     end
 
     def to_yaml

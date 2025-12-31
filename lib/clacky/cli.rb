@@ -44,6 +44,156 @@ module Clacky
       say "Clacky version #{Clacky::VERSION}"
     end
 
+    desc "agent [MESSAGE]", "Run agent with autonomous tool use"
+    long_desc <<-LONGDESC
+      Run an AI agent that can autonomously use tools to complete tasks.
+
+      Permission modes:
+        auto_approve    - Automatically execute all tools (use with caution)
+        confirm_edits   - Auto-approve read-only tools, confirm edits
+        confirm_all     - Confirm every tool use (default)
+        plan_only       - Generate plan without executing
+
+      Examples:
+        $ clacky agent "Calculate the sum of numbers from 1 to 100"
+        $ clacky agent --mode=auto_approve "List all Ruby files"
+        $ clacky agent --tools calculator shell
+    LONGDESC
+    option :mode, type: :string, default: "confirm_all",
+           desc: "Permission mode: auto_approve, confirm_edits, confirm_all, plan_only"
+    option :tools, type: :array, default: ["all"], desc: "Allowed tools"
+    option :max_iterations, type: :numeric, default: 10, desc: "Maximum iterations"
+    option :max_cost, type: :numeric, default: 1.0, desc: "Maximum cost in USD"
+    option :verbose, type: :boolean, default: false, desc: "Show detailed output"
+    def agent(message = nil)
+      config = Clacky::Config.load
+
+      unless config.api_key
+        say "Error: API key not found. Please run 'clacky config set' first.", :red
+        exit 1
+      end
+
+      # Build agent config
+      agent_config = build_agent_config(config)
+      client = Clacky::Client.new(config.api_key, base_url: config.base_url)
+      agent = Clacky::Agent.new(client, agent_config)
+
+      # Get user input
+      user_input = if message && !message.strip.empty?
+                     message
+                   else
+                     prompt_for_input
+                   end
+
+      say "\n🤖 Starting agent...\n", :green
+      say "Mode: #{agent_config.permission_mode}", :yellow
+      say "Max iterations: #{agent_config.max_iterations}", :yellow
+      say "Max cost: $#{agent_config.max_cost_usd}", :yellow
+      say "\n"
+
+      # Run agent with event streaming
+      begin
+        result = agent.run(user_input) do |event|
+          display_agent_event(event)
+        end
+
+        display_agent_result(result)
+      rescue StandardError => e
+        say "\n❌ Error: #{e.message}", :red
+        say e.backtrace.first(5).join("\n"), :red if options[:verbose]
+        exit 1
+      end
+    end
+
+    desc "tools", "List available tools"
+    option :category, type: :string, desc: "Filter by category"
+    def tools
+      registry = ToolRegistry.new
+      registry.register(Tools::Calculator.new)
+      registry.register(Tools::Shell.new)
+      registry.register(Tools::FileReader.new)
+
+      say "\n📦 Available Tools:\n\n", :green
+
+      tools_to_show = if options[:category]
+                        registry.by_category(options[:category])
+                      else
+                        registry.all
+                      end
+
+      tools_to_show.each do |tool|
+        say "  #{tool.name}", :cyan
+        say "    #{tool.description}", :white
+        say "    Category: #{tool.category}", :yellow
+
+        if tool.parameters[:properties]
+          say "    Parameters:", :yellow
+          tool.parameters[:properties].each do |name, spec|
+            required = tool.parameters[:required]&.include?(name.to_s) ? " (required)" : ""
+            say "      - #{name}: #{spec[:description]}#{required}", :white
+          end
+        end
+        say ""
+      end
+
+      say "Total: #{tools_to_show.size} tools\n", :green
+    end
+
+    no_commands do
+      def build_agent_config(config)
+        AgentConfig.new(
+          model: options[:model] || config.model,
+          permission_mode: options[:mode].to_sym,
+          allowed_tools: options[:tools],
+          max_iterations: options[:max_iterations],
+          max_cost_usd: options[:max_cost],
+          verbose: options[:verbose]
+        )
+      end
+
+      def prompt_for_input
+        prompt = TTY::Prompt.new
+        prompt.ask("What would you like the agent to do?", required: true)
+      end
+
+      def display_agent_event(event)
+      case event[:type]
+      when :thinking
+        print "💭 Thinking... "
+      when :tool_call
+        data = event[:data]
+        say "\n🔧 Using tool: #{data[:name]}", :yellow
+        say "   Arguments: #{data[:arguments]}", :white if options[:verbose]
+      when :observation
+        data = event[:data]
+        say "👀 Result from #{data[:tool]}:", :cyan
+        result_preview = data[:result].to_s[0..200]
+        say "   #{result_preview}#{'...' if data[:result].to_s.length > 200}", :white
+      when :answer
+        say "\n✅ Agent: #{event[:data][:content]}", :green
+      when :tool_denied
+        say "\n🚫 Tool denied: #{event[:data][:name]}", :red
+      when :tool_planned
+        say "\n📋 Planned: #{event[:data][:name]}", :blue
+      when :tool_error
+        say "\n❌ Tool error: #{event[:data][:error].message}", :red
+      when :on_iteration
+        say "\n--- Iteration #{event[:data][:iteration]} ---", :yellow if options[:verbose]
+      end
+    end
+
+      def display_agent_result(result)
+        say "\n" + ("=" * 60), :cyan
+        say "Agent Session Complete", :green
+        say "=" * 60, :cyan
+        say "Status: #{result[:status]}", :green
+        say "Iterations: #{result[:iterations]}", :yellow
+        say "Duration: #{result[:duration_seconds].round(2)}s", :yellow
+        say "Total Cost: $#{result[:total_cost_usd]}", :yellow
+        say "=" * 60, :cyan
+      end
+    end
+
     private
 
     def send_single_message(message, config)

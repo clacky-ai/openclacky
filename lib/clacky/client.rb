@@ -39,6 +39,30 @@ module Clacky
       handle_response(response)
     end
 
+    # Send messages with function calling (tools) support
+    def send_messages_with_tools(messages, model: "gpt-3.5-turbo", tools: nil, max_tokens: 4096, verbose: false)
+      body = {
+        model: model,
+        max_tokens: max_tokens,
+        messages: messages
+      }
+
+      # Add tools if provided
+      body[:tools] = tools if tools&.any?
+
+      # Debug output
+      if verbose || ENV["CLACKY_DEBUG"]
+        puts "\n[DEBUG] Request to API:"
+        puts JSON.pretty_generate(body)
+      end
+
+      response = connection.post("/v1/chat/completions") do |req|
+        req.body = body.to_json
+      end
+
+      handle_tool_response(response)
+    end
+
     private
 
     def connection
@@ -62,6 +86,52 @@ module Clacky
         raise Error, "Server error: #{response.status}"
       else
         raise Error, "Unexpected error: #{response.status} - #{response.body}"
+      end
+    end
+
+    def handle_tool_response(response)
+      case response.status
+      when 200
+        data = JSON.parse(response.body)
+        message = data["choices"].first["message"]
+        usage = data["usage"]
+
+        {
+          content: message["content"],
+          tool_calls: parse_tool_calls(message["tool_calls"]),
+          finish_reason: data["choices"].first["finish_reason"],
+          usage: {
+            prompt_tokens: usage["prompt_tokens"],
+            completion_tokens: usage["completion_tokens"],
+            total_tokens: usage["total_tokens"]
+          }
+        }
+      when 401
+        raise Error, "Invalid API key"
+      when 429
+        raise Error, "Rate limit exceeded"
+      when 500..599
+        error_body = begin
+          JSON.parse(response.body)
+        rescue JSON::ParserError
+          response.body
+        end
+        raise Error, "Server error: #{response.status}\nResponse: #{error_body.inspect}"
+      else
+        raise Error, "Unexpected error: #{response.status} - #{response.body}"
+      end
+    end
+
+    def parse_tool_calls(tool_calls)
+      return nil if tool_calls.nil? || tool_calls.empty?
+
+      tool_calls.map do |call|
+        {
+          id: call["id"],
+          type: call["type"],
+          name: call["function"]["name"],
+          arguments: call["function"]["arguments"]
+        }
       end
     end
   end
