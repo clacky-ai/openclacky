@@ -46,6 +46,20 @@ module Clacky
           }
         end
       end
+
+      def format_call(args)
+        expr = args[:expression] || args['expression'] || ''
+        display_expr = expr.length > 40 ? "#{expr[0..37]}..." : expr
+        "calc(#{display_expr})"
+      end
+
+      def format_result(result)
+        if result[:error]
+          "✗ #{result[:error]}"
+        else
+          "= #{result[:result]}"
+        end
+      end
     end
   end
 end

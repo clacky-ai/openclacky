@@ -15,7 +15,7 @@ require_relative "clacky/session_manager"
 require_relative "clacky/utils/limit_stack"
 require_relative "clacky/utils/path_helper"
 require_relative "clacky/tools/base"
-require_relative "clacky/tools/calculator"
+
 require_relative "clacky/tools/shell"
 require_relative "clacky/tools/file_reader"
 require_relative "clacky/tools/write"

@@ -69,6 +69,25 @@ module Clacky
           { error: "Failed to glob files: #{e.message}" }
         end
       end
+
+      def format_call(args)
+        pattern = args[:pattern] || args['pattern'] || ''
+        base_path = args[:base_path] || args['base_path'] || '.'
+        
+        display_base = base_path == '.' ? '' : " in #{base_path}"
+        "glob(\"#{pattern}\"#{display_base})"
+      end
+
+      def format_result(result)
+        if result[:error]
+          "✗ #{result[:error]}"
+        else
+          count = result[:returned] || 0
+          total = result[:total_matches] || 0
+          truncated = result[:truncated] ? " (truncated)" : ""
+          "✓ Found #{count}/#{total} files#{truncated}"
+        end
+      end
     end
   end
 end

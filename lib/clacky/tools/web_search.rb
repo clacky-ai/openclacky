@@ -120,6 +120,21 @@ module Clacky
       rescue StandardError
         []
       end
+
+      def format_call(args)
+        query = args[:query] || args['query'] || ''
+        display_query = query.length > 40 ? "#{query[0..37]}..." : query
+        "web_search(\"#{display_query}\")"
+      end
+
+      def format_result(result)
+        if result[:error]
+          "✗ #{result[:error]}"
+        else
+          count = result[:count] || 0
+          "✓ Found #{count} results"
+        end
+      end
     end
   end
 end

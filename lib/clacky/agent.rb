@@ -70,7 +70,7 @@ module Clacky
       - glob: Find files by pattern
       - grep: Search for text in files
       - shell: Execute shell commands (USE THIS to run programs!)
-      - calculator: Perform calculations
+
       - web_search: Search the web for information
       - web_fetch: Fetch content from URLs
 
@@ -734,7 +734,7 @@ module Clacky
     end
 
     def register_builtin_tools
-      @tool_registry.register(Tools::Calculator.new)
+
       @tool_registry.register(Tools::SafeShell.new)
       @tool_registry.register(Tools::FileReader.new)
       @tool_registry.register(Tools::Write.new)

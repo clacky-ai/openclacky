@@ -110,10 +110,14 @@ module Clacky
 
       def format_call(args)
         cmd = args[:command] || args['command'] || ''
-        cmd_parts = cmd.split
-        cmd_short = cmd_parts.first(3).join(' ')
-        cmd_short += '...' if cmd_parts.size > 3
-        "SafeShell(#{cmd_short})"
+        return "safe_shell(<no command>)" if cmd.empty?
+        
+        # Truncate long commands intelligently
+        if cmd.length > 50
+          "safe_shell(\"#{cmd[0..47]}...\")"
+        else
+          "safe_shell(\"#{cmd}\")"
+        end
       end
 
       def format_result(result)

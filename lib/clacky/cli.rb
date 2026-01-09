@@ -143,7 +143,7 @@ module Clacky
     option :category, type: :string, desc: "Filter by category"
     def tools
       registry = ToolRegistry.new
-      registry.register(Tools::Calculator.new)
+
       registry.register(Tools::Shell.new)
       registry.register(Tools::FileReader.new)
       registry.register(Tools::Write.new)

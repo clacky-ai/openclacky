@@ -135,6 +135,29 @@ module Clacky
           truncated: truncated
         }
       end
+
+      def format_call(args)
+        url = args[:url] || args['url'] || ''
+        # Extract domain from URL for display
+        begin
+          uri = URI.parse(url)
+          domain = uri.host || url
+          "web_fetch(#{domain})"
+        rescue
+          display_url = url.length > 40 ? "#{url[0..37]}..." : url
+          "web_fetch(\"#{display_url}\")"
+        end
+      end
+
+      def format_result(result)
+        if result[:error]
+          "✗ #{result[:error]}"
+        else
+          title = result[:title] || 'Untitled'
+          display_title = title.length > 40 ? "#{title[0..37]}..." : title
+          "✓ Fetched: #{display_title}"
+        end
+      end
     end
   end
 end
