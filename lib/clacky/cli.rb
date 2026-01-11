@@ -62,7 +62,7 @@ module Clacky
       Session management:
         -c, --continue  - Continue the most recent session for this directory
         -l, --list      - List recent sessions
-        -a, --attach N  - Attach to session number N from the list
+        -a, --attach N  - Attach to session by number (e.g., -a 2) or session ID prefix (e.g., -a b6682a87)
 
       Examples:
         $ clacky agent
@@ -72,6 +72,7 @@ module Clacky
         $ clacky agent -c
         $ clacky agent -l
         $ clacky agent -a 2
+        $ clacky agent -a b6682a87
     LONGDESC
     option :mode, type: :string, default: "confirm_safes",
            desc: "Permission mode: auto_approve, confirm_safes, confirm_edits, plan_only"
@@ -82,7 +83,7 @@ module Clacky
     option :path, type: :string, desc: "Project directory path (defaults to current directory)"
     option :continue, type: :boolean, aliases: "-c", desc: "Continue most recent session"
     option :list, type: :boolean, aliases: "-l", desc: "List recent sessions"
-    option :attach, type: :numeric, aliases: "-a", desc: "Attach to session by number"
+    option :attach, type: :string, aliases: "-a", desc: "Attach to session by number or keyword"
     def agent(message = nil)
       config = Clacky::Config.load
 
@@ -375,10 +376,10 @@ module Clacky
 
         # Show session info if continuing
         if agent.total_tasks > 0
-          say "📂 Continuing session: #{agent.session_id[0..7]}", :green
-          say "   Created: #{Time.parse(agent.created_at).strftime('%Y-%m-%d %H:%M')}", :cyan
-          say "   Tasks completed: #{agent.total_tasks}", :cyan
-          say "   Total cost: $#{agent.total_cost.round(4)}", :cyan
+          say "Continuing session: #{agent.session_id[0..7]}", :cyan
+          say "Created: #{Time.parse(agent.created_at).strftime('%Y-%m-%d %H:%M')}", :cyan
+          say "Tasks completed: #{agent.total_tasks}", :cyan
+          say "Total cost: $#{agent.total_cost.round(4)}", :cyan
           say ""
 
           # Show recent conversation history
@@ -505,7 +506,7 @@ module Clacky
         Clacky::Agent.from_session(client, agent_config, session_data)
       end
 
-      def load_session_by_number(client, agent_config, session_manager, working_dir, number)
+      def load_session_by_number(client, agent_config, session_manager, working_dir, identifier)
         sessions = session_manager.list(current_dir: working_dir, limit: 10)
 
         if sessions.empty?
@@ -513,13 +514,39 @@ module Clacky
           return nil
         end
 
-        index = number - 1
-        if index < 0 || index >= sessions.size
-          say "Invalid session number. Use -l to list available sessions.", :red
-          exit 1
+        session_data = nil
+
+        # Check if identifier is a number (index-based)
+        if identifier.match?(/^\d+$/)
+          index = identifier.to_i - 1
+          if index < 0 || index >= sessions.size
+            say "Invalid session number. Use -l to list available sessions.", :red
+            exit 1
+          end
+          session_data = sessions[index]
+        else
+          # Treat as session ID prefix
+          matching_sessions = sessions.select { |s| s[:session_id].start_with?(identifier) }
+
+          if matching_sessions.empty?
+            say "No session found matching ID prefix: #{identifier}", :red
+            say "Use -l to list available sessions.", :yellow
+            exit 1
+          elsif matching_sessions.size > 1
+            say "Multiple sessions found matching '#{identifier}':", :yellow
+            matching_sessions.each_with_index do |session, idx|
+              created_at = Time.parse(session[:created_at]).strftime("%Y-%m-%d %H:%M")
+              session_id = session[:session_id][0..7]
+              first_msg = session[:first_user_message] || "No message"
+              say "  #{idx + 1}. [#{session_id}] #{created_at} - #{first_msg}", :cyan
+            end
+            say "\nPlease use a more specific prefix.", :yellow
+            exit 1
+          else
+            session_data = matching_sessions.first
+          end
         end
 
-        session_data = sessions[index]
         say "Loading session: #{session_data[:session_id][0..7]}", :green
         Clacky::Agent.from_session(client, agent_config, session_data)
       end
