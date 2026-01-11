@@ -69,8 +69,6 @@ module Clacky
         end
       end
 
-      private
-
       def fetch_url(uri)
         # Follow redirects (max 5)
         redirects = 0

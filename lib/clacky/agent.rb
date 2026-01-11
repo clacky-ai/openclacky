@@ -273,19 +273,37 @@ module Clacky
     def build_system_prompt
       prompt = SYSTEM_PROMPT.dup
 
-      # Load .clackyrules if exists
-      rules_file = File.join(@working_dir, ".clackyrules")
-      if File.exist?(rules_file)
-        rules_content = File.read(rules_file).strip
-        unless rules_content.empty?
-          prompt += "\n\n" + "=" * 80 + "\n"
-          prompt += "PROJECT-SPECIFIC RULES (from .clackyrules):\n"
-          prompt += "=" * 80 + "\n"
-          prompt += rules_content
-          prompt += "\n" + "=" * 80 + "\n"
-          prompt += "⚠️ IMPORTANT: Follow these project-specific rules at all times!\n"
-          prompt += "=" * 80
+      # Try to load project rules from multiple sources (in order of priority)
+      rules_files = [
+        { path: ".clackyrules", name: ".clackyrules" },
+        { path: ".cursorrules", name: ".cursorrules" },
+        { path: "CLAUDE.md", name: "CLAUDE.md" }
+      ]
+
+      rules_content = nil
+      rules_source = nil
+
+      rules_files.each do |file_info|
+        full_path = File.join(@working_dir, file_info[:path])
+        if File.exist?(full_path)
+          content = File.read(full_path).strip
+          unless content.empty?
+            rules_content = content
+            rules_source = file_info[:name]
+            break
+          end
         end
+      end
+
+      # Add rules to prompt if found
+      if rules_content && rules_source
+        prompt += "\n\n" + "=" * 80 + "\n"
+        prompt += "PROJECT-SPECIFIC RULES (from #{rules_source}):\n"
+        prompt += "=" * 80 + "\n"
+        prompt += rules_content
+        prompt += "\n" + "=" * 80 + "\n"
+        prompt += "⚠️ IMPORTANT: Follow these project-specific rules at all times!\n"
+        prompt += "=" * 80
       end
 
       prompt
@@ -482,31 +500,52 @@ module Clacky
       threshold = @config.keep_recent_messages + 5 # +5 to avoid compressing too frequently
       return if @messages.size <= threshold
 
-      puts "\n🗜️  Compressing conversation history (#{@messages.size} messages -> ~#{@config.keep_recent_messages + 2})" if @config.verbose
+      original_size = @messages.size
+      target_size = @config.keep_recent_messages + 2
 
-      # Find the system message (should be first)
-      system_msg = @messages.find { |m| m[:role] == "system" }
+      # Show compression progress using ProgressIndicator
+      progress = ProgressIndicator.new(
+        verbose: @config.verbose,
+        message: "🗜️  Compressing conversation history (#{original_size} → ~#{target_size} messages)"
+      )
+      progress.start
 
-      # Get the most recent N messages, ensuring tool_calls/tool results pairs are kept together
-      recent_messages = get_recent_messages_with_tool_pairs(@messages, @config.keep_recent_messages)
+      begin
+        # Find the system message (should be first)
+        system_msg = @messages.find { |m| m[:role] == "system" }
 
-      # Get messages to compress (everything except system and recent)
-      messages_to_compress = @messages.reject { |m| m[:role] == "system" || recent_messages.include?(m) }
+        # Get the most recent N messages, ensuring tool_calls/tool results pairs are kept together
+        recent_messages = get_recent_messages_with_tool_pairs(@messages, @config.keep_recent_messages)
 
-      return if messages_to_compress.empty?
+        # Get messages to compress (everything except system and recent)
+        messages_to_compress = @messages.reject { |m| m[:role] == "system" || recent_messages.include?(m) }
 
-      # Create summary of compressed messages
-      summary = summarize_messages(messages_to_compress)
+        if messages_to_compress.empty?
+          progress.finish
+          return
+        end
 
-      # Show summary in verbose mode
-      if @config.verbose
-        puts "\n[COMPRESSION SUMMARY]"
-        puts summary[:content]
-        puts ""
+        # Create summary of compressed messages
+        summary = summarize_messages(messages_to_compress)
+
+        # Rebuild messages array: [system, summary, recent_messages]
+        @messages = [system_msg, summary, *recent_messages].compact
+
+        final_size = @messages.size
+
+        # Finish progress and show completion message
+        progress.finish
+        puts "✅ Compressed conversation history (#{original_size} → #{final_size} messages)"
+
+        # Show detailed summary in verbose mode
+        if @config.verbose
+          puts "\n[COMPRESSION SUMMARY]"
+          puts summary[:content]
+          puts ""
+        end
+      ensure
+        progress.finish
       end
-
-      # Rebuild messages array: [system, summary, recent_messages]
-      @messages = [system_msg, summary, *recent_messages].compact
     end
 
     def get_recent_messages_with_tool_pairs(messages, count)

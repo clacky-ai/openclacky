@@ -236,10 +236,12 @@ module Clacky
             args = JSON.parse(args_json, symbolize_names: true)
             formatted = tool.format_call(args)
             say "\n⏺ #{formatted}", :cyan
-          rescue JSON::ParserError, StandardError
+          rescue JSON::ParserError, StandardError => e
+            say "⚠️  Warning: Failed to format tool call: #{e.message}", :yellow
             say "\n⏺ #{tool_name}(...)", :cyan
           end
         else
+          say "⚠️  Warning: Tool instance not found for '#{tool_name}'", :yellow
           say "\n⏺ #{tool_name}(...)", :cyan
         end
 
@@ -443,7 +445,7 @@ module Clacky
             if session_manager
               session_manager.save(agent.to_session_data)
             end
-            
+
             say "\n❌ Error: #{e.message}", :red
             say e.backtrace.first(3).join("\n"), :white if options[:verbose]
             if session_manager&.last_saved_path

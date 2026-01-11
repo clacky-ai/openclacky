@@ -48,8 +48,6 @@ module Clacky
         end
       end
 
-      private
-
       def search_duckduckgo(query, max_results)
         # DuckDuckGo HTML search endpoint
         encoded_query = CGI.escape(query)

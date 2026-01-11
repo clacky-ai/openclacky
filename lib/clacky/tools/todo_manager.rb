@@ -54,6 +54,35 @@ module Clacky
         end
       end
 
+      def format_call(args)
+        action = args[:action] || args['action']
+        case action
+        when 'add'
+          count = (args[:tasks] || args['tasks'])&.size || 1
+          "TodoManager(add #{count} task#{count > 1 ? 's' : ''})"
+        when 'complete'
+          "TodoManager(complete ##{args[:id] || args['id']})"
+        when 'list'
+          "TodoManager(list)"
+        when 'remove'
+          "TodoManager(remove ##{args[:id] || args['id']})"
+        when 'clear'
+          "TodoManager(clear all)"
+        else
+          "TodoManager(#{action})"
+        end
+      end
+
+      def format_result(result)
+        return result[:error] if result[:error]
+
+        if result[:message]
+          result[:message]
+        else
+          "Done"
+        end
+      end
+
       private
 
       def load_todos
@@ -193,35 +222,6 @@ module Clacky
           message: "All TODOs cleared",
           cleared_count: count
         }
-      end
-
-      def format_call(args)
-        action = args[:action] || args['action']
-        case action
-        when 'add'
-          count = (args[:tasks] || args['tasks'])&.size || 1
-          "TodoManager(add #{count} task#{count > 1 ? 's' : ''})"
-        when 'complete'
-          "TodoManager(complete ##{args[:id] || args['id']})"
-        when 'list'
-          "TodoManager(list)"
-        when 'remove'
-          "TodoManager(remove ##{args[:id] || args['id']})"
-        when 'clear'
-          "TodoManager(clear all)"
-        else
-          "TodoManager(#{action})"
-        end
-      end
-
-      def format_result(result)
-        return result[:error] if result[:error]
-
-        if result[:message]
-          result[:message]
-        else
-          "Done"
-        end
       end
     end
   end

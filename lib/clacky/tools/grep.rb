@@ -99,6 +99,27 @@ module Clacky
         end
       end
 
+      def format_call(args)
+        pattern = args[:pattern] || args['pattern'] || ''
+        path = args[:path] || args['path'] || '.'
+
+        # Truncate pattern if too long
+        display_pattern = pattern.length > 30 ? "#{pattern[0..27]}..." : pattern
+        display_path = path == '.' ? 'current dir' : (path.length > 20 ? "...#{path[-17..]}" : path)
+
+        "grep(\"#{display_pattern}\" in #{display_path})"
+      end
+
+      def format_result(result)
+        if result[:error]
+          "✗ #{result[:error]}"
+        else
+          matches = result[:total_matches] || 0
+          files = result[:files_with_matches] || 0
+          "✓ Found #{matches} matches in #{files} files"
+        end
+      end
+
       private
 
       def search_file(file, regex, context_lines)
@@ -142,27 +163,6 @@ module Clacky
         sample.include?("\x00")
       rescue StandardError
         true
-      end
-
-      def format_call(args)
-        pattern = args[:pattern] || args['pattern'] || ''
-        path = args[:path] || args['path'] || '.'
-        
-        # Truncate pattern if too long
-        display_pattern = pattern.length > 30 ? "#{pattern[0..27]}..." : pattern
-        display_path = path == '.' ? 'current dir' : (path.length > 20 ? "...#{path[-17..]}" : path)
-        
-        "grep(\"#{display_pattern}\" in #{display_path})"
-      end
-
-      def format_result(result)
-        if result[:error]
-          "✗ #{result[:error]}"
-        else
-          matches = result[:total_matches] || 0
-          files = result[:files_with_matches] || 0
-          "✓ Found #{matches} matches in #{files} files"
-        end
       end
     end
   end

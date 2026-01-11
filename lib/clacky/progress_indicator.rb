@@ -2,10 +2,11 @@
 
 module Clacky
   class ProgressIndicator
-    def initialize(verbose: false)
+    def initialize(verbose: false, message: nil)
       @verbose = verbose
       @start_time = nil
-      @thinking_verb = THINKING_VERBS.sample
+      @custom_message = message
+      @thinking_verb = message || THINKING_VERBS.sample
       @running = false
       @update_thread = nil
     end

@@ -33,7 +33,7 @@ module Clacky
       def execute(action:, file_path: nil, days_old: 7)
         project_root = Dir.pwd
         trash_dir = File.join(project_root, '.ai_trash')
-        
+
         unless Dir.exist?(trash_dir)
           return {
             action: action,
@@ -59,11 +59,9 @@ module Clacky
         end
       end
 
-      private
-
       def list_deleted_files(trash_dir)
         deleted_files = get_deleted_files(trash_dir)
-        
+
         if deleted_files.empty?
           return {
             action: 'list',
@@ -90,12 +88,12 @@ module Clacky
       def restore_file(trash_dir, file_path, project_root)
         deleted_files = get_deleted_files(trash_dir)
         expanded_path = File.expand_path(file_path, project_root)
-        
+
         target_file = deleted_files.find { |f| f[:original_path] == expanded_path }
-        
+
         unless target_file
           similar_files = deleted_files.select { |f| File.basename(f[:original_path]) == File.basename(file_path) }
-          
+
           if similar_files.any?
             suggestions = similar_files.map { |f| f[:original_path] }.join("\n  - ")
             return {
@@ -123,11 +121,11 @@ module Clacky
         begin
           # Ensure target directory exists
           FileUtils.mkdir_p(File.dirname(expanded_path))
-          
+
           # Restore file
           FileUtils.mv(target_file[:trash_file], expanded_path)
           File.delete("#{target_file[:trash_file]}.metadata.json")
-          
+
           {
             action: 'restore',
             success: true,
@@ -146,7 +144,7 @@ module Clacky
       def show_trash_status(trash_dir)
         deleted_files = get_deleted_files(trash_dir)
         total_size = deleted_files.sum { |f| f[:file_size] || 0 }
-        
+
         if deleted_files.empty?
           return {
             action: 'status',
@@ -193,7 +191,7 @@ module Clacky
       def empty_trash(trash_dir, days_old)
         deleted_files = get_deleted_files(trash_dir)
         cutoff_time = Time.now - (days_old * 24 * 60 * 60)
-        
+
         old_files = deleted_files.select do |file|
           Time.parse(file[:deleted_at]) < cutoff_time
         end
@@ -270,12 +268,12 @@ module Clacky
 
       def get_deleted_files(trash_dir)
         deleted_files = []
-        
+
         Dir.glob(File.join(trash_dir, "*.metadata.json")).each do |metadata_file|
           begin
             metadata = JSON.parse(File.read(metadata_file))
             trash_file = metadata_file.sub('.metadata.json', '')
-            
+
             # Only include existing trash files
             if File.exist?(trash_file)
               deleted_files << {
@@ -291,22 +289,22 @@ module Clacky
             # Skip corrupted metadata files
           end
         end
-        
+
         deleted_files.sort_by { |f| f[:deleted_at] }.reverse
       end
 
       def format_bytes(bytes)
         return "0 B" if bytes.zero?
-        
+
         units = %w[B KB MB GB]
         unit_index = 0
         size = bytes.to_f
-        
+
         while size >= 1024 && unit_index < units.length - 1
           size /= 1024.0
           unit_index += 1
         end
-        
+
         if unit_index == 0
           "#{size.to_i} #{units[unit_index]}"
         else
@@ -337,7 +335,7 @@ module Clacky
       def format_result(result)
         action = result[:action] || 'unknown'
         success = result[:success]
-        
+
         case action
         when 'list'
           count = result[:count] || 0
