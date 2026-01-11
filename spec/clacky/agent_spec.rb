@@ -101,6 +101,66 @@ RSpec.describe Clacky::Agent do
     end
   end
 
+  describe "#observe" do
+    it "maintains tool results in same order as tool_calls" do
+      # Simulate a response with multiple tool calls
+      response = {
+        tool_calls: [
+          { id: "call_1", type: "function", function: { name: "tool_a", arguments: "{}" } },
+          { id: "call_2", type: "function", function: { name: "tool_b", arguments: "{}" } },
+          { id: "call_3", type: "function", function: { name: "tool_c", arguments: "{}" } }
+        ]
+      }
+
+      # Tool results arrive in different order (e.g., due to concurrent execution)
+      tool_results = [
+        { id: "call_3", content: JSON.generate({ result: "C" }) },
+        { id: "call_1", content: JSON.generate({ result: "A" }) },
+        { id: "call_2", content: JSON.generate({ result: "B" }) }
+      ]
+
+      # Call observe
+      agent.send(:observe, response, tool_results)
+
+      # Get the messages
+      messages = agent.instance_variable_get(:@messages)
+      tool_messages = messages.select { |m| m[:role] == "tool" }
+
+      # Verify the order matches the original tool_calls order
+      expect(tool_messages.size).to eq(3)
+      expect(tool_messages[0][:tool_call_id]).to eq("call_1")
+      expect(tool_messages[1][:tool_call_id]).to eq("call_2")
+      expect(tool_messages[2][:tool_call_id]).to eq("call_3")
+    end
+
+    it "handles missing tool results with error fallback" do
+      response = {
+        tool_calls: [
+          { id: "call_1", type: "function", function: { name: "tool_a", arguments: "{}" } },
+          { id: "call_2", type: "function", function: { name: "tool_b", arguments: "{}" } }
+        ]
+      }
+
+      # Only one result provided
+      tool_results = [
+        { id: "call_1", content: JSON.generate({ result: "A" }) }
+      ]
+
+      agent.send(:observe, response, tool_results)
+
+      messages = agent.instance_variable_get(:@messages)
+      tool_messages = messages.select { |m| m[:role] == "tool" }
+
+      expect(tool_messages.size).to eq(2)
+      expect(tool_messages[0][:tool_call_id]).to eq("call_1")
+      expect(tool_messages[1][:tool_call_id]).to eq("call_2")
+      
+      # Second message should be an error
+      error_content = JSON.parse(tool_messages[1][:content])
+      expect(error_content["error"]).to eq("Tool result missing")
+    end
+  end
+
   describe "message compression" do
     let(:compression_config) do
       Clacky::AgentConfig.new(

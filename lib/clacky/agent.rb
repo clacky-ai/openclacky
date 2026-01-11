@@ -93,14 +93,14 @@ module Clacky
       # Check if the session ended with an error
       last_status = session_data.dig(:stats, :last_status)
       last_error = session_data.dig(:stats, :last_error)
-      
+
       if last_status == "error" && last_error
         # Find and remove the last user message that caused the error
         # This allows the user to retry with a different prompt
         last_user_index = @messages.rindex { |m| m[:role] == "user" }
         if last_user_index
           @messages = @messages[0...last_user_index]
-          
+
           # Trigger a hook to notify about the rollback
           trigger_hook(:session_rollback, {
             reason: "Previous session ended with error",
@@ -223,7 +223,7 @@ module Clacky
         duration_seconds: @start_time ? (Time.now - @start_time).round(2) : 0,
         last_status: status.to_s
       }
-      
+
       # Add error message if status is error
       stats_data[:last_error] = error_message if status == :error && error_message
 
@@ -279,7 +279,7 @@ module Clacky
       if tool_name.to_s.downcase == 'shell' || tool_name.to_s.downcase == 'safe_shell'
         begin
           require_relative 'tools/safe_shell'
-          
+
           # Parse tool_params if it's a JSON string
           params = tool_params.is_a?(String) ? JSON.parse(tool_params) : tool_params
           command = params[:command] || params['command']
@@ -488,12 +488,33 @@ module Clacky
     def observe(response, tool_results)
       # Add tool results as messages
       # Using OpenAI format which is compatible with most APIs through LiteLLM
-      tool_results.each do |result|
-        @messages << {
-          role: "tool",
-          tool_call_id: result[:id],
-          content: result[:content]
-        }
+
+      # CRITICAL: Tool results must be in the same order as tool_calls in the response
+      # Claude/Bedrock API requires this strict ordering
+      return if tool_results.empty?
+
+      # Create a map of tool_call_id -> result for quick lookup
+      results_map = tool_results.each_with_object({}) do |result, hash|
+        hash[result[:id]] = result
+      end
+
+      # Add results in the same order as the original tool_calls
+      response[:tool_calls].each do |tool_call|
+        result = results_map[tool_call[:id]]
+        if result
+          @messages << {
+            role: "tool",
+            tool_call_id: result[:id],
+            content: result[:content]
+          }
+        else
+          # This shouldn't happen, but add a fallback error result
+          @messages << {
+            role: "tool",
+            tool_call_id: tool_call[:id],
+            content: JSON.generate({ error: "Tool result missing" })
+          }
+        end
       end
     end
 
@@ -607,19 +628,19 @@ module Clacky
               if has_matching_call && !recent.include?(prev_msg)
                 # Insert at the beginning to maintain order
                 recent.unshift(prev_msg)
-                
+
                 # CRITICAL: If this assistant message has multiple tool_calls,
                 # we MUST include ALL corresponding tool results.
                 # Otherwise Bedrock Claude will throw a validation error.
                 if prev_msg[:tool_calls].size > 1
                   tool_call_ids = prev_msg[:tool_calls].map { |tc| tc[:id] }
-                  
+
                   # Find all tool result messages that correspond to this assistant message's tool calls
                   k = j + 1
                   while k < messages.size
                     result_msg = messages[k]
-                    if result_msg[:role] == "tool" && 
-                       tool_call_ids.include?(result_msg[:tool_call_id]) && 
+                    if result_msg[:role] == "tool" &&
+                       tool_call_ids.include?(result_msg[:tool_call_id]) &&
                        !recent.include?(result_msg)
                       # Add this tool result to maintain the complete tool_use/tool_result pairing
                       recent << result_msg
@@ -627,7 +648,7 @@ module Clacky
                     k += 1
                   end
                 end
-                
+
                 break
               end
             end
@@ -696,8 +717,8 @@ module Clacky
       # If preview detected an error (e.g., edit with non-existent string),
       # auto-deny and provide detailed feedback
       if preview_error && preview_error[:error]
-        puts "\n❌ Tool call auto-denied due to preview error"
-        
+        puts "\nTool call auto-denied due to preview error"
+
         # Build helpful feedback message
         feedback = case call[:name]
         when "edit"
