@@ -22,7 +22,9 @@ It provides chat functionality and autonomous AI agent capabilities with tool us
 - Use frozen string literals: `# frozen_string_literal: true`
 - Keep classes focused and single-responsibility
 - Use meaningful variable and method names
+- **IMPORTANT**: All code comments must be written in English
 - Add descriptive comments for complex logic
+- Use clear, self-documenting code with English naming
 
 ### Architecture Patterns
 - Tools inherit from `Clacky::Tools::Base`

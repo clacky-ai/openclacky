@@ -103,7 +103,7 @@ module Clacky
           @messages = @messages[0...last_user_index]
 
           # Trigger a hook to notify about the rollback
-          trigger_hook(:session_rollback, {
+          @hooks.trigger(:session_rollback, {
             reason: "Previous session ended with error",
             error_message: last_error,
             rolled_back_message_index: last_user_index
@@ -385,6 +385,54 @@ module Clacky
         end
 
         track_cost(response[:usage])
+
+        # Handle truncated responses (when max_tokens limit is reached)
+        if response[:finish_reason] == "length"
+          # Count recent truncations to prevent infinite loops
+          recent_truncations = @messages.last(5).count { |m|
+            m[:role] == "user" && m[:content]&.include?("[SYSTEM] Your response was truncated")
+          }
+
+          if recent_truncations >= 2
+            # Too many truncations - task is too complex
+            progress.finish
+            puts "\n⚠️  Response truncated multiple times. Task is too complex for a single response." if @config.verbose
+
+            # Create a response that tells the user to break down the task
+            error_response = {
+              content: "I apologize, but this task is too complex to complete in a single response. " \
+                       "Please break it down into smaller steps, or reduce the amount of content to generate at once.\n\n" \
+                       "For example, when creating a long document:\n" \
+                       "1. First create the file with a basic structure\n" \
+                       "2. Then use edit() to add content section by section",
+              finish_reason: "stop",
+              tool_calls: nil
+            }
+
+            # Add this as an assistant message so it appears in conversation
+            @messages << {
+              role: "assistant",
+              content: error_response[:content]
+            }
+
+            return error_response
+          end
+
+          # Insert system message to guide LLM to retry with smaller steps
+          @messages << {
+            role: "user",
+            content: "[SYSTEM] Your response was truncated due to length limit. Please retry with a different approach:\n" \
+                     "- For long file content: create the file with structure first, then use edit() to add content section by section\n" \
+                     "- Break down large tasks into multiple smaller steps\n" \
+                     "- Avoid putting more than 2000 characters in a single tool call argument\n" \
+                     "- Use multiple tool calls instead of one large call"
+          }
+
+          puts "⚠️  Response truncated due to length limit. Retrying with smaller steps..." if @config.verbose
+
+          # Recursively retry
+          return think(&block)
+        end
 
         # Add assistant response to messages
         msg = { role: "assistant" }

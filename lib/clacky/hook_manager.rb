@@ -8,7 +8,8 @@ module Clacky
       :on_tool_error,
       :on_start,
       :on_complete,
-      :on_iteration
+      :on_iteration,
+      :session_rollback
     ].freeze
 
     def initialize
