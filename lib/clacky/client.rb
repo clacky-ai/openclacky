@@ -43,7 +43,9 @@ module Clacky
     end
 
     # Send messages with function calling (tools) support
-    def send_messages_with_tools(messages, model:, tools:, max_tokens:, verbose: false)
+    # Options:
+    #   - enable_caching: Enable prompt caching for system prompt and tools (default: false)
+    def send_messages_with_tools(messages, model:, tools:, max_tokens:, verbose: false, enable_caching: false)
       body = {
         model: model,
         max_tokens: max_tokens,
@@ -51,7 +53,18 @@ module Clacky
       }
 
       # Add tools if provided
-      body[:tools] = tools if tools&.any?
+      # For Claude API with caching: mark the last tool definition with cache_control
+      if tools&.any?
+        if enable_caching && supports_prompt_caching?(model)
+          # Deep clone tools to avoid modifying original
+          cached_tools = tools.map { |tool| deep_clone(tool) }
+          # Mark the last tool for caching (Claude caches from cache breakpoint to end)
+          cached_tools.last[:cache_control] = { type: "ephemeral" }
+          body[:tools] = cached_tools
+        else
+          body[:tools] = tools
+        end
+      end
 
       # Debug output
       if verbose || ENV["CLACKY_DEBUG"]
@@ -76,6 +89,31 @@ module Clacky
     end
 
     private
+
+    # Check if the model supports prompt caching
+    # Currently only Claude 3.5 Sonnet and newer Claude models support this
+    def supports_prompt_caching?(model)
+      model_str = model.to_s.downcase
+      # Claude 3.5 Sonnet (20241022 and newer) supports prompt caching
+      # Also Claude 3.7 Sonnet and Opus models when they're released
+      model_str.include?("claude-3.5-sonnet") ||
+        model_str.include?("claude-3-7") ||
+        model_str.include?("claude-4")
+    end
+
+    # Deep clone a hash/array structure (for tool definitions)
+    def deep_clone(obj)
+      case obj
+      when Hash
+        obj.each_with_object({}) { |(k, v), h| h[k] = deep_clone(v) }
+      when Array
+        obj.map { |item| deep_clone(item) }
+      when String, Symbol, Integer, Float, TrueClass, FalseClass, NilClass
+        obj
+      else
+        obj.dup rescue obj
+      end
+    end
 
     def connection
       @connection ||= Faraday.new(url: @base_url) do |conn|
@@ -117,15 +155,26 @@ module Clacky
           puts "  content length: #{message["content"]&.length || 0}"
         end
 
+        # Parse usage with cache information
+        usage_data = {
+          prompt_tokens: usage["prompt_tokens"],
+          completion_tokens: usage["completion_tokens"],
+          total_tokens: usage["total_tokens"]
+        }
+        
+        # Add cache metrics if present (Claude API with prompt caching)
+        if usage["cache_creation_input_tokens"]
+          usage_data[:cache_creation_input_tokens] = usage["cache_creation_input_tokens"]
+        end
+        if usage["cache_read_input_tokens"]
+          usage_data[:cache_read_input_tokens] = usage["cache_read_input_tokens"]
+        end
+        
         {
           content: message["content"],
           tool_calls: parse_tool_calls(message["tool_calls"]),
           finish_reason: data["choices"].first["finish_reason"],
-          usage: {
-            prompt_tokens: usage["prompt_tokens"],
-            completion_tokens: usage["completion_tokens"],
-            total_tokens: usage["total_tokens"]
-          }
+          usage: usage_data
         }
       when 401
         raise Error, "Invalid API key"

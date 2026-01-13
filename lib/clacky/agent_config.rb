@@ -7,7 +7,8 @@ module Clacky
 
     attr_accessor :model, :max_iterations, :max_cost_usd, :timeout_seconds,
                   :permission_mode, :allowed_tools, :disallowed_tools,
-                  :max_tokens, :verbose, :enable_compression, :keep_recent_messages
+                  :max_tokens, :verbose, :enable_compression, :keep_recent_messages,
+                  :enable_prompt_caching
 
     def initialize(options = {})
       @model = options[:model] || "gpt-3.5-turbo"
@@ -21,6 +22,8 @@ module Clacky
       @verbose = options[:verbose] || false
       @enable_compression = options[:enable_compression].nil? ? true : options[:enable_compression]
       @keep_recent_messages = options[:keep_recent_messages] || 20
+      # Enable prompt caching by default for cost savings
+      @enable_prompt_caching = options[:enable_prompt_caching].nil? ? true : options[:enable_prompt_caching]
     end
 
 

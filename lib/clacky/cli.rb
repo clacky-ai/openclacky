@@ -322,17 +322,6 @@ module Clacky
         ui_formatter.todo_status(todos)
       end
 
-      def display_agent_result(result)
-        say "\n" + ("=" * 60), :cyan
-        say "Agent Session Complete", :green
-        say "=" * 60, :cyan
-        say "Status: #{result[:status]}", :green
-        say "Iterations: #{result[:iterations]}", :yellow
-        say "Duration: #{result[:duration_seconds].round(2)}s", :yellow
-        say "Total Cost: $#{result[:total_cost_usd]}", :yellow
-        say "=" * 60, :cyan
-      end
-
       def validate_working_directory(path)
         working_dir = path || Dir.pwd
 
@@ -449,7 +438,8 @@ module Clacky
               iterations: result[:iterations],
               cost: result[:total_cost_usd].round(4),
               total_tasks: total_tasks,
-              total_cost: total_cost.round(4)
+              total_cost: total_cost.round(4),
+              cache_stats: result[:cache_stats]
             )
           rescue Clacky::AgentInterrupted
             # Save session on interruption

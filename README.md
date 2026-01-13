@@ -12,6 +12,7 @@ A command-line interface for interacting with AI models. OpenClacky supports Ope
 - 🎨 Colorful terminal output
 - 🌐 OpenAI-compatible API support (OpenAI, Gitee AI, DeepSeek, etc.)
 - 🛠️ Rich built-in tools: file operations, web search, code execution, and more
+- ⚡ Prompt caching support for Claude models (reduces costs up to 90%)
 
 ## Installation
 

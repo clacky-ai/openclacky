@@ -8,7 +8,8 @@ require_relative "utils/arguments_parser"
 
 module Clacky
   class Agent
-    attr_reader :session_id, :messages, :iterations, :total_cost, :working_dir, :created_at, :total_tasks, :todos
+    attr_reader :session_id, :messages, :iterations, :total_cost, :working_dir, :created_at, :total_tasks, :todos,
+                :cache_stats
 
     # Pricing per 1M tokens (approximate - adjust based on actual model)
     PRICING = {
@@ -65,6 +66,12 @@ module Clacky
       @todos = []  # Store todos in memory
       @iterations = 0
       @total_cost = 0.0
+      @cache_stats = {
+        cache_creation_input_tokens: 0,
+        cache_read_input_tokens: 0,
+        total_requests: 0,
+        cache_hit_requests: 0
+      }
       @start_time = nil
       @working_dir = working_dir || Dir.pwd
       @created_at = Time.now.iso8601
@@ -90,6 +97,14 @@ module Clacky
       @working_dir = session_data[:working_dir]
       @created_at = session_data[:created_at]
       @total_tasks = session_data.dig(:stats, :total_tasks) || 0
+      
+      # Restore cache statistics if available
+      @cache_stats = session_data.dig(:stats, :cache_stats) || {
+        cache_creation_input_tokens: 0,
+        cache_read_input_tokens: 0,
+        total_requests: 0,
+        cache_hit_requests: 0
+      }
 
       # Check if the session ended with an error
       last_status = session_data.dig(:stats, :last_status)
@@ -122,7 +137,14 @@ module Clacky
       # Add system prompt as the first message if this is the first run
       if @messages.empty?
         system_prompt = build_system_prompt
-        @messages << { role: "system", content: system_prompt }
+        system_message = { role: "system", content: system_prompt }
+        
+        # Enable caching for system prompt if configured and model supports it
+        if @config.enable_prompt_caching
+          system_message[:cache_control] = { type: "ephemeral" }
+        end
+        
+        @messages << system_message
       end
 
       @messages << { role: "user", content: user_input }
@@ -222,7 +244,8 @@ module Clacky
         total_iterations: @iterations,
         total_cost_usd: @total_cost.round(4),
         duration_seconds: @start_time ? (Time.now - @start_time).round(2) : 0,
-        last_status: status.to_s
+        last_status: status.to_s,
+        cache_stats: @cache_stats
       }
 
       # Add error message if status is error
@@ -240,6 +263,7 @@ module Clacky
           max_iterations: @config.max_iterations,
           max_cost_usd: @config.max_cost_usd,
           enable_compression: @config.enable_compression,
+          enable_prompt_caching: @config.enable_prompt_caching,
           keep_recent_messages: @config.keep_recent_messages,
           max_tokens: @config.max_tokens,
           verbose: @config.verbose
@@ -366,7 +390,8 @@ module Clacky
             model: @config.model,
             tools: tools_to_send,
             max_tokens: @config.max_tokens,
-            verbose: @config.verbose
+            verbose: @config.verbose,
+            enable_caching: @config.enable_prompt_caching
           )
         rescue Faraday::ConnectionFailed, Faraday::TimeoutError, Errno::ECONNREFUSED, Errno::ETIMEDOUT => e
           retries += 1
@@ -591,6 +616,18 @@ module Clacky
       input_cost = (usage[:prompt_tokens] / 1_000_000.0) * PRICING[:input]
       output_cost = (usage[:completion_tokens] / 1_000_000.0) * PRICING[:output]
       @total_cost += input_cost + output_cost
+      
+      # Track cache usage statistics
+      @cache_stats[:total_requests] += 1
+      
+      if usage[:cache_creation_input_tokens]
+        @cache_stats[:cache_creation_input_tokens] += usage[:cache_creation_input_tokens]
+      end
+      
+      if usage[:cache_read_input_tokens]
+        @cache_stats[:cache_read_input_tokens] += usage[:cache_read_input_tokens]
+        @cache_stats[:cache_hit_requests] += 1
+      end
     end
 
     def compress_messages_if_needed
@@ -630,7 +667,15 @@ module Clacky
         summary = summarize_messages(messages_to_compress)
 
         # Rebuild messages array: [system, summary, recent_messages]
-        @messages = [system_msg, summary, *recent_messages].compact
+        # Preserve cache_control on system message if it exists
+        rebuilt_messages = [system_msg, summary, *recent_messages].compact
+        
+        # Re-apply cache control to system message if caching is enabled
+        if @config.enable_prompt_caching && rebuilt_messages.first&.dig(:role) == "system"
+          rebuilt_messages.first[:cache_control] = { type: "ephemeral" }
+        end
+        
+        @messages = rebuilt_messages
 
         final_size = @messages.size
 
@@ -1026,6 +1071,7 @@ module Clacky
         iterations: @iterations,
         duration_seconds: Time.now - @start_time,
         total_cost_usd: @total_cost.round(4),
+        cache_stats: @cache_stats,
         messages: @messages,
         error: error
       }
