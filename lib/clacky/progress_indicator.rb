@@ -49,6 +49,7 @@ module Clacky
       print "\e[u"     # Restore cursor position (to after [..] symbol)
       print "\e[K"     # Clear to end of line from cursor
       print text
+      print " "
       $stdout.flush
     end
   end

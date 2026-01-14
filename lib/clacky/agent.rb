@@ -2,7 +2,7 @@
 
 require "securerandom"
 require "json"
-require "readline"
+require "tty-prompt"
 require "set"
 require_relative "utils/arguments_parser"
 
@@ -97,7 +97,7 @@ module Clacky
       @working_dir = session_data[:working_dir]
       @created_at = session_data[:created_at]
       @total_tasks = session_data.dig(:stats, :total_tasks) || 0
-      
+
       # Restore cache statistics if available
       @cache_stats = session_data.dig(:stats, :cache_stats) || {
         cache_creation_input_tokens: 0,
@@ -138,12 +138,12 @@ module Clacky
       if @messages.empty?
         system_prompt = build_system_prompt
         system_message = { role: "system", content: system_prompt }
-        
+
         # Enable caching for system prompt if configured and model supports it
         if @config.enable_prompt_caching
           system_message[:cache_control] = { type: "ephemeral" }
         end
-        
+
         @messages << system_message
       end
 
@@ -616,14 +616,14 @@ module Clacky
       input_cost = (usage[:prompt_tokens] / 1_000_000.0) * PRICING[:input]
       output_cost = (usage[:completion_tokens] / 1_000_000.0) * PRICING[:output]
       @total_cost += input_cost + output_cost
-      
+
       # Track cache usage statistics
       @cache_stats[:total_requests] += 1
-      
+
       if usage[:cache_creation_input_tokens]
         @cache_stats[:cache_creation_input_tokens] += usage[:cache_creation_input_tokens]
       end
-      
+
       if usage[:cache_read_input_tokens]
         @cache_stats[:cache_read_input_tokens] += usage[:cache_read_input_tokens]
         @cache_stats[:cache_hit_requests] += 1
@@ -669,12 +669,12 @@ module Clacky
         # Rebuild messages array: [system, summary, recent_messages]
         # Preserve cache_control on system message if it exists
         rebuilt_messages = [system_msg, summary, *recent_messages].compact
-        
+
         # Re-apply cache control to system message if caching is enabled
         if @config.enable_prompt_caching && rebuilt_messages.first&.dig(:role) == "system"
           rebuilt_messages.first[:cache_control] = { type: "ephemeral" }
         end
-        
+
         @messages = rebuilt_messages
 
         final_size = @messages.size
@@ -703,7 +703,7 @@ module Clacky
 
       # Track which messages to include
       messages_to_include = Set.new
-      
+
       # Start from the end and work backwards
       i = messages.size - 1
       messages_collected = 0
@@ -724,13 +724,13 @@ module Clacky
         # If this is an assistant message with tool_calls, we MUST include ALL corresponding tool results
         if msg[:role] == "assistant" && msg[:tool_calls]
           tool_call_ids = msg[:tool_calls].map { |tc| tc[:id] }
-          
+
           # Find all tool results that belong to this assistant message
           # They should be in the messages immediately following this assistant message
           j = i + 1
           while j < messages.size
             next_msg = messages[j]
-            
+
             # If we find a tool result for one of our tool_calls, include it
             if next_msg[:role] == "tool" && tool_call_ids.include?(next_msg[:tool_call_id])
               messages_to_include.add(j)
@@ -738,7 +738,7 @@ module Clacky
               # Stop when we hit a non-tool message (start of next turn)
               break
             end
-            
+
             j += 1
           end
         end
@@ -859,18 +859,28 @@ module Clacky
       prompt_text = format_tool_prompt(call)
       puts "\n❓ #{prompt_text}"
 
-      # Use Readline for better input handling (backspace, arrow keys, etc.)
-      response = Readline.readline("   (Enter/y to approve, n to deny, or provide feedback): ", true)
+      # Use TTY::Prompt for better input handling
+      tty_prompt = TTY::Prompt.new(interrupt: :exit)
 
-      if response.nil?  # Handle EOF/pipe input
+      begin
+        response = tty_prompt.ask("   (Enter/y to approve, n to deny, or provide feedback):", required: false) do |q|
+          q.modify :strip
+        end
+      rescue TTY::Reader::InputInterrupt
+        # Handle Ctrl+C
+        puts
         return { approved: false, feedback: nil }
       end
 
-      response = response.chomp
+      # Handle nil response (EOF/pipe input)
+      if response.nil? || response.empty?
+        return { approved: true, feedback: nil }  # Empty means approved
+      end
+
       response_lower = response.downcase
 
-      # Empty response (just Enter) or "y"/"yes" = approved
-      if response.empty? || response_lower == "y" || response_lower == "yes"
+      # "y"/"yes" = approved
+      if response_lower == "y" || response_lower == "yes"
         return { approved: true, feedback: nil }
       end
 

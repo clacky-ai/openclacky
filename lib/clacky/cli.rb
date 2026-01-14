@@ -3,7 +3,6 @@
 require "thor"
 require "tty-prompt"
 require "tty-spinner"
-require "readline"
 require_relative "ui/banner"
 require_relative "ui/prompt"
 require_relative "ui/statusbar"
@@ -414,7 +413,7 @@ module Clacky
 
             break if current_message.nil? || %w[exit quit].include?(current_message&.downcase&.strip)
             next if current_message.strip.empty?
-            
+
             # Display user's message after input
             ui_formatter.user_message(current_message)
           end
@@ -657,12 +656,23 @@ module Clacky
         base_url: config.base_url
       )
 
-      loop do
-        # Use Readline for better Unicode/CJK support
-        message = Readline.readline("You: ", true)
+      # Use TTY::Prompt for input
+      tty_prompt = TTY::Prompt.new(interrupt: :exit)
 
-        break if message.nil? || %w[exit quit].include?(message.downcase.strip)
-        next if message.strip.empty?
+      loop do
+        # Use TTY::Prompt for better input handling
+        begin
+          message = tty_prompt.ask("You:", required: false) do |q|
+            q.modify :strip
+          end
+        rescue TTY::Reader::InputInterrupt
+          # Handle Ctrl+C
+          puts
+          break
+        end
+
+        break if message.nil? || %w[exit quit].include?(message&.downcase&.strip)
+        next if message.nil? || message.strip.empty?
 
         spinner = TTY::Spinner.new("[:spinner] Claude is thinking...", format: :dots)
         spinner.auto_spin
