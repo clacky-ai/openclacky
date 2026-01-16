@@ -133,44 +133,48 @@ module Clacky
       end
     end
 
-    desc "tools", "List available tools"
-    option :category, type: :string, desc: "Filter by category"
-    def tools
-      registry = ToolRegistry.new
-
-      registry.register(Tools::Shell.new)
-      registry.register(Tools::FileReader.new)
-      registry.register(Tools::Write.new)
-      registry.register(Tools::Edit.new)
-      registry.register(Tools::Glob.new)
-      registry.register(Tools::Grep.new)
-      registry.register(Tools::WebSearch.new)
-      registry.register(Tools::WebFetch.new)
-
-      say "\n📦 Available Tools:\n\n", :green
-
-      tools_to_show = if options[:category]
-                        registry.by_category(options[:category])
-                      else
-                        registry.all
-                      end
-
-      tools_to_show.each do |tool|
-        say "  #{tool.name}", :cyan
-        say "    #{tool.description}", :white
-        say "    Category: #{tool.category}", :yellow
-
-        if tool.parameters[:properties]
-          say "    Parameters:", :yellow
-          tool.parameters[:properties].each do |name, spec|
-            required = tool.parameters[:required]&.include?(name.to_s) ? " (required)" : ""
-            say "      - #{name}: #{spec[:description]}#{required}", :white
-          end
-        end
-        say ""
-      end
-
-      say "Total: #{tools_to_show.size} tools\n", :green
+    desc "price", "Show pricing information for AI models"
+    def price
+      say "\n💰 Model Pricing Information\n\n", :green
+      
+      say "Clacky supports three pricing modes when calculating API costs:\n\n", :white
+      
+      say "  1. ", :cyan
+      say "API-provided cost", :bold
+      say " (", :white
+      say ":api", :yellow
+      say ")", :white
+      say "\n     The most accurate - uses actual cost data from the API response", :white
+      say "\n     Supported by: OpenRouter, LiteLLM, and other compatible proxies\n\n"
+      
+      say "  2. ", :cyan
+      say "Model-specific pricing", :bold
+      say " (", :white
+      say ":price", :yellow
+      say ")", :white
+      say "\n     Uses official pricing from model providers (Claude models)", :white
+      say "\n     Includes tiered pricing and prompt caching discounts\n\n"
+      
+      say "  3. ", :cyan
+      say "Default fallback pricing", :bold
+      say " (", :white
+      say ":default", :yellow
+      say ")", :white
+      say "\n     Conservative estimates for unknown models", :white
+      say "\n     Input: $0.50/MTok, Output: $1.50/MTok\n\n"
+      
+      say "Priority order: API cost > Model pricing > Default pricing\n\n", :yellow
+      
+      say "Supported models with official pricing:\n", :green
+      say "  • claude-opus-4.5\n", :cyan
+      say "  • claude-sonnet-4.5\n", :cyan
+      say "  • claude-haiku-4.5\n", :cyan
+      say "  • claude-3-5-sonnet-20241022\n", :cyan
+      say "  • claude-3-5-sonnet-20240620\n", :cyan
+      say "  • claude-3-5-haiku-20241022\n\n", :cyan
+      
+      say "For detailed pricing information, visit:\n", :white
+      say "https://www.anthropic.com/pricing\n\n", :blue
     end
 
     no_commands do
