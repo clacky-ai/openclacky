@@ -4,7 +4,7 @@ require "thor"
 require "tty-prompt"
 require "tty-spinner"
 require_relative "ui/banner"
-require_relative "ui/prompt"
+require_relative "ui/enhanced_prompt"
 require_relative "ui/statusbar"
 require_relative "ui/formatter"
 
@@ -409,7 +409,11 @@ module Clacky
             )
 
             # Use enhanced prompt with "You:" prefix
-            current_message = prompt.read_input(prefix: "You:")
+            result = prompt.read_input(prefix: "You:")
+            
+            # EnhancedPrompt returns { text: String, images: Array } or nil
+            # For now, we only use the text part
+            current_message = result.nil? ? nil : result[:text]
 
             break if current_message.nil? || %w[exit quit].include?(current_message&.downcase&.strip)
             next if current_message.strip.empty?
@@ -613,7 +617,7 @@ module Clacky
       end
 
       def ui_prompt
-        @ui_prompt ||= UI::Prompt.new
+        @ui_prompt ||= UI::EnhancedPrompt.new
       end
 
       def ui_statusbar
