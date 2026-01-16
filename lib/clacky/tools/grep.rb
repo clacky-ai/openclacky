@@ -136,7 +136,7 @@ module Clacky
 
           # Initialize gitignore parser
           gitignore_path = find_gitignore(expanded_path)
-          gitignore = gitignore_path ? GitignoreParser.new(gitignore_path) : nil
+          gitignore = gitignore_path ? Clacky::GitignoreParser.new(gitignore_path) : nil
 
           results = []
           total_matches = 0
