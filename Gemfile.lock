@@ -1,7 +1,7 @@
 PATH
   remote: .
   specs:
-    openclacky (0.5.4)
+    openclacky (0.5.5)
       diffy (~> 3.4)
       faraday (~> 2.0)
       pastel (~> 0.8)
