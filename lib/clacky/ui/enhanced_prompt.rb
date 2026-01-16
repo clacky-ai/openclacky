@@ -28,9 +28,9 @@ module Clacky
       end
 
       # Read user input with enhanced features
-      # @param prefix [String] Prompt prefix (default: "You:")
+      # @param prefix [String] Prompt prefix (default: "❯")
       # @return [Hash, nil] { text: String, images: Array } or nil on EOF
-      def read_input(prefix: "You:")
+      def read_input(prefix: "❯")
         @images = []
         lines = []
         cursor_pos = 0
@@ -38,8 +38,8 @@ module Clacky
         @last_ctrl_c_time = nil  # Track when Ctrl+C was last pressed
 
         loop do
-          # Display the prompt box
-          display_prompt_box(lines, prefix, line_index, cursor_pos)
+          # Display the prompt (simplified version)
+          display_simple_prompt(lines, prefix, line_index, cursor_pos)
 
           # Read a single character/key
           begin
@@ -93,7 +93,7 @@ module Clacky
           when "\r" # Enter - submit
             # Submit if not empty
             unless lines.join.strip.empty? && @images.empty?
-              clear_prompt_display(lines.size)
+              clear_simple_prompt(lines.size)
               # Replace placeholders with actual pasted content
               final_text = expand_placeholders(lines.join("\n"))
               return { text: final_text, images: @images.dup }
@@ -110,7 +110,7 @@ module Clacky
               
               if time_since_last < 2.0  # Within 2 seconds of last Ctrl+C
                 # Second Ctrl+C within 2 seconds - exit
-                clear_prompt_display(lines.size)
+                clear_simple_prompt(lines.size)
                 return nil
               else
                 # First Ctrl+C - clear content
@@ -124,7 +124,7 @@ module Clacky
               end
             else
               # Input is empty - exit immediately
-              clear_prompt_display(lines.size)
+              clear_simple_prompt(lines.size)
               return nil
             end
 
@@ -226,22 +226,10 @@ module Clacky
 
       private
 
-      # Expand placeholders to actual pasted content
-      def expand_placeholders(text)
-        result = text.dup
-        @paste_placeholders.each do |placeholder, actual_content|
-          result.gsub!(placeholder, actual_content)
-        end
-        result
-      end
-
-      # Display the prompt box with images and input
-      def display_prompt_box(lines, prefix, line_index, cursor_pos)
-        width = TTY::Screen.width - 4  # Use full terminal width (minus 4 for borders)
-
+      # Display simplified prompt (just prefix and input, no box)
+      def display_simple_prompt(lines, prefix, line_index, cursor_pos)
         # Clear previous display if exists
         if @last_display_lines && @last_display_lines > 0
-          # Move cursor up and clear each line
           @last_display_lines.times do
             print "\e[1A"  # Move up one line
             print "\e[2K"  # Clear entire line
@@ -250,172 +238,72 @@ module Clacky
         end
 
         lines_to_display = []
+        
+        # Get terminal width for full-width separator
+        term_width = TTY::Screen.width
 
-        # Display images if any
+        # Top separator line (full width)
+        lines_to_display << @pastel.dim("─" * term_width)
+
+        # Show images if any
         if @images.any?
-          lines_to_display << @pastel.dim("╭─ Attached Images " + "─" * (width - 19) + "╮")
           @images.each_with_index do |img_path, idx|
             filename = File.basename(img_path)
-            # Check if file exists before getting size
             filesize = File.exist?(img_path) ? format_filesize(File.size(img_path)) : "N/A"
-            line_content = " #{idx + 1}. #{filename} (#{filesize})"
-            display_content = line_content.ljust(width - 2)
-            lines_to_display << @pastel.dim("│ ") + display_content + @pastel.dim(" │")
+            lines_to_display << @pastel.dim("[Image #{idx + 1}] #{filename} (#{filesize})")
           end
-          lines_to_display << @pastel.dim("╰" + "─" * width + "╯")
           lines_to_display << ""
         end
 
-        # Display input box
-        hint = "Shift+Enter:newline | Enter:submit | Ctrl+C:cancel"
-        lines_to_display << @pastel.dim("╭─ Message " + "─" * (width - 10) + "╮")
-        hint_line = @pastel.dim(hint)
-        padding = " " * [(width - hint.length - 2), 0].max
-        lines_to_display << @pastel.dim("│ ") + hint_line + padding + @pastel.dim(" │")
-        lines_to_display << @pastel.dim("├" + "─" * width + "┤")
-
-        # Display input lines with word wrap
+        # Display input lines
         display_lines = lines.empty? ? [""] : lines
-        max_display_lines = 15 # Show up to 15 wrapped lines
         
-        # Flatten all lines with word wrap
-        wrapped_display_lines = []
-        line_to_wrapped_mapping = [] # Track which original line each wrapped line belongs to
-        
-        display_lines.each_with_index do |line, original_idx|
-          line_chars = line.chars
-          content_width = width - 2 # Available width for content (excluding borders)
-          
-          if line_chars.length <= content_width
-            # Line fits in one display line
-            wrapped_display_lines << { text: line, original_line: original_idx, start_pos: 0 }
+        display_lines.each_with_index do |line, idx|
+          if idx == 0
+            # First line with prefix
+            if idx == line_index
+              # Show cursor on this line
+              chars = line.chars
+              before_cursor = chars[0...cursor_pos].join
+              cursor_char = chars[cursor_pos] || " "
+              after_cursor = chars[(cursor_pos + 1)..-1]&.join || ""
+              
+              line_display = "#{prefix} #{before_cursor}#{@pastel.on_white(@pastel.black(cursor_char))}#{after_cursor}"
+              lines_to_display << line_display
+            else
+              lines_to_display << "#{prefix} #{line}"
+            end
           else
-            # Line needs wrapping
-            start_pos = 0
-            while start_pos < line_chars.length
-              chunk_chars = line_chars[start_pos...[start_pos + content_width, line_chars.length].min]
-              wrapped_display_lines << { 
-                text: chunk_chars.join, 
-                original_line: original_idx, 
-                start_pos: start_pos 
-              }
-              start_pos += content_width
+            # Continuation lines (indented to align with first line content)
+            indent = " " * (prefix.length + 1)
+            if idx == line_index
+              # Show cursor on this line
+              chars = line.chars
+              before_cursor = chars[0...cursor_pos].join
+              cursor_char = chars[cursor_pos] || " "
+              after_cursor = chars[(cursor_pos + 1)..-1]&.join || ""
+              
+              line_display = "#{indent}#{before_cursor}#{@pastel.on_white(@pastel.black(cursor_char))}#{after_cursor}"
+              lines_to_display << line_display
+            else
+              lines_to_display << "#{indent}#{line}"
             end
           end
         end
         
-        # Find which wrapped line contains the cursor
-        cursor_wrapped_line_idx = 0
-        cursor_in_wrapped_pos = cursor_pos
-        content_width = width - 2
-        
-        # Find all wrapped lines for the current line_index
-        current_line_wrapped = wrapped_display_lines.select.with_index { |wl, idx| wl[:original_line] == line_index }
-        
-        if current_line_wrapped.any?
-          # Iterate through wrapped lines to find where cursor belongs
-          accumulated_chars = 0
-          found = false
-          
-          current_line_wrapped.each_with_index do |wrapped_line, local_idx|
-            line_start = wrapped_line[:start_pos]
-            line_length = wrapped_line[:text].chars.length
-            line_end = line_start + line_length
-            
-            # Find global index of this wrapped line
-            global_idx = wrapped_display_lines.index { |wl| wl == wrapped_line }
-            
-            if cursor_pos >= line_start && cursor_pos < line_end
-              # Cursor is within this wrapped line
-              cursor_wrapped_line_idx = global_idx
-              cursor_in_wrapped_pos = cursor_pos - line_start
-              found = true
-              break
-            elsif cursor_pos == line_end && local_idx == current_line_wrapped.length - 1
-              # Cursor is at the very end of the last wrapped line for this line_index
-              cursor_wrapped_line_idx = global_idx
-              cursor_in_wrapped_pos = line_length
-              found = true
-              break
-            end
-          end
-          
-          # Fallback: if not found, place cursor at the end of the last wrapped line
-          unless found
-            last_wrapped = current_line_wrapped.last
-            cursor_wrapped_line_idx = wrapped_display_lines.index { |wl| wl == last_wrapped }
-            cursor_in_wrapped_pos = last_wrapped[:text].chars.length
-          end
-        end
-        
-        # Determine which wrapped lines to display (centered around cursor)
-        if wrapped_display_lines.size <= max_display_lines
-          display_start = 0
-          display_end = wrapped_display_lines.size - 1
-        else
-          # Center view around cursor line
-          half_display = max_display_lines / 2
-          display_start = [cursor_wrapped_line_idx - half_display, 0].max
-          display_end = [display_start + max_display_lines - 1, wrapped_display_lines.size - 1].min
-          
-          # Adjust if we're near the end
-          if display_end - display_start < max_display_lines - 1
-            display_start = [display_end - max_display_lines + 1, 0].max
-          end
-        end
-        
-        # Display the wrapped lines
-        (display_start..display_end).each do |idx|
-          wrapped_line = wrapped_display_lines[idx]
-          line_text = wrapped_line[:text]
-          line_chars = line_text.chars
-          content_width = width - 2
-          
-          # Pad to full width
-          display_line = line_text.ljust(content_width)
-          
-          if idx == cursor_wrapped_line_idx
-            # Show cursor on this wrapped line
-            before_cursor = line_chars[0...cursor_in_wrapped_pos].join
-            cursor_char = line_chars[cursor_in_wrapped_pos] || " "
-            after_cursor_chars = line_chars[(cursor_in_wrapped_pos + 1)..-1]
-            after_cursor = after_cursor_chars ? after_cursor_chars.join : ""
-            
-            # Calculate padding
-            content_length = before_cursor.length + 1 + after_cursor.length
-            padding = " " * [content_width - content_length, 0].max
-            
-            line_display = before_cursor + @pastel.on_white(@pastel.black(cursor_char)) + after_cursor + padding
-            lines_to_display << @pastel.dim("│ ") + line_display + @pastel.dim(" │")
-          else
-            lines_to_display << @pastel.dim("│ ") + display_line + @pastel.dim(" │")
-          end
-        end
-        
-        # Show scroll indicator if needed
-        if wrapped_display_lines.size > max_display_lines
-          scroll_info = " (#{display_start + 1}-#{display_end + 1}/#{wrapped_display_lines.size} lines) "
-          lines_to_display << @pastel.dim("│#{scroll_info.center(width)}│")
-        end
+        # Bottom separator line (full width)
+        lines_to_display << @pastel.dim("─" * term_width)
 
-        # Footer - calculate width properly
-        footer_text = "Line #{line_index + 1}/#{display_lines.size} | Char #{cursor_pos}/#{(display_lines[line_index] || "").chars.length}"
-        # Total width = "╰─ " (3) + footer_text + " ─...─╯" (width - 3 - footer_text.length)
-        remaining_width = width - footer_text.length - 3  # 3 = "╰─ " length
-        footer_line = @pastel.dim("╰─ ") + @pastel.dim(footer_text) + @pastel.dim(" ") + @pastel.dim("─" * [remaining_width - 1, 0].max) + @pastel.dim("╯")
-        lines_to_display << footer_line
-        
-        # Output all lines at once (use print to avoid extra newline at the end)
+        # Output all lines
         print lines_to_display.join("\n")
-        print "\n"  # Add one controlled newline
+        print "\n"
         
         # Remember how many lines we displayed
         @last_display_lines = lines_to_display.size
       end
 
-      # Clear prompt display after submission
-      def clear_prompt_display(num_lines)
-        # Clear the prompt box we just displayed
+      # Clear simple prompt display
+      def clear_simple_prompt(num_lines)
         if @last_display_lines && @last_display_lines > 0
           @last_display_lines.times do
             print "\e[1A"  # Move up one line
@@ -423,6 +311,15 @@ module Clacky
           end
           print "\r"  # Move to beginning of line
         end
+      end
+
+      # Expand placeholders to actual pasted content
+      def expand_placeholders(text)
+        result = text.dup
+        @paste_placeholders.each do |placeholder, actual_content|
+          result.gsub!(placeholder, actual_content)
+        end
+        result
       end
 
       # Read a single key press with escape sequence handling

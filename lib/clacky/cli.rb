@@ -14,41 +14,15 @@ module Clacky
       true
     end
 
-    desc "chat [MESSAGE]", "Start a chat with Claude or send a single message"
-    long_desc <<-LONGDESC
-      Start an interactive chat session with Claude AI.
-
-      If MESSAGE is provided, send it as a single message and exit.
-      If no MESSAGE is provided, start an interactive chat session.
-
-      Examples:
-        $ clacky chat "What is Ruby?"
-        $ clacky chat
-    LONGDESC
-    option :model, type: :string, desc: "Model to use (default from config)"
-    def chat(message = nil)
-      config = Clacky::Config.load
-
-      unless config.api_key
-        say "Error: API key not found. Please run 'clacky config set' first.", :red
-        exit 1
-      end
-
-      if message
-        # Single message mode
-        send_single_message(message, config)
-      else
-        # Interactive mode
-        start_interactive_chat(config)
-      end
-    end
+    # Set agent as the default command
+    default_task :agent
 
     desc "version", "Show clacky version"
     def version
       say "Clacky version #{Clacky::VERSION}"
     end
 
-    desc "agent [MESSAGE]", "Run agent in interactive mode with autonomous tool use"
+    desc "agent [MESSAGE]", "Run agent in interactive mode with autonomous tool use (default)"
     long_desc <<-LONGDESC
       Run an AI agent in interactive mode that can autonomously use tools to complete tasks.
 
@@ -408,8 +382,8 @@ module Clacky
               cost: total_cost
             )
 
-            # Use enhanced prompt with "You:" prefix
-            result = prompt.read_input(prefix: "You:")
+            # Use enhanced prompt with "❯" prefix
+            result = prompt.read_input(prefix: "❯")
             
             # EnhancedPrompt returns { text: String, images: Array } or nil
             # For now, we only use the text part
@@ -631,68 +605,6 @@ module Clacky
       def pastel
         @pastel ||= Pastel.new
       end
-    end
-
-    private
-
-    def send_single_message(message, config)
-      spinner = TTY::Spinner.new("[:spinner] Thinking...", format: :dots)
-      spinner.auto_spin
-
-      client = Clacky::Client.new(config.api_key, base_url: config.base_url)
-      response = client.send_message(message, model: options[:model] || config.model)
-
-      spinner.success("Done!")
-      say "\n#{response}", :cyan
-    rescue StandardError => e
-      spinner.error("Failed!")
-      say "Error: #{e.message}", :red
-      exit 1
-    end
-
-    def start_interactive_chat(config)
-      say "Starting interactive chat with Claude...", :green
-      say "Type 'exit' or 'quit' to end the session.\n\n", :yellow
-
-      conversation = Clacky::Conversation.new(
-        config.api_key,
-        model: options[:model] || config.model,
-        base_url: config.base_url
-      )
-
-      # Use TTY::Prompt for input
-      tty_prompt = TTY::Prompt.new(interrupt: :exit)
-
-      loop do
-        # Use TTY::Prompt for better input handling
-        begin
-          message = tty_prompt.ask("You:", required: false) do |q|
-            q.modify :strip
-          end
-        rescue TTY::Reader::InputInterrupt
-          # Handle Ctrl+C
-          puts
-          break
-        end
-
-        break if message.nil? || %w[exit quit].include?(message&.downcase&.strip)
-        next if message.nil? || message.strip.empty?
-
-        spinner = TTY::Spinner.new("[:spinner] Claude is thinking...", format: :dots)
-        spinner.auto_spin
-
-        begin
-          response = conversation.send_message(message)
-          spinner.success("Claude:")
-          say response, :cyan
-          say "\n"
-        rescue StandardError => e
-          spinner.error("Error!")
-          say "Error: #{e.message}", :red
-        end
-      end
-
-      say "\nGoodbye!", :green
     end
   end
 

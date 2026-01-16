@@ -22,6 +22,11 @@ module Clacky
           hard_timeout: {
             type: "integer",
             description: "Hard timeout in seconds (force kill)"
+          },
+          max_output_lines: {
+            type: "integer",
+            description: "Maximum number of output lines to return (default: 1000)",
+            default: 1000
           }
         },
         required: ["command"]
@@ -51,7 +56,7 @@ module Clacky
         'go build'
       ].freeze
 
-      def execute(command:, soft_timeout: nil, hard_timeout: nil)
+      def execute(command:, soft_timeout: nil, hard_timeout: nil, max_output_lines: 1000)
         require "open3"
         require "stringio"
 
@@ -82,7 +87,8 @@ module Clacky
                   stderr_buffer.string,
                   elapsed,
                   :hard_timeout,
-                  hard_timeout
+                  hard_timeout,
+                  max_output_lines
                 )
               end
 
@@ -97,7 +103,8 @@ module Clacky
                     command,
                     stdout_buffer.string,
                     stderr_buffer.string,
-                    interaction
+                    interaction,
+                    max_output_lines
                   )
                 end
 
@@ -114,7 +121,8 @@ module Clacky
                     command,
                     stdout_buffer.string,
                     stderr_buffer.string,
-                    elapsed
+                    elapsed,
+                    max_output_lines
                   )
                 end
               end
@@ -151,22 +159,30 @@ module Clacky
             rescue StandardError
             end
 
+            stdout_output = stdout_buffer.string
+            stderr_output = stderr_buffer.string
+            
             {
               command: command,
-              stdout: stdout_buffer.string,
-              stderr: stderr_buffer.string,
+              stdout: truncate_output(stdout_output, max_output_lines),
+              stderr: truncate_output(stderr_output, max_output_lines),
               exit_code: wait_thr.value.exitstatus,
               success: wait_thr.value.success?,
-              elapsed: Time.now - start_time
+              elapsed: Time.now - start_time,
+              output_truncated: output_truncated?(stdout_output, stderr_output, max_output_lines)
             }
           end
         rescue StandardError => e
+          stdout_output = stdout_buffer.string
+          stderr_output = "Error executing command: #{e.message}\n#{e.backtrace.first(3).join("\n")}"
+          
           {
             command: command,
-            stdout: stdout_buffer.string,
-            stderr: "Error executing command: #{e.message}\n#{e.backtrace.first(3).join("\n")}",
+            stdout: truncate_output(stdout_output, max_output_lines),
+            stderr: truncate_output(stderr_output, max_output_lines),
             exit_code: -1,
-            success: false
+            success: false,
+            output_truncated: output_truncated?(stdout_output, stderr_output, max_output_lines)
           }
         end
       end
@@ -206,16 +222,17 @@ module Clacky
         nil
       end
 
-      def format_waiting_input_result(command, stdout, stderr, interaction)
+      def format_waiting_input_result(command, stdout, stderr, interaction, max_output_lines)
         {
           command: command,
-          stdout: stdout,
-          stderr: stderr,
+          stdout: truncate_output(stdout, max_output_lines),
+          stderr: truncate_output(stderr, max_output_lines),
           exit_code: -2,
           success: false,
           state: 'WAITING_INPUT',
           interaction_type: interaction[:type],
-          message: format_waiting_message(stdout, interaction)
+          message: format_waiting_message(truncate_output(stdout, max_output_lines), interaction),
+          output_truncated: output_truncated?(stdout, stderr, max_output_lines)
         }
       end
 
@@ -238,16 +255,17 @@ module Clacky
         MSG
       end
 
-      def format_stuck_result(command, stdout, stderr, elapsed)
+      def format_stuck_result(command, stdout, stderr, elapsed, max_output_lines)
         {
           command: command,
-          stdout: stdout,
-          stderr: stderr,
+          stdout: truncate_output(stdout, max_output_lines),
+          stderr: truncate_output(stderr, max_output_lines),
           exit_code: -3,
           success: false,
           state: 'STUCK',
           elapsed: elapsed,
-          message: format_stuck_message(stdout, elapsed)
+          message: format_stuck_message(truncate_output(stdout, max_output_lines), elapsed),
+          output_truncated: output_truncated?(stdout, stderr, max_output_lines)
         }
       end
 
@@ -267,16 +285,36 @@ module Clacky
         MSG
       end
 
-      def format_timeout_result(command, stdout, stderr, elapsed, type, timeout)
+      def format_timeout_result(command, stdout, stderr, elapsed, type, timeout, max_output_lines)
         {
           command: command,
-          stdout: stdout,
-          stderr: stderr.empty? ? "Command timed out after #{elapsed.round(1)} seconds (#{type}=#{timeout}s)" : stderr,
+          stdout: truncate_output(stdout, max_output_lines),
+          stderr: truncate_output(stderr.empty? ? "Command timed out after #{elapsed.round(1)} seconds (#{type}=#{timeout}s)" : stderr, max_output_lines),
           exit_code: -1,
           success: false,
           state: 'TIMEOUT',
-          timeout_type: type
+          timeout_type: type,
+          output_truncated: output_truncated?(stdout, stderr, max_output_lines)
         }
+      end
+
+      # Truncate output to max_lines, adding a truncation notice if needed
+      def truncate_output(output, max_lines)
+        return output if output.nil? || output.empty?
+        
+        lines = output.lines
+        return output if lines.length <= max_lines
+        
+        truncated_lines = lines.first(max_lines)
+        truncation_notice = "\n\n... [Output truncated: showing #{max_lines} of #{lines.length} lines] ...\n"
+        truncated_lines.join + truncation_notice
+      end
+
+      # Check if output was truncated
+      def output_truncated?(stdout, stderr, max_lines)
+        stdout_lines = stdout&.lines&.length || 0
+        stderr_lines = stderr&.lines&.length || 0
+        stdout_lines > max_lines || stderr_lines > max_lines
       end
 
       def format_call(args)

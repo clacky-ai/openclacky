@@ -45,14 +45,12 @@ module Clacky
         status_line = " " + parts.join(separator)
         
         puts status_line
-        puts @pastel.dim("─" * [TTY::Screen.width, 80].min)
       end
 
       # Display minimal status for non-interactive mode
       def display_minimal(working_dir:, mode:)
         dir_display = shorten_path(working_dir)
         puts " #{@pastel.bright_cyan(dir_display)} #{@pastel.dim('│')} #{@pastel.yellow(mode)}"
-        puts @pastel.dim("─" * [TTY::Screen.width, 80].min)
       end
 
       private

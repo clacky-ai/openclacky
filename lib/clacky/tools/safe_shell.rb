@@ -26,12 +26,17 @@ module Clacky
           hard_timeout: {
             type: "integer",
             description: "Hard timeout in seconds (force kill)"
+          },
+          max_output_lines: {
+            type: "integer",
+            description: "Maximum number of output lines to return (default: 1000)",
+            default: 1000
           }
         },
         required: ["command"]
       }
 
-      def execute(command:, soft_timeout: nil, hard_timeout: nil)
+      def execute(command:, soft_timeout: nil, hard_timeout: nil, max_output_lines: 1000)
         # Get project root directory
         project_root = Dir.pwd
 
@@ -41,7 +46,7 @@ module Clacky
           safe_command = safety_replacer.make_command_safe(command)
 
           # 2. Call parent class execution method
-          result = super(command: safe_command, soft_timeout: soft_timeout, hard_timeout: hard_timeout)
+          result = super(command: safe_command, soft_timeout: soft_timeout, hard_timeout: hard_timeout, max_output_lines: max_output_lines)
 
           # 3. Enhance result information
           enhance_result(result, command, safe_command)
