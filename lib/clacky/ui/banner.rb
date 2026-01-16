@@ -82,6 +82,10 @@ module Clacky
         cost_suffix = case cost_source
                       when :api
                         " (by API)"
+                      when :price
+                        " (by PRICE)"
+                      when :default
+                        " (by DEFAULT)"
                       else
                         " (estimated)"
                       end

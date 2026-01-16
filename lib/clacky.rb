@@ -5,6 +5,7 @@ require_relative "clacky/config"
 require_relative "clacky/client"
 
 # Agent system
+require_relative "clacky/model_pricing"
 require_relative "clacky/agent_config"
 require_relative "clacky/hook_manager"
 require_relative "clacky/tool_registry"

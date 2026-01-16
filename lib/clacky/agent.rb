@@ -11,12 +11,6 @@ module Clacky
     attr_reader :session_id, :messages, :iterations, :total_cost, :working_dir, :created_at, :total_tasks, :todos,
                 :cache_stats, :cost_source
 
-    # Pricing per 1M tokens (approximate - adjust based on actual model)
-    PRICING = {
-      input: 0.50,  # $0.50 per 1M input tokens
-      output: 1.50  # $1.50 per 1M output tokens
-    }.freeze
-
     # System prompt for the coding agent
     SYSTEM_PROMPT = <<~PROMPT.freeze
       You are OpenClacky, an AI coding assistant and technical co-founder, designed to help non-technical
@@ -623,15 +617,20 @@ module Clacky
         @task_cost_source = :api
         puts "[DEBUG] Using API-provided cost: $#{usage[:api_cost]}" if @config.verbose
       else
-        # Priority 2: Calculate from tokens
-        input_cost = (usage[:prompt_tokens] / 1_000_000.0) * PRICING[:input]
-        output_cost = (usage[:completion_tokens] / 1_000_000.0) * PRICING[:output]
-        @total_cost += input_cost + output_cost
-        @cost_source = :estimated
-        @task_cost_source = :estimated
+        # Priority 2: Calculate from tokens using ModelPricing
+        result = ModelPricing.calculate_cost(model: @config.model, usage: usage)
+        cost = result[:cost]
+        pricing_source = result[:source]
+        
+        @total_cost += cost
+        # Map pricing source to cost source: :price or :default
+        @cost_source = pricing_source
+        @task_cost_source = pricing_source
         
         if @config.verbose
-          puts "[DEBUG] Calculated cost from tokens: input=$#{input_cost.round(4)}, output=$#{output_cost.round(4)}"
+          source_label = pricing_source == :price ? "model pricing" : "default pricing"
+          puts "[DEBUG] Calculated cost for #{@config.model} using #{source_label}: $#{cost.round(6)}"
+          puts "[DEBUG] Usage breakdown: prompt=#{usage[:prompt_tokens]}, completion=#{usage[:completion_tokens]}, cache_write=#{usage[:cache_creation_input_tokens] || 0}, cache_read=#{usage[:cache_read_input_tokens] || 0}"
         end
       end
 
