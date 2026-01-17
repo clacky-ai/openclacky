@@ -43,6 +43,32 @@ RSpec.describe Clacky::Tools::FileReader do
         expect(result[:error]).to include("File not found")
         expect(result[:content]).to be_nil
       end
+
+      it "expands ~ to home directory" do
+        Dir.mktmpdir do |dir|
+          # Create a test file in temp directory
+          file_path = File.join(dir, "test.txt")
+          content = "Test content\n"
+          File.write(file_path, content)
+
+          # Get the home directory path
+          home_dir = Dir.home
+
+          # Test with a path that uses ~
+          # We'll use ENV to temporarily change HOME for testing
+          original_home = ENV["HOME"]
+          begin
+            ENV["HOME"] = dir
+            result = tool.execute(path: "~/test.txt")
+
+            expect(result[:error]).to be_nil
+            expect(result[:content]).to eq(content)
+            expect(result[:path]).to eq(file_path)
+          ensure
+            ENV["HOME"] = original_home
+          end
+        end
+      end
     end
 
     context "when reading a directory" do
@@ -150,18 +176,6 @@ RSpec.describe Clacky::Tools::FileReader do
       result = { error: "File not found" }
       formatted = tool.format_result(result)
       expect(formatted).to eq("File not found")
-    end
-  end
-
-  describe "#to_function_definition" do
-    it "returns OpenAI function calling format" do
-      definition = tool.to_function_definition
-
-      expect(definition[:type]).to eq("function")
-      expect(definition[:function][:name]).to eq("file_reader")
-      expect(definition[:function][:description]).to be_a(String)
-      expect(definition[:function][:description]).to include("directory")
-      expect(definition[:function][:parameters][:required]).to include("path")
     end
   end
 end

@@ -6,7 +6,7 @@ module Clacky
   module Tools
     class FileReader < Base
       self.tool_name = "file_reader"
-      self.tool_description = "Read contents of a file from the filesystem. When path is a directory, lists first-level files and subdirectories."
+      self.tool_description = "Read contents of a file from the filesystem"
       self.tool_category = "file_system"
       self.tool_parameters = {
         type: "object",
@@ -25,34 +25,37 @@ module Clacky
       }
 
       def execute(path:, max_lines: 1000)
-        unless File.exist?(path)
+        # Expand ~ to home directory
+        expanded_path = File.expand_path(path)
+        
+        unless File.exist?(expanded_path)
           return {
-            path: path,
+            path: expanded_path,
             content: nil,
-            error: "File not found: #{path}"
+            error: "File not found: #{expanded_path}"
           }
         end
 
         # If path is a directory, list its first-level contents (similar to filetree)
-        if File.directory?(path)
-          return list_directory_contents(path)
+        if File.directory?(expanded_path)
+          return list_directory_contents(expanded_path)
         end
 
-        unless File.file?(path)
+        unless File.file?(expanded_path)
           return {
-            path: path,
+            path: expanded_path,
             content: nil,
-            error: "Path is not a file: #{path}"
+            error: "Path is not a file: #{expanded_path}"
           }
         end
 
         begin
-          lines = File.readlines(path).first(max_lines)
+          lines = File.readlines(expanded_path).first(max_lines)
           content = lines.join
-          truncated = File.readlines(path).size > max_lines
+          truncated = File.readlines(expanded_path).size > max_lines
 
           {
-            path: path,
+            path: expanded_path,
             content: content,
             lines_read: lines.size,
             truncated: truncated,
@@ -60,7 +63,7 @@ module Clacky
           }
         rescue StandardError => e
           {
-            path: path,
+            path: expanded_path,
             content: nil,
             error: "Error reading file: #{e.message}"
           }
