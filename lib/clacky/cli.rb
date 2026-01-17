@@ -107,7 +107,7 @@ module Clacky
 
       begin
         # Always run in interactive mode
-        run_agent_interactive(agent, working_dir, agent_config, message, session_manager)
+        run_agent_interactive(agent, working_dir, agent_config, message, session_manager, client)
       rescue StandardError => e
         # Save session on error
         if session_manager
@@ -331,7 +331,7 @@ module Clacky
         end
       end
 
-      def run_agent_interactive(agent, working_dir, agent_config, initial_message = nil, session_manager = nil)
+      def run_agent_interactive(agent, working_dir, agent_config, initial_message = nil, session_manager = nil, client = nil)
         # Store agent as instance variable for access in display methods
         @current_agent = agent
 
@@ -375,6 +375,8 @@ module Clacky
         loop do
           # Get message from user if not provided
           unless current_message && !current_message.strip.empty?
+            # Only show newline separator if we've completed tasks
+            # (but not right after /clear since we just showed a message)
             say "\n" if total_tasks > 0
 
             # Show status bar before input
@@ -389,9 +391,33 @@ module Clacky
             # Use enhanced prompt with "❯" prefix
             result = prompt.read_input(prefix: "❯")
             
-            # EnhancedPrompt returns { text: String, images: Array } or nil
-            # For now, we only use the text part
-            current_message = result.nil? ? nil : result[:text]
+            # EnhancedPrompt returns:
+            # - { text: String, images: Array } for normal input
+            # - { command: Symbol } for commands
+            # - nil on EOF
+            if result.nil?
+              current_message = nil
+              break
+            elsif result[:command]
+              # Handle commands
+              case result[:command]
+              when :clear
+                # Clear session by creating a new agent
+                agent = Clacky::Agent.new(client, agent_config, working_dir: working_dir)
+                @current_agent = agent
+                total_tasks = 0
+                total_cost = 0.0
+                ui_formatter.info("Session cleared. Starting fresh.")
+                current_message = nil
+                next
+              when :exit
+                current_message = nil
+                break
+              end
+            else
+              # Normal input with text
+              current_message = result[:text]
+            end
 
             break if current_message.nil? || %w[exit quit].include?(current_message&.downcase&.strip)
             next if current_message.strip.empty?
@@ -453,8 +479,9 @@ module Clacky
           current_message = nil
         end
 
-        # Save final session state
-        if session_manager
+        # Save final session state only if there were actual tasks
+        # Don't save empty sessions where user just started and exited
+        if session_manager && total_tasks > 0
           session_manager.save(agent.to_session_data)
         end
 

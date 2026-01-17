@@ -20,6 +20,7 @@ module Clacky
 
       def initialize
         @pastel = Pastel.new
+        @formatter = Formatter.new
         @images = [] # Array of image file paths
         @paste_counter = 0 # Counter for paste operations
         @paste_placeholders = {} # Map of placeholder text to actual pasted content
@@ -29,7 +30,10 @@ module Clacky
 
       # Read user input with enhanced features
       # @param prefix [String] Prompt prefix (default: "❯")
-      # @return [Hash, nil] { text: String, images: Array } or nil on EOF
+      # @return [Hash, nil] Returns:
+      #   - { text: String, images: Array } for normal input
+      #   - { command: Symbol } for commands (:clear, :exit)
+      #   - nil on EOF
       def read_input(prefix: "❯")
         @images = []
         lines = []
@@ -91,8 +95,33 @@ module Clacky
             cursor_pos = 0
 
           when "\r" # Enter - submit
+            # Check if it's a command
+            input_text = lines.join("\n").strip
+            
+            if input_text.start_with?('/')
+              clear_simple_prompt(lines.size)
+              
+              # Parse command
+              case input_text
+              when '/clear'
+                @last_display_lines = 0  # Reset so CLI messages won't be cleared
+                return { command: :clear }
+              when '/exit', '/quit'
+                @last_display_lines = 0  # Reset before exit
+                return { command: :exit }
+              else
+                # Unknown command - show error and continue
+                @formatter.warning("Unknown command: #{input_text} (Available: /clear, /exit)")
+                @last_display_lines = 0  # Reset so next display won't clear these messages
+                lines = []
+                cursor_pos = 0
+                line_index = 0
+                next
+              end
+            end
+            
             # Submit if not empty
-            unless lines.join.strip.empty? && @images.empty?
+            unless input_text.empty? && @images.empty?
               clear_simple_prompt(lines.size)
               # Replace placeholders with actual pasted content
               final_text = expand_placeholders(lines.join("\n"))
