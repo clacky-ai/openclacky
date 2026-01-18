@@ -56,7 +56,7 @@ module Clacky
           # Handle buffered rapid input (system paste detection)
           if key.is_a?(Hash) && key[:type] == :rapid_input
             pasted_text = key[:text]
-            pasted_lines = pasted_text.split("\n")
+            pasted_lines = pasted_text.split(/\r\n|\r|\n/)
 
             if pasted_lines.size > 1
               # Multi-line rapid input - use placeholder for display
@@ -198,7 +198,7 @@ module Clacky
             else
               # Handle pasted text
               pasted_text = pasted[:text]
-              pasted_lines = pasted_text.split("\n")
+              pasted_lines = pasted_text.split(/\r\n|\r|\n/)
 
               if pasted_lines.size > 1
                 # Multi-line paste - use placeholder for display
