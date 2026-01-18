@@ -32,7 +32,7 @@ module Clacky
       def user_message(content)
         symbol = @pastel.bright_blue(SYMBOLS[:user])
         text = @pastel.blue(content)
-        puts "\n#{symbol} #{text}"
+        print "\n#{symbol} #{text}"
       end
 
       # Format assistant message

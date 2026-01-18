@@ -429,13 +429,16 @@ module Clacky
 
             # Display user's message after input
             ui_formatter.user_message(current_message)
-            
-            # Display image info if images were pasted
+
+            # Display image info if images were pasted (without extra newline)
             if current_images.any?
               current_images.each_with_index do |img_path, idx|
                 filename = File.basename(img_path)
                 say "  📎 Image #{idx + 1}: #{filename}", :cyan
               end
+              puts  # Add newline after all images
+            else
+              puts  # Add newline after user message if no images
             end
           end
 
