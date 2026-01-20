@@ -11,6 +11,7 @@ module Clacky
   class Agent
     attr_reader :session_id, :messages, :iterations, :total_cost, :working_dir, :created_at, :total_tasks, :todos,
                 :cache_stats, :cost_source
+    attr_accessor :tool_confirmation_handler
 
     # System prompt for the coding agent
     SYSTEM_PROMPT = <<~PROMPT.freeze
@@ -74,6 +75,7 @@ module Clacky
       @cost_source = :estimated  # Track whether cost is from API or estimated
       @task_cost_source = :estimated  # Track cost source for current task
       @previous_total_tokens = 0  # Track tokens from previous iteration for delta calculation
+      @tool_confirmation_handler = nil  # Optional callback for UI2 integration
 
       # Register built-in tools
       register_builtin_tools
@@ -669,14 +671,14 @@ module Clacky
       # Calculate token delta from previous iteration
       delta_tokens = total_tokens - @previous_total_tokens
       @previous_total_tokens = total_tokens  # Update for next iteration
-      
+
       # Build token summary string
       token_info = []
 
       # Delta tokens with color coding at the beginning
       require 'pastel'
       pastel = Pastel.new
-      
+
       delta_str = "+#{delta_tokens}"
       colored_delta = if delta_tokens > 10000
         pastel.red.bold(delta_str)  # Error level: red for > 10k
@@ -685,7 +687,7 @@ module Clacky
       else
         pastel.green(delta_str)  # Normal: green for <= 5k
       end
-      
+
       token_info << colored_delta
 
       # Cache status indicator
@@ -922,6 +924,17 @@ module Clacky
     def confirm_tool_use?(call, &block)
       emit_event(:tool_confirmation_required, call, &block)
 
+      # If a custom confirmation handler is set (e.g., from UI2), use it
+      if @tool_confirmation_handler
+        return @tool_confirmation_handler.call(call)
+      end
+
+      # Otherwise, use the default TTY::Prompt confirmation flow
+      confirm_tool_use_tty(call)
+    end
+
+    # Default TTY::Prompt-based confirmation (for non-UI2 mode)
+    private def confirm_tool_use_tty(call)
       # Show preview first and check for errors
       preview_error = show_tool_preview(call)
 
@@ -1128,7 +1141,7 @@ module Clacky
     def build_success_result(call, result)
       # Try to get tool instance to use its format_result_for_llm method
       tool = @tool_registry.get(call[:name]) rescue nil
-      
+
       formatted_result = if tool && tool.respond_to?(:format_result_for_llm)
         # Tool provides a custom LLM-friendly format
         tool.format_result_for_llm(result)
@@ -1136,7 +1149,7 @@ module Clacky
         # Fallback: use the original result
         result
       end
-      
+
       {
         id: call[:id],
         content: JSON.generate(formatted_result)

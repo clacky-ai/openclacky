@@ -7,6 +7,7 @@ require_relative "ui/banner"
 require_relative "ui/enhanced_prompt"
 require_relative "ui/statusbar"
 require_relative "ui/formatter"
+require_relative "ui2/agent_adapter"
 
 module Clacky
   class CLI < Thor
@@ -61,6 +62,7 @@ module Clacky
     option :continue, type: :boolean, aliases: "-c", desc: "Continue most recent session"
     option :list, type: :boolean, aliases: "-l", desc: "List recent sessions"
     option :attach, type: :string, aliases: "-a", desc: "Attach to session by number or keyword"
+    option :ui2, type: :boolean, default: false, desc: "Use UI2 split-screen interface (experimental)"
     def agent(message = nil)
       config = Clacky::Config.load
 
@@ -106,8 +108,12 @@ module Clacky
       Dir.chdir(working_dir) if should_chdir
 
       begin
-        # Always run in interactive mode
-        run_agent_interactive(agent, working_dir, agent_config, message, session_manager, client)
+        # Run in UI2 mode or traditional mode
+        if options[:ui2]
+          run_agent_with_ui2(agent, working_dir, agent_config, message, session_manager, client)
+        else
+          run_agent_interactive(agent, working_dir, agent_config, message, session_manager, client)
+        end
       rescue StandardError => e
         # Save session on error
         if session_manager
@@ -677,6 +683,160 @@ module Clacky
 
       def pastel
         @pastel ||= Pastel.new
+      end
+
+      # Run agent with UI2 split-screen interface
+      def run_agent_with_ui2(agent, working_dir, agent_config, initial_message = nil, session_manager = nil, client = nil)
+        # Create UI2 controller
+        ui_controller = UI2::UIController.new
+        adapter = UI2::AgentAdapter.new(ui_controller)
+        adapter.connect_agent(agent)
+
+        # Set up tool confirmation handler
+        agent.tool_confirmation_handler = ->(call) do
+          adapter.request_tool_confirmation(call)
+        end
+
+        # Track session state
+        total_tasks = agent.total_tasks
+        total_cost = agent.total_cost
+        current_message = initial_message
+        current_images = []
+
+        # Set up input handler
+        ui_controller.on_input do |input|
+          # Check if we're waiting for tool confirmation
+          if adapter.waiting_for_confirmation?
+            adapter.handle_confirmation_response(input)
+            next
+          end
+
+          # Handle commands
+          case input.downcase.strip
+          when "/clear"
+            # Clear session by creating a new agent
+            agent = Clacky::Agent.new(client, agent_config, working_dir: working_dir)
+            adapter.connect_agent(agent)
+            agent.tool_confirmation_handler = ->(call) do
+              adapter.request_tool_confirmation(call)
+            end
+            total_tasks = 0
+            total_cost = 0.0
+            ui_controller.append_output("✨ Session cleared. Starting fresh.")
+            next
+          when "/exit", "/quit"
+            ui_controller.stop
+            exit(0)
+          when "/help"
+            show_ui2_help(ui_controller)
+            next
+          end
+
+          # Process user message
+          begin
+            ui_controller.event_bus.publish(:user_message, {
+              content: input,
+              timestamp: Time.now
+            })
+
+            total_tasks += 1
+
+            # Run agent with adapter
+            result = adapter.run_agent(input, images: [])
+            total_cost += result[:total_cost_usd]
+
+            # Save session after each task
+            if session_manager
+              session_manager.save(agent.to_session_data(status: :success))
+            end
+
+            # Show task completion
+            ui_controller.append_output(
+              "✅ Task complete (#{result[:iterations]} iterations, $#{result[:total_cost_usd].round(4)}, total: $#{total_cost.round(4)})"
+            )
+          rescue Clacky::AgentInterrupted
+            # Save session on interruption
+            if session_manager
+              session_manager.save(agent.to_session_data(status: :interrupted))
+              ui_controller.append_output("⚠️ Task interrupted by user (Ctrl+C)")
+            end
+          rescue StandardError => e
+            # Save session on error
+            if session_manager
+              session_manager.save(agent.to_session_data(status: :error, error_message: e.message))
+            end
+
+            # Report the error
+            ui_controller.append_output("❌ Error: #{e.message}")
+            if options[:verbose] && e.backtrace
+              ui_controller.append_output(e.backtrace.first(3).join("\n"))
+            end
+
+            # Show session saved message
+            if session_manager&.last_saved_path
+              ui_controller.append_output("📂 Session saved: #{session_manager.last_saved_path}")
+            end
+          end
+        end
+
+        # Show startup message
+        ui_controller.append_output("🚀 Clacky UI2 - Split-screen interface")
+        ui_controller.append_output("📁 Working directory: #{working_dir}")
+        ui_controller.append_output("🔧 Mode: #{agent_config.permission_mode}")
+        ui_controller.append_output("Type /help for commands, /exit to quit")
+        ui_controller.append_output("")
+
+        # If there's an initial message, process it
+        if initial_message && !initial_message.strip.empty?
+          ui_controller.event_bus.publish(:user_message, {
+            content: initial_message,
+            timestamp: Time.now
+          })
+
+          begin
+            result = adapter.run_agent(initial_message, images: [])
+            total_cost += result[:total_cost_usd]
+
+            if session_manager
+              session_manager.save(agent.to_session_data(status: :success))
+            end
+          rescue StandardError => e
+            ui_controller.append_output("❌ Error: #{e.message}")
+          end
+        end
+
+        # Start UI controller (blocks until exit)
+        ui_controller.start
+
+        # Save final session state
+        if session_manager && total_tasks > 0
+          session_manager.save(agent.to_session_data)
+        end
+
+        # Show goodbye message
+        say "\n👋 Goodbye! Session stats:", :green
+        say "   Tasks completed: #{total_tasks}", :cyan
+        say "   Total cost: $#{total_cost.round(4)}", :cyan
+      end
+
+      # Show help for UI2 mode
+      def show_ui2_help(ui_controller)
+        help_text = <<~HELP
+          📖 UI2 Commands:
+            /help     - Show this help
+            /clear    - Clear session and start fresh
+            /exit     - Exit UI2 mode
+            
+          Keyboard shortcuts:
+            Ctrl+C    - Exit
+            Ctrl+L    - Clear output area
+            Ctrl+U    - Clear input line
+            Up/Down   - Scroll output (when input empty) or history
+            Left/Right - Move cursor in input
+            Home/End  - Jump to start/end of input
+        HELP
+
+        ui_controller.append_output(help_text)
       end
     end
   end
