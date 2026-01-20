@@ -722,7 +722,7 @@ module Clacky
             end
             total_tasks = 0
             total_cost = 0.0
-            ui_controller.append_output("✨ Session cleared. Starting fresh.")
+            ui_controller.append_output("Session cleared. Starting fresh.")
             next
           when "/exit", "/quit"
             ui_controller.stop
@@ -752,13 +752,13 @@ module Clacky
 
             # Show task completion
             ui_controller.append_output(
-              "✅ Task complete (#{result[:iterations]} iterations, $#{result[:total_cost_usd].round(4)}, total: $#{total_cost.round(4)})"
+              "Task complete (#{result[:iterations]} iterations, $#{result[:total_cost_usd].round(4)}, total: $#{total_cost.round(4)})"
             )
           rescue Clacky::AgentInterrupted
             # Save session on interruption
             if session_manager
               session_manager.save(agent.to_session_data(status: :interrupted))
-              ui_controller.append_output("⚠️ Task interrupted by user (Ctrl+C)")
+              ui_controller.append_output("Task interrupted by user (Ctrl+C)")
             end
           rescue StandardError => e
             # Save session on error
@@ -767,22 +767,22 @@ module Clacky
             end
 
             # Report the error
-            ui_controller.append_output("❌ Error: #{e.message}")
+            ui_controller.append_output("Error: #{e.message}")
             if options[:verbose] && e.backtrace
               ui_controller.append_output(e.backtrace.first(3).join("\n"))
             end
 
             # Show session saved message
             if session_manager&.last_saved_path
-              ui_controller.append_output("📂 Session saved: #{session_manager.last_saved_path}")
+              ui_controller.append_output("Session saved: #{session_manager.last_saved_path}")
             end
           end
         end
 
         # Show startup message
-        ui_controller.append_output("🚀 Clacky UI2 - Split-screen interface")
-        ui_controller.append_output("📁 Working directory: #{working_dir}")
-        ui_controller.append_output("🔧 Mode: #{agent_config.permission_mode}")
+        ui_controller.append_output("Clacky UI2 - Split-screen interface")
+        ui_controller.append_output("Working directory: #{working_dir}")
+        ui_controller.append_output("Mode: #{agent_config.permission_mode}")
         ui_controller.append_output("Type /help for commands, /exit to quit")
         ui_controller.append_output("")
 
@@ -801,7 +801,7 @@ module Clacky
               session_manager.save(agent.to_session_data(status: :success))
             end
           rescue StandardError => e
-            ui_controller.append_output("❌ Error: #{e.message}")
+            ui_controller.append_output("Error: #{e.message}")
           end
         end
 

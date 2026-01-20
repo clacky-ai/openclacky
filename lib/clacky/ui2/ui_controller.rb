@@ -201,8 +201,14 @@ module Clacky
         # Publish user input event
         @event_bus.publish(:user_input, { content: input_value })
 
-        # Call callback if set
-        @input_callback&.call(input_value)
+        # Call callback in background thread to allow parallel input
+        if @input_callback
+          Thread.new do
+            @input_callback.call(input_value)
+          rescue => e
+            @layout.append_output("Error: #{e.message}")
+          end
+        end
       end
 
       # Handle up arrow (scroll output or history)

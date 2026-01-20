@@ -373,113 +373,107 @@ module Clacky
       emit_event(:thinking, { iteration: @iterations }, &block)
 
       # Compress messages if needed to reduce cost
-      compress_messages_if_needed if @config.enable_compression
+      compress_messages_if_needed(&block)
 
       # Always send tools definitions to allow multi-step tool calling
       tools_to_send = @tool_registry.allowed_definitions(@config.allowed_tools)
 
-      # Show progress indicator while waiting for LLM response
-      progress = ProgressIndicator.new(verbose: @config.verbose)
-      progress.start
+      # Retry logic for network failures
+      max_retries = 10
+      retry_delay = 5
+      retries = 0
 
       begin
-        # Retry logic for network failures
-        max_retries = 10
-        retry_delay = 5
-        retries = 0
-
-        begin
-          response = @client.send_messages_with_tools(
-            @messages,
-            model: @config.model,
-            tools: tools_to_send,
-            max_tokens: @config.max_tokens,
-            verbose: @config.verbose,
-            enable_caching: @config.enable_prompt_caching
-          )
-        rescue Faraday::ConnectionFailed, Faraday::TimeoutError, Errno::ECONNREFUSED, Errno::ETIMEDOUT => e
-          retries += 1
-          if retries <= max_retries
-            progress.finish
-            puts "\n⚠️  Network request failed: #{e.class.name} - #{e.message}"
-            puts "🔄 Retry #{retries}/#{max_retries}, waiting #{retry_delay} seconds..."
-            sleep retry_delay
-            progress.start
-            retry
-          else
-            progress.finish
-            puts "\n❌ Network request failed after #{max_retries} retries, giving up"
-            raise Error, "Network connection failed after #{max_retries} retries: #{e.message}"
-          end
+        response = @client.send_messages_with_tools(
+          @messages,
+          model: @config.model,
+          tools: tools_to_send,
+          max_tokens: @config.max_tokens,
+          verbose: @config.verbose,
+          enable_caching: @config.enable_prompt_caching
+        )
+      rescue Faraday::ConnectionFailed, Faraday::TimeoutError, Errno::ECONNREFUSED, Errno::ETIMEDOUT => e
+        retries += 1
+        if retries <= max_retries
+          emit_event(:network_retry, {
+            error: e.message,
+            retry_count: retries,
+            max_retries: max_retries,
+            delay: retry_delay
+          }, &block)
+          sleep retry_delay
+          retry
+        else
+          emit_event(:network_error, {
+            error: e.message,
+            retries: max_retries
+          }, &block)
+          raise Error, "Network connection failed after #{max_retries} retries: #{e.message}"
         end
-
-        track_cost(response[:usage])
-
-        # Handle truncated responses (when max_tokens limit is reached)
-        if response[:finish_reason] == "length"
-          # Count recent truncations to prevent infinite loops
-          recent_truncations = @messages.last(5).count { |m|
-            m[:role] == "user" && m[:content]&.include?("[SYSTEM] Your response was truncated")
-          }
-
-          if recent_truncations >= 2
-            # Too many truncations - task is too complex
-            progress.finish
-            puts "\n⚠️  Response truncated multiple times. Task is too complex for a single response." if @config.verbose
-
-            # Create a response that tells the user to break down the task
-            error_response = {
-              content: "I apologize, but this task is too complex to complete in a single response. " \
-                       "Please break it down into smaller steps, or reduce the amount of content to generate at once.\n\n" \
-                       "For example, when creating a long document:\n" \
-                       "1. First create the file with a basic structure\n" \
-                       "2. Then use edit() to add content section by section",
-              finish_reason: "stop",
-              tool_calls: nil
-            }
-
-            # Add this as an assistant message so it appears in conversation
-            @messages << {
-              role: "assistant",
-              content: error_response[:content]
-            }
-
-            return error_response
-          end
-
-          # Insert system message to guide LLM to retry with smaller steps
-          @messages << {
-            role: "user",
-            content: "[SYSTEM] Your response was truncated due to length limit. Please retry with a different approach:\n" \
-                     "- For long file content: create the file with structure first, then use edit() to add content section by section\n" \
-                     "- Break down large tasks into multiple smaller steps\n" \
-                     "- Avoid putting more than 2000 characters in a single tool call argument\n" \
-                     "- Use multiple tool calls instead of one large call"
-          }
-
-          puts "⚠️  Response truncated due to length limit. Retrying with smaller steps..." if @config.verbose
-
-          # Recursively retry
-          return think(&block)
-        end
-
-        # Add assistant response to messages
-        msg = { role: "assistant" }
-        # Always include content field (some APIs require it even with tool_calls)
-        # Use empty string instead of null for better compatibility
-        msg[:content] = response[:content] || ""
-        msg[:tool_calls] = format_tool_calls_for_api(response[:tool_calls]) if response[:tool_calls]
-        @messages << msg
-
-        if @config.verbose
-          puts "\n[DEBUG] Assistant response added to messages:"
-          puts JSON.pretty_generate(msg)
-        end
-
-        response
-      ensure
-        progress.finish
       end
+
+      track_cost(response[:usage])
+
+      # Handle truncated responses (when max_tokens limit is reached)
+      if response[:finish_reason] == "length"
+        # Count recent truncations to prevent infinite loops
+        recent_truncations = @messages.last(5).count { |m|
+          m[:role] == "user" && m[:content]&.include?("[SYSTEM] Your response was truncated")
+        }
+
+        if recent_truncations >= 2
+          # Too many truncations - task is too complex
+          emit_event(:response_truncated, { recoverable: false }, &block) if @config.verbose
+
+          # Create a response that tells the user to break down the task
+          error_response = {
+            content: "I apologize, but this task is too complex to complete in a single response. " \
+                     "Please break it down into smaller steps, or reduce the amount of content to generate at once.\n\n" \
+                     "For example, when creating a long document:\n" \
+                     "1. First create the file with a basic structure\n" \
+                     "2. Then use edit() to add content section by section",
+            finish_reason: "stop",
+            tool_calls: nil
+          }
+
+          # Add this as an assistant message so it appears in conversation
+          @messages << {
+            role: "assistant",
+            content: error_response[:content]
+          }
+
+          return error_response
+        end
+
+        # Insert system message to guide LLM to retry with smaller steps
+        @messages << {
+          role: "user",
+          content: "[SYSTEM] Your response was truncated due to length limit. Please retry with a different approach:\n" \
+                   "- For long file content: create the file with structure first, then use edit() to add content section by section\n" \
+                   "- Break down large tasks into multiple smaller steps\n" \
+                   "- Avoid putting more than 2000 characters in a single tool call argument\n" \
+                   "- Use multiple tool calls instead of one large call"
+        }
+
+        emit_event(:response_truncated, { recoverable: true }, &block) if @config.verbose
+
+        # Recursively retry
+        return think(&block)
+      end
+
+      # Add assistant response to messages
+      msg = { role: "assistant" }
+      # Always include content field (some APIs require it even with tool_calls)
+      # Use empty string instead of null for better compatibility
+      msg[:content] = response[:content] || ""
+      msg[:tool_calls] = format_tool_calls_for_api(response[:tool_calls]) if response[:tool_calls]
+      @messages << msg
+
+      if @config.verbose
+        emit_event(:debug, { message: "Assistant response added", data: msg }, &block)
+      end
+
+      response
     end
 
     def act(tool_calls, &block)
@@ -720,7 +714,7 @@ module Clacky
       puts pastel.dim("    [Tokens] #{token_info.join(' | ')}")
     end
 
-    def compress_messages_if_needed
+    def compress_messages_if_needed(&block)
       # Check if compression is enabled
       return unless @config.enable_compression
 
@@ -731,57 +725,42 @@ module Clacky
       original_size = @messages.size
       target_size = @config.keep_recent_messages + 2
 
-      # Show compression progress using ProgressIndicator
-      progress = ProgressIndicator.new(
-        verbose: @config.verbose,
-        message: "🗜️  Compressing conversation history (#{original_size} → ~#{target_size} messages)"
-      )
-      progress.start
+      emit_event(:compression_start, {
+        original_size: original_size,
+        target_size: target_size
+      }, &block)
 
-      begin
-        # Find the system message (should be first)
-        system_msg = @messages.find { |m| m[:role] == "system" }
+      # Find the system message (should be first)
+      system_msg = @messages.find { |m| m[:role] == "system" }
 
-        # Get the most recent N messages, ensuring tool_calls/tool results pairs are kept together
-        recent_messages = get_recent_messages_with_tool_pairs(@messages, @config.keep_recent_messages)
+      # Get the most recent N messages, ensuring tool_calls/tool results pairs are kept together
+      recent_messages = get_recent_messages_with_tool_pairs(@messages, @config.keep_recent_messages)
 
-        # Get messages to compress (everything except system and recent)
-        messages_to_compress = @messages.reject { |m| m[:role] == "system" || recent_messages.include?(m) }
+      # Get messages to compress (everything except system and recent)
+      messages_to_compress = @messages.reject { |m| m[:role] == "system" || recent_messages.include?(m) }
 
-        if messages_to_compress.empty?
-          progress.finish
-          return
-        end
+      return if messages_to_compress.empty?
 
-        # Create summary of compressed messages
-        summary = summarize_messages(messages_to_compress)
+      # Create summary of compressed messages
+      summary = summarize_messages(messages_to_compress)
 
-        # Rebuild messages array: [system, summary, recent_messages]
-        # Preserve cache_control on system message if it exists
-        rebuilt_messages = [system_msg, summary, *recent_messages].compact
+      # Rebuild messages array: [system, summary, recent_messages]
+      # Preserve cache_control on system message if it exists
+      rebuilt_messages = [system_msg, summary, *recent_messages].compact
 
-        # Re-apply cache control to system message if caching is enabled
-        if @config.enable_prompt_caching && rebuilt_messages.first&.dig(:role) == "system"
-          rebuilt_messages.first[:cache_control] = { type: "ephemeral" }
-        end
-
-        @messages = rebuilt_messages
-
-        final_size = @messages.size
-
-        # Finish progress and show completion message
-        progress.finish
-        puts "✅ Compressed conversation history (#{original_size} → #{final_size} messages)"
-
-        # Show detailed summary in verbose mode
-        if @config.verbose
-          puts "\n[COMPRESSION SUMMARY]"
-          puts summary[:content]
-          puts ""
-        end
-      ensure
-        progress.finish
+      # Re-apply cache control to system message if caching is enabled
+      if @config.enable_prompt_caching && rebuilt_messages.first&.dig(:role) == "system"
+        rebuilt_messages.first[:cache_control] = { type: "ephemeral" }
       end
+
+      @messages = rebuilt_messages
+
+      final_size = @messages.size
+
+      emit_event(:compression_complete, {
+        original_size: original_size,
+        final_size: final_size
+      }, &block)
     end
 
     def get_recent_messages_with_tool_pairs(messages, count)

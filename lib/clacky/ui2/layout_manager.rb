@@ -17,7 +17,8 @@ module Clacky
         @screen = ScreenBuffer.new
         @output_area = output_area
         @input_area = input_area
-        
+        @render_mutex = Mutex.new
+
         calculate_layout
         setup_resize_handler
       end
@@ -37,53 +38,58 @@ module Clacky
 
       # Render all layout areas
       def render_all
-        output_area.render(start_row: 0)
-        render_separator
-        input_area.render(start_row: @input_row)
-        screen.show_cursor  # Show cursor in input area
+        @render_mutex.synchronize do
+          output_area.render(start_row: 0)
+          render_separator_internal
+          input_area.render(start_row: @input_row)
+          screen.show_cursor  # Show cursor in input area
+        end
       end
 
       # Render just the output area
       def render_output
-        output_area.render(start_row: 0)
-        screen.flush
+        @render_mutex.synchronize do
+          output_area.render(start_row: 0)
+          # Restore cursor to input area position
+          restore_cursor_to_input_internal
+          screen.flush
+        end
       end
 
       # Render just the input area
       def render_input
-        input_area.render(start_row: @input_row)
-        screen.show_cursor  # Show cursor in input area
-        screen.flush
+        @render_mutex.synchronize do
+          input_area.render(start_row: @input_row)
+          screen.show_cursor  # Show cursor in input area
+          screen.flush
+        end
       end
 
       # Render the separator line between output and input
       def render_separator
-        screen.move_cursor(@separator_row, 0)
-        screen.clear_line
-        
-        # Use pastel for colored separator
-        require "pastel"
-        pastel = Pastel.new
-        separator = pastel.dim("─" * screen.width)
-        print separator
-        
-        screen.flush
+        @render_mutex.synchronize do
+          render_separator_internal
+        end
       end
 
       # Render status bar at the bottom
       # @param status_text [String] Status text to display
       def render_status(status_text = "")
-        screen.move_cursor(@status_row, 0)
-        screen.clear_line
-        
-        require "pastel"
-        pastel = Pastel.new
-        
-        # Format: [Info] Status text
-        formatted = pastel.dim("[") + pastel.cyan("Info") + pastel.dim("] ") + pastel.white(status_text)
-        print formatted
-        
-        screen.flush
+        @render_mutex.synchronize do
+          screen.move_cursor(@status_row, 0)
+          screen.clear_line
+
+          require "pastel"
+          pastel = Pastel.new
+
+          # Format: [Info] Status text
+          formatted = pastel.dim("[") + pastel.cyan("Info") + pastel.dim("] ") + pastel.white(status_text)
+          print formatted
+
+          # Restore cursor to input area
+          restore_cursor_to_input_internal
+          screen.flush
+        end
       end
 
       # Initialize the screen (clear, hide cursor, etc.)
@@ -111,7 +117,7 @@ module Clacky
       def move_input_to_output
         content = input_area.current_content
         return if content.empty?
-        
+
         append_output(content)
         input_area.clear
         render_input
@@ -140,6 +146,27 @@ module Clacky
       end
 
       private
+
+      # Internal separator rendering (without mutex)
+      def render_separator_internal
+        screen.move_cursor(@separator_row, 0)
+        screen.clear_line
+
+        require "pastel"
+        pastel = Pastel.new
+        separator = pastel.dim("─" * screen.width)
+        print separator
+
+        screen.flush
+      end
+
+      # Internal cursor restore (without mutex)
+      def restore_cursor_to_input_internal
+        prompt_length = input_area.instance_variable_get(:@prompt)&.length || 5
+        cursor_col = prompt_length + input_area.cursor_position
+        screen.move_cursor(@input_row, cursor_col)
+        screen.show_cursor
+      end
 
       # Setup handler for window resize
       def setup_resize_handler
