@@ -187,11 +187,16 @@ module Clacky
 
       # Handle Enter key
       def handle_enter
+        # Save content before submit (submit clears the buffer)
+        content_to_display = @input_area.current_content
         input_value = @input_area.submit
         return if input_value.empty?
 
-        # Move input to output
-        @layout.move_input_to_output
+        # Append the input content to output area
+        @layout.append_output(content_to_display) unless content_to_display.empty?
+
+        # Re-render input area (now cleared)
+        @layout.render_input
 
         # Publish user input event
         @event_bus.publish(:user_input, { content: input_value })

@@ -40,6 +40,7 @@ module Clacky
         output_area.render(start_row: 0)
         render_separator
         input_area.render(start_row: @input_row)
+        screen.show_cursor  # Show cursor in input area
       end
 
       # Render just the output area
@@ -51,6 +52,7 @@ module Clacky
       # Render just the input area
       def render_input
         input_area.render(start_row: @input_row)
+        screen.show_cursor  # Show cursor in input area
         screen.flush
       end
 
