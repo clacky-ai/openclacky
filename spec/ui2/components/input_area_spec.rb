@@ -4,7 +4,7 @@ require "spec_helper"
 require "clacky/ui2/components/input_area"
 
 RSpec.describe Clacky::UI2::Components::InputArea do
-  let(:input_area) { described_class.new(height: 2, row: 20) }
+  let(:input_area) { described_class.new(row: 20) }
 
   describe "#insert_char" do
     it "inserts character at cursor position" do
@@ -118,7 +118,8 @@ RSpec.describe Clacky::UI2::Components::InputArea do
 
     it "returns current input value" do
       result = input_area.submit
-      expect(result).to eq("Test input")
+      expect(result[:text]).to eq("Test input")
+      expect(result[:images]).to eq([])
     end
 
     it "clears the buffer" do

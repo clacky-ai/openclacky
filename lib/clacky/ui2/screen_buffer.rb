@@ -127,13 +127,21 @@ module Clacky
 
         # Handle control characters
         case char
-        when "\r", "\n" then :enter
+        when "\r" then :enter
+        when "\n" then :newline  # Shift+Enter sends \n
         when "\u007F", "\b" then :backspace
+        when "\u0001" then :ctrl_a
+        when "\u0002" then :ctrl_b
         when "\u0003" then :ctrl_c
         when "\u0004" then :ctrl_d
+        when "\u0005" then :ctrl_e
+        when "\u0006" then :ctrl_f
+        when "\u000B" then :ctrl_k
         when "\u000C" then :ctrl_l
-        when "\u0015" then :ctrl_u
         when "\u0012" then :ctrl_r
+        when "\u0015" then :ctrl_u
+        when "\u0016" then :ctrl_v
+        when "\u0017" then :ctrl_w
         else char
         end
       end

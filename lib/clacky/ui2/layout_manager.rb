@@ -6,12 +6,7 @@ module Clacky
   module UI2
     # LayoutManager manages screen layout with split areas (output area on top, input area on bottom)
     class LayoutManager
-      attr_reader :screen, :output_area, :input_area, :todo_area, :separator_row
-
-      # Layout constants
-      SEPARATOR_HEIGHT = 1
-      INPUT_HEIGHT = 2  # Prompt line + extra space
-      STATUS_HEIGHT = 1 # Status bar height
+      attr_reader :screen, :output_area, :input_area, :todo_area
 
       def initialize(output_area:, input_area:, todo_area: nil)
         @screen = ScreenBuffer.new
@@ -24,30 +19,41 @@ module Clacky
         setup_resize_handler
       end
 
-      # Calculate layout dimensions based on screen size
+      # Calculate layout dimensions based on screen size and component heights
       def calculate_layout
         todo_height = @todo_area&.height || 0
-        # Layout: output -> todo -> separator -> input -> status
-        @output_height = screen.height - INPUT_HEIGHT - SEPARATOR_HEIGHT - STATUS_HEIGHT - todo_height
-        @todo_row = @output_height  # Todo area right after output
-        @separator_row = @todo_row + todo_height  # Separator after todo
-        @input_row = @separator_row + SEPARATOR_HEIGHT
-        @status_row = screen.height - STATUS_HEIGHT
+        input_height = @input_area.required_height
+
+        # Layout: output -> todo -> input (with its own separators and status)
+        @output_height = screen.height - todo_height - input_height
+        @output_height = [1, @output_height].max  # Minimum 1 line for output
+
+        @todo_row = @output_height
+        @input_row = @todo_row + todo_height
 
         # Update component dimensions
         @output_area.height = @output_height
-        @input_area.height = INPUT_HEIGHT
         @input_area.row = @input_row
+      end
+
+      # Recalculate layout (called when input height changes)
+      def recalculate_layout
+        @render_mutex.synchronize do
+          old_input_row = @input_row
+          calculate_layout
+
+          # If layout changed, need to re-render
+          if @input_row != old_input_row
+            screen.clear_screen
+            render_all_internal
+          end
+        end
       end
 
       # Render all layout areas
       def render_all
         @render_mutex.synchronize do
-          output_area.render(start_row: 0)
-          render_todo_internal
-          render_separator_internal
-          input_area.render(start_row: @input_row)
-          screen.show_cursor  # Show cursor in input area
+          render_all_internal
         end
       end
 
@@ -55,8 +61,7 @@ module Clacky
       def render_output
         @render_mutex.synchronize do
           output_area.render(start_row: 0)
-          # Restore cursor to input area position
-          restore_cursor_to_input_internal
+          restore_cursor_to_input
           screen.flush
         end
       end
@@ -64,35 +69,8 @@ module Clacky
       # Render just the input area
       def render_input
         @render_mutex.synchronize do
-          input_area.render(start_row: @input_row)
-          screen.show_cursor  # Show cursor in input area
-          screen.flush
-        end
-      end
-
-      # Render the separator line between output and input
-      def render_separator
-        @render_mutex.synchronize do
-          render_separator_internal
-        end
-      end
-
-      # Render status bar at the bottom
-      # @param status_text [String] Status text to display
-      def render_status(status_text = "")
-        @render_mutex.synchronize do
-          screen.move_cursor(@status_row, 0)
-          screen.clear_line
-
-          require "pastel"
-          pastel = Pastel.new
-
-          # Format: [Info] Status text
-          formatted = pastel.dim("[") + pastel.cyan("Info") + pastel.dim("] ") + pastel.white(status_text)
-          print formatted
-
-          # Restore cursor to input area
-          restore_cursor_to_input_internal
+          input_area.render(start_row: @input_row, width: screen.width)
+          screen.show_cursor
           screen.flush
         end
       end
@@ -110,17 +88,10 @@ module Clacky
           # Recalculate layout if height changed
           if old_height != new_height
             calculate_layout
-            # Clear and re-render everything
             screen.clear_screen
           end
 
-          # Render all areas
-          output_area.render(start_row: 0)
-          render_todo_internal
-          render_separator_internal
-          input_area.render(start_row: @input_row)
-          restore_cursor_to_input_internal
-          screen.flush
+          render_all_internal
         end
       end
 
@@ -158,16 +129,6 @@ module Clacky
         render_output
       end
 
-      # Move input content to output area
-      def move_input_to_output
-        content = input_area.current_content
-        return if content.empty?
-
-        append_output(content)
-        input_area.clear
-        render_input
-      end
-
       # Scroll output area up
       # @param lines [Integer] Number of lines to scroll
       def scroll_output_up(lines = 1)
@@ -192,16 +153,12 @@ module Clacky
 
       private
 
-      # Internal separator rendering (without mutex)
-      def render_separator_internal
-        screen.move_cursor(@separator_row, 0)
-        screen.clear_line
-
-        require "pastel"
-        pastel = Pastel.new
-        separator = pastel.dim("─" * screen.width)
-        print separator
-
+      # Internal render all (without mutex)
+      def render_all_internal
+        output_area.render(start_row: 0)
+        render_todo_internal
+        input_area.render(start_row: @input_row, width: screen.width)
+        screen.show_cursor
         screen.flush
       end
 
@@ -212,11 +169,9 @@ module Clacky
         @todo_area.render(start_row: @todo_row)
       end
 
-      # Internal cursor restore (without mutex)
-      def restore_cursor_to_input_internal
-        prompt_length = input_area.instance_variable_get(:@prompt)&.length || 5
-        cursor_col = prompt_length + input_area.cursor_position
-        screen.move_cursor(@input_row, cursor_col)
+      # Restore cursor to input area
+      def restore_cursor_to_input
+        input_area.position_cursor(@input_row)
         screen.show_cursor
       end
 

@@ -19,7 +19,7 @@ module Clacky
 
         # Initialize layout components
         @output_area = Components::OutputArea.new(height: 20) # Will be recalculated
-        @input_area = Components::InputArea.new(height: 2, row: 22)
+        @input_area = Components::InputArea.new
         @todo_area = Components::TodoArea.new
         @layout = LayoutManager.new(
           output_area: @output_area,
@@ -37,7 +37,7 @@ module Clacky
       def start
         @running = true
         @layout.initialize_screen
-        
+
         # Start input loop in main thread
         input_loop
       end
@@ -69,12 +69,6 @@ module Clacky
       # Clear the progress line (remove last line)
       def clear_progress_line
         @layout.remove_last_line
-      end
-
-      # Update status bar
-      # @param text [String] Status text
-      def update_status(text)
-        @layout.render_status(text)
       end
 
       # Update todos display
@@ -119,21 +113,6 @@ module Clacky
           output = @renderer.render_tool_error(error: data[:error])
           append_output(output)
         end
-
-        # Thinking event - handled by AgentAdapter progress indicator
-        # No need to output here
-
-        # Status update event
-        @event_bus.on(:status_update) do |data|
-          output = @renderer.render_status(
-            iteration: data[:iteration],
-            cost: data[:cost],
-            tasks_completed: data[:tasks_completed],
-            tasks_total: data[:tasks_total],
-            message: data[:message]
-          )
-          update_status(output)
-        end
       end
 
       # Main input loop
@@ -147,129 +126,58 @@ module Clacky
           handle_key(key)
         end
       rescue => e
-        # Ensure we clean up on error
         stop
         raise e
       ensure
         @layout.screen.disable_raw_mode
       end
 
-      # Handle keyboard input
+      # Handle keyboard input - delegate to InputArea
       # @param key [Symbol, String] Key input
       def handle_key(key)
-        case key
-        when :enter
-          handle_enter
-        when :backspace
-          @input_area.backspace
-          @layout.render_input
-        when :delete
-          @input_area.delete_char
-          @layout.render_input
-        when :left_arrow
-          @input_area.cursor_left
-          @layout.render_input
-        when :right_arrow
-          @input_area.cursor_right
-          @layout.render_input
-        when :up_arrow
-          handle_up_arrow
-        when :down_arrow
-          handle_down_arrow
-        when :home
-          @input_area.cursor_home
-          @layout.render_input
-        when :end
-          @input_area.cursor_end
-          @layout.render_input
-        when :ctrl_c
-          handle_ctrl_c
-        when :ctrl_d
-          handle_ctrl_d
-        when :ctrl_l
-          handle_ctrl_l
-        when :ctrl_u
-          @input_area.clear_line_input
-          @layout.render_input
-        when :escape
-          # Ignore escape for now
-        else
-          # Regular character input
-          if key.is_a?(String) && key.length == 1
-            @input_area.insert_char(key)
-            @layout.render_input
-          end
+        result = @input_area.handle_key(key)
+
+        # Handle height change first
+        if result[:height_changed]
+          @layout.recalculate_layout
         end
+
+        # Handle actions
+        case result[:action]
+        when :submit
+          handle_submit(result[:data])
+        when :exit
+          stop
+          exit(0)
+        when :clear_output
+          @output_area.clear
+          @layout.render_all
+        when :scroll_up
+          @layout.scroll_output_up
+        when :scroll_down
+          @layout.scroll_output_down
+        end
+
+        # Always re-render input area after key handling
+        @layout.render_input
       end
 
-      # Handle Enter key
-      def handle_enter
-        # Save content before submit (submit clears the buffer)
-        content_to_display = @input_area.current_content
-        input_value = @input_area.submit
-        return if input_value.empty?
-
+      # Handle submit action
+      def handle_submit(data)
         # Append the input content to output area
-        @layout.append_output(content_to_display) unless content_to_display.empty?
-
-        # Re-render input area (now cleared)
-        @layout.render_input
+        @layout.append_output(data[:display]) unless data[:display].empty?
 
         # Publish user input event
-        @event_bus.publish(:user_input, { content: input_value })
+        @event_bus.publish(:user_input, { content: data[:text], images: data[:images] })
 
-        # Call callback in background thread to allow parallel input
+        # Call callback in background thread
         if @input_callback
           Thread.new do
-            @input_callback.call(input_value)
+            @input_callback.call(data[:text], data[:images])
           rescue => e
             @layout.append_output("Error: #{e.message}")
           end
         end
-      end
-
-      # Handle up arrow (scroll output or history)
-      def handle_up_arrow
-        if @input_area.empty?
-          # Scroll output area
-          @layout.scroll_output_up
-        else
-          # Navigate input history
-          @input_area.history_prev
-          @layout.render_input
-        end
-      end
-
-      # Handle down arrow (scroll output or history)
-      def handle_down_arrow
-        if @input_area.empty?
-          # Scroll output area
-          @layout.scroll_output_down
-        else
-          # Navigate input history
-          @input_area.history_next
-          @layout.render_input
-        end
-      end
-
-      # Handle Ctrl+C
-      def handle_ctrl_c
-        stop
-        exit(0)
-      end
-
-      # Handle Ctrl+D
-      def handle_ctrl_d
-        if @input_area.empty?
-          stop
-          exit(0)
-        end
-      end
-
-      # Handle Ctrl+L (clear screen)
-      def handle_ctrl_l
-        @output_area.clear
-        @layout.render_output
       end
     end
   end
