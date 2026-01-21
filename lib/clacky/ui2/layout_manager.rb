@@ -23,12 +23,14 @@ module Clacky
       def calculate_layout
         todo_height = @todo_area&.height || 0
         input_height = @input_area.required_height
+        gap_height = 1  # Blank line between output and input
 
-        # Layout: output -> todo -> input (with its own separators and status)
-        @output_height = screen.height - todo_height - input_height
+        # Layout: output -> gap -> todo -> input (with its own separators and status)
+        @output_height = screen.height - gap_height - todo_height - input_height
         @output_height = [1, @output_height].max  # Minimum 1 line for output
 
-        @todo_row = @output_height
+        @gap_row = @output_height
+        @todo_row = @gap_row + gap_height
         @input_row = @todo_row + todo_height
 
         # Update component dimensions
@@ -61,6 +63,7 @@ module Clacky
       def render_output
         @render_mutex.synchronize do
           output_area.render(start_row: 0)
+          render_gap_line
           restore_cursor_to_input
           screen.flush
         end
@@ -156,10 +159,17 @@ module Clacky
       # Internal render all (without mutex)
       def render_all_internal
         output_area.render(start_row: 0)
+        render_gap_line
         render_todo_internal
         input_area.render(start_row: @input_row, width: screen.width)
         screen.show_cursor
         screen.flush
+      end
+
+      # Render blank gap line between output and input
+      def render_gap_line
+        screen.move_cursor(@gap_row, 0)
+        screen.clear_line
       end
 
       # Internal todo rendering (without mutex)

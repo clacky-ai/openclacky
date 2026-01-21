@@ -7,7 +7,7 @@ require_relative "ui/banner"
 require_relative "ui/enhanced_prompt"
 require_relative "ui/statusbar"
 require_relative "ui/formatter"
-require_relative "ui2/agent_adapter"
+require_relative "ui2"
 
 module Clacky
   class CLI < Thor
@@ -687,8 +687,14 @@ module Clacky
 
       # Run agent with UI2 split-screen interface
       def run_agent_with_ui2(agent, working_dir, agent_config, initial_message = nil, session_manager = nil, client = nil)
-        # Create UI2 controller
-        ui_controller = UI2::UIController.new
+        # Create UI2 controller with configuration
+        ui_controller = UI2::UIController.new(
+          working_dir: working_dir,
+          mode: agent_config.permission_mode.to_s,
+          max_iterations: agent_config.max_iterations,
+          max_cost: agent_config.max_cost_usd,
+          model: agent_config.model
+        )
         adapter = UI2::AgentAdapter.new(ui_controller)
         adapter.connect_agent(agent)
 
@@ -734,10 +740,8 @@ module Clacky
 
           # Process user message
           begin
-            ui_controller.event_bus.publish(:user_message, {
-              content: input,
-              timestamp: Time.now
-            })
+            # Note: User input is already displayed by handle_submit in UIController
+            # so we don't need to publish user_message event here
 
             total_tasks += 1
 
@@ -749,6 +753,9 @@ module Clacky
             if session_manager
               session_manager.save(agent.to_session_data(status: :success))
             end
+
+            # Update session bar with new task count and cost
+            ui_controller.update_sessionbar(tasks: total_tasks, cost: total_cost)
 
             # Show task completion
             ui_controller.append_output(
@@ -778,13 +785,6 @@ module Clacky
             end
           end
         end
-
-        # Show startup message
-        ui_controller.append_output("Clacky UI2 - Split-screen interface")
-        ui_controller.append_output("Working directory: #{working_dir}")
-        ui_controller.append_output("Mode: #{agent_config.permission_mode}")
-        ui_controller.append_output("Type /help for commands, /exit to quit")
-        ui_controller.append_output("")
 
         # If there's an initial message, process it
         if initial_message && !initial_message.strip.empty?

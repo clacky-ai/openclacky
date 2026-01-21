@@ -10,7 +10,7 @@ module Clacky
       # Enhanced with multi-line support, image paste, and more
       class InputArea
         attr_accessor :row
-        attr_reader :cursor_position, :line_index, :images, :status_message, :status_type
+        attr_reader :cursor_position, :line_index, :images, :tips_message, :tips_type
 
         def initialize(row: 0)
           @row = row
@@ -20,7 +20,6 @@ module Clacky
           @history = []
           @history_index = -1
           @pastel = Pastel.new
-          @prompt = "[>>] "
           @width = TTY::Screen.width
 
           @images = []
@@ -28,17 +27,51 @@ module Clacky
           @paste_counter = 0
           @paste_placeholders = {}
           @last_ctrl_c_time = nil
-          @status_message = nil
-          @status_type = :info
+          @tips_message = nil
+          @tips_type = :info
+
+          # Session bar info
+          @sessionbar_info = {
+            working_dir: nil,
+            mode: nil,
+            model: nil,
+            tasks: 0,
+            cost: 0.0
+          }
+        end
+
+        # Get current theme from ThemeManager
+        def theme
+          UI2::ThemeManager.current_theme
+        end
+
+        # Get prompt symbol from theme
+        def prompt
+          "#{theme.symbol(:user)} "
         end
 
         def required_height
-          height = 1  # Top separator
+          height = 1  # Session bar (top)
+          height += 1  # Separator after session bar
           height += @images.size
           height += @lines.size
           height += 1  # Bottom separator
-          height += 1 if @status_message
+          height += 1 if @tips_message
           height
+        end
+
+        # Update session bar info
+        # @param working_dir [String] Working directory
+        # @param mode [String] Permission mode
+        # @param model [String] AI model name
+        # @param tasks [Integer] Number of completed tasks
+        # @param cost [Float] Total cost
+        def update_sessionbar(working_dir: nil, mode: nil, model: nil, tasks: nil, cost: nil)
+          @sessionbar_info[:working_dir] = working_dir if working_dir
+          @sessionbar_info[:mode] = mode if mode
+          @sessionbar_info[:model] = model if model
+          @sessionbar_info[:tasks] = tasks if tasks
+          @sessionbar_info[:cost] = cost if cost
         end
 
         def input_buffer
@@ -86,9 +119,15 @@ module Clacky
           @width = width || TTY::Screen.width
           current_row = start_row
 
+          # Session bar at top
+          render_sessionbar(current_row)
+          current_row += 1
+
+          # Separator after session bar
           render_separator(current_row)
           current_row += 1
 
+          # Images
           @images.each_with_index do |img_path, idx|
             move_cursor(current_row, 0)
             clear_line
@@ -98,35 +137,38 @@ module Clacky
             current_row += 1
           end
 
+          # Input lines
           @lines.each_with_index do |line, idx|
             move_cursor(current_row, 0)
             clear_line
 
             if idx == 0
-              prompt_text = @pastel.bright_blue(@prompt)
+              prompt_text = theme.format_symbol(:user) + " "
               if idx == @line_index
                 print "#{prompt_text}#{render_line_with_cursor(line)}"
               else
-                print "#{prompt_text}#{@pastel.white(line)}"
+                print "#{prompt_text}#{theme.format_text(line, :user)}"
               end
             else
-              indent = " " * @prompt.length
+              indent = " " * prompt.length
               if idx == @line_index
                 print "#{indent}#{render_line_with_cursor(line)}"
               else
-                print "#{indent}#{@pastel.white(line)}"
+                print "#{indent}#{theme.format_text(line, :user)}"
               end
             end
             current_row += 1
           end
 
+          # Bottom separator
           render_separator(current_row)
           current_row += 1
 
-          if @status_message
+          # Tips bar (if any)
+          if @tips_message
             move_cursor(current_row, 0)
             clear_line
-            print format_status(@status_message, @status_type)
+            print format_tips(@tips_message, @tips_type)
             current_row += 1
           end
 
@@ -135,24 +177,30 @@ module Clacky
         end
 
         def position_cursor(start_row)
-          cursor_row = start_row + 1 + @images.size + @line_index
-          cursor_col = @prompt.length + @cursor_position
+          # Cursor is in input area: start_row + session_bar(1) + separator(1) + images + line_index
+          cursor_row = start_row + 2 + @images.size + @line_index
+          cursor_col = prompt.length + @cursor_position
           move_cursor(cursor_row, cursor_col)
         end
 
-        def set_status(message, type: :info)
-          @status_message = message
-          @status_type = type
+        def set_tips(message, type: :info)
+          @tips_message = message
+          @tips_type = type
         end
 
-        def clear_status
-          @status_message = nil
+        def clear_tips
+          @tips_message = nil
         end
 
         def current_content
           text = @lines.join("\n")
           return "" if text.empty?
-          "#{@prompt}#{text}"
+
+          # Format user input with color and spacing from theme
+          symbol = theme.format_symbol(:user)
+          content = theme.format_text(text, :user)
+
+          "\n#{symbol} #{content}\n"
         end
 
         def current_value
@@ -172,7 +220,7 @@ module Clacky
         end
 
         def set_prompt(prompt)
-          @prompt = prompt
+          prompt = prompt
         end
 
         # --- Public editing methods ---
@@ -231,7 +279,7 @@ module Clacky
           @images = []
           @paste_counter = 0
           @paste_placeholders = {}
-          clear_status
+          clear_tips
         end
 
         def submit
@@ -278,7 +326,7 @@ module Clacky
             when '/exit', '/quit'
               return { action: :exit }
             else
-              set_status("Unknown command: #{text} (Available: /clear, /exit)", type: :warning)
+              set_tips("Unknown command: #{text} (Available: /clear, /exit)", type: :warning)
               return { action: nil }
             end
           end
@@ -352,7 +400,7 @@ module Clacky
             else
               @images.shift
             end
-            clear_status
+            clear_tips
             { action: nil }
           elsif empty?
             { action: :exit }
@@ -366,13 +414,13 @@ module Clacky
           if pasted[:type] == :image
             if @images.size < @max_images
               @images << pasted[:path]
-              clear_status
+              clear_tips
             else
-              set_status("Maximum #{@max_images} images allowed. Delete an image first (Ctrl+D).", type: :warning)
+              set_tips("Maximum #{@max_images} images allowed. Delete an image first (Ctrl+D).", type: :warning)
             end
           else
             insert_text(pasted[:text])
-            clear_status
+            clear_tips
           end
           { action: nil }
         end
@@ -551,7 +599,85 @@ module Clacky
           print @pastel.dim("─" * @width)
         end
 
-        def format_status(message, type)
+        def render_sessionbar(row)
+          move_cursor(row, 0)
+          clear_line
+
+          # If no sessionbar info, just render a separator
+          unless @sessionbar_info[:working_dir]
+            print @pastel.dim("─" * @width)
+            return
+          end
+
+          parts = []
+          separator = @pastel.dim(" │ ")
+
+          # Working directory (shortened if too long)
+          if @sessionbar_info[:working_dir]
+            dir_display = shorten_path(@sessionbar_info[:working_dir])
+            parts << @pastel.bright_cyan(dir_display)
+          end
+
+          # Permission mode
+          if @sessionbar_info[:mode]
+            mode_color = mode_color_for(@sessionbar_info[:mode])
+            parts << @pastel.public_send(mode_color, @sessionbar_info[:mode])
+          end
+
+          # Model
+          if @sessionbar_info[:model]
+            parts << @pastel.bright_white(@sessionbar_info[:model])
+          end
+
+          # Tasks count
+          parts << @pastel.yellow("#{@sessionbar_info[:tasks]} tasks")
+
+          # Cost
+          cost_display = format("$%.1f", @sessionbar_info[:cost])
+          parts << @pastel.yellow(cost_display)
+
+          session_line = " " + parts.join(separator)
+          print session_line
+        end
+
+        def shorten_path(path)
+          return path if path.length <= 40
+
+          # Replace home directory with ~
+          home = ENV["HOME"]
+          if home && path.start_with?(home)
+            path = path.sub(home, "~")
+          end
+
+          # If still too long, show last parts
+          if path.length > 40
+            parts = path.split("/")
+            if parts.length > 3
+              ".../" + parts[-3..-1].join("/")
+            else
+              path[0..40] + "..."
+            end
+          else
+            path
+          end
+        end
+
+        def mode_color_for(mode)
+          case mode.to_s
+          when /auto_approve/
+            :bright_red
+          when /confirm_safes/
+            :bright_yellow
+          when /confirm_edits/
+            :bright_green
+          when /plan_only/
+            :bright_blue
+          else
+            :white
+          end
+        end
+
+        def format_tips(message, type)
           case type
           when :warning
             @pastel.dim("[") + @pastel.yellow("Warn") + @pastel.dim("] ") + @pastel.yellow(message)

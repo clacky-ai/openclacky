@@ -7,24 +7,6 @@ module Clacky
     module Components
       # BaseComponent provides common functionality for all UI components
       class BaseComponent
-        # Hacker-style symbols (matching existing formatter)
-        SYMBOLS = {
-          user: "[>>]",
-          assistant: "[<<]",
-          tool_call: "[=>]",
-          tool_result: "[<=]",
-          tool_denied: "[!!]",
-          tool_planned: "[??]",
-          tool_error: "[XX]",
-          thinking: "[..]",
-          success: "[OK]",
-          error: "[ER]",
-          warning: "[!!]",
-          info: "[--]",
-          task: "[##]",
-          progress: "[>>]"
-        }.freeze
-
         def initialize
           @pastel = Pastel.new
         end
@@ -45,13 +27,25 @@ module Clacky
 
         protected
 
-        # Format symbol with color
-        # @param symbol_key [Symbol] Symbol key from SYMBOLS
-        # @param color_method [Symbol] Pastel color method
+        # Get current theme from ThemeManager
+        # @return [Themes::BaseTheme] Current theme instance
+        def theme
+          UI2::ThemeManager.current_theme
+        end
+
+        # Format symbol with color from theme
+        # @param symbol_key [Symbol] Symbol key (e.g., :user, :assistant)
         # @return [String] Colored symbol
-        def format_symbol(symbol_key, color_method = :bright_white)
-          symbol = SYMBOLS[symbol_key] || "[??]"
-          @pastel.public_send(color_method, symbol)
+        def format_symbol(symbol_key)
+          theme.format_symbol(symbol_key)
+        end
+
+        # Format text with color from theme
+        # @param text [String] Text to format
+        # @param symbol_key [Symbol] Symbol key for color lookup
+        # @return [String] Colored text
+        def format_text(text, symbol_key)
+          theme.format_text(text, symbol_key)
         end
 
         # Truncate text to max length

@@ -40,21 +40,21 @@ module Clacky
         # @param data [Hash] Tool call data
         # @return [String] Rendered tool call
         def render_tool_call(data)
-          symbol = format_symbol(:tool_call, :bright_cyan)
+          symbol = format_symbol(:tool_call)
           formatted_call = data[:formatted_call] || "#{data[:tool_name]}(...)"
-          text = @pastel.cyan(formatted_call)
-          
-          "#{symbol} #{text}"
+          text = format_text(formatted_call, :tool_call)
+
+          "\n#{symbol} #{text}"
         end
 
         # Render tool result
         # @param data [Hash] Tool result data
         # @return [String] Rendered tool result
         def render_tool_result(data)
-          symbol = format_symbol(:tool_result, :cyan)
+          symbol = format_symbol(:tool_result)
           result = data[:result] || data[:summary] || "completed"
-          text = @pastel.white(truncate(result, 200))
-          
+          text = format_text(truncate(result, 200), :tool_result)
+
           "#{symbol} #{text}"
         end
 
@@ -62,42 +62,42 @@ module Clacky
         # @param data [Hash] Tool error data
         # @return [String] Rendered tool error
         def render_tool_error(data)
-          symbol = format_symbol(:tool_error, :bright_red)
+          symbol = format_symbol(:tool_error)
           error_msg = data[:error] || "Unknown error"
-          text = @pastel.red("Error: #{error_msg}")
-          
-          "#{symbol} #{text}"
+          text = format_text("Error: #{error_msg}", :tool_error)
+
+          "\n#{symbol} #{text}"
         end
 
         # Render tool denied
         # @param data [Hash] Tool denied data
         # @return [String] Rendered tool denied
         def render_tool_denied(data)
-          symbol = format_symbol(:tool_denied, :bright_yellow)
+          symbol = format_symbol(:tool_denied)
           tool_name = data[:tool_name] || "unknown"
-          text = @pastel.yellow("Tool denied: #{tool_name}")
-          
-          "#{symbol} #{text}"
+          text = format_text("Tool denied: #{tool_name}", :tool_denied)
+
+          "\n#{symbol} #{text}"
         end
 
         # Render tool planned
         # @param data [Hash] Tool planned data
         # @return [String] Rendered tool planned
         def render_tool_planned(data)
-          symbol = format_symbol(:tool_planned, :bright_blue)
+          symbol = format_symbol(:tool_planned)
           tool_name = data[:tool_name] || "unknown"
-          text = @pastel.blue("Planned: #{tool_name}")
-          
-          "#{symbol} #{text}"
+          text = format_text("Planned: #{tool_name}", :tool_planned)
+
+          "\n#{symbol} #{text}"
         end
 
         # Render unknown tool event
         # @param data [Hash] Tool event data
         # @return [String] Rendered unknown event
         def render_unknown_tool_event(data)
-          symbol = format_symbol(:info, :bright_white)
-          text = @pastel.white("Tool event: #{data.inspect}")
-          
+          symbol = format_symbol(:info)
+          text = format_text("Tool event: #{data.inspect}", :info)
+
           "#{symbol} #{text}"
         end
       end

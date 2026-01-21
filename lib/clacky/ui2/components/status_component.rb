@@ -17,37 +17,37 @@ module Clacky
         # @return [String] Rendered status
         def render(data)
           parts = []
-          
+
           # Iteration info
           if data[:iteration]
             parts << render_iteration(data[:iteration])
           end
-          
+
           # Cost info
           if data[:cost]
             parts << render_cost(data[:cost])
           end
-          
+
           # Tasks info
           if data[:tasks_total] && data[:tasks_total] > 0
             parts << render_tasks(data[:tasks_completed] || 0, data[:tasks_total])
           end
-          
+
           # Custom message
           if data[:message]
-            parts << @pastel.white(data[:message])
+            parts << format_text(data[:message], :info)
           end
-          
+
           # Join parts with separator
-          symbol = format_symbol(:info, :dim)
+          symbol = format_symbol(:info)
           "#{symbol} #{parts.join(' | ')}"
         end
 
         # Render thinking indicator
         # @return [String] Thinking indicator
         def render_thinking
-          symbol = format_symbol(:thinking, :dim)
-          text = @pastel.dim("Thinking...")
+          symbol = format_symbol(:thinking)
+          text = format_text("Thinking...", :thinking)
           "#{symbol} #{text}"
         end
 
@@ -55,8 +55,8 @@ module Clacky
         # @param message [String] Progress message
         # @return [String] Progress indicator
         def render_progress(message)
-          symbol = format_symbol(:progress, :bright_cyan)
-          text = @pastel.cyan(message)
+          symbol = format_symbol(:progress)
+          text = format_text(message, :progress)
           "#{symbol} #{text}"
         end
 
@@ -64,8 +64,8 @@ module Clacky
         # @param message [String] Success message
         # @return [String] Success message
         def render_success(message)
-          symbol = format_symbol(:success, :bright_green)
-          text = @pastel.green(message)
+          symbol = format_symbol(:success)
+          text = format_text(message, :success)
           "#{symbol} #{text}"
         end
 
@@ -73,8 +73,8 @@ module Clacky
         # @param message [String] Error message
         # @return [String] Error message
         def render_error(message)
-          symbol = format_symbol(:error, :bright_red)
-          text = @pastel.red(message)
+          symbol = format_symbol(:error)
+          text = format_text(message, :error)
           "#{symbol} #{text}"
         end
 
@@ -82,8 +82,8 @@ module Clacky
         # @param message [String] Warning message
         # @return [String] Warning message
         def render_warning(message)
-          symbol = format_symbol(:warning, :bright_yellow)
-          text = @pastel.yellow(message)
+          symbol = format_symbol(:warning)
+          text = format_text(message, :warning)
           "#{symbol} #{text}"
         end
 

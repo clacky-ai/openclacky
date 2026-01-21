@@ -143,9 +143,7 @@ module Clacky
           # Do nothing here
 
         when :on_start
-          @ui_controller.append_output(
-            "Starting task: #{event[:data][:input]}"
-          )
+          # User input is already displayed by handle_submit, no need to show again
 
         when :on_complete
           stop_progress_indicator

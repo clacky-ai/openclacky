@@ -35,11 +35,11 @@ module Clacky
         # @param timestamp [Time, nil] Optional timestamp
         # @return [String] Rendered message
         def render_user_message(content, timestamp = nil)
-          symbol = format_symbol(:user, :bright_blue)
-          text = @pastel.blue(content)
+          symbol = format_symbol(:user)
+          text = format_text(content, :user)
           time_str = timestamp ? @pastel.dim("[#{format_timestamp(timestamp)}]") : ""
-          
-          "#{symbol} #{text} #{time_str}".strip
+
+          "\n#{symbol} #{text} #{time_str}".rstrip
         end
 
         # Render assistant message
@@ -48,12 +48,12 @@ module Clacky
         # @return [String] Rendered message
         def render_assistant_message(content, timestamp = nil)
           return "" if content.nil? || content.empty?
-          
-          symbol = format_symbol(:assistant, :bright_green)
-          text = @pastel.white(content)
+
+          symbol = format_symbol(:assistant)
+          text = format_text(content, :assistant)
           time_str = timestamp ? @pastel.dim("[#{format_timestamp(timestamp)}]") : ""
-          
-          "#{symbol} #{text} #{time_str}".strip
+
+          "\n#{symbol} #{text} #{time_str}".rstrip
         end
 
         # Render system message
@@ -61,11 +61,11 @@ module Clacky
         # @param timestamp [Time, nil] Optional timestamp
         # @return [String] Rendered message
         def render_system_message(content, timestamp = nil)
-          symbol = format_symbol(:info, :bright_white)
-          text = @pastel.white(content)
+          symbol = format_symbol(:info)
+          text = format_text(content, :info)
           time_str = timestamp ? @pastel.dim("[#{format_timestamp(timestamp)}]") : ""
-          
-          "#{symbol} #{text} #{time_str}".strip
+
+          "\n#{symbol} #{text} #{time_str}".rstrip
         end
       end
     end

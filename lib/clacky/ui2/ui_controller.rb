@@ -6,21 +6,37 @@ require_relative "view_renderer"
 require_relative "components/output_area"
 require_relative "components/input_area"
 require_relative "components/todo_area"
+require_relative "components/welcome_banner"
 
 module Clacky
   module UI2
     # UIController is the MVC controller layer that coordinates UI state and user interactions
     class UIController
       attr_reader :event_bus, :layout, :renderer, :running
+      attr_accessor :config
 
-      def initialize
+      def initialize(config = {})
         @event_bus = EventBus.new
         @renderer = ViewRenderer.new
+
+        # Set theme if specified
+        ThemeManager.set_theme(config[:theme]) if config[:theme]
+
+        # Store configuration
+        @config = {
+          working_dir: config[:working_dir],
+          mode: config[:mode],
+          max_iterations: config[:max_iterations],
+          max_cost: config[:max_cost],
+          model: config[:model],
+          theme: config[:theme]
+        }
 
         # Initialize layout components
         @output_area = Components::OutputArea.new(height: 20) # Will be recalculated
         @input_area = Components::InputArea.new
         @todo_area = Components::TodoArea.new
+        @welcome_banner = Components::WelcomeBanner.new
         @layout = LayoutManager.new(
           output_area: @output_area,
           input_area: @input_area,
@@ -30,6 +46,8 @@ module Clacky
         @running = false
         @input_callback = nil
         @agent_thread = nil
+        @tasks_count = 0
+        @total_cost = 0.0
 
         setup_default_event_listeners
       end
@@ -37,10 +55,39 @@ module Clacky
       # Start the UI controller
       def start
         @running = true
+
+        # Set session bar data before initializing screen
+        @input_area.update_sessionbar(
+          working_dir: @config[:working_dir],
+          mode: @config[:mode],
+          model: @config[:model],
+          tasks: @tasks_count,
+          cost: @total_cost
+        )
+
         @layout.initialize_screen
+
+        # Display welcome banner
+        display_welcome_banner
 
         # Start input loop in main thread
         input_loop
+      end
+
+      # Update session bar with current stats
+      # @param tasks [Integer] Number of completed tasks (optional)
+      # @param cost [Float] Total cost (optional)
+      def update_sessionbar(tasks: nil, cost: nil)
+        @tasks_count = tasks if tasks
+        @total_cost = cost if cost
+        @input_area.update_sessionbar(
+          working_dir: @config[:working_dir],
+          mode: @config[:mode],
+          model: @config[:model],
+          tasks: @tasks_count,
+          cost: @total_cost
+        )
+        @layout.render_input
       end
 
       # Stop the UI controller
@@ -114,6 +161,17 @@ module Clacky
           output = @renderer.render_tool_error(error: data[:error])
           append_output(output)
         end
+      end
+
+      # Display welcome banner with logo and agent info
+      def display_welcome_banner
+        content = @welcome_banner.render_full(
+          working_dir: @config[:working_dir],
+          mode: @config[:mode],
+          max_iterations: @config[:max_iterations],
+          max_cost: @config[:max_cost]
+        )
+        append_output(content)
       end
 
       # Main input loop
