@@ -73,7 +73,6 @@ module Clacky
       def render_input
         @render_mutex.synchronize do
           input_area.render(start_row: @input_row, width: screen.width)
-          screen.show_cursor
           screen.flush
         end
       end
@@ -162,7 +161,6 @@ module Clacky
         render_gap_line
         render_todo_internal
         input_area.render(start_row: @input_row, width: screen.width)
-        screen.show_cursor
         screen.flush
       end
 

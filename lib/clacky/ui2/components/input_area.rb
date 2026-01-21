@@ -2,6 +2,7 @@
 
 require "pastel"
 require "tempfile"
+require_relative "../theme_manager"
 
 module Clacky
   module UI2
@@ -30,6 +31,9 @@ module Clacky
           @tips_message = nil
           @tips_type = :info
 
+          # Paused state - when InlineInput is active
+          @paused = false
+
           # Session bar info
           @sessionbar_info = {
             working_dir: nil,
@@ -51,6 +55,9 @@ module Clacky
         end
 
         def required_height
+          # When paused (InlineInput active), only show session bar
+          return 1 if @paused
+
           height = 1  # Session bar (top)
           height += 1  # Separator after session bar
           height += @images.size
@@ -79,6 +86,9 @@ module Clacky
         end
 
         def handle_key(key)
+          # Ignore input when paused (InlineInput is active)
+          return { action: nil } if @paused
+
           old_height = required_height
 
           result = case key
@@ -117,6 +127,15 @@ module Clacky
 
         def render(start_row:, width: nil)
           @width = width || TTY::Screen.width
+
+          # When paused, only render session bar and hide cursor
+          if @paused
+            render_sessionbar(start_row)
+            hide_cursor
+            flush
+            return
+          end
+
           current_row = start_row
 
           # Session bar at top
@@ -173,6 +192,7 @@ module Clacky
           end
 
           position_cursor(start_row)
+          show_cursor
           flush
         end
 
@@ -194,6 +214,21 @@ module Clacky
 
         def clear_tips
           @tips_message = nil
+        end
+
+        # Pause input area (when InlineInput is active)
+        def pause
+          @paused = true
+        end
+
+        # Resume input area (when InlineInput is done)
+        def resume
+          @paused = false
+        end
+
+        # Check if paused
+        def paused?
+          @paused
         end
 
         def current_content
@@ -712,6 +747,14 @@ module Clacky
 
         def flush
           $stdout.flush
+        end
+
+        def show_cursor
+          print "\e[?25h"
+        end
+
+        def hide_cursor
+          print "\e[?25l"
         end
 
         # Calculate display width of a string, considering multi-byte characters

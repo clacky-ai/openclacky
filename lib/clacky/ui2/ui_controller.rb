@@ -7,12 +7,13 @@ require_relative "components/output_area"
 require_relative "components/input_area"
 require_relative "components/todo_area"
 require_relative "components/welcome_banner"
+require_relative "components/inline_input"
 
 module Clacky
   module UI2
     # UIController is the MVC controller layer that coordinates UI state and user interactions
     class UIController
-      attr_reader :event_bus, :layout, :renderer, :running
+      attr_reader :event_bus, :layout, :renderer, :running, :inline_input
       attr_accessor :config
 
       def initialize(config = {})
@@ -37,6 +38,7 @@ module Clacky
         @input_area = Components::InputArea.new
         @todo_area = Components::TodoArea.new
         @welcome_banner = Components::WelcomeBanner.new
+        @inline_input = nil  # Created when needed
         @layout = LayoutManager.new(
           output_area: @output_area,
           input_area: @input_area,
@@ -191,9 +193,15 @@ module Clacky
         @layout.screen.disable_raw_mode
       end
 
-      # Handle keyboard input - delegate to InputArea
+      # Handle keyboard input - delegate to InputArea or InlineInput
       # @param key [Symbol, String] Key input
       def handle_key(key)
+        # If InlineInput is active, delegate to it
+        if @inline_input&.active?
+          handle_inline_input_key(key)
+          return
+        end
+
         result = @input_area.handle_key(key)
 
         # Handle height change first
@@ -226,6 +234,21 @@ module Clacky
 
         # Always re-render input area after key handling
         @layout.render_input
+      end
+
+      # Handle key input for InlineInput
+      def handle_inline_input_key(key)
+        result = @inline_input.handle_key(key)
+
+        case result[:action]
+        when :update
+          # Update the last line of output with current input
+          @output_area.update_last_line(@inline_input.render)
+          @layout.render_all
+        when :submit, :cancel
+          # InlineInput is done, will be cleaned up by InputCollector
+          nil
+        end
       end
 
       # Handle submit action

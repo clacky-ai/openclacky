@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative "ui_controller"
+require_relative "input_collector"
 
 module Clacky
   module UI2
@@ -13,9 +14,7 @@ module Clacky
         @ui_controller = ui_controller
         @event_bus = ui_controller.event_bus
         @agent = nil
-        @pending_confirmation = nil
-        @confirmation_mutex = Mutex.new
-        @confirmation_cv = ConditionVariable.new
+        @input_collector = InputCollector.new(ui_controller: ui_controller)
         # Progress indicator state
         @progress_mutex = Mutex.new
         @progress_running = false
@@ -271,57 +270,29 @@ module Clacky
       # @param call [Hash] Tool call data
       # @return [Hash] Confirmation result with :approved and :feedback keys
       def request_tool_confirmation(call)
-        @confirmation_mutex.synchronize do
-          # Show tool preview
-          preview_text = format_tool_call(call)
-          @ui_controller.append_output("\n❓ Confirm: #{preview_text}")
-          @ui_controller.append_output("   (y=approve, n=deny, or type feedback)")
-          
-          # Set pending confirmation
-          @pending_confirmation = {
-            call: call,
-            result: nil
-          }
-          
-          # Wait for confirmation response
-          @confirmation_cv.wait(@confirmation_mutex)
-          
-          # Return the result
-          result = @pending_confirmation[:result]
-          @pending_confirmation = nil
-          result
+        # Show tool preview
+        preview_text = format_tool_call(call)
+
+        # Use InputCollector for confirmation (uses InlineInput internally)
+        result = @input_collector.confirm_input(preview_text, default: true)
+
+        if result.nil?
+          # Cancelled (Ctrl+C)
+          { approved: false, feedback: nil }
+        elsif result == true
+          { approved: true, feedback: nil }
+        elsif result == false
+          { approved: false, feedback: nil }
+        else
+          # String feedback
+          { approved: false, feedback: result.to_s }
         end
       end
 
-      # Handle confirmation response from user input
-      # This is called by the UI controller when user provides input during confirmation
-      # @param response [String] User's response
-      def handle_confirmation_response(response)
-        @confirmation_mutex.synchronize do
-          return unless @pending_confirmation
-          
-          response_lower = response.downcase.strip
-          
-          result = if response_lower.empty? || response_lower == "y" || response_lower == "yes"
-            { approved: true, feedback: nil }
-          elsif response_lower == "n" || response_lower == "no"
-            { approved: false, feedback: nil }
-          else
-            # Any other input is treated as feedback
-            { approved: false, feedback: response }
-          end
-          
-          @pending_confirmation[:result] = result
-          @confirmation_cv.signal
-        end
-      end
-
-      # Check if waiting for confirmation
+      # Check if waiting for confirmation (for compatibility)
       # @return [Boolean] True if waiting for user confirmation
       def waiting_for_confirmation?
-        @confirmation_mutex.synchronize do
-          !@pending_confirmation.nil?
-        end
+        @ui_controller.inline_input&.active? || false
       end
 
       # Start progress indicator in output area

@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "tty-prompt"
+require_relative "components/inline_input"
 
 module Clacky
   module UI2
@@ -114,27 +115,55 @@ module Clacky
       # @param default [Boolean] Default value
       # @return [Boolean] User confirmation
       def collect_confirmation_via_ui(message, default: false)
-        default_hint = default ? "(Y/n)" : "(y/N)"
-        full_message = "#{message} #{default_hint}"
-        
-        @ui_controller.append_output(full_message)
-        @ui_controller.layout.input_area.set_prompt("[??] ")
-        @ui_controller.layout.render_input
-        
-        result = nil
-        @ui_controller.on_input do |input|
-          response = input.strip.downcase
-          result = case response
-                   when "y", "yes" then true
-                   when "n", "no" then false
-                   when "" then default
-                   else default
-                   end
+        # Append the question to output
+        @ui_controller.append_output("? #{message}")
+
+        # Pause InputArea
+        @ui_controller.layout.input_area.pause
+        @ui_controller.layout.recalculate_layout
+
+        # Create InlineInput with full prompt on same line
+        inline_input = Components::InlineInput.new(
+          prompt: "  (Enter/y to approve, n to deny, or provide feedback): ",
+          default: nil
+        )
+        @ui_controller.instance_variable_set(:@inline_input, inline_input)
+
+        # Add initial inline input line to output
+        @ui_controller.layout.output_area.append(inline_input.render)
+        @ui_controller.layout.render_all
+
+        # Collect input (blocks until user presses Enter)
+        result_text = inline_input.collect
+
+        # Clean up - remove the inline input line from output
+        @ui_controller.layout.output_area.remove_last_line
+
+        # Append the final response to output
+        if result_text.nil?
+          @ui_controller.append_output("  [Cancelled]")
+        else
+          @ui_controller.append_output("  #{result_text.empty? ? (default ? 'y' : 'n') : result_text}")
         end
-        
-        sleep 0.1 until result
-        
-        result
+
+        # Deactivate and clean up
+        @ui_controller.instance_variable_set(:@inline_input, nil)
+        @ui_controller.layout.input_area.resume
+        @ui_controller.layout.recalculate_layout
+        @ui_controller.layout.render_all
+
+        # Parse result
+        return nil if result_text.nil?  # Cancelled
+
+        response = result_text.strip.downcase
+        case response
+        when "y", "yes" then true
+        when "n", "no" then false
+        when "" then default
+        else
+          # User provided feedback text - return the feedback string
+          result_text
+        end
       end
 
       # Collect selection via UI2 controller
