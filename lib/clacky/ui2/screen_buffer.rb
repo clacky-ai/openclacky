@@ -71,6 +71,31 @@ module Clacky
         print "\e[?1049l"
       end
 
+      # Set scroll region (DECSTBM - DEC Set Top and Bottom Margins)
+      # Content written in this region will scroll, content outside will stay fixed
+      # @param top [Integer] Top row (1-indexed)
+      # @param bottom [Integer] Bottom row (1-indexed)
+      def set_scroll_region(top, bottom)
+        print "\e[#{top};#{bottom}r"
+      end
+
+      # Reset scroll region to full screen
+      def reset_scroll_region
+        print "\e[r"
+      end
+
+      # Scroll the scroll region up by n lines
+      # @param n [Integer] Number of lines to scroll
+      def scroll_up(n = 1)
+        print "\e[#{n}S"
+      end
+
+      # Scroll the scroll region down by n lines
+      # @param n [Integer] Number of lines to scroll
+      def scroll_down(n = 1)
+        print "\e[#{n}T"
+      end
+
       # Get current screen dimensions
       def update_dimensions
         @width = TTY::Screen.width

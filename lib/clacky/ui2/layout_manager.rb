@@ -59,12 +59,11 @@ module Clacky
         end
       end
 
-      # Render just the output area
+      # Render output area - with native scroll, just ensure input stays in place
       def render_output
         @render_mutex.synchronize do
-          output_area.render(start_row: 0)
-          render_gap_line
-          restore_cursor_to_input
+          # Output is written directly, just need to re-render fixed areas
+          render_fixed_areas
           screen.flush
         end
       end
@@ -114,38 +113,57 @@ module Clacky
         end
       end
 
-      # Initialize the screen (clear, hide cursor, etc.)
+      # Initialize the screen (setup scroll region, render initial content)
       def initialize_screen
-        screen.enable_alt_screen
         screen.clear_screen
+        setup_scroll_region
         screen.hide_cursor
         render_all
       end
 
-      # Cleanup the screen (restore cursor, disable alt screen)
+      # Cleanup the screen (restore cursor, reset scroll region)
       def cleanup_screen
+        screen.reset_scroll_region
+        screen.move_cursor(screen.height - 1, 0)
         screen.show_cursor
-        screen.disable_alt_screen
       end
 
-      # Append content to output area and re-render
+      # Setup scroll region: output area scrolls, input area stays fixed
+      def setup_scroll_region
+        # Scroll region is the output area (1-indexed)
+        # Everything below (gap, todo, input) is outside scroll region
+        scroll_bottom = @output_height
+        screen.set_scroll_region(1, scroll_bottom)
+      end
+
+      # Append content to output area
+      # Content is written directly to terminal, then fixed areas are re-rendered
       # @param content [String] Content to append
       def append_output(content)
-        output_area.append(content)
-        render_output
+        @render_mutex.synchronize do
+          output_area.append(content)
+          render_fixed_areas
+          screen.flush
+        end
       end
 
       # Update the last line in output area (for progress indicator)
       # @param content [String] Content to update
       def update_last_line(content)
-        output_area.update_last_line(content)
-        render_output
+        @render_mutex.synchronize do
+          output_area.update_last_line(content)
+          render_fixed_areas
+          screen.flush
+        end
       end
 
       # Remove the last line from output area
       def remove_last_line
-        output_area.remove_last_line
-        render_output
+        @render_mutex.synchronize do
+          output_area.remove_last_line
+          render_fixed_areas
+          screen.flush
+        end
       end
 
       # Scroll output area up
@@ -172,16 +190,20 @@ module Clacky
 
       private
 
-      # Internal render all (without mutex)
-      def render_all_internal
-        output_area.render(start_row: 0)
+      # Render fixed areas (gap, todo, input) - these stay outside scroll region
+      def render_fixed_areas
         render_gap_line
         render_todo_internal
         input_area.render(start_row: @input_row, width: screen.width)
-        # Ensure cursor is shown at input area (unless paused)
         unless input_area.paused?
           screen.show_cursor
         end
+      end
+
+      # Internal render all (without mutex)
+      def render_all_internal
+        output_area.render(start_row: 0)
+        render_fixed_areas
         screen.flush
       end
 
