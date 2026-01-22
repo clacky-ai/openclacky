@@ -42,19 +42,16 @@ module Clacky
       # Recalculate layout (called when input height changes)
       def recalculate_layout
         @render_mutex.synchronize do
+          # Save old layout values before recalculating
+          old_gap_row = @gap_row  # This is the old fixed_area_start
           old_input_row = @input_row
-          # Calculate old_fixed_start from saved @input_row, not from fixed_area_start_row
-          # (because @input_area.required_height may have changed due to pause)
-          todo_height = @todo_area&.height || 0
-          old_fixed_start = old_input_row - todo_height - 1  # input_row - todo - gap
 
           calculate_layout
-          new_fixed_start = fixed_area_start_row
 
           # If layout changed, clear old fixed area and re-render at new position
           if @input_row != old_input_row
-            # Clear old fixed area lines (from old position to screen bottom)
-            ([old_fixed_start, 0].max...screen.height).each do |row|
+            # Clear old fixed area lines (from old gap_row to screen bottom)
+            ([old_gap_row, 0].max...screen.height).each do |row|
               screen.move_cursor(row, 0)
               screen.clear_line
             end
@@ -110,16 +107,25 @@ module Clacky
 
         @render_mutex.synchronize do
           old_height = @todo_area.height
+          old_gap_row = @gap_row
+
           @todo_area.update(todos)
           new_height = @todo_area.height
 
           # Recalculate layout if height changed
           if old_height != new_height
             calculate_layout
-            screen.clear_screen
+
+            # Clear old fixed area lines (from old gap_row to screen bottom)
+            ([old_gap_row, 0].max...screen.height).each do |row|
+              screen.move_cursor(row, 0)
+              screen.clear_line
+            end
           end
 
-          render_all_internal
+          # Render fixed areas at new position
+          render_fixed_areas
+          screen.flush
         end
       end
 
@@ -213,10 +219,9 @@ module Clacky
       def handle_resize
         screen.update_dimensions
         calculate_layout
-        # Adjust output_row if it exceeds new max
-        max_row = fixed_area_start_row - 1
-        @output_row = max_row if @output_row > max_row
         screen.clear_screen
+        # Reset output position after clear (old content is lost anyway)
+        @output_row = 0
         render_all
       end
 
