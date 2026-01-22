@@ -337,6 +337,12 @@ module Clacky
             next
           end
 
+          # If agent is already running, interrupt it first
+          if agent_thread&.alive?
+            agent_thread.raise(Clacky::AgentInterrupted, "New input received")
+            agent_thread.join(2) # Wait up to 2 seconds for graceful shutdown
+          end
+
           # Run agent in background thread
           agent_thread = Thread.new do
             begin

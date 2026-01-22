@@ -484,11 +484,11 @@ module Clacky
 
       # Handle submit action
       def handle_submit(data)
-        # Append the input content to output area
-        @layout.append_output(data[:display]) unless data[:display].empty?
-
-        # Call callback synchronously
+        # Call callback first (allows interrupting previous agent before showing new input)
         @input_callback&.call(data[:text], data[:images])
+
+        # Append the input content to output area after callback completes
+        @layout.append_output(data[:display]) unless data[:display].empty?
       end
     end
   end
