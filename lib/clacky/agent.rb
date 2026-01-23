@@ -498,16 +498,15 @@ module Clacky
             feedback = user_feedback if user_feedback
             results << build_denied_result(call, user_feedback)
 
-            # If user provided feedback, stop processing remaining tools immediately
-            if user_feedback && !user_feedback.empty?
-              # Fill in denied results for all remaining tool calls to avoid mismatch
-              remaining_calls = tool_calls[(index + 1)..-1] || []
-              remaining_calls.each do |remaining_call|
-                results << build_denied_result(remaining_call, "Auto-denied due to user feedback on previous tool")
-              end
-              break
+            # Auto-deny all remaining tools
+            remaining_calls = tool_calls[(index + 1)..-1] || []
+            remaining_calls.each do |remaining_call|
+              reason = user_feedback && !user_feedback.empty? ?
+                       user_feedback :
+                       "Auto-denied due to user rejection of previous tool"
+              results << build_denied_result(remaining_call, reason)
             end
-            next
+            break
           end
         end
 
