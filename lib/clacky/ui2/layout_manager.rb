@@ -139,8 +139,21 @@ module Clacky
 
       # Cleanup the screen (restore cursor)
       def cleanup_screen
-        screen.move_cursor(screen.height - 1, 0)
-        screen.show_cursor
+        @render_mutex.synchronize do
+          # Clear fixed areas (gap + todo + input)
+          fixed_start = fixed_area_start_row
+          (fixed_start...screen.height).each do |row|
+            screen.move_cursor(row, 0)
+            screen.clear_line
+          end
+          
+          # Move cursor to start of a new line after last output
+          # Use \r to ensure we're at column 0, then move down
+          screen.move_cursor([@output_row, 0].max, 0)
+          print "\r"  # Carriage return to column 0
+          screen.show_cursor
+          screen.flush
+        end
       end
 
       # Clear output area (for /clear command)

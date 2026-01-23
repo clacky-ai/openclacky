@@ -315,20 +315,23 @@ module Clacky
             if session_manager && agent.total_tasks > 0
               session_data = agent.to_session_data(status: :exited)
               session_manager.save(session_data)
-              
-              # Show session saved message
-              ui_controller.stop
-              
-              # Format session info
+
+              # Show session saved message in output area (before stopping UI)
               session_id = session_data[:session_id][0..7]
-              say "\n📂 Session saved: #{session_id}", :green
-              say "   Tasks completed: #{agent.total_tasks}"
-              say "   Total cost: $#{agent.total_cost.round(4)}"
-              say "\n💡 To continue this session, run:", :yellow
-              say "   clacky -a #{session_id}", :cyan
-            else
-              ui_controller.stop
+              ui_controller.append_output("")
+              ui_controller.append_output("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+              ui_controller.append_output("")
+              ui_controller.append_output("Session saved: #{session_id}")
+              ui_controller.append_output("Tasks completed: #{agent.total_tasks}")
+              ui_controller.append_output("Total cost: $#{agent.total_cost.round(4)}")
+              ui_controller.append_output("")
+              ui_controller.append_output("To continue this session, run:")
+              ui_controller.append_output("  clacky -a #{session_id}")
+              ui_controller.append_output("")
             end
+
+            # Stop UI and exit
+            ui_controller.stop
             exit(0)
           end
 

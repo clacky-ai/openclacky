@@ -764,6 +764,13 @@ module Clacky
         end
 
         def format_tips(message, type)
+          # Limit message length to prevent line wrapping
+          # Reserve space for prefix like "[Warn] " (about 8 chars) and some margin
+          max_length = @width - 10
+          if message.length > max_length
+            message = message[0...(max_length - 3)] + "..."
+          end
+          
           case type
           when :warning
             @pastel.dim("[") + @pastel.yellow("Warn") + @pastel.dim("] ") + @pastel.yellow(message)
