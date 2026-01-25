@@ -48,10 +48,8 @@ module Clacky
         # Render agent welcome section
         # @param working_dir [String] Working directory
         # @param mode [String] Permission mode
-        # @param max_iterations [Integer] Maximum iterations
-        # @param max_cost [Float] Maximum cost
         # @return [String] Formatted agent welcome section
-        def render_agent_welcome(working_dir:, mode:, max_iterations:, max_cost:)
+        def render_agent_welcome(working_dir:, mode:)
           lines = []
           lines << ""
           lines << separator("=")
@@ -60,8 +58,6 @@ module Clacky
           lines << ""
           lines << info_line("Working Directory", working_dir)
           lines << info_line("Permission Mode", mode)
-          lines << info_line("Max Iterations", max_iterations.to_s)
-          lines << info_line("Max Cost", "$#{max_cost}")
           lines << ""
           lines << @pastel.dim("[!] Type 'exit' or 'quit' to terminate session")
           lines << separator("-")
@@ -72,15 +68,11 @@ module Clacky
         # Render full welcome (startup + agent info)
         # @param working_dir [String] Working directory
         # @param mode [String] Permission mode
-        # @param max_iterations [Integer] Maximum iterations
-        # @param max_cost [Float] Maximum cost
         # @return [String] Full welcome content
-        def render_full(working_dir:, mode:, max_iterations:, max_cost:)
+        def render_full(working_dir:, mode:)
           render_startup + render_agent_welcome(
             working_dir: working_dir,
-            mode: mode,
-            max_iterations: max_iterations,
-            max_cost: max_cost
+            mode: mode
           )
         end
 

@@ -266,8 +266,6 @@ module Clacky
         config: {
           model: @config.model,
           permission_mode: @config.permission_mode.to_s,
-          max_iterations: @config.max_iterations,
-          max_cost_usd: @config.max_cost_usd,
           enable_compression: @config.enable_compression,
           enable_prompt_caching: @config.enable_prompt_caching,
           keep_recent_messages: @config.keep_recent_messages,
@@ -283,9 +281,6 @@ module Clacky
     private
 
     def should_auto_execute?(tool_name, tool_params = {})
-      # Check if tool is disallowed
-      return false if @config.disallowed_tools.include?(tool_name)
-
       case @config.permission_mode
       when :auto_approve
         true
@@ -378,7 +373,7 @@ module Clacky
       compress_messages_if_needed
 
       # Always send tools definitions to allow multi-step tool calling
-      tools_to_send = @tool_registry.allowed_definitions(@config.allowed_tools)
+      tools_to_send = @tool_registry.all_definitions
 
       # Retry logic for network failures
       max_retries = 10
@@ -602,21 +597,6 @@ module Clacky
         return true
       end
 
-      if @iterations >= @config.max_iterations
-        @ui&.log("Reached maximum iterations (#{@config.max_iterations})", level: :warning) if @config.verbose
-        return true
-      end
-
-      if @total_cost >= @config.max_cost_usd
-        @ui&.log("Reached maximum cost ($#{@config.max_cost_usd})", level: :warning) if @config.verbose
-        return true
-      end
-
-      # Check timeout only if configured (nil means no timeout)
-      if @config.timeout_seconds && Time.now - @start_time > @config.timeout_seconds
-        @ui&.log("Reached timeout (#{@config.timeout_seconds}s)", level: :warning) if @config.verbose
-        return true
-      end
 
       false
     end

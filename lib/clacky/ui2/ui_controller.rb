@@ -26,8 +26,6 @@ module Clacky
         @config = {
           working_dir: config[:working_dir],
           mode: config[:mode],
-          max_iterations: config[:max_iterations],
-          max_cost: config[:max_cost],
           model: config[:model],
           theme: config[:theme]
         }
@@ -586,9 +584,7 @@ module Clacky
       def display_welcome_banner
         content = @welcome_banner.render_full(
           working_dir: @config[:working_dir],
-          mode: @config[:mode],
-          max_iterations: @config[:max_iterations],
-          max_cost: @config[:max_cost]
+          mode: @config[:mode]
         )
         append_output(content)
       end

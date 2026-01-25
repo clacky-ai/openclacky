@@ -23,7 +23,7 @@ module Clacky
     VERSION = "1.0.0"
 
     # Quick start: Create a UI controller and run
-    # @param config [Hash] Optional configuration (working_dir, mode, max_iterations, max_cost, model)
+    # @param config [Hash] Optional configuration (working_dir, mode, model)
     # @example
     #   controller = Clacky::UI2::UIController.new
     #   controller.on_input { |input| puts "Got: #{input}" }

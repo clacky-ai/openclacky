@@ -42,9 +42,6 @@ module Clacky
     LONGDESC
     option :mode, type: :string, default: "confirm_safes",
            desc: "Permission mode: auto_approve, confirm_safes, confirm_edits, plan_only"
-    option :tools, type: :array, default: ["all"], desc: "Allowed tools"
-    option :max_iterations, type: :numeric, desc: "Maximum iterations (default: 50)"
-    option :max_cost, type: :numeric, desc: "Maximum cost in USD (default: 5.0)"
     option :verbose, type: :boolean, aliases: "-v", default: false, desc: "Show detailed output"
     option :path, type: :string, desc: "Project directory path (defaults to current directory)"
     option :continue, type: :boolean, aliases: "-c", desc: "Continue most recent session"
@@ -176,9 +173,6 @@ module Clacky
         AgentConfig.new(
           model: options[:model] || config.model,
           permission_mode: options[:mode].to_sym,
-          allowed_tools: options[:tools],
-          max_iterations: options[:max_iterations],
-          max_cost_usd: options[:max_cost],
           verbose: options[:verbose]
         )
       end
@@ -286,14 +280,27 @@ module Clacky
         Clacky::Agent.from_session(client, agent_config, session_data)
       end
 
+      # Handle agent error/interrupt with cleanup
+      def handle_agent_exception(ui_controller, agent, session_manager, exception)
+        ui_controller.stop_progress_thread
+        ui_controller.set_idle_status
+
+        if exception.is_a?(Clacky::AgentInterrupted)
+          session_manager&.save(agent.to_session_data(status: :interrupted))
+          ui_controller.show_warning("Task interrupted by user")
+        else
+          error_message = "#{exception.message}\n#{exception.backtrace&.first(3)&.join("\n")}"
+          session_manager&.save(agent.to_session_data(status: :error, error_message: error_message))
+          ui_controller.show_error("Error: #{exception.message}")
+        end
+      end
+
       # Run agent with UI2 split-screen interface
       def run_agent_with_ui2(agent, working_dir, agent_config, initial_message = nil, session_manager = nil, client = nil)
         # Create UI2 controller with configuration
         ui_controller = UI2::UIController.new(
           working_dir: working_dir,
           mode: agent_config.permission_mode.to_s,
-          max_iterations: agent_config.max_iterations,
-          max_cost: agent_config.max_cost_usd,
           model: agent_config.model
         )
 
@@ -384,28 +391,8 @@ module Clacky
 
               # Update session bar with agent's cumulative stats
               ui_controller.update_sessionbar(tasks: agent.total_tasks, cost: agent.total_cost)
-            rescue Clacky::AgentInterrupted
-              # Set status back to idle when interrupted
-              ui_controller.set_idle_status
-
-              # Save session on interruption
-              if session_manager
-                session_manager.save(agent.to_session_data(status: :interrupted))
-              end
-              ui_controller.show_warning("Task interrupted by user")
-            rescue StandardError => e
-              # Set status back to idle when error occurs
-              ui_controller.set_idle_status
-
-              # Save session on error
-              if session_manager
-                session_manager.save(agent.to_session_data(status: :error, error_message: e.message))
-              end
-
-              ui_controller.show_error("Error: #{e.message}")
-              if options[:verbose] && e.backtrace
-                ui_controller.show_error(e.backtrace.first(3).join("\n"))
-              end
+            rescue Clacky::AgentInterrupted, StandardError => e
+              handle_agent_exception(ui_controller, agent, session_manager, e)
             ensure
               agent_thread = nil
             end
@@ -431,10 +418,8 @@ module Clacky
 
             # Update session bar with agent's cumulative stats
             ui_controller.update_sessionbar(tasks: agent.total_tasks, cost: agent.total_cost)
-          rescue StandardError => e
-            # Set status back to idle when error occurs
-            ui_controller.set_idle_status
-            ui_controller.show_error("Error: #{e.message}")
+          rescue Clacky::AgentInterrupted, StandardError => e
+            handle_agent_exception(ui_controller, agent, session_manager, e)
           end
         end
 
