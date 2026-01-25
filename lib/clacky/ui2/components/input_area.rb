@@ -48,6 +48,11 @@ module Clacky
             cost: 0.0,
             status: 'idle'  # Workspace status: 'idle' or 'working'
           }
+
+          # Animation state for working status
+          @animation_frame = 0
+          @last_animation_update = Time.now
+          @working_frames = ["❄", "❅", "❆"]
         end
 
         # Get current theme from ThemeManager
@@ -681,10 +686,11 @@ module Clacky
           parts = []
           separator = @pastel.dim(" │ ")
 
-          # Workspace status
+          # Workspace status with animation
           if @sessionbar_info[:status]
+            status_indicator = get_status_indicator(@sessionbar_info[:status])
             status_theme_key = status_theme_key_for(@sessionbar_info[:status])
-            parts << theme.format_text(@sessionbar_info[:status], status_theme_key)
+            parts << "#{status_indicator} #{theme.format_text(@sessionbar_info[:status], status_theme_key)}"
           end
 
           # Working directory (shortened if too long)
@@ -760,6 +766,21 @@ module Clacky
             :progress  # Use progress color for working state
           else
             :info
+          end
+        end
+
+        def get_status_indicator(status)
+          case status.to_s.downcase
+          when 'working'
+            # Update animation frame if enough time has passed
+            now = Time.now
+            if now - @last_animation_update >= 0.3
+              @animation_frame = (@animation_frame + 1) % @working_frames.length
+              @last_animation_update = now
+            end
+            @working_frames[@animation_frame]
+          else
+            "●"  # Idle indicator
           end
         end
 
