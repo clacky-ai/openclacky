@@ -255,6 +255,11 @@ module Clacky
                 ready[0].each do |io|
                   begin
                     data = io.read_nonblock(4096)
+                    # Force UTF-8 encoding to avoid incompatible encoding errors
+                    data.force_encoding('UTF-8')
+                    # Replace invalid UTF-8 sequences with replacement character
+                    data = data.scrub('?') unless data.valid_encoding?
+                    
                     if io == stdout
                       stdout_buf.push_lines(data)
                     else
