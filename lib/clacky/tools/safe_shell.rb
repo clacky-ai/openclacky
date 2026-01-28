@@ -297,12 +297,18 @@ module Clacky
 
       def validate_general_command(command)
         # Check general command security
+        # Note: We need to be careful not to match patterns inside quoted strings
+        
+        # First, remove quoted strings to avoid false positives
+        # This is a simplified approach - removes both single and double quoted content
+        cmd_without_quotes = command.gsub(/'[^']*'|"[^"]*"/, '')
+        
         dangerous_patterns = [
           /eval\s*\(/,
           /exec\s*\(/,
           /system\s*\(/,
-          /`.*`/,
-          /\$\(.*\)/,
+          /`[^`]+`/,  # Command substitution with backticks (but only if not in quotes)
+          /\$\([^)]+\)/,  # Command substitution with $() (but only if not in quotes)
           /\|\s*sh\s*$/,
           /\|\s*bash\s*$/,
           />\s*\/etc\//,
@@ -311,7 +317,7 @@ module Clacky
         ]
 
         dangerous_patterns.each do |pattern|
-          if command.match?(pattern)
+          if cmd_without_quotes.match?(pattern)
             raise SecurityError, "Dangerous command pattern detected: #{pattern.source}"
           end
         end

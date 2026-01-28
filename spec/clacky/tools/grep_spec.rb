@@ -113,6 +113,30 @@ RSpec.describe Clacky::Tools::Grep do
         expect(result[:results].first[:matches].length).to eq(2)
       end
     end
+
+    it "respects .gitignore patterns" do
+      Dir.mktmpdir do |dir|
+        # Create .gitignore
+        File.write(File.join(dir, ".gitignore"), "/tmp/\n/vendor/\n")
+        
+        # Create files in ignored directories
+        FileUtils.mkdir_p(File.join(dir, "tmp"))
+        FileUtils.mkdir_p(File.join(dir, "vendor"))
+        FileUtils.mkdir_p(File.join(dir, "lib"))
+        
+        File.write(File.join(dir, "tmp", "test.rb"), "TerminalChannel")
+        File.write(File.join(dir, "vendor", "test.rb"), "TerminalChannel")
+        File.write(File.join(dir, "lib", "test.rb"), "TerminalChannel")
+
+        result = tool.execute(pattern: "TerminalChannel", path: dir, file_pattern: "**/*.rb")
+
+        expect(result[:error]).to be_nil
+        # Should only find the file in lib/, not in tmp/ or vendor/
+        expect(result[:files_with_matches]).to eq(1)
+        expect(result[:results].first[:file]).to end_with("lib/test.rb")
+        expect(result[:skipped_files][:ignored]).to eq(2)
+      end
+    end
   end
 
   describe "#to_function_definition" do

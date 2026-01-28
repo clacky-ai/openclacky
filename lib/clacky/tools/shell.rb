@@ -65,6 +65,8 @@ module Clacky
         stdout_buffer = StringIO.new
         stderr_buffer = StringIO.new
         soft_timeout_triggered = false
+        check_time = nil
+        last_size = nil
 
         begin
           Open3.popen3(command) do |stdin, stdout, stderr, wait_thr|
@@ -95,7 +97,7 @@ module Clacky
               if elapsed > soft_timeout && !soft_timeout_triggered
                 soft_timeout_triggered = true
 
-                # L1:
+                # L1: Check for interaction patterns first
                 interaction = detect_interaction(stdout_buffer.string)
                 if interaction
                   Process.kill('TERM', wait_thr.pid) rescue nil
@@ -108,14 +110,21 @@ module Clacky
                   )
                 end
 
-                # L2:
+                # L2: Send newline and schedule check for 2 seconds later
                 last_size = stdout_buffer.size
                 stdin.puts("\n") rescue nil
-                sleep 2
+                check_time = Time.now + 2  # Check after 2 seconds
+              end
 
-                if stdout_buffer.size > last_size
-                  next
+              # If soft timeout was triggered, check if it's time to verify output
+              if soft_timeout_triggered && check_time && Time.now >= check_time
+                current_size = stdout_buffer.size
+                if current_size > last_size
+                  # Output increased, program is responding - stop checking, let it continue
+                  check_time = nil
+                  last_size = nil
                 else
+                  # No new output, program is stuck
                   Process.kill('TERM', wait_thr.pid) rescue nil
                   return format_stuck_result(
                     command,

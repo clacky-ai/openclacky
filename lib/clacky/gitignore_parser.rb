@@ -71,41 +71,55 @@ module Clacky
 
     def match_pattern?(path, pattern_info)
       pattern = pattern_info[:pattern]
+      is_absolute = pattern_info[:is_absolute]
       
-      # Remove leading slash for absolute patterns
-      pattern = pattern[1..] if pattern_info[:is_absolute]
+      # For absolute patterns (starting with /), remove the leading slash
+      # These patterns match from the root of the repository
+      if is_absolute
+        pattern = pattern[1..]
+        # Absolute patterns match exactly from the start of the path
+        return true if path == pattern
+        return true if path.start_with?("#{pattern}/")
+      end
       
       # Handle directory patterns
       if pattern_info[:is_directory]
-        return false unless File.directory?(path)
+        # Directory patterns should match the directory and all its contents
+        return true if path == pattern
+        return true if path.start_with?("#{pattern}/")
+        # Also check if any path component matches the directory pattern
+        return true if path.split('/').include?(pattern)
       end
       
       # Handle different wildcard patterns
       if pattern_info[:has_double_star]
         # Convert ** to match any number of directories
-        regex_pattern = pattern
-          .gsub('**/', '(.*/)?')  # **/ matches zero or more directories
-          .gsub('**', '.*')        # ** at end matches anything
-          .gsub('*', '[^/]*')      # * matches anything except /
-          .gsub('?', '[^/]')       # ? matches single character except /
+        regex_pattern = Regexp.escape(pattern)
+          .gsub('\*\*/', '(.*/)?')  # **/ matches zero or more directories
+          .gsub('\*\*', '.*')        # ** at end matches anything
+          .gsub('\*', '[^/]*')       # * matches anything except /
+          .gsub('\?', '[^/]')        # ? matches single character except /
         
         regex = Regexp.new("^#{regex_pattern}$")
         return true if path.match?(regex)
         return true if path.split('/').any? { |part| part.match?(regex) }
       elsif pattern_info[:has_wildcard]
         # Convert glob pattern to regex
-        regex_pattern = pattern
-          .gsub('*', '[^/]*')
-          .gsub('?', '[^/]')
+        regex_pattern = Regexp.escape(pattern)
+          .gsub('\*', '[^/]*')
+          .gsub('\?', '[^/]')
         
         regex = Regexp.new("^#{regex_pattern}$")
         return true if path.match?(regex)
         return true if File.basename(path).match?(regex)
       else
-        # Exact match
+        # Exact match - pattern without wildcards
+        # Match as basename or as path prefix
         return true if path == pattern
         return true if path.start_with?("#{pattern}/")
         return true if File.basename(path) == pattern
+        # Also check if pattern matches any path component
+        return true if path.split('/').include?(pattern)
       end
       
       false
