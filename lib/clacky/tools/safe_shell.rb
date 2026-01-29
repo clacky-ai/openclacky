@@ -178,17 +178,92 @@ module Clacky
         stderr = result[:stderr] || result['stderr'] || ""
 
         if result[:security_blocked]
-          "🔒 Blocked for security"
+          "[Blocked] Security protection"
         elsif result[:security_enhanced]
           lines = stdout.lines.size
-          "🔒✓ Safe execution#{lines > 0 ? " (#{lines} lines)" : ''}"
+          "[Safe] Completed#{lines > 0 ? " (#{lines} lines)" : ''}"
         elsif exit_code == 0
           lines = stdout.lines.size
-          "✓ Completed#{lines > 0 ? " (#{lines} lines)" : ''}"
+          "[OK] Completed#{lines > 0 ? " (#{lines} lines)" : ''}"
         else
-          error_msg = stderr.lines.first&.strip || "Failed"
-          "✗ Exit #{exit_code}: #{error_msg[0..50]}"
+          format_non_zero_exit(exit_code, stdout, stderr)
         end
+      end
+
+      private def format_non_zero_exit(exit_code, stdout, stderr)
+        stdout_lines = stdout.lines.size
+        has_output = stdout_lines > 0
+        has_error = !stderr.empty?
+        
+        if has_error
+          # Real error: show error summary
+          error_summary = extract_error_summary(stderr)
+          "[Exit #{exit_code}] #{error_summary}"
+        elsif has_output
+          # Command produced output but exited with non-zero code
+          # This is common in commands like "ls; exit 1" or grep with no matches
+          "[Exit #{exit_code}] #{stdout_lines} lines output"
+        else
+          # No output, no error message - just show exit code
+          "[Exit #{exit_code}] No output"
+        end
+      end
+
+      private def extract_error_summary(stderr)
+        return "No error message" if stderr.empty?
+        
+        # Try to extract the most meaningful error line
+        lines = stderr.lines.map(&:strip).reject(&:empty?)
+        
+        # Common error patterns with priority
+        patterns = [
+          # Ruby/Python exceptions with error type
+          { regex: /(\w+(?:Error|Exception)):\s*(.+)$/, format: ->(m) { "#{m[1]}: #{m[2]}" } },
+          # File not found patterns
+          { regex: /cannot load such file.*--\s*(.+)$/, format: ->(m) { "Cannot load file: #{m[1]}" } },
+          { regex: /No such file or directory.*[@\-]\s*(.+)$/, format: ->(m) { "File not found: #{m[1]}" } },
+          # Undefined method/variable
+          { regex: /undefined (?:local variable or )?method [`'](\w+)'/, format: ->(m) { "Undefined method: #{m[1]}" } },
+          # Syntax errors
+          { regex: /syntax error,?\s*(.+)$/i, format: ->(m) { "Syntax error: #{m[1]}" } }
+        ]
+        
+        # Try each pattern on each line
+        patterns.each do |pattern|
+          lines.each do |line|
+            match = line.match(pattern[:regex])
+            if match
+              result = pattern[:format].call(match)
+              return truncate_error(clean_path(result), 80)
+            end
+          end
+        end
+        
+        # Fallback: find the most informative line
+        informative_line = lines.find do |line|
+          !line.start_with?('from', 'Did you mean?', '#', 'Showing full backtrace') &&
+          line.length > 10 &&
+          (line.include?(':') || line.match?(/error|failed|cannot|invalid/i))
+        end
+        
+        if informative_line
+          return truncate_error(clean_path(informative_line), 80)
+        end
+        
+        # Last resort: use first meaningful line
+        first_line = lines.first || "Unknown error"
+        truncate_error(clean_path(first_line), 80)
+      end
+
+      private def clean_path(text)
+        # Remove long absolute paths, keep only filename
+        text.gsub(/\/(?:Users|home)\/[^\/]+\/[\w\/\.\-]+\/([^:\/\s]+)/, '')
+            .gsub(/\/[\w\/\.\-]{30,}\/([^:\/\s]+)/, '...')
+      end
+
+      private def truncate_error(text, max_length)
+        return text if text.length <= max_length
+        "#{text[0...max_length-3]}..."
       end
     end
 

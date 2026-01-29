@@ -3,6 +3,7 @@
 require_relative "components/message_component"
 require_relative "components/tool_component"
 require_relative "components/common_component"
+require_relative "markdown_renderer"
 
 module Clacky
   module UI2
@@ -31,9 +32,16 @@ module Clacky
       # @param timestamp [Time, nil] Optional timestamp
       # @return [String] Rendered message
       def render_assistant_message(content, timestamp: nil)
+        # Render markdown if content contains markdown syntax
+        rendered_content = if MarkdownRenderer.markdown?(content)
+          MarkdownRenderer.render(content)
+        else
+          content
+        end
+
         @message_component.render(
           role: "assistant",
-          content: content,
+          content: rendered_content,
           timestamp: timestamp
         )
       end
