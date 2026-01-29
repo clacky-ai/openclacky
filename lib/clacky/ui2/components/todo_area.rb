@@ -52,9 +52,9 @@ module Clacky
           
           tasks_to_show.each_with_index do |task, index|
             move_cursor(start_row + index, 0)
-            clear_line
-
-            if index == 0
+            
+            # Build the line content
+            line_content = if index == 0
               # First line: Task [2/4]: #3 - Current task description
               progress = "#{@completed_count}/#{@total_count}"
               prefix = "Task [#{progress}]: "
@@ -62,7 +62,7 @@ module Clacky
               available_width = @width - prefix.length - 2
               truncated_task = truncate_text(task_text, available_width)
               
-              print "#{@pastel.cyan(prefix)}#{truncated_task}"
+              "#{@pastel.cyan(prefix)}#{truncated_task}"
             else
               # Subsequent lines: -> Next: #4 - Next task description
               label = index == 1 ? "Next" : "After"
@@ -71,8 +71,13 @@ module Clacky
               available_width = @width - prefix.length - 2
               truncated_task = truncate_text(task_text, available_width)
               
-              print "#{@pastel.dim(prefix)}#{@pastel.dim(truncated_task)}"
+              "#{@pastel.dim(prefix)}#{@pastel.dim(truncated_task)}"
             end
+
+            # Use carriage return and print content directly (overwrite existing content)
+            print "\r#{line_content}"
+            # Clear any remaining characters from previous render if line is shorter
+            clear_to_end_of_line
           end
 
           flush
@@ -110,9 +115,9 @@ module Clacky
           print "\e[#{row + 1};#{col + 1}H"
         end
 
-        # Clear current line
-        def clear_line
-          print "\e[2K"
+        # Clear from cursor to end of line
+        def clear_to_end_of_line
+          print "\e[0K"
         end
 
         # Flush output

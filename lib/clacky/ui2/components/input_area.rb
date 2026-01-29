@@ -13,6 +13,16 @@ module Clacky
       class InputArea
         include LineEditor
 
+        # User tips pool - can be extended with more tips over time
+        USER_TIPS = [
+          "Shift+Tab to toggle permission mode (confirm_safes ⇄ auto_approve)",
+          "Ctrl+C to interrupt AI execution or clear input",
+          "Shift+Enter to create multi-line input",
+          "Ctrl+V to paste images (supports up to 3 images)",
+          "Ctrl+D to delete pasted images",
+          "Use /clear to restart session, /help for commands"
+        ].freeze
+
         attr_accessor :row
         attr_reader :cursor_position, :line_index, :images, :tips_message, :tips_type
 
@@ -35,6 +45,11 @@ module Clacky
           @tips_type = :info
           @tips_timer = nil
           @last_render_row = nil
+
+          # User tip (usage suggestion) - separate from system tips
+          @user_tip = nil
+          @user_tip_timer = nil
+          @user_tip_count = 0
 
           # Paused state - when InlineInput is active
           @paused = false
@@ -88,6 +103,7 @@ module Clacky
           
           height += 1  # Bottom separator
           height += 1 if @tips_message
+          height += 1 if @user_tip
           height
         end
 
@@ -242,6 +258,14 @@ module Clacky
             current_row += 1
           end
 
+          # User tip (if any)
+          if @user_tip
+            move_cursor(current_row, 0)
+            content = format_user_tip(@user_tip)
+            print_with_padding(content)
+            current_row += 1
+          end
+
           # Position cursor at current edit position
           position_cursor(start_row)
           flush
@@ -332,6 +356,58 @@ module Clacky
             @tips_timer.kill
           end
           @tips_message = nil
+        end
+
+        # Show a random user tip with probability and auto-rotation (max 3 tips)
+        # @param probability [Float] Probability of showing tip (0.0 to 1.0, default: 0.4)
+        # @param rotation_interval [Integer] Seconds between tip rotation (default: 12)
+        # @param max_tips [Integer] Maximum number of tips to show before stopping (default: 3)
+        def show_user_tip(probability: 0.4, rotation_interval: 12, max_tips: 3)
+          # Random chance to show tip
+          return unless rand < probability
+          
+          # Stop existing timer if any
+          stop_user_tip_timer
+          
+          # Reset counter and pick first random tip
+          @user_tip_count = 1
+          @user_tip = USER_TIPS.sample
+          
+          # Start rotation timer (will show max_tips total)
+          @user_tip_timer = Thread.new do
+            while @user_tip_count < max_tips
+              sleep rotation_interval
+              @user_tip_count += 1
+              
+              # Pick a different tip
+              old_tip = @user_tip
+              loop do
+                @user_tip = USER_TIPS.sample
+                break if @user_tip != old_tip || USER_TIPS.size == 1
+              end
+            end
+            
+            # After showing max_tips, wait then clear
+            sleep rotation_interval
+            @user_tip = nil
+            @user_tip_count = 0
+          rescue => e
+            # Silently handle thread errors
+          end
+        end
+
+        # Clear user tip and stop rotation
+        def clear_user_tip
+          stop_user_tip_timer
+          @user_tip = nil
+          @user_tip_count = 0
+        end
+
+        private def stop_user_tip_timer
+          if @user_tip_timer&.alive?
+            @user_tip_timer.kill
+            @user_tip_timer = nil
+          end
         end
 
         # Pause input area (when InlineInput is active)
@@ -583,18 +659,23 @@ module Clacky
 
           # Handle commands (with or without slash)
           if text.start_with?('/')
-            case text
-            when '/clear'
-              clear
-              return { action: :clear_output }
-            when '/help'
-              return { action: :help }
-            when '/exit', '/quit'
-              return { action: :exit }
-            else
-              set_tips("Unknown command: #{text} (Available: /clear, /help, /exit)", type: :warning)
-              return { action: nil }
+            # Check if it's a command (single slash followed by English letters only)
+            # Paths like /xxx/xxxx should not be treated as commands
+            if text =~ /^\/([a-zA-Z]+)$/
+              case text
+              when '/clear'
+                clear
+                return { action: :clear_output }
+              when '/help'
+                return { action: :help }
+              when '/exit', '/quit'
+                return { action: :exit }
+              else
+                set_tips("Unknown command: #{text} (Available: /clear, /help, /exit)", type: :warning)
+                return { action: nil }
+              end
             end
+            # If it's not a command pattern (e.g., /xxx/xxxx), treat as normal input
           elsif text == '?'
             return { action: :help }
           elsif text == 'exit' || text == 'quit'
@@ -1010,6 +1091,20 @@ module Clacky
           else
             "#{(size / 1024.0 / 1024.0).round(1)}MB"
           end
+        end
+
+        # Format user tip (usage suggestion) with lightbulb icon
+        # @param tip [String] Tip message
+        # @return [String] Formatted tip with styling
+        def format_user_tip(tip)
+          # Limit message length to prevent line wrapping
+          max_length = @width - 5  # Reserve space for icon and margins
+          if tip.length > max_length
+            tip = tip[0...(max_length - 3)] + "..."
+          end
+          
+          # Use lightbulb icon and dim cyan color for subtle appearance
+          @pastel.dim(@pastel.cyan("💡 #{tip}"))
         end
 
         def move_cursor(row, col)

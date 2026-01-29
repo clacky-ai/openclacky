@@ -349,6 +349,10 @@ module Clacky
       def show_complete(iterations:, cost:, duration: nil, cache_stats: nil)
         # Update status back to 'idle' when task is complete
         update_sessionbar(status: 'idle')
+        
+        # Clear user tip when agent stops working
+        @input_area.clear_user_tip
+        @layout.render_input
 
         # Only show completion message for complex tasks (>5 iterations)
         return if iterations <= 5
@@ -451,11 +455,17 @@ module Clacky
       # Set workspace status to idle (called when agent stops working)
       def set_idle_status
         update_sessionbar(status: 'idle')
+        # Clear user tip when agent stops working
+        @input_area.clear_user_tip
+        @layout.render_input
       end
 
       # Set workspace status to working (called when agent starts working)
       def set_working_status
         update_sessionbar(status: 'working')
+        # Show a random user tip with 40% probability when agent starts working
+        @input_area.show_user_tip(probability: 0.4)
+        @layout.render_input
       end
 
       # Show help text
