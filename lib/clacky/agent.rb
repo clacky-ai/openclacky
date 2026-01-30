@@ -163,7 +163,8 @@ module Clacky
     def run(user_input, images: [])
       @start_time = Time.now
       @task_cost_source = :estimated  # Reset for new task
-      @previous_total_tokens = 0  # Reset token tracking for new task
+      # Note: Do NOT reset @previous_total_tokens here - it should maintain the value from the last iteration
+      # across tasks to correctly calculate delta tokens in each iteration
       @task_start_iterations = @iterations  # Track starting iterations for this task
       @task_start_cost = @total_cost  # Track starting cost for this task
 
