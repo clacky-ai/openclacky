@@ -270,8 +270,10 @@ module Clacky
         max_row = fixed_area_start_row - 1
         @output_row = [@output_row, max_row].min
 
-        # Clear old fixed area lines
-        ([old_gap_row, 0].max...screen.height).each do |row|
+        # Clear old fixed area lines and a few lines above (in case of terminal auto-wrap)
+        # Clear from a few lines before old_gap_row to screen bottom to handle wrapped content
+        clear_start = [old_gap_row - 5, 0].max  # Clear 5 lines before gap to catch wrapped content
+        (clear_start...screen.height).each do |row|
           screen.move_cursor(row, 0)
           screen.clear_line
         end

@@ -84,8 +84,15 @@ module Clacky
           # When paused (InlineInput active), don't take up any space
           return 0 if @paused
 
-          height = 1  # Session bar (top)
-          height += 1  # Separator after session bar
+          height = 0
+          
+          # Session bar - calculate actual wrapped height
+          height += calculate_sessionbar_height
+          
+          # Separator after session bar
+          height += 1
+          
+          # Images
           height += @images.size
           
           # Calculate height considering wrapped lines
@@ -101,9 +108,13 @@ module Clacky
             height += wrapped_segments.size
           end
           
-          height += 1  # Bottom separator
+          # Bottom separator
+          height += 1
+          
+          # Tips and user tips
           height += 1 if @tips_message
           height += 1 if @user_tip
+          
           height
         end
 
@@ -202,49 +213,7 @@ module Clacky
           end
 
           # Input lines with auto-wrap support
-          @lines.each_with_index do |line, idx|
-            prefix = if idx == 0
-              prompt_text = theme.format_symbol(:user) + " "
-              prompt_text
-            else
-              " " * prompt.length
-            end
-
-            # Calculate available width for text (excluding prefix)
-            prefix_width = calculate_display_width(strip_ansi_codes(prefix))
-            available_width = @width - prefix_width
-
-            # Wrap line if needed
-            wrapped_segments = wrap_line(line, available_width)
-
-            wrapped_segments.each_with_index do |segment_info, wrap_idx|
-              move_cursor(current_row, 0)
-
-              segment_text = segment_info[:text]
-              segment_start = segment_info[:start]
-              segment_end = segment_info[:end]
-
-              content = if wrap_idx == 0
-                # First wrapped line includes prefix
-                if idx == @line_index
-                  "#{prefix}#{render_line_segment_with_cursor(line, segment_start, segment_end)}"
-                else
-                  "#{prefix}#{theme.format_text(segment_text, :user)}"
-                end
-              else
-                # Continuation lines have indent matching prefix width
-                continuation_indent = " " * prefix_width
-                if idx == @line_index
-                  "#{continuation_indent}#{render_line_segment_with_cursor(line, segment_start, segment_end)}"
-                else
-                  "#{continuation_indent}#{theme.format_text(segment_text, :user)}"
-                end
-              end
-              
-              print_with_padding(content)
-              current_row += 1
-            end
-          end
+          current_row = render_input_lines(current_row)
 
           # Bottom separator
           render_separator(current_row)
@@ -561,6 +530,73 @@ module Clacky
 
         private
 
+        # Render all input lines with auto-wrap support
+        # @param start_row [Integer] Starting row position
+        # @return [Integer] Next available row after rendering all lines
+        def render_input_lines(start_row)
+          current_row = start_row
+          
+          @lines.each_with_index do |line, line_idx|
+            prefix = calculate_line_prefix(line_idx)
+            prefix_width = calculate_display_width(strip_ansi_codes(prefix))
+            available_width = @width - prefix_width
+            wrapped_segments = wrap_line(line, available_width)
+
+            wrapped_segments.each_with_index do |segment_info, wrap_idx|
+              content = render_line_segment(line, line_idx, segment_info, wrap_idx, prefix, prefix_width)
+              move_cursor(current_row, 0)
+              print_with_padding(content)
+              current_row += 1
+            end
+          end
+          
+          current_row
+        end
+
+        # Calculate the prefix (prompt or indent) for a given line index
+        # @param line_idx [Integer] Index of the line
+        # @return [String] Prefix string (with formatting)
+        private def calculate_line_prefix(line_idx)
+          if line_idx == 0
+            theme.format_symbol(:user) + " "
+          else
+            " " * prompt.length
+          end
+        end
+
+        # Render a single segment of a line (handling cursor and wrapping)
+        # @param line [String] Full line text
+        # @param line_idx [Integer] Index of the line in @lines
+        # @param segment_info [Hash] Segment information from wrap_line
+        # @param wrap_idx [Integer] Index of this segment in wrapped segments
+        # @param prefix [String] Line prefix (prompt or indent)
+        # @param prefix_width [Integer] Display width of the prefix
+        # @return [String] Formatted content for this segment
+        private def render_line_segment(line, line_idx, segment_info, wrap_idx, prefix, prefix_width)
+          segment_text = segment_info[:text]
+          segment_start = segment_info[:start]
+          segment_end = segment_info[:end]
+          
+          is_current_line = (line_idx == @line_index)
+          is_first_segment = (wrap_idx == 0)
+          
+          # Determine the line prefix
+          line_prefix = if is_first_segment
+            prefix
+          else
+            " " * prefix_width  # Continuation indent
+          end
+          
+          # Render the segment content (with or without cursor)
+          segment_content = if is_current_line
+            render_line_segment_with_cursor(line, segment_start, segment_end)
+          else
+            theme.format_text(segment_text, :user)
+          end
+          
+          "#{line_prefix}#{segment_content}"
+        end
+
         # Wrap a line into multiple segments based on available width
         # Considers display width of characters (multi-byte characters like Chinese)
         # @param line [String] The line to wrap
@@ -646,12 +682,29 @@ module Clacky
           visible_content = content.gsub(/\e\[[0-9;]*m/, '')
           visible_width = calculate_display_width(visible_content)
           
-          # Print content
-          print content
-          
-          # Pad with spaces if needed to clear old content
-          remaining = @width - visible_width
-          print " " * remaining if remaining > 0
+          # IMPORTANT: If content exceeds screen width, truncate to prevent terminal auto-wrap
+          if visible_width > @width
+            # Content too long - truncate to fit (loses ANSI colors but prevents wrapping)
+            truncate_at = 0
+            current_width = 0
+            visible_content.each_char.with_index do |char, idx|
+              char_width = char_display_width(char)
+              break if current_width + char_width + 3 > @width  # Reserve 3 for "..."
+              current_width += char_width
+              truncate_at = idx + 1
+            end
+            print visible_content[0...truncate_at]
+            print "..."
+            # Pad remaining
+            remaining = @width - current_width - 3
+            print " " * remaining if remaining > 0
+          else
+            # Content fits - print normally
+            print content
+            # Pad with spaces if needed to clear old content
+            remaining = @width - visible_width
+            print " " * remaining if remaining > 0
+          end
         end
 
         def handle_enter
@@ -948,22 +1001,46 @@ module Clacky
           end
         end
 
+        # Render a separator line (ensures it doesn't exceed screen width)
+        # @param row [Integer] Row position to render
         def render_separator(row)
           move_cursor(row, 0)
-          content = @pastel.dim("─" * @width)
-          print_with_padding(content)
+          # Ensure separator doesn't exceed screen width to prevent wrapping
+          separator_width = [@width, 1].max
+          content = @pastel.dim("─" * separator_width)
+          print content
+          # Clear any remaining space
+          remaining = @width - separator_width
+          print " " * remaining if remaining > 0
         end
 
+        # Render session bar with wrapping support
+        # @param row [Integer] Starting row position
+        # @return [Integer] Number of rows actually used
         def render_sessionbar(row)
           move_cursor(row, 0)
 
           # If no sessionbar info, just render a separator
           unless @sessionbar_info[:working_dir]
-            content = @pastel.dim("─" * @width)
-            print_with_padding(content)
-            return
+            separator_width = [@width, 1].max
+            content = @pastel.dim("─" * separator_width)
+            print content
+            remaining = @width - separator_width
+            print " " * remaining if remaining > 0
+            return 1
           end
 
+          session_line = build_sessionbar_content
+          
+          # IMPORTANT: Always use print_with_padding which handles truncation
+          # to prevent terminal auto-wrap
+          print_with_padding(session_line)
+          1
+        end
+        
+        # Build the session bar content string
+        # @return [String] Formatted session bar content
+        private def build_sessionbar_content
           parts = []
           separator = @pastel.dim(" │ ")
 
@@ -998,8 +1075,47 @@ module Clacky
           cost_display = format("$%.1f", @sessionbar_info[:cost])
           parts << @pastel.dim(@pastel.white(cost_display))
 
-          session_line = " " + parts.join(separator)
-          print_with_padding(session_line)
+          " " + parts.join(separator)
+        end
+        
+        # Truncate session bar content to fit within max length
+        # @param content [String] Full session bar content with ANSI codes
+        # @param max_length [Integer] Maximum visible length
+        # @return [String] Truncated content
+        private def truncate_sessionbar_content(content, max_length)
+          # Strip ANSI codes to calculate visible length
+          visible_content = strip_ansi_codes(content)
+          visible_width = calculate_display_width(visible_content)
+          
+          return content if visible_width <= max_length
+          
+          # Truncate from the end with "..." indicator
+          chars = visible_content.chars
+          current_width = 0
+          truncate_at = 0
+          
+          chars.each_with_index do |char, idx|
+            char_width = char_display_width(char)
+            if current_width + char_width + 3 > max_length  # Reserve 3 for "..."
+              truncate_at = idx
+              break
+            end
+            current_width += char_width
+            truncate_at = idx + 1
+          end
+          
+          # For simplicity with ANSI codes, just show first part + ...
+          # This is a simplified version - proper implementation would preserve ANSI codes
+          visible_content[0...truncate_at] + "..."
+        end
+        
+        # Calculate how many rows the session bar will occupy
+        # @return [Integer] Number of rows needed
+        private def calculate_sessionbar_height
+          return 1 unless @sessionbar_info[:working_dir]
+          
+          # Session bar always renders on one line (we truncate if needed)
+          1
         end
 
         def shorten_path(path)
