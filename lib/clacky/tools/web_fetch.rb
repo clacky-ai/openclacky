@@ -2,6 +2,8 @@
 
 require "net/http"
 require "uri"
+require "tmpdir"
+require "fileutils"
 
 module Clacky
   module Tools
@@ -18,14 +20,14 @@ module Clacky
           },
           max_length: {
             type: "integer",
-            description: "Maximum content length to return in characters (default: 50000)",
-            default: 50000
+            description: "Maximum content length to return in characters (default: 3000)",
+            default: 3000
           }
         },
         required: %w[url]
       }
 
-      def execute(url:, max_length: 50000)
+      def execute(url:, max_length: 3000)
         # Validate URL
         begin
           uri = URI.parse(url)
@@ -46,7 +48,7 @@ module Clacky
 
           # Parse HTML if it's an HTML page
           if content_type.include?("text/html")
-            result = parse_html(content, max_length)
+            result = parse_html(content, max_length, url)
             result[:url] = url
             result[:content_type] = content_type
             result[:status_code] = response.code.to_i
@@ -54,19 +56,43 @@ module Clacky
             result
           else
             # For non-HTML content, return raw text
-            truncated_content = content[0, max_length]
-            {
-              url: url,
-              content_type: content_type,
-              status_code: response.code.to_i,
-              content: truncated_content,
-              truncated: content.length > max_length,
-              error: nil
-            }
+            result = handle_raw_content(content, max_length, url, content_type, response.code.to_i)
+            result
           end
         rescue StandardError => e
           { error: "Failed to fetch URL: #{e.message}" }
         end
+      end
+
+      def handle_raw_content(content, max_length, url, content_type, status_code)
+        truncated = content.length > max_length
+        temp_file = nil
+
+        if truncated
+          temp_dir = Dir.mktmpdir
+          domain = extract_domain(url)
+          safe_name = domain.gsub(/[^\w\-.]/, '_')[0...50]
+          timestamp = Time.now.strftime("%Y%m%d_%H%M%S")
+          temp_file = File.join(temp_dir, "#{safe_name}_#{timestamp}.txt")
+          File.write(temp_file, content)
+        end
+
+        {
+          url: url,
+          content_type: content_type,
+          status_code: status_code,
+          content: content[0, max_length],
+          truncated: truncated,
+          temp_file: temp_file,
+          error: nil
+        }
+      end
+
+      def extract_domain(url)
+        uri = URI.parse(url)
+        uri.host || url.gsub(/[^\w\-.]/, '_')
+      rescue
+        url.gsub(/[^\w\-.]/, '_')
       end
 
       def fetch_url(uri)
@@ -97,7 +123,7 @@ module Clacky
         end
       end
 
-      def parse_html(html, max_length)
+      def parse_html(html, max_length, url = nil)
         # Extract title
         title = ""
         if html =~ %r{<title[^>]*>(.*?)</title>}mi
@@ -122,15 +148,25 @@ module Clacky
         # Clean up whitespace
         text = text.gsub(/\s+/, " ").strip
 
-        # Truncate if needed
+        # Check if we need to save to temp file
         truncated = text.length > max_length
-        text = text[0, max_length] if truncated
+        temp_file = nil
+
+        if truncated
+          temp_dir = Dir.mktmpdir
+          domain = url ? extract_domain(url) : "web_fetch"
+          safe_name = domain.gsub(/[^\w\-.]/, '_')[0...50]
+          timestamp = Time.now.strftime("%Y%m%d_%H%M%S")
+          temp_file = File.join(temp_dir, "#{safe_name}_#{timestamp}.txt")
+          File.write(temp_file, text)
+        end
 
         {
           title: title,
           description: description,
-          content: text,
-          truncated: truncated
+          content: text[0, max_length],
+          truncated: truncated,
+          temp_file: temp_file
         }
       end
 
@@ -155,6 +191,33 @@ module Clacky
           display_title = title.length > 40 ? "#{title[0..37]}..." : title
           "[OK] Fetched: #{display_title}"
         end
+      end
+
+      # Format result for LLM consumption - return compact version to save tokens
+      def format_result_for_llm(result)
+        # Return error as-is
+        return result if result[:error]
+
+        # Build compact result
+        compact = {
+          url: result[:url],
+          title: result[:title],
+          description: result[:description],
+          status_code: result[:status_code]
+        }
+
+        # Add truncated notice and temp file info if content was truncated
+        if result[:truncated] && result[:temp_file]
+          compact[:content] = result[:content]
+          compact[:truncated] = true
+          compact[:temp_file] = result[:temp_file]
+          compact[:message] = "[Content truncated - full content saved to temp file. Use file_reader to read it if needed.]"
+        else
+          compact[:content] = result[:content]
+          compact[:truncated] = result[:truncated] || false
+        end
+
+        compact
       end
     end
   end
