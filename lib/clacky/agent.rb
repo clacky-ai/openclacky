@@ -10,7 +10,7 @@ require_relative "utils/file_processor"
 module Clacky
   class Agent
     attr_reader :session_id, :messages, :iterations, :total_cost, :working_dir, :created_at, :total_tasks, :todos,
-                :cache_stats, :cost_source, :ui
+                :cache_stats, :cost_source, :ui, :skill_loader
 
     # System prompt for the coding agent
     SYSTEM_PROMPT = <<~PROMPT.freeze

@@ -752,7 +752,7 @@ module Clacky
           if text.start_with?('/')
             # Check if it's a command (single slash followed by English letters only)
             # Paths like /xxx/xxxx should not be treated as commands
-            if text =~ /^\/([a-zA-Z]+)$/
+            if text =~ /^\/([a-zA-Z-]+)$/
               case text
               when '/clear'
                 clear
@@ -762,8 +762,8 @@ module Clacky
               when '/exit', '/quit'
                 return { action: :exit }
               else
-                set_tips("Unknown command: #{text} (Available: /clear, /help, /exit)", type: :warning)
-                return { action: nil }
+                # Let other commands (like skills) pass through to agent
+                # Fall through to submit
               end
             end
             # If it's not a command pattern (e.g., /xxx/xxxx), treat as normal input
