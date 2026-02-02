@@ -1032,9 +1032,6 @@ module Clacky
 
       original_tokens = total_tokens
 
-      @ui&.show_info("Compressing history (~#{original_tokens} tokens -> ~#{TARGET_COMPRESSED_TOKENS} tokens)...")
-      @ui&.show_info("Compression level: #{@compression_level}")
-
       # Find the system message (should be first)
       system_msg = @messages.find { |m| m[:role] == "system" }
 
@@ -1044,8 +1041,6 @@ module Clacky
 
       # Get messages to compress (everything except system and recent)
       messages_to_compress = @messages.reject { |m| m[:role] == "system" || recent_messages.include?(m) }
-
-      @ui&.show_info("  debug: total=#{@messages.size}, recent=#{recent_messages.size}, to_compress=#{messages_to_compress.size}")
 
       return if messages_to_compress.empty?
 
@@ -1066,7 +1061,7 @@ module Clacky
 
       final_tokens = total_message_tokens[:total]
 
-      @ui&.show_info("Compressed (~#{original_tokens} -> ~#{final_tokens} tokens, level #{@compression_level})")
+      @ui&.show_info("History compressed (~#{original_tokens} -> ~#{final_tokens} tokens, level #{@compression_level})")
     end
 
     # Calculate how many recent messages to keep based on how much we need to compress
