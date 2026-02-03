@@ -17,6 +17,7 @@ GEM
   specs:
     ast (2.4.3)
     base64 (0.3.0)
+    climate_control (1.2.0)
     date (3.5.1)
     diff-lcs (1.6.2)
     diffy (3.4.4)
@@ -130,6 +131,7 @@ PLATFORMS
   ruby
 
 DEPENDENCIES
+  climate_control
   irb
   openclacky!
   rake (~> 13.0)
@@ -139,6 +141,7 @@ DEPENDENCIES
 CHECKSUMS
   ast (2.4.3) sha256=954615157c1d6a382bc27d690d973195e79db7f55e9765ac7c481c60bdb4d383
   base64 (0.3.0) sha256=27337aeabad6ffae05c265c450490628ef3ebd4b67be58257393227588f5a97b
+  climate_control (1.2.0) sha256=36b21896193fa8c8536fa1cd843a07cf8ddbd03aaba43665e26c53ec1bd70aa5
   date (3.5.1) sha256=750d06384d7b9c15d562c76291407d89e368dda4d4fff957eb94962d325a0dc0
   diff-lcs (1.6.2) sha256=9ae0d2cba7d4df3075fe8cd8602a8604993efc0dfa934cff568969efb1909962
   diffy (3.4.4) sha256=79384ab5ca82d0e115b2771f0961e27c164c456074bd2ec46b637ebf7b6e47e3
