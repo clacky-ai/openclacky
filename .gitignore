@@ -10,5 +10,4 @@
 # rspec failure tracking
 .rspec_status
 *.gem
-/.clacky/
 .DS_Store
