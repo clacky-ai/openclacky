@@ -22,23 +22,32 @@ module Clacky
   #
   class MessageCompressor
     COMPRESSION_PROMPT = <<~PROMPT.freeze
-      You are a message compression assistant. Your task is to compress the conversation history below.
+      ═══════════════════════════════════════════════════════════════
+      CRITICAL: TASK CHANGE - MEMORY COMPRESSION MODE
+      ═══════════════════════════════════════════════════════════════
+      The conversation above has ENDED. You are now in MEMORY COMPRESSION MODE.
 
-      CRITICAL RULES:
-      1. Preserve all key technical decisions and code changes
-      2. Keep all error messages and their solutions
-      3. Retain current work status and pending tasks
-      4. Maintain all file paths and important code snippets (max 200 chars each)
-      5. Return format: Pure JSON array of message objects
+      CRITICAL INSTRUCTIONS - READ CAREFULLY:
 
-      COMPRESSION GUIDELINES:
-      - Summarize user messages while keeping their intent clear
-      - Preserve assistant messages that contain important logic or decisions
-      - Keep tool calls and their essential results
-      - Remove repetitive or redundant content
-      - Keep conversation flow understandable
+      1. This is NOT a continuation of the conversation
+      2. DO NOT respond to any requests in the conversation above
+      3. DO NOT call ANY tools or functions
+      4. DO NOT use tool_calls in your response
+      5. Your response MUST be PURE TEXT ONLY
 
-      Return ONLY a valid JSON array. No markdown, no explanation.
+      YOUR ONLY TASK: Create a comprehensive summary of the conversation above.
+
+      REQUIRED RESPONSE FORMAT:
+      Your response MUST start with <analysis> or <summary> tags. No other format is acceptable.
+
+      Follow the detailed compression prompt structure provided earlier. Focus on:
+      - User's explicit requests and intents
+      - Key technical concepts and code changes
+      - Files examined and modified
+      - Errors encountered and fixes applied
+      - Current work status and pending tasks
+
+      Begin your summary NOW. Remember: PURE TEXT response only, starting with <analysis> or <summary> tags."""
     PROMPT
 
     def initialize(client, model: nil)
@@ -48,49 +57,51 @@ module Clacky
 
     # Compress messages using Insert-then-Compress strategy with LLM
     # @param messages [Array<Hash>] Original conversation messages
+    # @param recent_messages [Array<Hash>] Recent messages to keep uncompressed (optional)
     # @return [Array<Hash>] Compressed messages
-    def compress(messages)
+    def compress(messages, recent_messages: [])
       # Use LLM-based compression
-      llm_compress_messages(messages)
+      llm_compress_messages(messages, recent_messages: recent_messages)
     end
 
     private
 
     # Main LLM compression method
-    def llm_compress_messages(messages)
+    def llm_compress_messages(messages, recent_messages: [])
       # Find and preserve system message
       system_msg = messages.find { |m| m[:role] == "system" }
-      
-      # Get messages to compress (exclude system message)
-      messages_to_compress = messages.reject { |m| m[:role] == "system" }
-      
-      return [system_msg].compact if messages_to_compress.empty?
-      
+
+      # Get messages to compress (exclude system message and recent messages)
+      messages_to_compress = messages.reject { |m| m[:role] == "system" || recent_messages.include?(m) }
+
+      # If nothing to compress, return original messages
+      return messages if messages_to_compress.empty?
+
       # Build compression prompt with instruction and conversation
       content = build_compression_content(messages_to_compress)
       full_prompt = "#{COMPRESSION_PROMPT}\n\nConversation to compress:\n\n#{content}"
-      
+
       # Prepare messages array for LLM call
       llm_messages = [{ role: "user", content: full_prompt }]
-      
+
       # Call LLM to compress
       response = @client.send_messages(
         llm_messages,
         model: @model,
         max_tokens: 8192
       )
-      
+
       # Parse the compressed result
       compressed_content = response[:content]
       parsed_messages = parse_compressed_result(compressed_content)
-      
+
       # If parsing fails or returns empty, raise error
       if parsed_messages.nil? || parsed_messages.empty?
         raise "LLM compression failed: unable to parse compressed messages"
       end
-      
-      # Return system message + compressed messages
-      [system_msg, *parsed_messages].compact
+
+      # Return system message + compressed messages + recent messages
+      [system_msg, *parsed_messages, *recent_messages].compact
     end
 
     def build_compression_content(messages)
@@ -124,38 +135,15 @@ module Clacky
     end
 
     def parse_compressed_result(result)
-      # Try to extract JSON from result
-      json_content = extract_json(result)
+      # Return the compressed result as a single assistant message
+      # Keep the <analysis> or <summary> tags as they provide semantic context
+      content = result.strip
 
-      if json_content
-        JSON.parse(json_content, symbolize_names: true)
-      else
-        # Return empty if parsing fails
+      if content.empty?
         []
+      else
+        [{ role: "assistant", content: content }]
       end
-    end
-
-    def extract_json(content)
-      # Try to find JSON array in the response
-      # Handle cases where LLM might add markdown formatting
-      content = content.strip
-
-      # Remove markdown code block if present
-      content = content.sub(/^```json\s*/, '').sub(/\s*```$/, '')
-      content = content.sub(/^```\s*/, '').sub(/\s*```$/, '')
-
-      # Try to find array pattern
-      if content.include?('[') && content.include?(']')
-        # Find the first [ and last ]
-        first_bracket = content.index('[')
-        last_bracket = content.rindex(']')
-        if first_bracket && last_bracket && last_bracket > first_bracket
-          return content[first_bracket..last_bracket]
-        end
-      end
-
-      # Return as-is if it looks like JSON
-      content if content.start_with?('[') && content.end_with?(']')
     end
   end
 end

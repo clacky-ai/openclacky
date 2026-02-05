@@ -705,7 +705,10 @@ module Clacky
           end
         end
 
-        @ui&.show_tool_call(call[:name], call[:arguments])
+        # Special handling for request_user_feedback: don't show as tool call
+        unless call[:name] == "request_user_feedback"
+          @ui&.show_tool_call(call[:name], call[:arguments])
+        end
 
         # Execute tool
         begin
@@ -743,13 +746,17 @@ module Clacky
             @ui&.update_todos(@todos.dup)
           end
 
-          @ui&.show_tool_result(tool.format_result(result))
-          results << build_success_result(call, result)
-
-          # Check if this tool is request_user_feedback
-          if call[:name] == "request_user_feedback" && result.is_a?(Hash) && result[:awaiting_feedback]
+          # Special handling for request_user_feedback: show directly as message
+          if call[:name] == "request_user_feedback"
+            if result.is_a?(Hash) && result[:message]
+              @ui&.show_assistant_message(result[:message])
+            end
             awaiting_feedback = true
+          else
+            @ui&.show_tool_result(tool.format_result(result))
           end
+          
+          results << build_success_result(call, result)
         rescue StandardError => e
           # Log complete error information to debug_logs for troubleshooting
           @debug_logs << {
@@ -1062,27 +1069,12 @@ module Clacky
 
       return if messages_to_compress.empty?
 
-      # Create hierarchical summary based on compression level
-      summary = generate_hierarchical_summary(messages_to_compress)
-
-      # Rebuild messages array: [system, summary, recent_messages]
-      rebuilt_messages = [system_msg, summary, *recent_messages].compact
-
-      @messages = rebuilt_messages
-
-      # Track this compression for progressive summarization
-      @compressed_summaries << {
-        level: @compression_level,
-        message_count: messages_to_compress.size,
-        timestamp: Time.now.iso8601
-      }
-
       original_count = @messages.length
 
       # Use MessageCompressor for LLM-based intelligent compression
       # The compressor sends messages to LLM with compression instructions
-      # and receives back a condensed JSON array preserving key information
-      compressed_messages = @message_compressor.compress(@messages)
+      # and receives back compressed content with recent messages preserved
+      compressed_messages = @message_compressor.compress(@messages, recent_messages: recent_messages)
 
       # Replace original messages with compressed result
       @messages = compressed_messages
