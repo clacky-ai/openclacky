@@ -390,13 +390,17 @@ module Clacky
       # @param cost [Float] Cost of this run
       # @param duration [Float] Duration in seconds
       # @param cache_stats [Hash] Cache statistics
-      def show_complete(iterations:, cost:, duration: nil, cache_stats: nil)
+      # @param awaiting_user_feedback [Boolean] Whether agent is waiting for user feedback
+      def show_complete(iterations:, cost:, duration: nil, cache_stats: nil, awaiting_user_feedback: false)
         # Update status back to 'idle' when task is complete
         update_sessionbar(status: 'idle')
 
         # Clear user tip when agent stops working
         @input_area.clear_user_tip
         @layout.render_input
+
+        # Don't show completion message if awaiting user feedback
+        return if awaiting_user_feedback
 
         # Only show completion message for complex tasks (>5 iterations)
         return if iterations <= 5

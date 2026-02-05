@@ -33,6 +33,7 @@ require_relative "clacky/tools/todo_manager"
 require_relative "clacky/tools/run_project"
 require_relative "clacky/tools/safe_shell"
 require_relative "clacky/tools/trash_manager"
+require_relative "clacky/tools/request_user_feedback"
 require_relative "clacky/agent"
 
 require_relative "clacky/cli"

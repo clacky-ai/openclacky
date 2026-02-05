@@ -213,6 +213,9 @@ module Clacky
       @hooks.trigger(:on_start, user_input)
 
       begin
+        # Track if request_user_feedback was called
+        awaiting_user_feedback = false
+
         loop do
           break if should_stop?
 
@@ -252,6 +255,11 @@ module Clacky
           # Act: Execute tool calls
           action_result = act(response[:tool_calls])
 
+          # Check if request_user_feedback was called
+          if action_result[:awaiting_feedback]
+            awaiting_user_feedback = true
+          end
+
           # Observe: Add tool results to conversation context
           observe(response, action_result[:tool_results])
 
@@ -280,7 +288,8 @@ module Clacky
           iterations: result[:iterations],
           cost: result[:total_cost_usd],
           duration: result[:duration_seconds],
-          cache_stats: result[:cache_stats]
+          cache_stats: result[:cache_stats],
+          awaiting_user_feedback: awaiting_user_feedback
         )
         @hooks.trigger(:on_complete, result)
         result
@@ -641,11 +650,12 @@ module Clacky
     end
 
     def act(tool_calls)
-      return { denied: false, feedback: nil, tool_results: [] } unless tool_calls
+      return { denied: false, feedback: nil, tool_results: [], awaiting_feedback: false } unless tool_calls
 
       denied = false
       feedback = nil
       results = []
+      awaiting_feedback = false
 
       tool_calls.each_with_index do |call, index|
         # Hook: before_tool_use
@@ -734,6 +744,11 @@ module Clacky
 
           @ui&.show_tool_result(tool.format_result(result))
           results << build_success_result(call, result)
+
+          # Check if this tool is request_user_feedback
+          if call[:name] == "request_user_feedback" && result.is_a?(Hash) && result[:awaiting_feedback]
+            awaiting_feedback = true
+          end
         rescue StandardError => e
           # Log complete error information to debug_logs for troubleshooting
           @debug_logs << {
@@ -756,7 +771,8 @@ module Clacky
       {
         denied: denied,
         feedback: feedback,
-        tool_results: results
+        tool_results: results,
+        awaiting_feedback: awaiting_feedback
       }
     end
 
@@ -1651,10 +1667,55 @@ module Clacky
         result
       end
 
+      # Inject TODO reminder for non-todo_manager tools
+      formatted_result = inject_todo_reminder(call[:name], formatted_result)
+
       {
         id: call[:id],
         content: JSON.generate(formatted_result)
       }
+    end
+
+    # Inject TODO reminder into tool results for non-todo_manager tools
+    # This helps AI remember to mark TODOs as complete after executing tasks
+    private def inject_todo_reminder(tool_name, result)
+      # Skip injection for todo_manager tool itself to avoid redundancy
+      return result if tool_name == "todo_manager"
+
+      # Get pending TODOs
+      todo_tool = @tool_registry.get("todo_manager")
+      return result unless todo_tool
+
+      pending_todos = begin
+        todo_result = todo_tool.execute(action: "list", todos_storage: @todos)
+        if todo_result.is_a?(Hash) && todo_result[:todos]
+          todo_result[:todos].select { |t| t[:status] == "pending" }
+        else
+          []
+        end
+      rescue
+        []
+      end
+
+      # Only inject reminder if there are pending TODOs
+      return result unless pending_todos && !pending_todos.empty?
+
+      # Create a friendly reminder message
+      reminder = "\n\n📋 REMINDER: You have #{pending_todos.length} pending TODO(s). " \
+                 "After completing each task, remember to mark it as complete using " \
+                 "todo_manager with action 'complete' and the task id."
+
+      # Inject reminder based on result type
+      case result
+      when String
+        result + reminder
+      when Hash
+        result.merge({ _todo_reminder: reminder.strip })
+      when Array
+        result + [{ _todo_reminder: reminder.strip }]
+      else
+        result
+      end
     end
 
     def build_error_result(call, error_message)
@@ -1745,6 +1806,7 @@ module Clacky
       @tool_registry.register(Tools::WebFetch.new)
       @tool_registry.register(Tools::TodoManager.new)
       @tool_registry.register(Tools::RunProject.new)
+      @tool_registry.register(Tools::RequestUserFeedback.new)
     end
 
     # Format user content with optional images
