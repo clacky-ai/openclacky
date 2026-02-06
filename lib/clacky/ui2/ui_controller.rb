@@ -500,6 +500,13 @@ module Clacky
         append_output(output)
       end
 
+      # Show success message
+      # @param message [String] Success message
+      def show_success(message)
+        output = @renderer.render_success(message)
+        append_output(output)
+      end
+
       # Set workspace status to idle (called when agent stops working)
       def set_idle_status
         update_sessionbar(status: 'idle')
@@ -821,12 +828,49 @@ module Clacky
       end
 
       # Handle submit action
-      def handle_submit(data)
+      private def handle_submit(data)
         # Call callback first (allows interrupting previous agent before showing new input)
         @input_callback&.call(data[:text], data[:images])
 
         # Append the input content to output area after callback completes
         @layout.append_output(data[:display]) unless data[:display].empty?
+      end
+
+      # Show configuration modal dialog
+      # @param current_config [Clacky::Config] Current configuration object
+      # @return [Hash, nil] Hash with updated config values, or nil if cancelled
+      public def show_config_modal(current_config)
+        modal = Components::ModalComponent.new
+
+        # Prepare masked API key for display
+        masked_key = if current_config.api_key && !current_config.api_key.empty?
+          "#{current_config.api_key[0..7]}#{'*' * 20}#{current_config.api_key[-4..]}"
+        else
+          "not set"
+        end
+
+        # Define fields
+        fields = [
+          {
+            name: :api_key,
+            label: "API Key (current: #{masked_key}):",
+            default: "",
+            mask: true
+          },
+          {
+            name: :model,
+            label: "Model (current: #{current_config.model}):",
+            default: ""
+          },
+          {
+            name: :base_url,
+            label: "Base URL (current: #{current_config.base_url}):",
+            default: ""
+          }
+        ]
+
+        # Show modal and collect values
+        modal.show(title: "Configuration", fields: fields)
       end
     end
   end

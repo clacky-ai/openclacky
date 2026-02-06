@@ -15,6 +15,7 @@ require_relative "ui2/components/message_component"
 require_relative "ui2/components/tool_component"
 require_relative "ui2/components/common_component"
 require_relative "ui2/components/welcome_banner"
+require_relative "ui2/components/modal_component"
 
 module Clacky
   module UI2
