@@ -169,7 +169,7 @@ module Clacky
               @command_suggestions.select_next
               return { action: nil }
             when :enter
-              # Accept selected command
+              # Accept selected command and submit immediately
               if @command_suggestions.has_suggestions?
                 selected = @command_suggestions.selected_command_text
                 if selected
@@ -178,7 +178,8 @@ module Clacky
                   @line_index = 0
                   @cursor_position = selected.length
                   @command_suggestions.hide
-                  return { action: nil }
+                  # Submit the command immediately
+                  return handle_enter
                 end
               end
               # Fall through to normal enter handling if no suggestion
@@ -748,6 +749,11 @@ module Clacky
         def handle_enter
           text = current_value.strip
 
+          # Prepare display content and data BEFORE clearing
+          content_to_display = current_content
+          result_text = current_value
+          result_images = @images.dup
+
           # Handle commands (with or without slash)
           if text.start_with?('/')
             # Check if it's a command (single slash followed by English letters only)
@@ -755,10 +761,13 @@ module Clacky
             if text =~ /^\/([a-zA-Z-]+)$/
               case text
               when '/clear'
+                add_to_history(result_text) unless result_text.empty?
                 clear
-                return { action: :clear_output }
+                return { action: :clear_output, data: { text: result_text, images: result_images, display: content_to_display } }
               when '/help'
-                return { action: :help }
+                add_to_history(result_text) unless result_text.empty?
+                clear
+                return { action: :help, data: { text: result_text, images: result_images, display: content_to_display } }
               when '/exit', '/quit'
                 return { action: :exit }
               else
@@ -768,7 +777,9 @@ module Clacky
             end
             # If it's not a command pattern (e.g., /xxx/xxxx), treat as normal input
           elsif text == '?'
-            return { action: :help }
+            add_to_history(result_text) unless result_text.empty?
+            clear
+            return { action: :help, data: { text: result_text, images: result_images, display: content_to_display } }
           elsif text == 'exit' || text == 'quit'
             return { action: :exit }
           end
@@ -776,10 +787,6 @@ module Clacky
           if text.empty? && @images.empty?
             return { action: nil }
           end
-
-          content_to_display = current_content
-          result_text = current_value
-          result_images = @images.dup
 
           add_to_history(result_text) unless result_text.empty?
           clear
