@@ -528,7 +528,6 @@ module Clacky
           permission_mode: @config.permission_mode.to_s,
           enable_compression: @config.enable_compression,
           enable_prompt_caching: @config.enable_prompt_caching,
-          keep_recent_messages: @config.keep_recent_messages,
           max_tokens: @config.max_tokens,
           verbose: @config.verbose
         },
@@ -1093,8 +1092,8 @@ module Clacky
 
       # Force compression (for idle compression) - use lower threshold
       if force
-        # Only compress if we have more than keep_recent_messages + system message
-        return nil unless message_count > @config.keep_recent_messages + 1
+        # Only compress if we have more than MAX_RECENT_MESSAGES + system message
+        return nil unless message_count > MAX_RECENT_MESSAGES + 1
         # Also require minimum message count to make compression worthwhile
         return nil unless message_count >= IDLE_COMPRESSION_MIN_MESSAGES
       else

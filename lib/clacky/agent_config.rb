@@ -5,7 +5,7 @@ module Clacky
     PERMISSION_MODES = [:auto_approve, :confirm_safes, :plan_only].freeze
 
     attr_accessor :model, :permission_mode,
-                  :max_tokens, :verbose, :enable_compression, :keep_recent_messages,
+                  :max_tokens, :verbose, :enable_compression,
                   :enable_prompt_caching
 
     def initialize(options = {})
@@ -14,7 +14,6 @@ module Clacky
       @max_tokens = options[:max_tokens] || 8192
       @verbose = options[:verbose] || false
       @enable_compression = options[:enable_compression].nil? ? true : options[:enable_compression]
-      @keep_recent_messages = options[:keep_recent_messages] || 20
       # Enable prompt caching by default for cost savings
       @enable_prompt_caching = options[:enable_prompt_caching].nil? ? true : options[:enable_prompt_caching]
     end
