@@ -712,8 +712,14 @@ module Clacky
           next
         end
 
-        # Permission check (if not in auto-approve mode)
-        unless should_auto_execute?(call[:name], call[:arguments])
+        # Show preview for edit and write tools even in auto-approve mode
+        if should_auto_execute?(call[:name], call[:arguments])
+          # In auto-approve mode, show preview for edit and write tools
+          if call[:name] == "edit" || call[:name] == "write"
+            show_tool_preview(call)
+          end
+        else
+          # Permission check (if not in auto-approve mode)
           if @config.is_plan_only?
             @ui&.show_info("Planned: #{call[:name]}")
             results << build_planned_result(call)
@@ -1143,8 +1149,7 @@ module Clacky
       # Extract compressed content from response
       compressed_content = response[:content]
 
-      # Track cost for compression call
-      track_cost(response[:usage], raw_api_usage: response[:raw_api_usage])
+      # Note: Cost tracking is already handled by call_llm, no need to track again here
 
       # Rebuild message list with compression
       # Note: we need to remove the compression instruction message we just added
