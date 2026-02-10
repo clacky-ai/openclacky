@@ -220,7 +220,7 @@ This is a major release with significant improvements to skill system, conversat
 
 ### Added
 - **Agent Mode**: Autonomous AI agent with tool execution capabilities
-- **Built-in Tools**: 
+- **Built-in Tools**:
   - `safe_shell` - Safe shell command execution with security checks
   - `file_reader` - Read file contents
   - `write` - Create/overwrite files with diff preview
@@ -232,7 +232,7 @@ This is a major release with significant improvements to skill system, conversat
   - `todo_manager` - Task planning and tracking
   - `run_project` - Project dev server management
 - **Session Management**: Save, resume, and list conversation sessions
-- **Permission Modes**: 
+- **Permission Modes**:
   - `auto_approve` - Automatically execute all tools
   - `confirm_safes` - Auto-execute safe operations, confirm risky ones
   - `confirm_edits` - Confirm file edits only

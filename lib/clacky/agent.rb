@@ -547,17 +547,11 @@ module Clacky
       when :confirm_safes
         # Use SafeShell integration for safety check
         is_safe_operation?(tool_name, tool_params)
-      when :confirm_edits
-        !editing_tool?(tool_name)
       when :plan_only
         false
       else
         false
       end
-    end
-
-    def editing_tool?(tool_name)
-      AgentConfig::EDITING_TOOLS.include?(tool_name.to_s.downcase)
     end
 
     def is_safe_operation?(tool_name, tool_params = {})

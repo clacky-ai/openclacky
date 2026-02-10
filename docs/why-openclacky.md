@@ -79,7 +79,6 @@ A command-line AI assistant that's approachable for non-technical users but powe
    |------|----------|----------|
    | `auto_approve` | Execute all tools automatically | Batch operations |
    | `confirm_safes` | Auto-approve safe operations | Daily development |
-   | `confirm_edits` | Confirm file modifications | Careful work |
    | `plan_only` | Generate plans only | Code review |
 
 5. **Session Recovery**

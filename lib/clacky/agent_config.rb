@@ -2,8 +2,7 @@
 
 module Clacky
   class AgentConfig
-    PERMISSION_MODES = [:auto_approve, :confirm_safes, :confirm_edits, :plan_only].freeze
-    EDITING_TOOLS = %w[write edit].freeze
+    PERMISSION_MODES = [:auto_approve, :confirm_safes, :plan_only].freeze
 
     attr_accessor :model, :permission_mode,
                   :max_tokens, :verbose, :enable_compression, :keep_recent_messages,
