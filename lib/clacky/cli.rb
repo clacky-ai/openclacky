@@ -56,7 +56,7 @@ module Clacky
         invoke :help, ["agent"]
         return
       end
-      config = Clacky::Config.load
+      agent_config = Clacky::AgentConfig.load
 
       # Handle session listing
       if options[:list]
@@ -72,9 +72,12 @@ module Clacky
       # Validate and get working directory
       working_dir = validate_working_directory(options[:path])
 
-      # Build agent config
-      agent_config = build_agent_config(config)
-      client = Clacky::Client.new(config.api_key, base_url: config.base_url, anthropic_format: config.anthropic_format?)
+      # Update agent config with CLI options
+      agent_config.permission_mode = options[:mode].to_sym if options[:mode]
+      agent_config.verbose = options[:verbose] if options[:verbose]
+
+      # Create client for current model
+      client = Clacky::Client.new(agent_config.api_key, base_url: agent_config.base_url, anthropic_format: agent_config.anthropic_format?)
 
       # Handle session loading/continuation
       session_manager = Clacky::SessionManager.new
@@ -96,41 +99,20 @@ module Clacky
       original_dir = Dir.pwd
       should_chdir = File.realpath(working_dir) != File.realpath(original_dir)
       Dir.chdir(working_dir) if should_chdir
-
       begin
         if options[:json]
           run_agent_with_json(agent, working_dir, agent_config, session_manager, client)
         else
           run_agent_with_ui2(agent, working_dir, agent_config, session_manager, client, is_session_load: is_session_load)
         end
-      rescue StandardError => e
-        # Save session on error
-        if session_manager
-          session_manager.save(agent.to_session_data(status: :error, error_message: e.message))
-        end
-
-        # Report the error
-        say "\n❌ Error: #{e.message}", :red
-        say e.backtrace.first(5).join("\n"), :red if options[:verbose]
-
-        # Show session saved message
-        if session_manager&.last_saved_path
-          say "\n📂 Session saved: #{session_manager.last_saved_path}", :yellow
-        end
-
-        # Guide user to recover
-        say "\n💡 To recover and retry, run:", :yellow
-        say "   clacky agent -c", :cyan
-
-        exit 1
       ensure
         Dir.chdir(original_dir)
       end
     end
 
     no_commands do
-      private def handle_config_command(ui_controller, client, agent_config)
-        config = Clacky::Config.load
+      private def handle_config_command(ui_controller, client, agent_config, agent)
+        config = agent_config
 
         # Create test callback
         test_callback = lambda do |test_config|
@@ -142,49 +124,53 @@ module Clacky
           )
 
           # Test connection
-          test_client.test_connection(model: test_config.model)
+          test_client.test_connection(model: test_config.model_name)
         end
 
         # Show modal dialog for configuration with test callback
         result = ui_controller.show_config_modal(config, test_callback: test_callback)
 
-        # If user cancelled, return early
+        # If user closed modal without changes, return early
         if result.nil?
-          ui_controller.show_warning("Configuration cancelled")
           return
         end
 
-        # Update config with non-empty values
-        config.api_key = result[:api_key] unless result[:api_key].to_s.empty?
-        config.model = result[:model] unless result[:model].to_s.empty?
-        config.base_url = result[:base_url] unless result[:base_url].to_s.empty?
-
-        # Save configuration (only reached if test passed)
-        config.save
-
-        # Update client with new config
+        # Config was changed (either switch or edit), update client, agent, and UI
+        # Update client with current model's config
         client.instance_variable_set(:@api_key, config.api_key)
         client.instance_variable_set(:@base_url, config.base_url)
+        client.instance_variable_set(:@use_anthropic_format, config.anthropic_format?)
+        
+        # Update agent's client (agent has its own @client instance variable)
+        agent.instance_variable_set(:@client, Clacky::Client.new(
+          config.api_key,
+          base_url: config.base_url,
+          anthropic_format: config.anthropic_format?
+        ))
+        
+        # Update agent's message compressor with new client
+        agent.instance_variable_set(:@message_compressor, 
+          Clacky::MessageCompressor.new(agent.instance_variable_get(:@client), model: config.model_name)
+        )
 
-        # Update agent config model
-        agent_config.model = config.model
+        # Update UI controller's model display
+        ui_controller.config[:model] = config.model_name
+        ui_controller.update_sessionbar(
+          tasks: agent.total_tasks,
+          cost: agent.total_cost
+        )
 
         # Show success message in output
         masked_key = "#{config.api_key[0..7]}#{'*' * 20}#{config.api_key[-4..]}"
-        ui_controller.show_success("Configuration saved successfully!")
+        ui_controller.show_success("Configuration updated!")
+        ui_controller.append_output("  Current Model: #{config.model_name}")
         ui_controller.append_output("  API Key: #{masked_key}")
-        ui_controller.append_output("  Model: #{config.model}")
         ui_controller.append_output("  Base URL: #{config.base_url}")
+        ui_controller.append_output("  Format: #{config.anthropic_format? ? 'Anthropic' : 'OpenAI'}")
         ui_controller.append_output("")
       end
 
-      private def build_agent_config(config)
-        AgentConfig.new(
-          model: options[:model] || config.model,
-          permission_mode: options[:mode].to_sym,
-          verbose: options[:verbose]
-        )
-      end
+
 
       def validate_working_directory(path)
         working_dir = path || Dir.pwd
@@ -223,7 +209,7 @@ module Clacky
           session_id = session[:session_id][0..7]
           tasks = session.dig(:stats, :total_tasks) || 0
           cost = session.dig(:stats, :total_cost_usd) || 0.0
-          first_msg = session[:first_user_message] || "No message"
+          last_msg = session[:last_user_message] || "No message"
           is_current_dir = session[:working_dir] == working_dir
 
           dir_marker = is_current_dir ? "📍" : "  "
@@ -277,8 +263,8 @@ module Clacky
             matching_sessions.each_with_index do |session, idx|
               created_at = Time.parse(session[:created_at]).strftime("%Y-%m-%d %H:%M")
               session_id = session[:session_id][0..7]
-              first_msg = session[:first_user_message] || "No message"
-              say "  #{idx + 1}. [#{session_id}] #{created_at} - #{first_msg}", :cyan
+              last_msg = session[:last_user_message] || "No message"
+              say "  #{idx + 1}. [#{session_id}] #{created_at} - #{last_msg}", :cyan
             end
             say "\nPlease use a more specific prefix.", :yellow
             exit 1
@@ -321,7 +307,7 @@ module Clacky
         json_ui = Clacky::JsonUIController.new
         agent.instance_variable_set(:@ui, json_ui)
 
-        json_ui.emit("system", message: "Agent started", model: agent_config.model, working_dir: working_dir)
+        json_ui.emit("system", message: "Agent started", model: agent_config.model_name, working_dir: working_dir)
 
         # Persistent input loop — read JSON lines from stdin
         while (line = $stdin.gets)
@@ -401,7 +387,7 @@ module Clacky
         ui_controller = UI2::UIController.new(
           working_dir: working_dir,
           mode: agent_config.permission_mode.to_s,
-          model: agent_config.model,
+          model: agent_config.model_name,
           theme: theme_name
         )
 
@@ -411,9 +397,10 @@ module Clacky
         # Set skill loader for command suggestions
         ui_controller.set_skill_loader(agent.skill_loader)
 
-        # Track current working thread (agent, idle timer, or idle compression)
-        # Only one of these can be active at a time
+        # Track current working thread (agent or idle compression that can be interrupted)
+        # idle_timer is tracked separately because it should not be interrupted during sleep
         current_task_thread = nil
+        idle_timer_thread = nil
 
         # Set up mode toggle handler
         ui_controller.on_mode_toggle do |new_mode|
@@ -459,7 +446,7 @@ module Clacky
           # Handle commands
           case input.downcase.strip
           when "/config"
-            handle_config_command(ui_controller, client, agent_config)
+            handle_config_command(ui_controller, client, agent_config, agent)
             next
           when "/clear"
             # Show user input first
@@ -493,33 +480,48 @@ module Clacky
             ui_controller.set_idle_status
           end
 
+          # Cancel idle timer if running (new input means user is active)
+          if idle_timer_thread&.alive?
+            idle_timer_thread.kill
+            idle_timer_thread = nil
+          end
+
           # Helper method to start idle timer after agent completes
           start_idle_timer = lambda do
             # Start idle timer - trigger compression after 60 seconds of inactivity
-            current_task_thread = Thread.new do
-              begin
-                sleep 60 # Wait for 60 seconds (1 minute)
+            idle_timer_thread = Thread.new do
+              # Sleep outside of rescue block - if interrupted here, let it propagate and exit
+              sleep 5 # Wait for 60 seconds (1 minute)
 
-                # After 60 seconds, start idle compression
-                ui_controller.set_working_status
-                success = agent.trigger_idle_compression
+              # After sleep completes, switch to current_task_thread for compression
+              # (so it can be interrupted by Ctrl+C)
+              current_task_thread = Thread.new do
+                begin
+                  # After 60 seconds, start idle compression
+                  ui_controller.set_working_status
+                  success = agent.trigger_idle_compression
 
-                if success
-                  # Update session bar after compression
-                  ui_controller.update_sessionbar(tasks: agent.total_tasks, cost: agent.total_cost)
-                  # Save session after compression
-                  session_manager&.save(agent.to_session_data(status: :success))
+                  if success
+                    # Update session bar after compression
+                    ui_controller.update_sessionbar(tasks: agent.total_tasks, cost: agent.total_cost)
+                    # Save session after compression
+                    session_manager&.save(agent.to_session_data(status: :success))
+                  end
+                rescue Clacky::AgentInterrupted
+                  # Compression was interrupted by user
+                  ui_controller.append_output("")
+                  ui_controller.show_info("Idle compression cancelled")
+                rescue => e
+                  ui_controller.log("Idle compression error: #{e.message}", level: :error)
+                ensure
+                  ui_controller.set_idle_status
+                  current_task_thread = nil
                 end
-              rescue Clacky::AgentInterrupted
-                # Task was interrupted by user
-                ui_controller.append_output("")
-                ui_controller.show_info("Idle compression cancelled")
-              rescue => e
-                ui_controller.log("Idle compression error: #{e.message}", level: :error)
-              ensure
-                ui_controller.set_idle_status
-                current_task_thread = nil
               end
+
+              # Wait for compression to complete
+              current_task_thread.join
+              idle_timer_thread = nil
             end
           end
 
@@ -571,6 +573,8 @@ module Clacky
           session_manager.save(agent.to_session_data)
         end
       end
+
+
 
     end
   end

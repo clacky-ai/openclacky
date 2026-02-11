@@ -56,7 +56,7 @@ module Clacky
     PROMPT
 
     def initialize(client, config = {}, working_dir: nil, ui: nil)
-      @client = client
+      @client = client  # Client for current model
       @config = config.is_a?(AgentConfig) ? config : AgentConfig.new(config)
       @tool_registry = ToolRegistry.new
       @hooks = HookManager.new
@@ -89,7 +89,7 @@ module Clacky
 
       # Message compressor for LLM-based intelligent compression
       # Uses LLM to preserve key decisions, errors, and context while reducing token count
-      @message_compressor = MessageCompressor.new(@client, model: @config.model)
+      @message_compressor = MessageCompressor.new(@client, model: current_model)
 
       # Skill loader for skill management
       @skill_loader = SkillLoader.new(@working_dir)
@@ -176,6 +176,46 @@ module Clacky
 
     def add_hook(event, &block)
       @hooks.add(event, &block)
+    end
+
+    # Switch to a different model by name
+    # Returns true if switched, false if model not found
+    def switch_model(model_name)
+      if @config.switch_model(model_name)
+        # Re-create client for new model
+        @client = Clacky::Client.new(
+          @config.api_key,
+          base_url: @config.base_url,
+          anthropic_format: @config.anthropic_format?
+        )
+        # Update message compressor with new client and model
+        @message_compressor = MessageCompressor.new(@client, model: current_model)
+        true
+      else
+        false
+      end
+    end
+
+    # Get list of available model names
+    def available_models
+      @config.model_names
+    end
+
+    # Get current model configuration info
+    def current_model_info
+      model = @config.current_model
+      return nil unless model
+
+      {
+        name: model["name"],
+        model: model["model"],
+        base_url: model["base_url"]
+      }
+    end
+
+    # Get current model name
+    private def current_model
+      @config.model_name
     end
 
     def run(user_input, images: [])
@@ -361,7 +401,7 @@ module Clacky
       begin
         response = @client.send_messages_with_tools(
           @messages,
-          model: @config.model,
+          model: current_model,
           tools: tools_to_send,
           max_tokens: @config.max_tokens,
           enable_caching: @config.enable_prompt_caching
@@ -524,7 +564,7 @@ module Clacky
         working_dir: @working_dir,
         todos: @todos,  # Include todos in session data
         config: {
-          model: @config.model,
+          models: @config.models,
           permission_mode: @config.permission_mode.to_s,
           enable_compression: @config.enable_compression,
           enable_prompt_caching: @config.enable_prompt_caching,
@@ -533,7 +573,7 @@ module Clacky
         },
         stats: stats_data,
         messages: @messages,
-        first_user_message: last_message_preview
+        last_user_message: last_message_preview
       }
     end
 
@@ -846,7 +886,7 @@ module Clacky
       # Use Client to format results based on API type (Anthropic vs OpenAI)
       return if tool_results.empty?
 
-      formatted_messages = @client.format_tool_results(response, tool_results, model: @config.model)
+      formatted_messages = @client.format_tool_results(response, tool_results, model: current_model)
       formatted_messages.each { |msg| @messages << msg }
     end
 
@@ -925,7 +965,7 @@ module Clacky
         @ui&.log("Using API-provided cost: $#{usage[:api_cost]}", level: :debug) if @config.verbose
       else
         # Priority 2: Calculate from tokens using ModelPricing
-        result = ModelPricing.calculate_cost(model: @config.model, usage: usage)
+        result = ModelPricing.calculate_cost(model: current_model, usage: usage)
         cost = result[:cost]
         pricing_source = result[:source]
 
@@ -937,7 +977,7 @@ module Clacky
 
         if @config.verbose
           source_label = pricing_source == :price ? "model pricing" : "default pricing"
-          @ui&.log("Calculated cost for #{@config.model} using #{source_label}: $#{cost.round(6)}", level: :debug)
+          @ui&.log("Calculated cost for #{@config.model_name} using #{source_label}: $#{cost.round(6)}", level: :debug)
           @ui&.log("Usage breakdown: prompt=#{usage[:prompt_tokens]}, completion=#{usage[:completion_tokens]}, cache_write=#{usage[:cache_creation_input_tokens] || 0}, cache_read=#{usage[:cache_read_input_tokens] || 0}", level: :debug)
         end
       end
@@ -1079,15 +1119,14 @@ module Clacky
     MESSAGE_COUNT_THRESHOLD = 150   # Trigger compression when exceeding this (in message count)
     MAX_RECENT_MESSAGES = 20  # Keep this many recent message pairs intact
     TARGET_COMPRESSED_TOKENS = 10_000  # Target size after compression
-    IDLE_COMPRESSION_MIN_MESSAGES = 3  # Minimum messages needed for idle compression
+    IDLE_COMPRESSION_THRESHOLD = 20_000  # Minimum messages needed for idle compression
 
     def compress_messages_if_needed(force: false)
       # Check if compression is enabled
       return nil unless @config.enable_compression
 
       # Calculate total tokens and message count
-      token_counts = total_message_tokens
-      total_tokens = token_counts[:total]
+      total_tokens = total_message_tokens[:total]
       message_count = @messages.length
 
       # Force compression (for idle compression) - use lower threshold
@@ -1095,7 +1134,7 @@ module Clacky
         # Only compress if we have more than MAX_RECENT_MESSAGES + system message
         return nil unless message_count > MAX_RECENT_MESSAGES + 1
         # Also require minimum message count to make compression worthwhile
-        return nil unless message_count >= IDLE_COMPRESSION_MIN_MESSAGES
+        return nil unless total_tokens >= IDLE_COMPRESSION_THRESHOLD
       else
         # Normal compression - check thresholds
         # Either: token count exceeds threshold OR message count exceeds threshold
