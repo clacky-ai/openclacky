@@ -375,6 +375,11 @@ module Clacky
         response = call_llm
         handle_compression_response(response, compression_context)
         true
+      rescue Clacky::AgentInterrupted => e
+        @ui&.log("Idle compression canceled: #{e.message}", level: :info)
+        # Remove the compression message we added
+        @messages.pop if @messages.last == compression_context[:compression_message]
+        false
       rescue => e
         @ui&.log("Idle compression failed: #{e.message}", level: :error)
         # Remove the compression message we added
