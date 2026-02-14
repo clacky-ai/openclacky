@@ -3,7 +3,7 @@
 require "json"
 require "fileutils"
 require_relative "base"
-require_relative "../trash_directory"
+require_relative "../utils/trash_directory"
 
 module Clacky
   module Tools

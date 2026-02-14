@@ -6,7 +6,7 @@ require_relative "components/input_area"
 require_relative "components/todo_area"
 require_relative "components/welcome_banner"
 require_relative "components/inline_input"
-require_relative "../thinking_verbs"
+require_relative "thinking_verbs"
 require_relative "../ui_interface"
 
 module Clacky

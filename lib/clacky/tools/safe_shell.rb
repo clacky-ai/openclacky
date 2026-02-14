@@ -4,7 +4,7 @@ require "shellwords"
 require "json"
 require "fileutils"
 require_relative "shell"
-require_relative "../trash_directory"
+require_relative "../utils/trash_directory"
 
 module Clacky
   module Tools

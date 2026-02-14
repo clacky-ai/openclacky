@@ -2,19 +2,25 @@
 
 require_relative "clacky/version"
 require_relative "clacky/client"
-require_relative "clacky/message_compressor"
 require_relative "clacky/skill"
 require_relative "clacky/skill_loader"
 
 # Agent system
-require_relative "clacky/model_pricing"
 require_relative "clacky/agent_config"
-require_relative "clacky/hook_manager"
-require_relative "clacky/tool_registry"
-require_relative "clacky/thinking_verbs"
-require_relative "clacky/progress_indicator"
 require_relative "clacky/session_manager"
-require_relative "clacky/gitignore_parser"
+
+# Agent modules
+require_relative "clacky/agent/message_compressor"
+require_relative "clacky/agent/hook_manager"
+require_relative "clacky/agent/tool_registry"
+
+# UI modules
+require_relative "clacky/ui2/thinking_verbs"
+require_relative "clacky/ui2/progress_indicator"
+
+# Utils
+require_relative "clacky/utils/model_pricing"
+require_relative "clacky/utils/gitignore_parser"
 require_relative "clacky/utils/limit_stack"
 require_relative "clacky/utils/path_helper"
 require_relative "clacky/utils/file_ignore_helper"

@@ -1,0 +1,180 @@
+# frozen_string_literal: true
+
+module Clacky
+  class Agent
+    # Cost tracking and token usage statistics
+    # Manages cost calculation, token estimation, and usage display
+    module CostTracker
+      # Track cost from API usage
+      # Updates total cost and displays iteration statistics
+      # @param usage [Hash] Usage data from API response
+      # @param raw_api_usage [Hash, nil] Raw API usage data for debugging
+      def track_cost(usage, raw_api_usage: nil)
+        # Priority 1: Use API-provided cost if available (OpenRouter, LiteLLM, etc.)
+        iteration_cost = nil
+        if usage[:api_cost]
+          @total_cost += usage[:api_cost]
+          @cost_source = :api
+          @task_cost_source = :api
+          iteration_cost = usage[:api_cost]
+          @ui&.log("Using API-provided cost: $#{usage[:api_cost]}", level: :debug) if @config.verbose
+        else
+          # Priority 2: Calculate from tokens using ModelPricing
+          result = ModelPricing.calculate_cost(model: current_model, usage: usage)
+          cost = result[:cost]
+          pricing_source = result[:source]
+
+          @total_cost += cost
+          iteration_cost = cost
+          # Map pricing source to cost source: :price or :default
+          @cost_source = pricing_source
+          @task_cost_source = pricing_source
+
+          if @config.verbose
+            source_label = pricing_source == :price ? "model pricing" : "default pricing"
+            @ui&.log("Calculated cost for #{@config.model_name} using #{source_label}: $#{cost.round(6)}", level: :debug)
+            @ui&.log("Usage breakdown: prompt=#{usage[:prompt_tokens]}, completion=#{usage[:completion_tokens]}, cache_write=#{usage[:cache_creation_input_tokens] || 0}, cache_read=#{usage[:cache_read_input_tokens] || 0}", level: :debug)
+          end
+        end
+
+        # Display token usage statistics for this iteration
+        display_iteration_tokens(usage, iteration_cost)
+
+        # Update session bar cost in real-time (don't wait for agent.run to finish)
+        @ui&.update_sessionbar(cost: @total_cost)
+
+        # Track cache usage statistics (global)
+        @cache_stats[:total_requests] += 1
+
+        if usage[:cache_creation_input_tokens]
+          @cache_stats[:cache_creation_input_tokens] += usage[:cache_creation_input_tokens]
+        end
+
+        if usage[:cache_read_input_tokens]
+          @cache_stats[:cache_read_input_tokens] += usage[:cache_read_input_tokens]
+          @cache_stats[:cache_hit_requests] += 1
+        end
+
+        # Store raw API usage samples (keep last 3 for debugging)
+        if raw_api_usage
+          @cache_stats[:raw_api_usage_samples] ||= []
+          @cache_stats[:raw_api_usage_samples] << raw_api_usage
+          @cache_stats[:raw_api_usage_samples] = @cache_stats[:raw_api_usage_samples].last(3)
+        end
+
+        # Track cache usage for current task
+        if @task_cache_stats
+          @task_cache_stats[:total_requests] += 1
+
+          if usage[:cache_creation_input_tokens]
+            @task_cache_stats[:cache_creation_input_tokens] += usage[:cache_creation_input_tokens]
+          end
+
+          if usage[:cache_read_input_tokens]
+            @task_cache_stats[:cache_read_input_tokens] += usage[:cache_read_input_tokens]
+            @task_cache_stats[:cache_hit_requests] += 1
+          end
+        end
+      end
+
+      # Estimate token count for a message content
+      # Simple approximation: characters / 4 (English text)
+      # For Chinese/other languages, characters / 2 is more accurate
+      # This is a rough estimate for compression triggering purposes
+      # @param content [String, Array, Object] Message content
+      # @return [Integer] Estimated token count
+      def estimate_tokens(content)
+        return 0 if content.nil?
+
+        text = if content.is_a?(String)
+                 content
+               elsif content.is_a?(Array)
+                 # Handle content arrays (e.g., with images)
+                 # Add safety check to prevent nil.compact error
+                 mapped = content.map { |c| c[:text] if c.is_a?(Hash) }
+                 (mapped || []).compact.join
+               else
+                 content.to_s
+               end
+
+        return 0 if text.empty?
+
+        # Detect language mix - count non-ASCII characters
+        ascii_count = text.bytes.count { |b| b < 128 }
+        total_bytes = text.bytes.length
+
+        # Mix ratio (1.0 = all English, 0.5 = all Chinese)
+        mix_ratio = total_bytes > 0 ? ascii_count.to_f / total_bytes : 1.0
+
+        # English: ~4 chars/token, Chinese: ~2 chars/token
+        base_chars_per_token = mix_ratio * 4 + (1 - mix_ratio) * 2
+
+        (text.length / base_chars_per_token).to_i + 50 # Add overhead for message structure
+      end
+
+      # Calculate total token count for all messages
+      # Returns estimated tokens and breakdown by category
+      # @return [Hash] Token counts by role and total
+      def total_message_tokens
+        system_tokens = 0
+        user_tokens = 0
+        assistant_tokens = 0
+        tool_tokens = 0
+        summary_tokens = 0
+
+        @messages.each do |msg|
+          tokens = estimate_tokens(msg[:content])
+          case msg[:role]
+          when "system"
+            system_tokens += tokens
+          when "user"
+            user_tokens += tokens
+          when "assistant"
+            assistant_tokens += tokens
+          when "tool"
+            tool_tokens += tokens
+          end
+        end
+
+        {
+          total: system_tokens + user_tokens + assistant_tokens + tool_tokens,
+          system: system_tokens,
+          user: user_tokens,
+          assistant: assistant_tokens,
+          tool: tool_tokens
+        }
+      end
+
+      private
+
+      # Display token usage for current iteration
+      # @param usage [Hash] Usage data from API
+      # @param cost [Float] Cost for this iteration
+      def display_iteration_tokens(usage, cost)
+        prompt_tokens = usage[:prompt_tokens] || 0
+        completion_tokens = usage[:completion_tokens] || 0
+        total_tokens = usage[:total_tokens] || (prompt_tokens + completion_tokens)
+        cache_write = usage[:cache_creation_input_tokens] || 0
+        cache_read = usage[:cache_read_input_tokens] || 0
+
+        # Calculate token delta from previous iteration
+        delta_tokens = total_tokens - @previous_total_tokens
+        @previous_total_tokens = total_tokens  # Update for next iteration
+
+        # Prepare data for UI to format and display
+        token_data = {
+          delta_tokens: delta_tokens,
+          prompt_tokens: prompt_tokens,
+          completion_tokens: completion_tokens,
+          total_tokens: total_tokens,
+          cache_write: cache_write,
+          cache_read: cache_read,
+          cost: cost
+        }
+
+        # Let UI handle formatting and display
+        @ui&.show_token_usage(token_data)
+      end
+    end
+  end
+end

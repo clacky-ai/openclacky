@@ -3,6 +3,8 @@
 # UI2 - MVC-based terminal UI system for Clacky
 # Provides split-screen interface with scrollable output and fixed input
 
+require_relative "ui2/thinking_verbs"
+require_relative "ui2/progress_indicator"
 require_relative "ui2/theme_manager"
 require_relative "ui2/screen_buffer"
 require_relative "ui2/layout_manager"
