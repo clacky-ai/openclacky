@@ -46,22 +46,16 @@ module Clacky
           content = File.read(path)
           original_content = content.dup
 
-          # Try exact match first
-          if content.include?(old_string)
-            actual_old_string = old_string
-            occurrences = content.scan(old_string).length
-          else
-            # Try smart whitespace normalization
-            match_result = try_smart_match(content, old_string)
-            
-            if match_result
-              actual_old_string = match_result[:matched_string]
-              occurrences = match_result[:occurrences]
-            else
-              # Provide helpful error with context
-              return build_helpful_error(content, old_string, path)
-            end
+          # Find matching string using layered strategy
+          match_result = find_match(content, old_string)
+          
+          unless match_result
+            # Provide helpful error with context
+            return build_helpful_error(content, old_string, path)
           end
+          
+          actual_old_string = match_result[:matched_string]
+          occurrences = match_result[:occurrences]
 
           # If not replace_all and multiple occurrences, warn about ambiguity
           if !replace_all && occurrences > 1
@@ -93,52 +87,115 @@ module Clacky
         end
       end
 
-      private def try_smart_match(content, old_string)
-        # Normalize whitespace: convert all leading whitespace to single space for comparison
-        normalized_old = normalize_leading_whitespace(old_string)
+      # Find matching string using layered strategy
+      private def find_match(content, old_string)
+        # Generate candidate strings with different transformations
+        candidates = generate_candidates(old_string)
         
-        # Find all potential matches in content with normalized whitespace
-        matches = []
-        content_lines = content.lines
-        old_lines = old_string.lines
-        
-        return nil if old_lines.empty?
-        
-        # Scan through content to find matches
-        (0..content_lines.length - old_lines.length).each do |start_idx|
-          slice = content_lines[start_idx, old_lines.length]
-          next unless slice
-          
-          # Check if this slice matches when normalized
-          if lines_match_normalized?(slice, old_lines)
-            matched_string = slice.join
-            matches << { start: start_idx, matched_string: matched_string }
+        # Try simple string matching for each candidate
+        candidates.each do |candidate|
+          next if candidate.empty?
+          if content.include?(candidate)
+            return {
+              matched_string: candidate,
+              occurrences: content.scan(candidate).length
+            }
           end
         end
         
-        return nil if matches.empty?
+        # If simple matching fails, try smart line-by-line matching (allows leading whitespace differences)
+        try_smart_match(content, old_string)
+      end
+      
+      # Generate candidate strings by applying different transformations
+      private def generate_candidates(old_string)
+        trimmed = old_string.strip
+        unescaped = unescape_over_escaped(old_string)
+        unescaped_trimmed = unescape_over_escaped(trimmed)
         
-        # Return the first match and count total occurrences
-        {
-          matched_string: matches.first[:matched_string],
-          occurrences: matches.length
-        }
+        [
+          old_string,           # Original
+          trimmed,              # Trim leading/trailing whitespace
+          unescaped,            # Unescape over-escaped sequences
+          unescaped_trimmed     # Combined: trim + unescape
+        ].uniq # Remove duplicates
       end
 
-      private def normalize_leading_whitespace(text)
-        # Normalize each line's leading whitespace
-        text.lines.map { |line| line.sub(/^\s+/, ' ') }.join
+      private def try_smart_match(content, old_string)
+        # Smart matching: allows leading whitespace differences (tabs vs spaces)
+        # Also tries with unescaped versions of old_string
+        
+        candidates = generate_candidates(old_string)
+        
+        candidates.each do |candidate|
+          next if candidate.empty?
+          
+          candidate_lines = candidate.lines
+          next if candidate_lines.empty?
+          
+          # Find all potential matches in content with normalized whitespace
+          matches = []
+          content_lines = content.lines
+          
+          # Scan through content to find matches
+          (0..content_lines.length - candidate_lines.length).each do |start_idx|
+            slice = content_lines[start_idx, candidate_lines.length]
+            next unless slice
+            
+            # Check if this slice matches when normalized
+            if lines_match_normalized?(slice, candidate_lines)
+              matched_string = slice.join
+              matches << { start: start_idx, matched_string: matched_string }
+            end
+          end
+          
+          # If we found matches with this candidate, return it
+          unless matches.empty?
+            return {
+              matched_string: matches.first[:matched_string],
+              occurrences: matches.length
+            }
+          end
+        end
+        
+        # No matches found
+        nil
       end
+
 
       private def lines_match_normalized?(lines1, lines2)
         return false unless lines1.length == lines2.length
         
         lines1.zip(lines2).all? do |line1, line2|
-          # Normalize leading whitespace and compare
-          norm1 = line1.sub(/^\s+/, ' ')
-          norm2 = line2.sub(/^\s+/, ' ')
-          norm1 == norm2
+          # Normalize leading whitespace and trailing newlines for comparison
+          norm1 = line1.sub(/^\s+/, ' ').chomp
+          norm2 = line2.sub(/^\s+/, ' ').chomp
+          
+          # Try exact match first, then try with unescaping over-escaped sequences
+          norm1 == norm2 || norm1 == unescape_over_escaped(norm2)
         end
+      end
+
+      private def unescape_over_escaped(str)
+        # Convert over-escaped sequences back to normal escape sequences
+        # This handles common cases where AI double-escapes backslashes
+        result = str.dup
+        
+        # Handle Unicode escapes: \uXXXX -> actual Unicode character
+        # Example: "\u000C" (literal backslash-u) -> form feed character
+        result = result.gsub(/\\u([0-9a-fA-F]{4})/) { [$1.hex].pack('U') }
+        
+        # Handle common escape sequences
+        result = result.gsub('\\n', "\n")
+        result = result.gsub('\\t', "\t")
+        result = result.gsub('\\r', "\r")
+        result = result.gsub('\\f', "\f")
+        result = result.gsub('\\b', "\b")
+        result = result.gsub('\\v', "\v")
+        result = result.gsub('\\"', '"')
+        result = result.gsub('\\\\', '\\')
+        
+        result
       end
 
       private def build_helpful_error(content, old_string, path)
