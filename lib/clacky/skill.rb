@@ -124,6 +124,16 @@ module Clacky
         processed_content.gsub!(placeholder, output.to_s)
       end
 
+      # Append supporting files list if any exist
+      if has_supporting_files?
+        processed_content += "\n\n## Supporting Files\n\n"
+        processed_content += "The following files are available in this skill's directory:\n\n"
+        supporting_files.each do |file|
+          relative_path = file.relative_path_from(@directory)
+          processed_content += "- `#{relative_path}`\n"
+        end
+      end
+
       processed_content
     end
 

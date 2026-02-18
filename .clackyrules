@@ -25,7 +25,8 @@ It provides chat functionality and autonomous AI agent capabilities with tool us
 - **IMPORTANT**: All code comments must be written in English
 - Add descriptive comments for complex logic
 - Use clear, self-documenting code with English naming
-- **IMPORTANT**: Always use inline `private` with method definitions (e.g., `private def method_name`). Do NOT use standalone `private` keyword
+- **IMPORTANT**: Always use inline `private` with instance method definitions (e.g., `private def method_name`). Do NOT use standalone `private` keyword
+- **IMPORTANT**: For class methods (`def self.method_name`), do NOT use `private`. Class methods should be public
 
 ### Architecture Patterns
 - Tools inherit from `Clacky::Tools::Base`
