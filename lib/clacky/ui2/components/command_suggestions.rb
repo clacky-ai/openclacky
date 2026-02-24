@@ -14,6 +14,8 @@ module Clacky
         # System commands available by default
         SYSTEM_COMMANDS = [
           { command: "/clear", description: "Clear chat history and restart session" },
+          { command: "/config", description: "Open configuration (models, API keys, settings)" },
+          { command: "/undo", description: "Undo the last task and restore previous state" },
           { command: "/help", description: "Show help information" },
           { command: "/exit", description: "Exit the chat session" },
           { command: "/quit", description: "Quit the application" }
@@ -46,7 +48,8 @@ module Clacky
             {
               command: skill.slash_command,
               description: skill.description || "No description available",
-              type: :skill
+              type: :skill,
+              argument_hint: skill.argument_hint
             }
           end
 
@@ -102,6 +105,13 @@ module Clacky
         def selected_command_text
           cmd = selected_command
           cmd ? cmd[:command] : nil
+        end
+
+        # Get the argument hint for the currently selected command
+        # @return [String, nil] Argument hint string or nil if none
+        def selected_argument_hint
+          cmd = selected_command
+          cmd ? cmd[:argument_hint] : nil
         end
 
         # Check if there are any suggestions to show

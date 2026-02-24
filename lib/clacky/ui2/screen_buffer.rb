@@ -229,6 +229,7 @@ module Clacky
         when "\u0015" then :ctrl_u
         when "\u0016" then :ctrl_v
         when "\u0017" then :ctrl_w
+        when "\t"     then :tab
         else char
         end
       end

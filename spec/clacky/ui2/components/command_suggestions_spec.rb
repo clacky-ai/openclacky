@@ -122,9 +122,9 @@ RSpec.describe Clacky::UI2::Components::CommandSuggestions do
     it "caps at max display count" do
       # Create test skills
       test_skills = 100.times.map do |i|
-        double("Skill", slash_command: "/test#{i}", description: "Test command #{i}")
+        double("Skill", slash_command: "/test#{i}", description: "Test command #{i}", argument_hint: nil)
       end
-      
+
       skill_loader = double("SkillLoader", user_invocable_skills: test_skills)
       suggestions.load_skill_commands(skill_loader)
       
@@ -137,9 +137,10 @@ RSpec.describe Clacky::UI2::Components::CommandSuggestions do
 
   describe "#load_skill_commands" do
     let(:test_skill) do
-      double("Skill", 
+      double("Skill",
         slash_command: "/test-skill",
-        description: "Test skill"
+        description: "Test skill",
+        argument_hint: nil
       )
     end
 

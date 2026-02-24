@@ -189,18 +189,28 @@ module Clacky
               @command_suggestions.hide
               return { action: nil }
             when :tab
-              # Tab also accepts the suggestion
+              # Tab accepts the currently highlighted suggestion
               if @command_suggestions.has_suggestions?
                 selected = @command_suggestions.selected_command_text
                 if selected
-                  @lines = [selected]
+                  hint = @command_suggestions.selected_argument_hint
+                  completed = "#{selected} "
+                  @lines = [completed]
                   @line_index = 0
-                  @cursor_position = selected.length
+                  @cursor_position = completed.length
                   @command_suggestions.hide
+                  # Show argument hint as a tip if available
+                  set_tips("Usage: #{selected} #{hint}", type: :info) if hint && !hint.empty?
                   return { action: nil }
                 end
               end
             end
+          end
+
+          # Tab with no visible suggestions: trigger slash-command completion
+          if key == :tab
+            trigger_tab_completion
+            return { action: nil }
           end
 
           result = case key
@@ -619,9 +629,9 @@ module Clacky
         # Shows suggestions when input starts with /
         private def update_command_suggestions
           return unless @command_suggestions
-          
+
           current = current_line.strip
-          
+
           # Check if we should show suggestions (input starts with /)
           if current.start_with?('/') && @line_index == 0
             # Extract the filter text (everything after /)
@@ -630,6 +640,25 @@ module Clacky
           else
             @command_suggestions.hide
           end
+        end
+
+        # Trigger tab completion: show all commands or filter by current slash input
+        # Called when Tab is pressed and no suggestions dropdown is visible
+        private def trigger_tab_completion
+          return unless @command_suggestions
+
+          current = current_line.strip
+
+          if current.empty?
+            # Empty input: type "/" and show all commands
+            insert_char("/")
+            @command_suggestions.show("")
+          elsif current.start_with?("/")
+            # Already typing a slash command: show/refresh filtered suggestions
+            filter_text = current[1..-1] || ""
+            @command_suggestions.show(filter_text)
+          end
+          # Tab on normal text has no effect
         end
 
         # Render all input lines with auto-wrap support
