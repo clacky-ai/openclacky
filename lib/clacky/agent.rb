@@ -655,9 +655,18 @@ module Clacky
       # Append system prompt suffix as user message (for cache reuse)
       if system_prompt_suffix
         messages = subagent.instance_variable_get(:@messages)
+
+        # Build forbidden tools notice if any tools are forbidden
+        forbidden_notice = if forbidden_tools.any?
+          tool_list = forbidden_tools.map { |t| "`#{t}`" }.join(", ")
+          "\n\n[System Notice] The following tools are disabled in this subagent and will be rejected if called: #{tool_list}"
+        else
+          ""
+        end
+
         messages << {
           role: "user",
-          content: "CRITICAL: TASK CONTEXT SWITCH - FORKED SUBAGENT MODE\n\n#{system_prompt_suffix}",
+          content: "CRITICAL: TASK CONTEXT SWITCH - FORKED SUBAGENT MODE\n\nYou are now running as a forked subagent — a temporary, isolated agent spawned by the parent agent to handle a specific task. You run independently and cannot communicate back to the parent mid-task. When you finish (i.e., you stop calling tools and return a final response), your output will be automatically summarized and returned to the parent agent as a result so it can continue.\n\n#{system_prompt_suffix}#{forbidden_notice}",
           system_injected: true,
           subagent_instructions: true
         }
