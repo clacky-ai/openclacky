@@ -8,19 +8,44 @@
 
 OpenClacky = Lovable + Supabase
 
+**OpenClacky** is a CLI tool for building full-stack web applications — no technical background required. We spent months crafting a **Rails for AI** full-stack architecture that is fully production-ready, with one-click deployment, isolated dev/production environments, and automatic backups.
+
+OpenClacky's goal is to deliver the best balance of **AI quality, AI cost, and AI speed**.
+
+## How to Use
+
+```bash
+$ openclacky
+```
+
+- `/config` — Set your API key, model, and base URL
+- `/new <project-name>` — Create a new project
+- Type your requirements and start building
+
+## Why OpenClacky?
+
+|  | **Claude Code** | **Lovable + Supabase** | **OpenClacky** |
+|---|---|---|---|
+| **Target Users** | Professional developers | Non-technical users | Non-technical users |
+| **Tech Stack** | Any | React + Supabase | Rails (full-stack) |
+| **Full-Stack Integration** | ❌ DIY | ⚠️ Frontend/backend split | ✅ Unified full-stack |
+| **Production-Ready** | ❌ Manual setup | ⚠️ Relies on third-party | ✅ Built-in |
+| **One-Click Deploy** | ❌ | ⚠️ Platform lock-in | ✅ Deploy anywhere |
+| **Dev/Prod Isolation** | ❌ | ❌ | ✅ Automatic |
+| **Automatic Backups** | ❌ | ⚠️ Paid feature | ✅ Built-in |
+| **AI Cost Control** | ❌ Pay per token | ❌ Subscription | ✅ Optimally balanced |
+| **Data Ownership** | ✅ | ❌ Platform-owned | ✅ Fully yours |
+| **Interface** | Terminal | Web UI | Terminal |
+
 ## Features
 
-- 💬 Interactive chat sessions with AI models
-- 🤖 Autonomous AI agent with tool use capabilities
-- 📝 Enhanced input with multi-line support and Unicode (Chinese, etc.)
-- 🖼️ Paste images from clipboard (macOS/Linux)
-- 🚀 Single-message mode for quick queries
-- 🔐 Secure API key management
-- 📝 Multi-turn conversation support
-- 🎨 Colorful terminal output
-- 🌐 OpenAI-compatible API support (OpenAI, Gitee AI, DeepSeek, etc.)
-- 🛠️ Rich built-in tools: file operations, web search, code execution, and more
-- ⚡ Prompt caching support for Claude models (reduces costs up to 90%)
+- [x] `/new <project-name>` — Scaffold a full-stack Rails web app in seconds
+- [x] **Skills system** — Specialized AI workflows for deploy, frontend design, PDF, PPTX, and more
+- [x] **Cost monitoring & compression** — Real-time cost tracking, automatic message compression (up to 90% savings)
+- [x] **One-click deployment** — Ship to production with a single command (with Clacky CDE)
+- [x] **Autonomous AI agent** — Multi-step task execution with undo/redo
+- [x] **Multi-provider support** — OpenAI, Anthropic, DeepSeek, and any OpenAI-compatible API
+- [ ] **Time Machine** — Visual history to rewind and branch any point in your project *(coming soon)*
 
 ## Installation
 
