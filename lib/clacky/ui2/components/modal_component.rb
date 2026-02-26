@@ -45,10 +45,16 @@ module Clacky
             @selected_index = @choices.index { |c| !c[:disabled] } || 0
           end
 
-          # Adjust height for menu mode
+          # Adjust height based on mode
           if @mode == :menu
             visible_items = [@choices.length, 15].min
             @height = visible_items + 4  # +4 for title, borders, and instructions
+          else
+            # Form mode - adjust height based on number of fields
+            # Each field takes 2 rows (label + input)
+            # +3 for title and top border
+            # +5 for error message area, buttons, and bottom border
+            @height = (@fields.length * 2) + 3 + 5
           end
 
           # Get terminal size
