@@ -7,7 +7,7 @@ module Clacky
     module MessageCompressorHelper
       # Compression thresholds
       COMPRESSION_THRESHOLD = 150_000  # Trigger compression when exceeding this (in tokens)
-      MESSAGE_COUNT_THRESHOLD = 150   # Trigger compression when exceeding this (in message count)
+      MESSAGE_COUNT_THRESHOLD = 200   # Trigger compression when exceeding this (in message count)
       MAX_RECENT_MESSAGES = 20  # Keep this many recent message pairs intact
       TARGET_COMPRESSED_TOKENS = 10_000  # Target size after compression
       IDLE_COMPRESSION_THRESHOLD = 20_000  # Minimum messages needed for idle compression
