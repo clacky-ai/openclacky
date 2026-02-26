@@ -33,6 +33,11 @@ module Clacky
           @pastel = Pastel.new
         end
 
+        # Get current theme from ThemeManager
+        def theme
+          UI2::ThemeManager.current_theme
+        end
+
         # Render only the logo (ASCII art or simple text based on terminal width)
         # @param width [Integer] Terminal width
         # @return [String] Formatted logo only
@@ -88,7 +93,7 @@ module Clacky
           lines << info_line("Working Directory", working_dir)
           lines << info_line("Permission Mode", mode)
           lines << ""
-          lines << @pastel.dim("[!] Type 'exit' or 'quit' to terminate session")
+          lines << theme.format_text("[!] Type 'exit' or 'quit' to terminate session", :thinking)
           lines << separator("-")
           lines << ""
           lines.join("\n")
@@ -110,12 +115,12 @@ module Clacky
 
         def info_line(label, value)
           label_text = @pastel.cyan("[#{label}]")
-          value_text = @pastel.white(value)
+          value_text = theme.format_text(value, :info)
           "    #{label_text} #{value_text}"
         end
 
         def separator(char = "-")
-          @pastel.dim(char * 80)
+          theme.format_text(char * 80, :thinking)  # Use :thinking for subtle separator
         end
       end
     end

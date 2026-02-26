@@ -1122,7 +1122,7 @@ module Clacky
           # Working directory (shortened if too long)
           if @sessionbar_info[:working_dir]
             dir_display = shorten_path(@sessionbar_info[:working_dir])
-            parts << @pastel.dim(@pastel.cyan(dir_display))
+            parts << theme.format_text(dir_display, :statusbar_path)
           end
 
           # Permission mode
@@ -1133,15 +1133,15 @@ module Clacky
 
           # Model
           if @sessionbar_info[:model]
-            parts << @pastel.dim(@pastel.white(@sessionbar_info[:model]))
+            parts << theme.format_text(@sessionbar_info[:model], :statusbar_secondary)
           end
 
           # Tasks count
-          parts << @pastel.dim(@pastel.white("#{@sessionbar_info[:tasks]} tasks"))
+          parts << theme.format_text("#{@sessionbar_info[:tasks]} tasks", :statusbar_secondary)
 
           # Cost
           cost_display = format("$%.1f", @sessionbar_info[:cost])
-          parts << @pastel.dim(@pastel.white(cost_display))
+          parts << theme.format_text(cost_display, :statusbar_secondary)
 
           " " + parts.join(separator)
         end

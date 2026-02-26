@@ -29,24 +29,27 @@ module Clacky
         }.freeze
 
         COLORS = {
-          user: [:white, :white],
-          assistant: [:bright_green, :white],
-          tool_call: [:bright_cyan, :cyan],
-          tool_result: [:bright_cyan, :cyan],
-          tool_denied: [:bright_yellow, :yellow],
-          tool_planned: [:bright_cyan, :cyan],
-          tool_error: [:bright_red, :red],
-          thinking: [:dim, :dim],
-          working: [:bright_yellow, :yellow],
-          success: [:bright_green, :green],
-          error: [:bright_red, :red],
-          warning: [:bright_yellow, :yellow],
-          info: [:bright_white, :white],
-          task: [:bright_yellow, :white],
-          progress: [:bright_cyan, :cyan],
-          file: [:cyan, :white],
-          command: [:cyan, :white],
-          cached: [:cyan, :cyan]
+          user: [:bright_black, :bright_black],      # User prompt and input - subtle, works on both backgrounds
+          assistant: [:bright_green, :bright_black], # AI response - keep green hacker style
+          tool_call: [:bright_cyan, :cyan],          # Tool execution
+          tool_result: [:bright_cyan, :bright_black], # Tool output
+          tool_denied: [:bright_yellow, :yellow],    # Denied actions
+          tool_planned: [:bright_cyan, :cyan],       # Planned actions
+          tool_error: [:bright_red, :red],           # Errors
+          thinking: [:bright_black, :bright_black],  # Thinking status - changed from :dim
+          working: [:bright_yellow, :yellow],        # Working status
+          success: [:bright_green, :green],          # Success messages
+          error: [:bright_red, :red],                # Error messages
+          warning: [:bright_yellow, :yellow],        # Warnings
+          info: [:bright_black, :bright_black],      # Info messages - subtle
+          task: [:bright_yellow, :bright_black],     # Task items
+          progress: [:bright_cyan, :cyan],           # Progress indicators
+          file: [:cyan, :bright_black],              # File references
+          command: [:cyan, :bright_black],           # Command references
+          cached: [:cyan, :cyan],                    # Cached indicators
+          # Status bar colors
+          statusbar_path: [:bright_black, :bright_black],        # Path - subtle
+          statusbar_secondary: [:bright_black, :bright_black]   # Model/tasks/cost - subtle
         }.freeze
 
         def name

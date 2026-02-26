@@ -26,21 +26,24 @@ module Clacky
         }.freeze
 
         COLORS = {
-          user: [:white, :white],
-          assistant: [:green, :white],
-          tool_call: [:cyan, :cyan],
-          tool_result: [:cyan, :cyan],
-          tool_denied: [:yellow, :yellow],
-          tool_planned: [:cyan, :cyan],
-          tool_error: [:red, :red],
-          thinking: [:dim, :dim],
-          working: [:bright_yellow, :yellow],
-          success: [:green, :green],
-          error: [:red, :red],
-          warning: [:yellow, :yellow],
-          info: [:white, :white],
-          task: [:yellow, :white],
-          progress: [:cyan, :cyan]
+          user: [:bright_black, :bright_black],      # User prompt and input - subtle, works on both backgrounds
+          assistant: [:green, :bright_black],        # AI response
+          tool_call: [:cyan, :cyan],                 # Tool execution
+          tool_result: [:cyan, :bright_black],       # Tool output
+          tool_denied: [:yellow, :yellow],           # Denied actions
+          tool_planned: [:cyan, :cyan],              # Planned actions
+          tool_error: [:red, :red],                  # Errors
+          thinking: [:bright_black, :bright_black],  # Thinking status
+          working: [:bright_yellow, :yellow],        # Working status
+          success: [:green, :green],                 # Success messages
+          error: [:red, :red],                       # Error messages
+          warning: [:yellow, :yellow],               # Warnings
+          info: [:bright_black, :bright_black],      # Info messages - subtle
+          task: [:yellow, :bright_black],            # Task items
+          progress: [:cyan, :cyan],                  # Progress indicators
+          # Status bar colors
+          statusbar_path: [:bright_black, :bright_black],        # Path - subtle
+          statusbar_secondary: [:bright_black, :bright_black]   # Model/tasks/cost - subtle
         }.freeze
 
         def name
