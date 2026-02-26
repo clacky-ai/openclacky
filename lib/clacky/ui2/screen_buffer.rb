@@ -15,7 +15,6 @@ module Clacky
         @buffer = []
         @last_input_time = nil
         @rapid_input_threshold = 0.01 # 10ms threshold for detecting paste-like rapid input
-        setup_resize_handler
       end
 
       # Move cursor to specific position (0-indexed)
@@ -240,20 +239,6 @@ module Clacky
       end
 
       private
-
-      # Setup handler for terminal resize (SIGWINCH)
-      def setup_resize_handler
-        Signal.trap("WINCH") do
-          update_dimensions
-          @resize_callback&.call(@width, @height)
-        end
-      end
-
-      # Register callback for resize events
-      # @param block [Proc] Callback to execute on resize
-      def on_resize(&block)
-        @resize_callback = block
-      end
     end
   end
 end

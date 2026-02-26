@@ -772,6 +772,9 @@ module Clacky
         @layout.screen.enable_raw_mode
 
         while @running
+          # Process any pending resize events
+          @layout.process_pending_resize
+          
           key = @layout.screen.read_key(timeout: 0.1)
           next unless key
 
@@ -940,7 +943,11 @@ module Clacky
           choices << { name: "[X] Close", value: { action: :close } }
           
           # Show menu
-          result = modal.show(title: "Model Configuration", choices: choices)
+          result = modal.show(
+            title: "Model Configuration", 
+            choices: choices,
+            on_close: -> { @layout.rerender_all }
+          )
           
           return nil if result.nil?
           
@@ -1038,7 +1045,8 @@ module Clacky
         # Show modal
         result = modal.show(
           title: "Time Machine - Select Task to Navigate",
-          choices: choices
+          choices: choices,
+          on_close: -> { @layout.rerender_all }
         )
         
         result # Return selected task_id or nil
@@ -1066,7 +1074,8 @@ module Clacky
           # Show provider selection
           selected_provider = modal.show(
             title: "Select Provider",
-            choices: provider_choices
+            choices: provider_choices,
+            on_close: -> { @layout.rerender_all }
           )
           
           # User cancelled
@@ -1158,7 +1167,8 @@ module Clacky
         result = modal.show(
           title: modal_title,
           fields: fields,
-          validator: validator
+          validator: validator,
+          on_close: -> { @layout.rerender_all }
         )
         
         return nil if result.nil?

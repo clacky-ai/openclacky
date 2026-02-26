@@ -30,8 +30,9 @@ module Clacky
         #   Example: [{ name: "Option 1", value: :opt1 }, { name: "---", disabled: true }]
         # @param validator [Proc, nil] Optional validation callback that receives values hash
         #                              Should return { success: true } or { success: false, error: "message" }
+        # @param on_close [Proc, nil] Optional callback to execute when modal closes (e.g., to re-render screen)
         # @return [Hash, nil] Hash of field values or selected value, or nil if cancelled
-        def show(title:, fields: nil, choices: nil, validator: nil)
+        def show(title:, fields: nil, choices: nil, validator: nil, on_close: nil)
           @title = title
           @mode = choices ? :menu : :form
           @fields = fields || []
@@ -75,6 +76,8 @@ module Clacky
           ensure
             # Clear modal area
             clear_modal(start_row, start_col)
+            # Call on_close callback if provided (e.g., to re-render screen)
+            on_close&.call
           end
         end
 

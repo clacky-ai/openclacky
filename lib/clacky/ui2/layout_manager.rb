@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative "screen_buffer"
+require_relative "../utils/limit_stack"
 
 module Clacky
   module UI2
@@ -16,6 +17,8 @@ module Clacky
         @output_row = 0  # Track current output row position
         @last_fixed_area_height = 0  # Track previous fixed area height to detect shrinkage
         @fullscreen_mode = false  # Track if in fullscreen mode
+        @resize_pending = false  # Flag to indicate resize is pending
+        @output_buffer = Utils::LimitStack.new(max_size: 500)  # Buffer to store output lines with auto-rolling
 
         calculate_layout
         setup_resize_handler
@@ -85,6 +88,42 @@ module Clacky
           # Clear and re-render entire fixed area to ensure consistency
           render_fixed_areas
           screen.flush
+        end
+      end
+
+      # Re-render everything from scratch (useful after modal dialogs)
+      def rerender_all
+        @render_mutex.synchronize do
+          # Clear entire screen
+          screen.clear_screen
+          
+          # Re-render output from buffer
+          render_output_from_buffer
+          
+          # Re-render fixed areas at new positions
+          render_fixed_areas
+          screen.flush
+        end
+      end
+      
+      # Render output area from buffer (clears and re-renders last N lines)
+      private def render_output_from_buffer
+        max_output_row = fixed_area_start_row
+        
+        # Clear output area
+        (0...max_output_row).each do |row|
+          screen.move_cursor(row, 0)
+          screen.clear_line
+        end
+        
+        # Re-render from buffer (show last N lines that fit)
+        @output_row = 0
+        visible_lines = [@output_buffer.size, max_output_row].min
+        
+        @output_buffer.last(visible_lines).each do |line|
+          screen.move_cursor(@output_row, 0)
+          print line
+          @output_row += 1
         end
       end
 
@@ -178,6 +217,9 @@ module Clacky
 
           # Reset output position to beginning
           @output_row = 0
+          
+          # Clear the output buffer so re-renders don't restore old content
+          @output_buffer.clear
 
           # Re-render fixed areas to ensure they stay in place
           render_fixed_areas
@@ -294,24 +336,29 @@ module Clacky
       end
 
       # Handle window resize
-      def handle_resize
-        old_gap_row = @gap_row
-
+      private def handle_resize
+        # Update terminal dimensions and recalculate layout
         screen.update_dimensions
         calculate_layout
 
-        # Adjust @output_row if it exceeds new layout
-        # After resize, @output_row should not exceed fixed_area_start_row
-        max_allowed = fixed_area_start_row
-        @output_row = [@output_row, max_allowed].min
-
-        # Clear old fixed area and some lines above (terminal may have wrapped content)
-        clear_start = [old_gap_row - 5, 0].max
-        (clear_start...screen.height).each do |row|
-          screen.move_cursor(row, 0)
-          screen.clear_line
+        # Clear entire screen
+        screen.clear_screen
+        
+        # Re-render all output from buffer
+        @output_row = 0
+        max_output_row = fixed_area_start_row
+        
+        # Calculate how many lines we can show from the end of buffer
+        visible_lines = [@output_buffer.size, max_output_row].min
+        
+        # Render the last N lines that fit in the output area
+        @output_buffer.last(visible_lines).each do |line|
+          screen.move_cursor(@output_row, 0)
+          print line
+          @output_row += 1
         end
-
+        
+        # Re-render fixed areas at new positions
         render_fixed_areas
         screen.flush
       end
@@ -320,6 +367,9 @@ module Clacky
       # Handles scrolling when reaching fixed area
       # @param line [String] Single line to write (should not contain newlines)
       def write_output_line(line)
+        # Add to buffer for potential re-rendering
+        @output_buffer << line
+        
         # Calculate where fixed area starts (this is where output area ends)
         max_output_row = fixed_area_start_row
 
@@ -461,15 +511,12 @@ module Clacky
         todo_row = gap_row + 1
         input_row = todo_row + (@todo_area&.height || 0)
 
-        # If fixed area shrank, clear the extra lines at the top to remove residual content
-        if @last_fixed_area_height > current_fixed_height
-          height_diff = @last_fixed_area_height - current_fixed_height
-          old_start_row = screen.height - @last_fixed_area_height
-          # Clear the extra lines that are no longer part of fixed area
-          (old_start_row...(old_start_row + height_diff)).each do |row|
-            screen.move_cursor(row, 0)
-            screen.clear_line
-          end
+        # Detect height changes and re-render output area if needed
+        if @last_fixed_area_height > 0 && @last_fixed_area_height != current_fixed_height
+          # Fixed area height changed - re-render output area from buffer
+          # This prevents output content from being hidden when fixed area grows
+          # (e.g., multi-line input, command suggestions appearing)
+          render_output_from_buffer
         end
 
         # Update last height for next comparison
@@ -555,12 +602,34 @@ module Clacky
       end
 
       # Setup handler for window resize
-      def setup_resize_handler
+      # Note: Signal handlers run in trap context where many operations are restricted
+      private def setup_resize_handler
         Signal.trap("WINCH") do
+          # Simply set a flag - actual resize handling happens in main thread
+          @resize_pending = true
+        end
+      rescue ArgumentError => e
+        # Signal already trapped (shouldn't happen now)
+        warn "WINCH signal already trapped: #{e.message}"
+      end
+
+      # Check and process pending resize (should be called from main thread periodically)
+      def process_pending_resize
+        return unless @resize_pending
+        
+        @resize_pending = false
+        handle_resize_safely
+      end
+
+      # Thread-safe wrapper for handle_resize
+      private def handle_resize_safely
+        @render_mutex.synchronize do
           handle_resize
         end
-      rescue ArgumentError
-        # Signal already trapped, ignore
+      rescue => e
+        # Catch and log errors to prevent resize from crashing the app
+        warn "Resize error: #{e.message}"
+        warn e.backtrace.first(5).join("\n") if e.backtrace
       end
     end
   end
