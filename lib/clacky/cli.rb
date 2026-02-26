@@ -552,7 +552,7 @@ module Clacky
 
           # Cancel idle timer if running (new input means user is active)
           if idle_timer_thread&.alive?
-              ui_controller.log("Idle timer killed, start new 1", level: :debug)
+            # ui_controller.log("Idle timer killed, start new 1", level: :debug)
             idle_timer_thread.kill
             idle_timer_thread = nil
           end
@@ -561,17 +561,17 @@ module Clacky
           start_idle_timer = lambda do
             # Cancel any existing idle timer first
             if idle_timer_thread&.alive?
-              ui_controller.log("Idle timer killed, start new 2", level: :debug)
+              # ui_controller.log("Idle timer killed, start new 2", level: :debug)
               idle_timer_thread.kill
               idle_timer_thread = nil
             end
 
             # Start idle timer - trigger compression after 180 seconds of inactivity
             idle_timer_thread = Thread.new do
-              ui_controller.log("Idle timer started, will trigger compression in 180 seconds", level: :debug)
+              # ui_controller.log("Idle timer started, will trigger compression in 180 seconds", level: :debug)
               # Sleep outside of rescue block - if interrupted here, let it propagate and exit
               sleep 180
-              ui_controller.log("Idle timer sleep completed, starting compression", level: :debug)
+              # ui_controller.log("Idle timer sleep completed, starting compression", level: :debug)
 
               # After sleep completes, switch to current_task_thread for compression
               # (so it can be interrupted by Ctrl+C)
