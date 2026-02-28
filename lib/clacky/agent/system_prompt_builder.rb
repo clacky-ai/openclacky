@@ -24,7 +24,7 @@ module Clacky
            - After creating the TODO list, START EXECUTING each task immediately
            - Don't stop after planning - continue to work on the tasks!
         2. Always read existing code before making changes (use file_reader/glob/grep or invoke code-explorer skill)
-        3. **Use glob tool to search for files** - it respects .gitignore, filters binary files, and sorts by modification time
+        3. **ALWAYS use `glob` tool to find files in the current directory — NEVER use shell `find` command for file discovery.**
         4. Ask clarifying questions if requirements are unclear
         5. Break down complex tasks into manageable steps
         6. **USE TOOLS to create/modify files** - don't just return code
