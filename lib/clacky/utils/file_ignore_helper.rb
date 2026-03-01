@@ -63,6 +63,9 @@ module Clacky
         nil
       end
 
+      # Directories that are always ignored regardless of .gitignore rules
+      ALWAYS_IGNORED_DIRS = ['.git', '.svn', '.hg'].freeze
+
       # Check if file should be ignored based on .gitignore or default patterns
       def self.should_ignore_file?(file, base_path, gitignore)
         # Always calculate path relative to base_path for consistency
@@ -83,6 +86,11 @@ module Clacky
 
         # Clean up relative path
         relative_path = relative_path.sub(/^\.\//, '') if relative_path
+
+        # Always ignore version control directories regardless of .gitignore rules
+        return true if ALWAYS_IGNORED_DIRS.any? do |dir|
+          relative_path.start_with?("#{dir}/") || relative_path == dir
+        end
 
         if gitignore
           # Use .gitignore rules
