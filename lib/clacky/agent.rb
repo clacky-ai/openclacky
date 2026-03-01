@@ -700,6 +700,15 @@ module Clacky
           system_injected: true,
           subagent_instructions: true
         }
+
+        # Insert an assistant acknowledgement so the conversation structure is complete:
+        #   [user] role/constraints  →  [assistant] ack  →  [user] actual task (from run())
+        # Without this, two consecutive user messages confuse the model about what to act on.
+        messages << {
+          role: "assistant",
+          content: "Understood. I am now operating as a subagent with the constraints above. Please provide the task.",
+          system_injected: true
+        }
       end
 
       # Register hook to forbid certain tools at runtime (doesn't affect tool registry for cache)

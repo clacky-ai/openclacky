@@ -57,7 +57,7 @@ RSpec.describe Clacky::Agent, "#fork_subagent" do
       expect(agent.messages[0][:metadata][:key]).to eq("value")
     end
 
-    it "appends system_prompt_suffix as user message" do
+    it "appends system_prompt_suffix as user message followed by assistant acknowledgement" do
       agent.instance_variable_set(:@messages, [
         { role: "system", content: "System prompt" }
       ])
@@ -66,12 +66,20 @@ RSpec.describe Clacky::Agent, "#fork_subagent" do
         system_prompt_suffix: "You are a code explorer."
       )
 
-      expect(subagent.messages.length).to eq(2)
+      # Should have 3 messages: system + user instructions + assistant ack
+      expect(subagent.messages.length).to eq(3)
+
+      # [1] user: subagent role/constraints
       expect(subagent.messages[1][:role]).to eq("user")
       expect(subagent.messages[1][:content]).to include("CRITICAL: TASK CONTEXT SWITCH")
       expect(subagent.messages[1][:content]).to include("You are a code explorer.")
       expect(subagent.messages[1][:system_injected]).to be true
       expect(subagent.messages[1][:subagent_instructions]).to be true
+
+      # [2] assistant: acknowledgement — gives run() a clean [user] slot for the actual task
+      expect(subagent.messages[2][:role]).to eq("assistant")
+      expect(subagent.messages[2][:content]).to include("Understood")
+      expect(subagent.messages[2][:system_injected]).to be true
     end
 
     it "registers hook to forbid tools" do

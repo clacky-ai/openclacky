@@ -100,17 +100,21 @@ module Clacky
         # Log subagent fork
         @ui&.show_info("Subagent start: #{skill.identifier}")
 
-        # Build task content from skill
-        task_content = skill.process_content(arguments)
+        # Build skill role/constraint instructions only — do NOT substitute $ARGUMENTS here.
+        # The actual task is delivered as a clean user message via subagent.run(arguments),
+        # which arrives *after* the assistant acknowledgement injected by fork_subagent.
+        # This gives the subagent a clear 3-part structure:
+        #   [user] role/constraints  →  [assistant] acknowledgement  →  [user] actual task
+        skill_instructions = skill.process_content("")
 
         # Fork subagent with skill configuration
         subagent = fork_subagent(
           model: skill.subagent_model,
           forbidden_tools: skill.forbidden_tools_list,
-          system_prompt_suffix: task_content
+          system_prompt_suffix: skill_instructions
         )
 
-        # Run subagent
+        # Run subagent with the actual task as the sole user turn
         result = subagent.run(arguments)
 
         # Generate summary
