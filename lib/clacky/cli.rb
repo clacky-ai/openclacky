@@ -5,6 +5,7 @@ require "tty-prompt"
 require "fileutils"
 require_relative "ui2"
 require_relative "json_ui_controller"
+require_relative "plain_ui_controller"
 
 module Clacky
   class CLI < Thor
@@ -50,6 +51,8 @@ module Clacky
     option :list, type: :boolean, aliases: "-l", desc: "List recent sessions"
     option :attach, type: :string, aliases: "-a", desc: "Attach to session by number or keyword"
     option :json, type: :boolean, default: false, desc: "Output NDJSON to stdout (for scripting/piping)"
+    option :message, type: :string, aliases: "-m", desc: "Run non-interactively with this message and exit"
+    option :image, type: :array, aliases: "-i", desc: "Image file path(s) to attach (use with -m; can be specified multiple times)"
     option :help, type: :boolean, aliases: "-h", desc: "Show this help message"
     def agent
       # Handle help option
@@ -101,7 +104,9 @@ module Clacky
       should_chdir = File.realpath(working_dir) != File.realpath(original_dir)
       Dir.chdir(working_dir) if should_chdir
       begin
-        if options[:json]
+        if options[:message]
+          run_non_interactive(agent, options[:message], Array(options[:image]), agent_config, session_manager)
+        elsif options[:json]
           run_agent_with_json(agent, working_dir, agent_config, session_manager, client)
         else
           run_agent_with_ui2(agent, working_dir, agent_config, session_manager, client, is_session_load: is_session_load)
@@ -351,6 +356,33 @@ module Clacky
           session_manager&.save(agent.to_session_data(status: :error, error_message: error_message))
           ui_controller.show_error("Error: #{exception.message}")
         end
+      end
+
+      # Run agent non-interactively with a single message, then exit.
+      # Forces auto_approve mode so no human confirmation is needed.
+      # Output goes directly to stdout; exits with code 0 on success, 1 on error.
+      def run_non_interactive(agent, message, images, agent_config, session_manager)
+        # Force auto-approve — no one is around to confirm anything
+        agent_config.permission_mode = :auto_approve
+
+        # Validate image paths up-front so we fail fast with a clear message
+        images.each do |path|
+          raise ArgumentError, "Image file not found: #{path}" unless File.exist?(path)
+        end
+
+        # Wire up plain-text stdout UI so all agent output is visible
+        plain_ui = Clacky::PlainUIController.new
+        agent.instance_variable_set(:@ui, plain_ui)
+
+        agent.run(message, images: images)
+        session_manager&.save(agent.to_session_data(status: :success))
+        exit(0)
+      rescue Clacky::AgentInterrupted
+        $stderr.puts "\nInterrupted."
+        exit(1)
+      rescue => e
+        $stderr.puts "Error: #{e.message}"
+        exit(1)
       end
 
       # Run agent with JSON (NDJSON) output mode — persistent process.

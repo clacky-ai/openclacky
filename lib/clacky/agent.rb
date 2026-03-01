@@ -506,7 +506,16 @@ module Clacky
             if result.is_a?(Hash) && result[:message]
               @ui&.show_assistant_message(result[:message])
             end
-            awaiting_feedback = true
+
+            if @config.permission_mode == :auto_approve
+              # Auto-approve mode means no human is watching — inject a reply so the LLM
+              # knows it should make a reasonable decision and keep going
+              result = result.merge(
+                auto_reply: "No user is available. Please make a reasonable decision based on the context and continue."
+              )
+            else
+              awaiting_feedback = true
+            end
           else
             # Use tool's format_result method to get display-friendly string
             formatted_result = tool.respond_to?(:format_result) ? tool.format_result(result) : result.to_s
