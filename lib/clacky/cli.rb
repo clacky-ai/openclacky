@@ -690,5 +690,41 @@ module Clacky
 
 
     end
+
+    # ── server command ─────────────────────────────────────────────────────────
+    desc "server", "Start the Clacky web UI server"
+    long_desc <<-LONGDESC
+      Start a long-running HTTP + WebSocket server that serves the Clacky web UI.
+
+      Open http://localhost:7070 in your browser to access the multi-session interface.
+      Multiple sessions (e.g. "coding", "copywriting") can run simultaneously.
+
+      Examples:
+        $ clacky server
+        $ clacky server --port 8080
+    LONGDESC
+    option :host, type: :string, default: "127.0.0.1", desc: "Bind host (default: 127.0.0.1)"
+    option :port, type: :numeric, default: 7070, desc: "Listen port (default: 7070)"
+    def server
+      require_relative "server/http_server"
+
+      agent_config = Clacky::AgentConfig.load
+
+      # Factory so each new session gets a fresh Client instance
+      client_factory = lambda do
+        Clacky::Client.new(
+          agent_config.api_key,
+          base_url: agent_config.base_url,
+          anthropic_format: agent_config.anthropic_format?
+        )
+      end
+
+      Clacky::Server::HttpServer.new(
+        host:           options[:host],
+        port:           options[:port],
+        agent_config:   agent_config,
+        client_factory: client_factory
+      ).start
+    end
   end
 end

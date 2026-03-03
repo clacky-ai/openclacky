@@ -47,6 +47,8 @@ require_relative "clacky/tools/redo_task"
 require_relative "clacky/tools/list_tasks"
 require_relative "clacky/agent"
 
+require_relative "clacky/server/session_registry"
+require_relative "clacky/server/web_ui_controller"
 require_relative "clacky/cli"
 
 module Clacky
