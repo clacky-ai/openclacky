@@ -1,105 +1,59 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Clacky</title>
-<style>
-*{box-sizing:border-box;margin:0;padding:0}
-body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#0d1117;color:#e6edf3;height:100vh;display:flex;overflow:hidden}
-#app{display:flex;width:100%;height:100vh}
-
-/* Sidebar */
-#sidebar{width:240px;min-width:200px;background:#161b22;border-right:1px solid #30363d;display:flex;flex-direction:column}
-#sidebar-header{display:flex;align-items:center;justify-content:space-between;padding:16px 12px;border-bottom:1px solid #30363d}
-.logo{font-weight:700;font-size:16px;color:#58a6ff}
-#btn-new-session{background:#238636;color:#fff;border:none;border-radius:6px;width:28px;height:28px;font-size:18px;cursor:pointer;line-height:1}
-#btn-new-session:hover{background:#2ea043}
-#session-list{flex:1;overflow-y:auto;padding:8px}
-
-/* Session item */
-.session-item{padding:10px 12px;border-radius:6px;cursor:pointer;margin-bottom:4px;border:1px solid transparent;transition:background .15s}
-.session-item:hover{background:#1f2937}
-.session-item.active{background:#1f2937;border-color:#30363d}
-.session-name{font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.session-meta{font-size:11px;color:#8b949e;margin-top:3px}
-.session-dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:5px}
-.dot-idle{background:#8b949e}.dot-running{background:#3fb950;animation:pulse 1s infinite}
-.dot-error{background:#f85149}
-@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
-
-/* Main area */
-#main{flex:1;display:flex;flex-direction:column;overflow:hidden}
-.centered{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;color:#8b949e}
-.welcome-icon{font-size:48px}
-.centered h2{color:#e6edf3;font-size:22px}
-#btn-welcome-new{background:#238636;color:#fff;border:none;border-radius:6px;padding:8px 20px;font-size:14px;cursor:pointer}
-#btn-welcome-new:hover{background:#2ea043}
-
-/* Chat panel */
-#chat-panel{flex:1;display:flex;flex-direction:column;overflow:hidden}
-#chat-header{padding:12px 20px;border-bottom:1px solid #30363d;display:flex;align-items:center;gap:10px;background:#161b22}
-#chat-title{font-weight:600;font-size:15px}
-.status-idle{font-size:11px;color:#8b949e}.status-running{font-size:11px;color:#3fb950}
-
-/* Messages */
-#messages{flex:1;overflow-y:auto;padding:20px;display:flex;flex-direction:column;gap:12px}
-.msg{padding:12px 16px;border-radius:8px;max-width:90%;font-size:14px;line-height:1.6;word-break:break-word}
-.msg-user{background:#1f4b8e;align-self:flex-end;border-bottom-right-radius:2px}
-.msg-assistant{background:#161b22;border:1px solid #30363d;align-self:flex-start;white-space:pre-wrap}
-.msg-tool{background:#0d1117;border:1px solid #30363d;font-family:monospace;font-size:12px;color:#8b949e;align-self:flex-start}
-.msg-info{color:#8b949e;font-size:12px;align-self:center;font-style:italic}
-.msg-error{background:#3d1a1a;border:1px solid #f85149;color:#ffa198;align-self:flex-start}
-.msg-success{color:#3fb950;align-self:flex-start;font-size:13px}
-.tool-name{color:#e3b341;font-weight:600}
-.progress-msg{color:#58a6ff;font-size:12px;align-self:center;animation:pulse 1.2s infinite}
-
-/* Input bar */
-#input-bar{padding:12px 16px;border-top:1px solid #30363d;display:flex;gap:8px;align-items:flex-end;background:#161b22}
-#user-input{flex:1;background:#0d1117;border:1px solid #30363d;border-radius:8px;color:#e6edf3;padding:10px 14px;font-size:14px;resize:none;max-height:200px;font-family:inherit;line-height:1.5}
-#user-input:focus{outline:none;border-color:#58a6ff}
-#btn-send,#btn-interrupt{border:none;border-radius:6px;padding:8px 16px;font-size:13px;cursor:pointer;white-space:nowrap}
-#btn-send{background:#238636;color:#fff}
-#btn-send:hover{background:#2ea043}
-#btn-send:disabled{background:#30363d;color:#8b949e;cursor:not-allowed}
-#btn-interrupt{background:#da3633;color:#fff}
-#btn-interrupt:hover{background:#f85149}
-
-/* Modal */
-#modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;z-index:100}
-#modal{background:#161b22;border:1px solid #30363d;border-radius:10px;padding:24px;max-width:480px;width:90%}
-#modal-message{font-size:14px;line-height:1.6;margin-bottom:20px;white-space:pre-wrap}
-#modal-actions{display:flex;gap:10px;justify-content:flex-end}
-#modal-yes{background:#238636;color:#fff;border:none;border-radius:6px;padding:8px 20px;cursor:pointer}
-#modal-no{background:#30363d;color:#e6edf3;border:none;border-radius:6px;padding:8px 20px;cursor:pointer}
-#modal-yes:hover{background:#2ea043}
-#modal-no:hover{background:#3d444d}
-
-/* Scrollbar */
-::-webkit-scrollbar{width:6px}
-::-webkit-scrollbar-track{background:transparent}
-::-webkit-scrollbar-thumb{background:#30363d;border-radius:3px}
-</style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Clacky</title>
+  <link rel="stylesheet" href="/app.css">
 </head>
 <body>
 <div id="app">
-  <!-- SIDEBAR -->
+
+  <!-- ── SIDEBAR ──────────────────────────────────────────────────────── -->
   <aside id="sidebar">
     <div id="sidebar-header">
       <span class="logo">⚡ Clacky</span>
       <button id="btn-new-session" title="New Session">＋</button>
     </div>
-    <div id="session-list"></div>
+
+    <!-- Combined list: sessions + tasks -->
+    <div id="sidebar-list">
+      <div id="session-list"></div>
+      <div id="tasks-section">
+        <div class="sidebar-divider">
+          <span>Tasks</span>
+        </div>
+        <div id="task-list-items"></div>
+      </div>
+    </div>
   </aside>
 
-  <!-- MAIN -->
+  <!-- ── MAIN ─────────────────────────────────────────────────────────── -->
   <main id="main">
+
+    <!-- Welcome screen -->
     <div id="welcome" class="centered">
       <div class="welcome-icon">⚡</div>
       <h2>Welcome to Clacky</h2>
       <p>Create a new session or select one from the sidebar.</p>
       <button id="btn-welcome-new">New Session</button>
     </div>
+
+    <!-- Task detail panel -->
+    <div id="task-detail-panel" style="display:none">
+      <header id="task-detail-header">
+        <span id="task-detail-title">Task</span>
+        <div style="display:flex;gap:8px;align-items:center">
+          <button id="btn-run-task" title="Run now">▶ Run</button>
+          <button id="btn-edit-task" title="Edit task">Edit</button>
+          <button id="btn-delete-task" title="Delete task">✕</button>
+        </div>
+      </header>
+      <div id="task-detail-prompt"></div>
+      <div id="task-schedule-info"></div>
+    </div>
+
+    <!-- Chat panel -->
     <div id="chat-panel" style="display:none">
       <header id="chat-header">
         <span id="chat-title">Session</span>
@@ -107,342 +61,52 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;backgrou
       </header>
       <div id="messages"></div>
       <div id="input-bar">
-        <textarea id="user-input" placeholder="Message… (Enter to send, Shift+Enter for newline)" rows="1"></textarea>
+        <textarea id="user-input" rows="1"
+          placeholder="Message… (Enter to send, Shift+Enter for newline)"></textarea>
         <button id="btn-send">Send</button>
         <button id="btn-interrupt" style="display:none" title="Interrupt">■</button>
       </div>
     </div>
+
   </main>
 </div>
 
-<!-- CONFIRMATION MODAL -->
-<div id="modal-overlay" style="display:none">
-  <div id="modal">
-    <div id="modal-message"></div>
-    <div id="modal-actions">
-      <button id="modal-yes">Yes</button>
-      <button id="modal-no">No</button>
+<!-- ── CONFIRMATION MODAL ────────────────────────────────────────────────── -->
+<div id="modal-overlay" class="modal-overlay" style="display:none">
+  <div class="modal-box sm">
+    <div id="modal-message" style="font-size:14px;line-height:1.6;margin-bottom:20px;white-space:pre-wrap"></div>
+    <div class="modal-actions">
+      <button id="modal-yes" class="btn-primary">Yes</button>
+      <button id="modal-no"  class="btn-secondary">No</button>
     </div>
   </div>
 </div>
 
-<script>
-// ── State ────────────────────────────────────────────────────────────────
-const state = {
-  sessions: [],
-  activeId: null,
-  ws: null,
-  wsReady: false,
-  pendingConf: null,   // { id, resolve }
-  progressEl: null,
-  messageCache: {}     // session_id => DocumentFragment (saved DOM nodes)
-};
+<!-- ── TASK EDIT MODAL ────────────────────────────────────────────────────── -->
+<div id="task-edit-overlay" class="modal-overlay" style="display:none">
+  <div class="modal-box lg">
+    <div class="modal-title">Edit Task</div>
+    <div class="form-group">
+      <label class="form-label">Task Name</label>
+      <input class="form-input" id="task-edit-name" disabled />
+    </div>
+    <div class="form-group">
+      <label class="form-label">Prompt</label>
+      <textarea class="form-textarea" id="task-edit-content"
+        placeholder="Write the prompt that the Agent will receive when this task runs…"></textarea>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-secondary" onclick="closeEditTaskModal()">Cancel</button>
+      <button class="btn-primary"   onclick="saveEditedTask()">Save</button>
+    </div>
+  </div>
+</div>
 
-// ── DOM refs ─────────────────────────────────────────────────────────────
-const $ = id => document.getElementById(id);
-const sessionList  = $("session-list");
-const welcome      = $("welcome");
-const chatPanel    = $("chat-panel");
-const chatTitle    = $("chat-title");
-const chatStatus   = $("chat-status");
-const messages     = $("messages");
-const userInput    = $("user-input");
-const btnSend      = $("btn-send");
-const btnInterrupt = $("btn-interrupt");
-const modalOverlay = $("modal-overlay");
-const modalMessage = $("modal-message");
-const modalYes     = $("modal-yes");
-const modalNo      = $("modal-no");
 
-// ── WebSocket ─────────────────────────────────────────────────────────────
-function connectWS() {
-  const ws = new WebSocket(`ws://${location.host}/ws`);
-  state.ws = ws;
 
-  ws.onopen = () => {
-    state.wsReady = true;
-    ws.send(JSON.stringify({ type: "list_sessions" }));
-  };
-
-  ws.onmessage = e => {
-    try { handleServerEvent(JSON.parse(e.data)); }
-    catch(ex) { console.error("WS parse error", ex); }
-  };
-
-  ws.onclose = () => {
-    state.wsReady = false;
-    setTimeout(connectWS, 2000);  // auto-reconnect
-  };
-
-  ws.onerror = err => console.error("WS error", err);
-}
-
-function wsSend(obj) {
-  if (state.ws && state.wsReady) state.ws.send(JSON.stringify(obj));
-}
-
-// ── Server event handler ──────────────────────────────────────────────────
-function handleServerEvent(ev) {
-  switch (ev.type) {
-    case "session_list":
-      state.sessions = ev.sessions || [];
-      renderSidebar();
-      if (state.activeId && !state.sessions.find(s => s.id === state.activeId)) {
-        showWelcome();
-      }
-      // Auto-select the first session on initial load (no active session yet)
-      if (!state.activeId && state.sessions.length > 0) {
-        selectSession(state.sessions[0].id);
-      }
-      break;
-
-    case "subscribed":
-      appendInfo(`Connected to session`);
-      break;
-
-    case "assistant_message":
-      if (ev.session_id === state.activeId) {
-        clearProgress();
-        appendMsg("assistant", ev.content);
-      }
-      break;
-
-    case "tool_call":
-      if (ev.session_id === state.activeId) {
-        clearProgress();
-        const argStr = typeof ev.args === "object"
-          ? JSON.stringify(ev.args, null, 2) : String(ev.args || "");
-        appendMsg("tool", `<span class="tool-name">⚙ ${ev.name}</span>\n${argStr}`);
-      }
-      break;
-
-    case "tool_result":
-      if (ev.session_id === state.activeId)
-        appendMsg("tool", `↩ ${String(ev.result || "").slice(0, 300)}`);
-      break;
-
-    case "tool_error":
-      if (ev.session_id === state.activeId)
-        appendMsg("error", `Tool error: ${ev.error}`);
-      break;
-
-    case "progress":
-      if (ev.session_id === state.activeId) {
-        if (ev.status === "start") showProgress(ev.message || "Thinking…");
-        else clearProgress();
-      }
-      break;
-
-    case "request_confirmation":
-      if (ev.session_id === state.activeId)
-        showConfirmModal(ev.id, ev.message);
-      break;
-
-    case "complete":
-      if (ev.session_id === state.activeId) {
-        clearProgress();
-        appendInfo(`✓ Done — ${ev.iterations} iteration(s), $${(ev.cost||0).toFixed(4)}`);
-      }
-      break;
-
-    case "session_update":
-      if (ev.session_id === state.activeId) updateStatusBar(ev.status);
-      // refresh sidebar dot
-      const s = state.sessions.find(s => s.id === ev.session_id);
-      if (s && ev.status) { s.status = ev.status; renderSidebar(); }
-      break;
-
-    case "info":    appendInfo(ev.message); break;
-    case "warning": appendInfo("⚠ " + ev.message); break;
-    case "success": appendMsg("success", "✓ " + ev.message); break;
-    case "error":
-      if (!ev.session_id || ev.session_id === state.activeId)
-        appendMsg("error", ev.message);
-      break;
-
-    case "interrupted":
-      if (ev.session_id === state.activeId) {
-        clearProgress();
-        appendInfo("Interrupted.");
-      }
-      break;
-
-    case "session_deleted":
-      if (ev.session_id === state.activeId) showWelcome();
-      break;
-  }
-}
-
-// ── Session UI ────────────────────────────────────────────────────────────
-function renderSidebar() {
-  sessionList.innerHTML = "";
-  state.sessions.forEach(s => {
-    const el = document.createElement("div");
-    el.className = "session-item" + (s.id === state.activeId ? " active" : "");
-    el.innerHTML = `
-      <div class="session-name">
-        <span class="session-dot dot-${s.status}"></span>${s.name}
-      </div>
-      <div class="session-meta">${s.total_tasks} tasks · $${(s.total_cost||0).toFixed(4)}</div>`;
-    el.onclick = () => selectSession(s.id);
-    sessionList.appendChild(el);
-  });
-}
-
-function selectSession(id) {
-  // Save current session's messages into cache before switching
-  if (state.activeId && state.activeId !== id) {
-    const frag = document.createDocumentFragment();
-    while (messages.firstChild) frag.appendChild(messages.firstChild);
-    state.messageCache[state.activeId] = frag;
-  }
-
-  state.activeId = id;
-  const s = state.sessions.find(s => s.id === id);
-  if (!s) return;
-
-  welcome.style.display = "none";
-  chatPanel.style.display = "flex";
-  chatPanel.style.flexDirection = "column";
-
-  chatTitle.textContent = s.name;
-  updateStatusBar(s.status);
-
-  // Restore cached messages or start fresh
-  messages.innerHTML = "";
-  if (state.messageCache[id]) {
-    messages.appendChild(state.messageCache[id]);
-    delete state.messageCache[id];
-    messages.scrollTop = messages.scrollHeight;
-  }
-
-  wsSend({ type: "subscribe", session_id: id });
-  renderSidebar();
-  userInput.focus();
-}
-
-function showWelcome() {
-  state.activeId = null;
-  welcome.style.display = "";
-  chatPanel.style.display = "none";
-  renderSidebar();
-}
-
-function updateStatusBar(status) {
-  chatStatus.textContent = status || "idle";
-  chatStatus.className   = status === "running" ? "status-running" : "status-idle";
-  const running = status === "running";
-  btnSend.disabled          = running;
-  btnInterrupt.style.display = running ? "" : "none";
-}
-
-// ── Message helpers ───────────────────────────────────────────────────────
-function appendMsg(type, html) {
-  const el = document.createElement("div");
-  el.className = `msg msg-${type}`;
-  el.innerHTML = html;
-  messages.appendChild(el);
-  messages.scrollTop = messages.scrollHeight;
-}
-
-function appendInfo(text) {
-  const el = document.createElement("div");
-  el.className = "msg msg-info";
-  el.textContent = text;
-  messages.appendChild(el);
-  messages.scrollTop = messages.scrollHeight;
-}
-
-function showProgress(text) {
-  clearProgress();
-  const el = document.createElement("div");
-  el.className = "progress-msg";
-  el.textContent = "⟳ " + text;
-  messages.appendChild(el);
-  state.progressEl = el;
-  messages.scrollTop = messages.scrollHeight;
-}
-
-function clearProgress() {
-  if (state.progressEl) { state.progressEl.remove(); state.progressEl = null; }
-}
-
-// ── Confirmation modal ────────────────────────────────────────────────────
-function showConfirmModal(confId, message) {
-  modalMessage.textContent = message;
-  modalOverlay.style.display = "flex";
-
-  const answer = result => {
-    modalOverlay.style.display = "none";
-    wsSend({ type: "confirmation", session_id: state.activeId, id: confId, result });
-  };
-
-  modalYes.onclick = () => answer("yes");
-  modalNo.onclick  = () => answer("no");
-}
-
-// ── New session ───────────────────────────────────────────────────────────
-async function createSession() {
-  const name = prompt("Session name (leave blank for default):");
-  if (name === null) return;  // user cancelled
-
-  const res = await fetch("/api/sessions", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ name: name || undefined })
-  });
-
-  const data = await res.json();
-  if (!res.ok) { alert("Error: " + (data.error || "unknown")); return; }
-
-  // Auto-select the newly created session once the sidebar refreshes
-  const newId = data.session?.id;
-  if (newId) selectSessionWhenReady(newId);
-}
-
-// Poll until the session appears in state.sessions, then select it.
-function selectSessionWhenReady(id) {
-  const s = state.sessions.find(s => s.id === id);
-  if (s) { selectSession(id); return; }
-  wsSend({ type: "list_sessions" });
-  setTimeout(() => selectSessionWhenReady(id), 150);
-}
-
-// ── Send message ─────────────────────────────────────────────────────────
-function sendMessage() {
-  const content = userInput.value.trim();
-  if (!content || !state.activeId) return;
-
-  // Render user message immediately in the browser (don't wait for server broadcast)
-  appendMsg("user", escapeHtml(content));
-
-  wsSend({ type: "message", session_id: state.activeId, content });
-  userInput.value = "";
-  userInput.style.height = "auto";
-}
-
-function escapeHtml(str) {
-  return str.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
-}
-
-// ── Event listeners ───────────────────────────────────────────────────────
-$("btn-new-session").onclick   = createSession;
-$("btn-welcome-new").onclick   = createSession;
-btnSend.onclick                = sendMessage;
-btnInterrupt.onclick = () => wsSend({ type: "interrupt", session_id: state.activeId });
-
-userInput.addEventListener("keydown", e => {
-  if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); }
-});
-
-// Auto-resize textarea
-userInput.addEventListener("input", () => {
-  userInput.style.height = "auto";
-  userInput.style.height = Math.min(userInput.scrollHeight, 200) + "px";
-});
-
-// ── Boot ──────────────────────────────────────────────────────────────────
-connectWS();
-</script>
+<script src="/ws.js"></script>
+<script src="/sessions.js"></script>
+<script src="/tasks.js"></script>
+<script src="/app.js"></script>
 </body>
 </html>
