@@ -774,7 +774,7 @@ module Clacky
 
     # Format user content with optional images
     # @param text [String] User's text input
-    # @param images [Array<String>] Array of image file paths
+    # @param images [Array<String>] Array of image file paths or data: URLs
     # @return [String|Array] String if no images, Array with text and image_url objects if images present
     private def format_user_content(text, images)
       return text if images.nil? || images.empty?
@@ -782,8 +782,13 @@ module Clacky
       content = []
       content << { type: "text", text: text } unless text.nil? || text.empty?
 
-      images.each do |image_path|
-        image_url = Utils::FileProcessor.image_path_to_data_url(image_path)
+      images.each do |image|
+        # Accept both file paths and pre-encoded data: URLs (e.g. from Web UI)
+        image_url = if image.start_with?("data:")
+                      image
+                    else
+                      Utils::FileProcessor.image_path_to_data_url(image)
+                    end
         content << { type: "image_url", image_url: { url: image_url } }
       end
 
