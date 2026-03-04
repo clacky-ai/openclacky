@@ -43,9 +43,20 @@ module Clacky
           AccessLog:       []
         )
 
-        # Mount API + WebSocket handler (takes priority)
-        server.mount_proc("/api") { |req, res| dispatch(req, res) }
-        server.mount_proc("/ws")  { |req, res| dispatch(req, res) }
+        # Mount API + WebSocket handler (takes priority).
+        # Use a custom Servlet so that DELETE/PUT/PATCH requests are not rejected
+        # by WEBrick's default method whitelist before reaching our dispatcher.
+        dispatcher = self
+        servlet_class = Class.new(WEBrick::HTTPServlet::AbstractServlet) do
+          define_method(:do_GET)     { |req, res| dispatcher.send(:dispatch, req, res) }
+          define_method(:do_POST)    { |req, res| dispatcher.send(:dispatch, req, res) }
+          define_method(:do_PUT)     { |req, res| dispatcher.send(:dispatch, req, res) }
+          define_method(:do_DELETE)  { |req, res| dispatcher.send(:dispatch, req, res) }
+          define_method(:do_PATCH)   { |req, res| dispatcher.send(:dispatch, req, res) }
+          define_method(:do_OPTIONS) { |req, res| dispatcher.send(:dispatch, req, res) }
+        end
+        server.mount("/api", servlet_class)
+        server.mount("/ws",  servlet_class)
 
         # Mount static file handler for the entire web directory.
         # Use mount_proc so we can inject no-cache headers on every response,
