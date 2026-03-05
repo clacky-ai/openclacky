@@ -6,6 +6,7 @@ require "json"
 require "thread"
 require "fileutils"
 require "uri"
+require "rbconfig"
 require_relative "session_registry"
 require_relative "web_ui_controller"
 require_relative "scheduler"
@@ -36,7 +37,7 @@ module Clacky
         @skill_loader   = Clacky::SkillLoader.new
       end
 
-      def start
+      def start(open_browser: true)
         # Override WEBrick's built-in signal traps via StartCallback,
         # which fires after WEBrick sets its own INT/TERM handlers.
         # This ensures Ctrl-C always exits immediately.
@@ -76,6 +77,19 @@ module Clacky
 
         puts "🌐 Clacky Web UI running at http://#{@host}:#{@port}"
         puts "   Press Ctrl-C to stop."
+
+        # Open browser automatically unless disabled
+        if open_browser
+          url = "http://#{@host}:#{@port}"
+          Thread.new do
+            sleep 0.5
+            case RbConfig::CONFIG["host_os"]
+            when /darwin/             then system("open", url)
+            when /linux/              then system("xdg-open", url)
+            when /mswin|mingw|cygwin/ then system("cmd /c start #{url}")
+            end
+          end
+        end
 
         # Auto-create a default session on startup
         create_default_session

@@ -704,6 +704,7 @@ module Clacky
     LONGDESC
     option :host, type: :string, default: "127.0.0.1", desc: "Bind host (default: 127.0.0.1)"
     option :port, type: :numeric, default: 7070, desc: "Listen port (default: 7070)"
+    option :no_open, type: :boolean, default: false, desc: "Do not open browser automatically"
     def server
       require_relative "server/http_server"
 
@@ -723,7 +724,7 @@ module Clacky
         port:           options[:port],
         agent_config:   agent_config,
         client_factory: client_factory
-      ).start
+      ).start(open_browser: !options[:no_open])
     end
   end
 end
