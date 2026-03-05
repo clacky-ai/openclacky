@@ -241,8 +241,19 @@ module Clacky
           }
         end
 
-        # For other cases, return the result as-is (agent will JSON.generate it)
-        result
+        # For error cases, return hash as-is
+        return result if result[:error] || result[:content].nil?
+
+        # For directory listings, return as-is (no raw file content to preserve)
+        return result if result[:is_directory]
+
+        # For plain text files: return a plain string so the agent sends it
+        # directly to the LLM without JSON-encoding (avoids \" / \n escaping).
+        header = "File: #{result[:path]}"
+        header += " (lines #{result[:start_line]}-#{result[:end_line]})" if result[:start_line]
+        header += " [#{result[:lines_read]}/#{result[:total_lines]} lines]"
+        header += " [TRUNCATED]" if result[:truncated]
+        "#{header}\n\n#{result[:content]}"
       end
 
       private def handle_binary_file(path)

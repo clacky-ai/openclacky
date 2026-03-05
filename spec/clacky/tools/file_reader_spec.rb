@@ -386,10 +386,12 @@ RSpec.describe Clacky::Tools::FileReader do
       expect(formatted[:base64_data]).to eq("iVBORw0KG...")
     end
 
-    it "returns result as-is for non-binary files" do
-      result = { content: "text content", lines_read: 10 }
+    it "returns a plain string for non-binary files (avoids JSON double-escaping)" do
+      result = { path: "/tmp/foo.rb", content: "text content", lines_read: 10, total_lines: 10, truncated: false, start_line: nil, end_line: nil }
       formatted = tool.format_result_for_llm(result)
-      expect(formatted).to eq(result)
+      expect(formatted).to be_a(String)
+      expect(formatted).to include("text content")
+      expect(formatted).to include("/tmp/foo.rb")
     end
   end
 end

@@ -168,9 +168,18 @@ module Clacky
         # Inject TODO reminder for non-todo_manager tools
         formatted_result = inject_todo_reminder(call[:name], formatted_result)
 
+        # If the tool already returned a plain string, use it directly.
+        # JSON.generate would double-escape newlines/quotes making the LLM
+        # see \" and \n as literal characters instead of real ones.
+        content = if formatted_result.is_a?(String)
+                    formatted_result
+                  else
+                    JSON.generate(formatted_result)
+                  end
+
         {
           id: call[:id],
-          content: JSON.generate(formatted_result)
+          content: content
         }
       end
 

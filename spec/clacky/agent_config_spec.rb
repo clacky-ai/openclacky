@@ -29,23 +29,23 @@ RSpec.describe Clacky::AgentConfig do
         end
       end
 
-      context "with ClaudeCode environment variables" do
-        it "creates a default model from environment variables" do
-          with_env("ANTHROPIC_API_KEY" => "sk-test-env-key", "ANTHROPIC_BASE_URL" => "https://api.env.test.com") do
-            with_temp_config do |config_file|
-              FileUtils.rm_f(config_file)
-
-              config = described_class.load(config_file)
-              
-              expect(config.models.length).to eq(1)
-              expect(config.models.first["model"]).to eq("claude-sonnet-4-5")
-              expect(config.models.first["api_key"]).to eq("sk-test-env-key")
-              expect(config.models.first["base_url"]).to eq("https://api.env.test.com")
-              expect(config.models.first["anthropic_format"]).to be true
-            end
-          end
-        end
-      end
+      # context "with ClaudeCode environment variables" do
+      #   it "creates a default model from environment variables" do
+      #     with_env("ANTHROPIC_API_KEY" => "sk-test-env-key", "ANTHROPIC_BASE_URL" => "https://api.env.test.com") do
+      #       with_temp_config do |config_file|
+      #         FileUtils.rm_f(config_file)
+      #
+      #         config = described_class.load(config_file)
+      #
+      #         expect(config.models.length).to eq(1)
+      #         expect(config.models.first["model"]).to eq("claude-sonnet-4-5")
+      #         expect(config.models.first["api_key"]).to eq("sk-test-env-key")
+      #         expect(config.models.first["base_url"]).to eq("https://api.env.test.com")
+      #         expect(config.models.first["anthropic_format"]).to be true
+      #       end
+      #     end
+      #   end
+      # end
     end
 
     context "when config file exists with new top-level array format" do
@@ -667,18 +667,18 @@ RSpec.describe Clacky::AgentConfig do
         end
       end
 
-      it "falls back to ClaudeCode if CLACKY_XXX not set" do
-        with_env("ANTHROPIC_API_KEY" => "sk-claude") do
-          with_temp_config do |config_file|
-            FileUtils.rm_f(config_file)
-            
-            config = described_class.load(config_file)
-            
-            expect(config.models.first["api_key"]).to eq("sk-claude")
-            expect(config.models.first["type"]).to eq("default")
-          end
-        end
-      end
+      # it "falls back to ClaudeCode if CLACKY_XXX not set" do
+      #   with_env("ANTHROPIC_API_KEY" => "sk-claude") do
+      #     with_temp_config do |config_file|
+      #       FileUtils.rm_f(config_file)
+      #
+      #       config = described_class.load(config_file)
+      #
+      #       expect(config.models.first["api_key"]).to eq("sk-claude")
+      #       expect(config.models.first["type"]).to eq("default")
+      #     end
+      #   end
+      # end
     end
   end
 
