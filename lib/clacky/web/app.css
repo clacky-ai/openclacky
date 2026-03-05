@@ -589,6 +589,35 @@ body {
   letter-spacing: 0;
 }
 .btn-settings-add:hover { background: #1f2937; }
+.settings-personalize {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 16px;
+  background: #161b22;
+  border: 1px solid #30363d;
+  border-radius: 10px;
+}
+.settings-personalize-desc {
+  font-size: 13px;
+  color: #8b949e;
+  line-height: 1.5;
+  margin: 0;
+}
+.btn-settings-action {
+  flex-shrink: 0;
+  background: transparent;
+  border: 1px solid #30363d;
+  border-radius: 6px;
+  color: #58a6ff;
+  font-size: 13px;
+  padding: 6px 14px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.btn-settings-action:hover { background: #1f2937; border-color: #58a6ff; }
+.btn-settings-action:disabled { opacity: 0.5; cursor: not-allowed; }
 .settings-loading, .settings-empty, .settings-error {
   color: #8b949e;
   font-size: 13px;
