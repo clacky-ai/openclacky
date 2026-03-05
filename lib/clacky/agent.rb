@@ -131,6 +131,9 @@ module Clacky
     end
 
     def run(user_input, images: [])
+      # Expand skill slash commands (e.g. /onboard) before processing
+      user_input = execute_skill_command(user_input)
+
       # Start new task for Time Machine
       task_id = start_new_task
       

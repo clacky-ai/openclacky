@@ -144,3 +144,8 @@ Do NOT open a new session — the UI handles navigation after the skill finishes
 - Keep both files under 300 words each.
 - Do not ask follow-up questions beyond the two cards above.
 - Work with whatever the user provides; fill in sensible defaults for anything omitted.
+
+## Constraints
+- **Do NOT read, explore, or analyze any project files or code** — this is a personal setup flow, not a code task.
+- **Do NOT invoke any other skills** (including `code-explorer`) during onboarding.
+- Only use these tools: `request_user_feedback`, `web_search`, `web_fetch`, `write`.
