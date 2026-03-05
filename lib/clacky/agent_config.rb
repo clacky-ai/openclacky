@@ -184,15 +184,15 @@ module Clacky
         # Try CLACKY_XXX environment variables first
         if ClackyEnv.default_configured?
           models << ClackyEnv.default_model_config
-        # Fallback to ClaudeCode environment variables
-        elsif ClaudeCodeEnv.configured?
-          models << {
-            "type" => "default",
-            "api_key" => ClaudeCodeEnv.api_key,
-            "base_url" => ClaudeCodeEnv.base_url,
-            "model" => CLAUDE_DEFAULT_MODEL,
-            "anthropic_format" => true
-          }
+        # ClaudeCode (Anthropic) environment variable support is disabled
+        # elsif ClaudeCodeEnv.configured?
+        #   models << {
+        #     "type" => "default",
+        #     "api_key" => ClaudeCodeEnv.api_key,
+        #     "base_url" => ClaudeCodeEnv.base_url,
+        #     "model" => CLAUDE_DEFAULT_MODEL,
+        #     "anthropic_format" => true
+        #   }
         end
 
         # Add CLACKY_LITE_XXX if configured (only when loading from env)
