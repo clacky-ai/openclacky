@@ -99,6 +99,7 @@ install_via_gem() {
 
     if [ $? -eq 0 ]; then
         print_success "OpenClacky installed successfully via gem!"
+        install_agent_browser
         return 0
     else
         print_error "Gem installation failed"
@@ -386,6 +387,31 @@ main() {
         echo ""
         print_info "For more information, visit: https://github.com/clacky-ai/open-clacky"
         exit 1
+    fi
+}
+
+# Install agent-browser (browser automation tool)
+install_agent_browser() {
+    print_step "Installing agent-browser..."
+
+    if ! command_exists npm; then
+        if command_exists mise; then
+            print_info "Installing Node.js via mise..."
+            ~/.local/bin/mise install node@22 > /dev/null 2>&1
+            ~/.local/bin/mise use -g node@22 > /dev/null 2>&1
+        fi
+    fi
+
+    if command_exists npm; then
+        if ! command_exists agent-browser; then
+            npm install -g agent-browser > /dev/null 2>&1
+            print_success "agent-browser installed"
+        else
+            print_success "agent-browser already installed"
+        fi
+    else
+        print_warning "Node.js/npm not found. Browser automation requires Node.js (>= 22)."
+        print_warning "Install mise (https://mise.jdx.dev) then run: mise install node@22 && mise use -g node@22"
     fi
 }
 

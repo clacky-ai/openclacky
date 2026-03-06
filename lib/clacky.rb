@@ -45,6 +45,7 @@ require_relative "clacky/tools/invoke_skill"
 require_relative "clacky/tools/undo_task"
 require_relative "clacky/tools/redo_task"
 require_relative "clacky/tools/list_tasks"
+require_relative "clacky/tools/browser"
 require_relative "clacky/agent"
 
 require_relative "clacky/server/session_registry"

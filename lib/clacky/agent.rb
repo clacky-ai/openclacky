@@ -630,6 +630,7 @@ module Clacky
       @tool_registry.register(Tools::UndoTask.new)
       @tool_registry.register(Tools::RedoTask.new)
       @tool_registry.register(Tools::ListTasks.new)
+      @tool_registry.register(Tools::Browser.new)
     end
 
     # Fork a subagent with specified configuration
