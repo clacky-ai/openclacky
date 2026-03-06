@@ -73,16 +73,17 @@ module Clacky
         max_matches_per_file: 50,
         max_total_matches: 200,
         max_file_size: MAX_FILE_SIZE,
-        max_files_to_search: 10000
+        max_files_to_search: 10000,
+        working_dir: nil
       )
         # Validate pattern
         if pattern.nil? || pattern.strip.empty?
           return { error: "Pattern cannot be empty" }
         end
 
-        # Validate and expand path
+        # Validate and expand path relative to working_dir when provided
         begin
-          expanded_path = expand_path(path)
+          expanded_path = working_dir ? File.expand_path(expand_path(path), working_dir) : expand_path(path)
         rescue StandardError => e
           return { error: "Invalid path: #{e.message}" }
         end

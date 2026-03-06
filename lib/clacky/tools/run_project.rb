@@ -36,7 +36,8 @@ module Clacky
         super
       end
 
-      def execute(action:, max_lines: 100)
+      def execute(action:, max_lines: 100, working_dir: nil)
+        @working_dir = working_dir if working_dir
         case action
         when "start"
           start_project
@@ -224,8 +225,9 @@ module Clacky
       end
 
       def load_project_config
+        base = @working_dir || Dir.pwd
         CONFIG_PATHS.each do |path|
-          full_path = File.join(Dir.pwd, path)
+          full_path = File.join(base, path)
           next unless File.exist?(full_path)
 
           begin

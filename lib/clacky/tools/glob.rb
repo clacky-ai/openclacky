@@ -33,7 +33,7 @@ module Clacky
         required: %w[pattern]
       }
 
-      def execute(pattern:, base_path: ".", limit: 10)
+      def execute(pattern:, base_path: ".", limit: 10, working_dir: nil)
         # Validate pattern
         if pattern.nil? || pattern.strip.empty?
           return { error: "Pattern cannot be empty" }
@@ -49,8 +49,8 @@ module Clacky
         end
 
         begin
-          # Expand base path
-          expanded_path = File.expand_path(base_path)
+          # Expand base path relative to working_dir when provided
+          expanded_path = working_dir ? File.expand_path(base_path, working_dir) : File.expand_path(base_path)
 
           # Initialize gitignore parser
           gitignore_path = Clacky::Utils::FileIgnoreHelper.find_gitignore(expanded_path)

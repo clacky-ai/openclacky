@@ -39,7 +39,7 @@ module Clacky
 
         # Look for .gitignore in current and parent directories
         current = File.expand_path(search_path)
-        cwd = File.expand_path(Dir.pwd)
+        cwd = File.expand_path(Dir.pwd) # intentional: gitignore boundary uses process cwd as fallback
         root = File.expand_path('/')
 
         # Limit search: only go up to current working directory

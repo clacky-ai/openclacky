@@ -31,8 +31,8 @@ module Clacky
         required: ["action"]
       }
 
-      def execute(action:, file_path: nil, days_old: 7)
-        project_root = Dir.pwd
+      def execute(action:, file_path: nil, days_old: 7, working_dir: nil)
+        project_root = working_dir || Dir.pwd
         
         # Use global trash directory organized by project
         trash_directory = Clacky::TrashDirectory.new(project_root)

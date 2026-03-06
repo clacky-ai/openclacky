@@ -57,7 +57,7 @@ module Clacky
         'go build'
       ].freeze
 
-      def execute(command:, soft_timeout: nil, hard_timeout: nil, max_output_lines: 1000, output_buffer: nil)
+      def execute(command:, soft_timeout: nil, hard_timeout: nil, max_output_lines: 1000, output_buffer: nil, working_dir: nil)
         require "open3"
         require "stringio"
 
@@ -77,8 +77,12 @@ module Clacky
         @stdout_buffer = stdout_buffer
         @stderr_buffer = stderr_buffer
 
+        # Use chdir option for thread-safe working directory (no global Dir.chdir needed)
+        popen3_opts = {}
+        popen3_opts[:chdir] = working_dir if working_dir && Dir.exist?(working_dir)
+
         begin
-          Open3.popen3(wrap_with_shell(command)) do |stdin, stdout, stderr, wait_thr|
+          Open3.popen3(wrap_with_shell(command), **popen3_opts) do |stdin, stdout, stderr, wait_thr|
             process_pid = wait_thr.pid
             start_time = Time.now
 

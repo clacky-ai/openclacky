@@ -454,6 +454,9 @@ module Clacky
             args[:skip_safety_check] = true
           end
 
+          # Inject working_dir so tools don't rely on Dir.chdir global state
+          args[:working_dir] = @working_dir if @working_dir
+
           # Automatic progress display after 2 seconds for any tool execution
           progress_shown = false
           progress_timer = nil

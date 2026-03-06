@@ -181,9 +181,7 @@ module Clacky
           next unless agent
 
           @registry.update(session_id, status: :running)
-          Dir.chdir(working_dir) do
-            agent.run(prompt)
-          end
+          agent.run(prompt)
           @registry.update(session_id, status: :idle)
         rescue => e
           @registry.update(session_id, status: :error, error: e.message)
