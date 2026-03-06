@@ -204,7 +204,8 @@
         <!-- Tab bar -->
         <div id="skills-tabs">
           <button class="skills-tab active" data-tab="my-skills">My Skills</button>
-          <button class="skills-tab" data-tab="store">Store</button>
+          <button class="skills-tab" data-tab="brand-skills" id="tab-brand-skills" style="display:none">Brand Skills</button>
+          <button class="skills-tab" data-tab="store">Public Store</button>
         </div>
 
         <!-- Tab: My Skills -->
@@ -212,7 +213,15 @@
           <div id="skills-list"></div>
         </div>
 
-        <!-- Tab: Store -->
+        <!-- Tab: Brand Skills (only visible when license is activated) -->
+        <div id="skills-tab-brand" class="skills-tab-content" style="display:none">
+          <div id="brand-skills-header">
+            <button id="btn-refresh-brand-skills" class="btn-brand-skills-refresh" title="Refresh from cloud">↻ Refresh</button>
+          </div>
+          <div id="brand-skills-list"></div>
+        </div>
+
+        <!-- Tab: Public Store -->
         <div id="skills-tab-store" class="skills-tab-content" style="display:none">
           <div id="skills-store-grid"></div>
         </div>

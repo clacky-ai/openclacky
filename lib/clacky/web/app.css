@@ -1164,6 +1164,150 @@ body {
   font-weight: 600;
 }
 
+/* ── Brand Skills tab ────────────────────────────────────────────────────── */
+#brand-skills-header {
+  display: flex;
+  justify-content: flex-end;
+  padding: 8px 0 4px;
+}
+.btn-brand-skills-refresh {
+  background: none;
+  border: 1px solid #30363d;
+  border-radius: 6px;
+  color: #8b949e;
+  cursor: pointer;
+  font-size: 12px;
+  padding: 4px 10px;
+  transition: color .15s, border-color .15s;
+}
+.btn-brand-skills-refresh:hover {
+  border-color: #58a6ff;
+  color: #58a6ff;
+}
+
+#brand-skills-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 4px;
+}
+.brand-skills-loading,
+.brand-skills-empty,
+.brand-skills-error {
+  font-size: 13px;
+  color: #8b949e;
+  text-align: center;
+  padding: 24px 0;
+}
+.brand-skills-error { color: #f85149; }
+
+/* Brand Skill card */
+.brand-skill-card {
+  background: #161b22;
+  border: 1px solid #30363d;
+  border-radius: 8px;
+  padding: 14px 16px;
+  transition: border-color .15s;
+}
+.brand-skill-card:hover { border-color: #484f58; }
+.brand-skill-card-main {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.brand-skill-info { flex: 1; min-width: 0; }
+.brand-skill-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+.brand-skill-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: #e6edf3;
+}
+.brand-skill-desc {
+  font-size: 12px;
+  color: #8b949e;
+  line-height: 1.5;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.brand-skill-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+/* Version chips */
+.brand-skill-version {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 10px;
+  white-space: nowrap;
+}
+.brand-skill-version.installed {
+  background: #1f3024;
+  color: #56d364;
+  border: 1px solid #1c4028;
+}
+.brand-skill-version.latest {
+  background: #1f3a5f;
+  color: #79c0ff;
+  border: 1px solid #1d4070;
+}
+.brand-skill-update-arrow {
+  color: #8b949e;
+  font-size: 12px;
+}
+
+/* Private badge — shown on every brand skill */
+.brand-skill-badge-private {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 11px;
+  font-weight: 500;
+  color: #8b949e;
+  background: #21262d;
+  border: 1px solid #30363d;
+  border-radius: 4px;
+  padding: 1px 6px;
+  white-space: nowrap;
+}
+
+/* Install / Update buttons */
+.btn-brand-install,
+.btn-brand-update {
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 5px 12px;
+  transition: background .15s;
+}
+.btn-brand-install {
+  background: #238636;
+  color: #fff;
+}
+.btn-brand-install:hover { background: #2ea043; }
+.btn-brand-update {
+  background: #1f4e9e;
+  color: #79c0ff;
+  border: 1px solid #1d4070;
+}
+.btn-brand-update:hover { background: #2563b0; }
+.btn-brand-install:disabled,
+.btn-brand-update:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 /* ── Skills sidebar section ──────────────────────────────────────────────── */
 #skill-list-items { padding: 0 8px 8px; display: flex; flex-direction: column; gap: 2px; }
 

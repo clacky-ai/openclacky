@@ -200,6 +200,116 @@ module Clacky
       end
     end
 
+    # Fetch the brand skills list from the OpenClacky Cloud API.
+    # Requires an activated license. Returns { success: bool, skills: [], error: }.
+    def fetch_brand_skills!
+      return { success: false, error: "License not activated", skills: [] } unless activated?
+
+      user_id   = parse_user_id_from_key(@license_key)
+      ts        = Time.now.utc.to_i.to_s
+      nonce     = SecureRandom.hex(16)
+      message   = "#{user_id}:#{@device_id}:#{ts}:#{nonce}"
+      signature = OpenSSL::HMAC.hexdigest("SHA256", @license_key, message)
+
+      payload = {
+        user_id:   user_id.to_s,
+        device_id: @device_id,
+        timestamp: ts,
+        nonce:     nonce,
+        signature: signature
+      }
+
+      response = api_post("/api/v1/licenses/skills", payload)
+
+      if response[:success]
+        body = response[:data]
+        # Merge local installed version info into each skill
+        installed = installed_brand_skills
+        skills = (body["skills"] || []).map do |skill|
+          slug = skill["slug"] || skill["name"]&.downcase&.gsub(/\s+/, "-")
+          local = installed[slug]
+          skill.merge(
+            "slug"              => slug,
+            "installed_version" => local ? local["version"] : nil,
+            "needs_update"      => local ? (local["version"] != skill["version"]) : false
+          )
+        end
+        { success: true, skills: skills, expires_at: body["expires_at"] }
+      else
+        { success: false, error: response[:error] || "Failed to fetch skills", skills: [] }
+      end
+    end
+
+    # Install (or update) a single brand skill by downloading and extracting its zip.
+    # skill_info: a hash from fetch_brand_skills! with at least slug + latest_version.download_url + version
+    def install_brand_skill!(skill_info)
+      require "net/http"
+      require "uri"
+
+      slug    = skill_info["slug"].to_s.strip
+      version = (skill_info["latest_version"] || {})["version"] || skill_info["version"]
+      url     = (skill_info["latest_version"] || {})["download_url"]
+
+      return { success: false, error: "Missing slug" } if slug.empty?
+
+      # When download_url is nil (e.g. mock/test mode), skip the download and
+      # just record the installed version so the UI reflects a successful install.
+      if url.nil?
+        dest_dir = File.join(brand_skills_dir, slug)
+        FileUtils.mkdir_p(dest_dir)
+        record_installed_skill(slug, version, skill_info["name"])
+        return { success: true, slug: slug, version: version }
+      end
+
+      require "zip"
+
+      dest_dir = File.join(brand_skills_dir, slug)
+      FileUtils.mkdir_p(dest_dir)
+
+      # Download the zip file to a temp path
+      tmp_zip = File.join(brand_skills_dir, "#{slug}.zip")
+      download_file(url, tmp_zip)
+
+      # Extract into dest_dir (overwrite existing files)
+      Zip::File.open(tmp_zip) do |zip|
+        zip.each do |entry|
+          # Strip leading component (the archive root folder) if present
+          parts    = entry.name.split("/")
+          rel_path = parts.length > 1 ? parts[1..].join("/") : parts[0]
+          next if rel_path.empty?
+
+          out = File.join(dest_dir, rel_path)
+          FileUtils.mkdir_p(File.dirname(out))
+          entry.extract(out) { true }  # overwrite
+        end
+      end
+
+      FileUtils.rm_f(tmp_zip)
+
+      # Record installed version in brand_skills.json
+      record_installed_skill(slug, version, skill_info["name"])
+
+      { success: true, slug: slug, version: version }
+    rescue StandardError => e
+      { success: false, error: e.message }
+    end
+
+    # Path to the directory where brand skills are installed.
+    def brand_skills_dir
+      File.join(CONFIG_DIR, "brand_skills")
+    end
+
+    # Read the local brand_skills.json metadata.
+    # Returns a hash keyed by slug: { "version" => "1.0.0", "name" => "..." }
+    def installed_brand_skills
+      path = File.join(brand_skills_dir, "brand_skills.json")
+      return {} unless File.exist?(path)
+
+      JSON.parse(File.read(path))
+    rescue StandardError
+      {}
+    end
+
     # Returns a hash representation for JSON serialization (e.g. /api/brand).
     def to_h
       {
@@ -224,6 +334,31 @@ module Clacky
       data["license_last_heartbeat"] = @license_last_heartbeat.iso8601 if @license_last_heartbeat
       data["device_id"]              = @device_id              if @device_id
       YAML.dump(data)
+    end
+
+    # Download a remote URL to a local file path.
+    private def download_file(url, dest)
+      require "net/http"
+      require "uri"
+
+      uri = URI.parse(url)
+      Net::HTTP.start(uri.host, uri.port, use_ssl: uri.scheme == "https",
+                      open_timeout: 15, read_timeout: 60) do |http|
+        http.request_get(uri.request_uri) do |resp|
+          raise "HTTP #{resp.code}" unless resp.code.to_i == 200
+
+          File.open(dest, "wb") { |f| resp.read_body { |chunk| f.write(chunk) } }
+        end
+      end
+    end
+
+    # Persist installed skill metadata to brand_skills.json.
+    private def record_installed_skill(slug, version, name)
+      FileUtils.mkdir_p(brand_skills_dir)
+      path      = File.join(brand_skills_dir, "brand_skills.json")
+      installed = installed_brand_skills
+      installed[slug] = { "version" => version, "name" => name, "installed_at" => Time.now.utc.iso8601 }
+      File.write(path, JSON.generate(installed))
     end
 
     # Parse user_id from the License Key structure.

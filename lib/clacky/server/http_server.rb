@@ -194,6 +194,7 @@ module Clacky
         when ["POST",   "/api/onboard/skip-soul"] then api_onboard_skip_soul(res)
         when ["GET",    "/api/brand/status"]      then api_brand_status(res)
         when ["POST",   "/api/brand/activate"]    then api_brand_activate(req, res)
+        when ["GET",    "/api/brand/skills"]      then api_brand_skills(res)
         when ["GET",    "/api/brand"]             then api_brand_info(res)
         else
           if method == "GET" && path.match?(%r{^/api/sessions/[^/]+/messages$})
@@ -214,6 +215,9 @@ module Clacky
           elsif method == "PATCH" && path.match?(%r{^/api/skills/[^/]+/toggle$})
             name = URI.decode_www_form_component(path.sub("/api/skills/", "").sub("/toggle", ""))
             api_toggle_skill(name, req, res)
+          elsif method == "POST" && path.match?(%r{^/api/brand/skills/[^/]+/install$})
+            slug = URI.decode_www_form_component(path.sub("/api/brand/skills/", "").sub("/install", ""))
+            api_brand_skill_install(slug, req, res)
           else
             not_found(res)
           end
@@ -310,9 +314,10 @@ module Clacky
 
         unless brand.activated?
           json_response(res, 200, {
-            branded: true,
+            branded:          true,
             needs_activation: true,
-            brand_name: brand.brand_name
+            brand_name:       brand.brand_name,
+            test_mode:        @brand_test
           })
           return
         end
@@ -328,7 +333,8 @@ module Clacky
           branded:          true,
           needs_activation: false,
           brand_name:       brand.brand_name,
-          warning:          warning
+          warning:          warning,
+          test_mode:        @brand_test
         })
       end
 
@@ -354,12 +360,148 @@ module Clacky
         end
       end
 
+      # GET /api/brand/skills
+      # Fetches the brand skills list from the cloud, enriched with local installed version.
+      # Returns 200 with skill list, or 402/403 when license is not activated / expired.
+      def api_brand_skills(res)
+        brand = Clacky::BrandConfig.load
+
+        unless brand.activated?
+          json_response(res, 403, { ok: false, error: "License not activated" })
+          return
+        end
+
+        if @brand_test
+          # Return mock skills in brand-test mode instead of calling the remote API
+          result = mock_brand_skills(brand)
+        else
+          result = brand.fetch_brand_skills!
+        end
+
+        if result[:success]
+          json_response(res, 200, { ok: true, skills: result[:skills], expires_at: result[:expires_at] })
+        else
+          json_response(res, 422, { ok: false, error: result[:error] })
+        end
+      end
+
+      # POST /api/brand/skills/:slug/install
+      # Downloads and installs (or updates) the given brand skill.
+      # Body may optionally contain { skill_info: {...} } from the frontend cache;
+      # otherwise we re-fetch to get the download_url.
+      def api_brand_skill_install(slug, req, res)
+        brand = Clacky::BrandConfig.load
+
+        unless brand.activated?
+          json_response(res, 403, { ok: false, error: "License not activated" })
+          return
+        end
+
+        # Re-fetch the skills list to get the authoritative download_url
+        if @brand_test
+          all_skills = mock_brand_skills(brand)[:skills]
+        else
+          fetch_result = brand.fetch_brand_skills!
+          unless fetch_result[:success]
+            json_response(res, 422, { ok: false, error: fetch_result[:error] })
+            return
+          end
+          all_skills = fetch_result[:skills]
+        end
+
+        skill_info = all_skills.find { |s| s["slug"] == slug }
+        unless skill_info
+          json_response(res, 404, { ok: false, error: "Skill '#{slug}' not found in license" })
+          return
+        end
+
+        result = brand.install_brand_skill!(skill_info)
+
+        if result[:success]
+          # Reload skills so the Agent can pick up the new skill immediately
+          @skill_loader.load_all
+          json_response(res, 200, { ok: true, slug: result[:slug], version: result[:version] })
+        else
+          json_response(res, 422, { ok: false, error: result[:error] })
+        end
+      end
+
       # GET /api/brand
       # Returns brand metadata consumed by the WebUI on boot
       # to dynamically replace branding strings.
       def api_brand_info(res)
         brand = Clacky::BrandConfig.load
         json_response(res, 200, brand.to_h)
+      end
+
+      # Returns a mock brand skills list for use in brand-test mode.
+      # Simulates two skills — one installed, one pending update, one not installed.
+      private def mock_brand_skills(brand)
+        installed = brand.installed_brand_skills
+        mock_skills = [
+          {
+            "id"          => 1,
+            "name"        => "Code Review Bot",
+            "slug"        => "code-review-bot",
+            "description" => "Automated AI code review with inline suggestions.",
+            "visibility"  => "private",
+            "version"     => "1.2.0",
+            "emoji"       => "🔍",
+            "latest_version" => {
+              "version"      => "1.2.0",
+              "checksum"     => "deadbeef" * 8,
+              "release_notes" => "Improved Python and Ruby support.",
+              "published_at" => "2026-02-15T00:00:00Z",
+              "download_url" => nil  # nil = no actual download in mock mode
+            }
+          },
+          {
+            "id"          => 2,
+            "name"        => "Deploy Assistant",
+            "slug"        => "deploy-assistant",
+            "description" => "One-command deployment for Rails / Node / Docker projects.",
+            "visibility"  => "private",
+            "version"     => "2.0.1",
+            "emoji"       => "🚀",
+            "latest_version" => {
+              "version"      => "2.0.1",
+              "checksum"     => "cafebabe" * 8,
+              "release_notes" => "Added Railway and Fly.io support.",
+              "published_at" => "2026-03-01T00:00:00Z",
+              "download_url" => nil
+            }
+          },
+          {
+            "id"          => 3,
+            "name"        => "Test Runner",
+            "slug"        => "test-runner",
+            "description" => "Run your test suite and summarize failures with AI insights.",
+            "visibility"  => "private",
+            "version"     => "1.0.0",
+            "emoji"       => "🧪",
+            "latest_version" => {
+              "version"      => "1.1.0",
+              "checksum"     => "0badf00d" * 8,
+              "release_notes" => "RSpec and Minitest support, parallel runs.",
+              "published_at" => "2026-03-05T00:00:00Z",
+              "download_url" => nil
+            }
+          }
+        ].map do |skill|
+          slug  = skill["slug"]
+          local = installed[slug]
+          latest_v = (skill["latest_version"] || {})["version"]
+          skill.merge(
+            "installed_version" => local ? local["version"] : nil,
+            "needs_update"      => local ? (local["version"] != latest_v) : false
+          )
+        end
+
+        {
+          success:    true,
+          skills:     mock_skills,
+          expires_at: (Time.now.utc + 365 * 86_400).iso8601
+        }
       end
 
       # ── Schedules API ─────────────────────────────────────────────────────────
