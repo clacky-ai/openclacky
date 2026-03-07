@@ -84,6 +84,29 @@ Built on a production-ready Rails architecture with one-click deployment, dev/pr
 gem install openclacky
 ```
 
+## Quick Start
+
+### Terminal (CLI)
+
+```bash
+openclacky            # start interactive agent in current directory
+```
+
+### Web UI
+
+```bash
+openclacky server     # start the web server (default: http://localhost:7070)
+```
+
+Then open **http://localhost:7070** in your browser. You'll get a full-featured chat interface with multi-session support — run separate sessions for coding, copywriting, research, and more, all in parallel.
+
+Options:
+
+```bash
+openclacky server --port 8080          # custom port
+openclacky server --host 0.0.0.0      # listen on all interfaces (e.g. remote access)
+```
+
 ## Configuration
 
 ```bash

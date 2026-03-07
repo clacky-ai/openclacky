@@ -519,7 +519,7 @@ show_post_install_info() {
     echo ""
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo ""
-    echo -e "  ⚠️  ${YELLOW}IMPORTANT: Please restart your terminal${NC}"
+    echo -e "  ${RED}IMPORTANT: Please restart your terminal${NC}"
     echo ""
     echo -e "  After restarting, type: ${GREEN}openclacky${NC}"
     echo ""
