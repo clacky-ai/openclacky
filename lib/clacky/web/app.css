@@ -401,6 +401,7 @@ body {
 #chat-title { font-weight: 600; font-size: 15px; }
 .status-idle    { font-size: 11px; color: #8b949e; }
 .status-running { font-size: 11px; color: #3fb950; }
+.status-error   { font-size: 11px; color: #f85149; }
 
 /* Delete session button in chat header */
 .btn-delete-session {
