@@ -128,6 +128,47 @@ module Clacky
         context
       end
 
+      # Inject a synthetic assistant message containing the skill content for slash
+      # commands (e.g. /pptx, /onboard).
+      #
+      # When a user types "/skill-name [arguments]", we immediately expand the skill
+      # content and inject it as an assistant message so the LLM receives the full
+      # instructions and acts on them — no waiting for the LLM to discover and call
+      # invoke_skill on its own.
+      #
+      # Message structure after injection:
+      #   user:      "/pptx write a deck about X"
+      #   assistant: "[full skill content]"   <- injected here
+      #   (LLM continues from here)
+      #
+      # Fires when:
+      #   1. Input starts with "/"
+      #   2. The named skill exists and is user-invocable
+      #
+      # @param user_input [String] Raw user input
+      # @param task_id [Integer] Current task ID (for message tagging)
+      # @return [void]
+      def inject_skill_command_as_assistant_message(user_input, task_id)
+        parsed = parse_skill_command(user_input)
+        return unless parsed
+
+        skill = parsed[:skill]
+        arguments = parsed[:arguments]
+
+        # Expand skill content (substitutes $ARGUMENTS if present)
+        expanded_content = skill.process_content(arguments, template_context: build_template_context)
+
+        # Inject as a synthetic assistant message so the LLM treats it as already read
+        @messages << {
+          role: "assistant",
+          content: expanded_content,
+          task_id: task_id,
+          system_injected: true
+        }
+
+        @ui&.log("Injected skill content for /#{skill.identifier}", level: :info)
+      end
+
       private
 
       # Filter skills by the agent profile name using the skill's own `agent:` field.

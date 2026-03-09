@@ -52,6 +52,11 @@ module Clacky
             })
           end
         end
+
+        # Rebuild and refresh the system prompt so any newly installed skills
+        # (or other configuration changes since the session was saved) are
+        # reflected immediately — without requiring the user to create a new session.
+        refresh_system_prompt
       end
 
       # Generate session data for saving
@@ -174,6 +179,10 @@ module Clacky
           ui.show_user_message(display_text, created_at: msg[:created_at])
 
           round[:events].each do |ev|
+            # Skip system-injected messages (e.g. synthetic skill content, memory prompts)
+            # — they are internal scaffolding and must not be shown to the user.
+            next if ev[:system_injected]
+
             case ev[:role].to_s
             when "assistant"
               # Text content
@@ -209,6 +218,28 @@ module Clacky
       end
 
       private
+
+      # Replace the system message in @messages with a freshly built system prompt.
+      # Called after restore_session so newly installed skills and any other
+      # configuration changes since the session was saved take effect immediately.
+      # If no system message exists yet (shouldn't happen in practice), a new one
+      # is prepended so the conversation stays well-formed.
+      def refresh_system_prompt
+        # Reload skills from disk to pick up anything installed since the session was saved
+        @skill_loader.load_all
+
+        fresh_prompt = build_system_prompt
+        system_index = @messages.index { |m| m[:role] == "system" }
+
+        if system_index
+          @messages[system_index] = { role: "system", content: fresh_prompt }
+        else
+          @messages.unshift({ role: "system", content: fresh_prompt })
+        end
+      rescue StandardError => e
+        # Log and continue — a stale system prompt is better than a broken restore
+        Clacky::Logger.warn("refresh_system_prompt failed during session restore: #{e.message}")
+      end
 
       # Extract text from message content (handles string and array formats)
       # @param content [String, Array, Object] Message content

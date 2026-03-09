@@ -177,6 +177,11 @@ module Clacky
       @messages << { role: "user", content: user_content, task_id: task_id, created_at: Time.now.to_f }
       @total_tasks += 1
 
+      # If the user typed a slash command targeting a skill with disable-model-invocation: true,
+      # inject the skill content as a synthetic assistant message so the LLM can act on it.
+      # Skills already in the system prompt (model_invocation_allowed?) are skipped.
+      inject_skill_command_as_assistant_message(user_input, task_id)
+
       @hooks.trigger(:on_start, user_input)
 
       begin
