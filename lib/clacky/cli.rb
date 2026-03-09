@@ -102,7 +102,7 @@ module Clacky
       end
 
       # Create new agent if no session loaded
-      agent ||= Clacky::Agent.new(client, agent_config, working_dir: working_dir, profile: agent_profile)
+      agent ||= Clacky::Agent.new(client, agent_config, working_dir: working_dir, ui: nil, profile: agent_profile)
 
       # Change to working directory
       original_dir = Dir.pwd
@@ -514,7 +514,7 @@ module Clacky
             when "/exit", "/quit"
               break
             when "/clear"
-              agent = Clacky::Agent.new(client, agent_config, working_dir: working_dir, profile: profile)
+              agent = Clacky::Agent.new(client, agent_config, working_dir: working_dir, ui: nil, profile: profile)
               agent.instance_variable_set(:@ui, json_ui)
               json_ui.emit("info", message: "Session cleared. Starting fresh.")
               next
