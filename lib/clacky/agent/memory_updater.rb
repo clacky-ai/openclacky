@@ -40,6 +40,7 @@ module Clacky
         return false if @memory_prompt_injected
 
         @memory_prompt_injected = true
+        @memory_updating = true
         @ui&.show_info("Updating long-term memory...")
 
         @messages << {
@@ -59,6 +60,7 @@ module Clacky
 
         @messages.reject! { |m| m[:memory_update] }
         @memory_prompt_injected = false
+        @memory_updating = false
         @ui&.show_info("Memory updated.")
       end
 
@@ -70,6 +72,7 @@ module Clacky
       end
 
       # Build the memory update prompt with the current memory file list injected.
+      # Uses a whitelist approach: default is NO write, only write if explicit criteria are met.
       # @return [String]
       private def build_memory_update_prompt
         today = Time.now.strftime("%Y-%m-%d")
@@ -81,18 +84,31 @@ module Clacky
           ═══════════════════════════════════════════════════════════════
           The conversation above has ended. You are now in MEMORY UPDATE MODE.
 
-          Your task: Persist important knowledge from this session into long-term memory.
+          ## Default: Do NOT write anything.
 
-          ## FIRST: Decide if anything is worth remembering
+          Memory writes are expensive. Only write if the session contains at least one of the
+          following high-value signals. If NONE apply, respond immediately with:
+          "No memory updates needed." and STOP — do not use any tools.
 
-          Scan the conversation above. Ask yourself: did this session contain any of the following?
-          - Important decisions (technical, product, process)
-          - New concepts or context introduced by the user
-          - Corrections to previous understanding
-          - User preferences or working style observations
+          ## Whitelist: Write ONLY if at least one condition is met
 
-          If the session was purely mechanical (e.g. running commits, deploying, formatting code, running tests),
-          respond immediately with: "No memory updates needed." and STOP — do NOT read any files.
+          1. **Explicit decision** — The user made a clear technical, product, or process decision
+             that will affect future work (e.g. "we'll use X instead of Y going forward").
+          2. **New persistent context** — The user introduced project background, constraints, or
+             goals that are not already obvious from the code (e.g. a new feature direction,
+             a deployment target, a team convention).
+          3. **Correction of prior knowledge** — The user corrected a previous misunderstanding
+             or the agent discovered that an existing memory is wrong or outdated.
+          4. **Stated preference** — The user expressed a clear personal or team preference about
+             how they want the agent to behave, communicate, or write code.
+
+          ## What does NOT qualify (skip these entirely)
+
+          - Running tests, fixing lint, formatting code
+          - Committing, deploying, or releasing
+          - Answering a one-off question or explaining a concept
+          - Any task that produced no lasting decisions or preferences
+          - Repeating or slightly rephrasing what is already in memory
 
           ## Existing Memory Files (pre-loaded — do NOT re-scan the directory)
 
@@ -108,10 +124,10 @@ module Clacky
           <content in concise Markdown>
           ```
 
-          ## Steps (only if content is worth memorizing)
+          ## Steps (only if a whitelist condition is met)
 
-          For each relevant topic from this session:
-            a. If a matching file exists → read it using `file_reader(path: "~/.clacky/memories/<filename>")`, then write an updated version (merge new + old, drop stale)
+          For each qualifying topic:
+            a. If a matching file exists → read it with `file_reader(path: "~/.clacky/memories/<filename>")`, then write an updated version (merge new + old, drop stale)
             b. If no matching file → create a new one at `~/.clacky/memories/<new-filename>.md`
           Use the `write` tool to save each file. Do NOT use `safe_shell` or `file_reader` to list the directory.
 
@@ -121,9 +137,8 @@ module Clacky
           - Write concise, factual Markdown — no fluff
           - Update `updated_at` to today's date: #{today}
           - Only write files for topics that genuinely appeared in this conversation
-          - If nothing worth memorizing occurred, do nothing and respond: "No memory updates needed."
 
-          Begin now.
+          Begin by checking the whitelist. If no condition is met, stop immediately.
         PROMPT
       end
     end
