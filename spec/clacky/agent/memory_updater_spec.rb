@@ -27,6 +27,11 @@ RSpec.describe Clacky::Agent::MemoryUpdater do
         nil
       end
 
+      # Stub load_memories_meta (normally provided by SkillManager)
+      def load_memories_meta
+        "(No long-term memories found.)"
+      end
+
       def think; end
       def act(_); end
       def observe(_, _); end
@@ -69,13 +74,16 @@ RSpec.describe Clacky::Agent::MemoryUpdater do
     end
   end
 
-  describe "MEMORY_UPDATE_PROMPT" do
+  describe "#build_memory_update_prompt" do
     it "includes key instructions" do
-      prompt = Clacky::Agent::MemoryUpdater::MEMORY_UPDATE_PROMPT
+      agent.iterations = 10
+      agent.task_start_iterations = 0
+      prompt = agent.send(:build_memory_update_prompt)
       expect(prompt).to include("MEMORY UPDATE MODE")
       expect(prompt).to include("~/.clacky/memories/")
       expect(prompt).to include("4000 characters")
       expect(prompt).to include("updated_at")
+      expect(prompt).to include(Time.now.strftime("%Y-%m-%d"))
     end
   end
 end
