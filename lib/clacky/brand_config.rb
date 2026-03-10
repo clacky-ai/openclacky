@@ -308,8 +308,9 @@ module Clacky
 
       FileUtils.rm_f(tmp_zip)
 
-      # Record installed version in brand_skills.json
-      record_installed_skill(slug, version, skill_info["name"])
+      # Record installed version in brand_skills.json (including description for
+      # offline display when the remote API is unreachable).
+      record_installed_skill(slug, version, skill_info["name"], skill_info["description"])
 
       { success: true, slug: slug, version: version }
     rescue StandardError, ScriptError => e
@@ -370,7 +371,7 @@ module Clacky
       enc_path = File.join(dest_dir, "SKILL.md.enc")
       File.binwrite(enc_path, mock_content.encode("UTF-8"))
 
-      record_installed_skill(slug, version, name)
+      record_installed_skill(slug, version, name, description)
       { success: true, slug: slug, version: version }
     rescue StandardError => e
       { success: false, error: e.message }
@@ -578,11 +579,18 @@ module Clacky
     end
 
     # Persist installed skill metadata to brand_skills.json.
-    private def record_installed_skill(slug, version, name)
+    # description is stored so it can be shown locally even when the remote API
+    # is unreachable (e.g. offline or license server down).
+    private def record_installed_skill(slug, version, name, description = nil)
       FileUtils.mkdir_p(brand_skills_dir)
       path      = File.join(brand_skills_dir, "brand_skills.json")
       installed = installed_brand_skills
-      installed[slug] = { "version" => version, "name" => name, "installed_at" => Time.now.utc.iso8601 }
+      installed[slug] = {
+        "version"      => version,
+        "name"         => name,
+        "description"  => description.to_s,
+        "installed_at" => Time.now.utc.iso8601
+      }
       File.write(path, JSON.generate(installed))
     end
 
