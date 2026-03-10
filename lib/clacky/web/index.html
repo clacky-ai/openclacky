@@ -5,8 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title id="page-title">{{BRAND_NAME}}</title>
   <link rel="stylesheet" href="/app.css">
-  <!-- Lucide Icons -->
-  <script src="https://unpkg.com/lucide@latest"></script>
 </head>
 <body>
 <div id="app">
@@ -15,13 +13,18 @@
   <header id="top-header">
     <div id="header-left">
       <button id="btn-toggle-sidebar" class="sidebar-toggle-btn" title="Toggle sidebar">
-        <i data-lucide="panel-left" class="icon-sm"></i>
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon-sm">
+          <rect width="18" height="18" x="3" y="3" rx="2"/>
+          <path d="M9 3v18"/>
+        </svg>
       </button>
       <span class="header-logo" id="header-logo">{{BRAND_NAME}}</span>
     </div>
     <div id="header-right">
       <button id="theme-toggle-header" class="theme-toggle-btn" title="Toggle theme">
-        <i data-lucide="moon" class="icon-sm"></i>
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon-sm">
+          <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/>
+        </svg>
       </button>
     </div>
   </header>
@@ -38,7 +41,10 @@
         <div class="sidebar-divider">
           <span>Chat</span>
           <button id="btn-new-session-inline" class="btn-new-inline" title="New Session">
-            <i data-lucide="plus" class="icon-sm"></i>
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon-sm">
+              <path d="M5 12h14"/>
+              <path d="M12 5v14"/>
+            </svg>
           </button>
         </div>
         <div id="session-list"></div>
@@ -50,7 +56,10 @@
         <div id="task-list-items">
           <div id="tasks-sidebar-item" class="task-item task-item-summary">
             <div class="task-row">
-              <i data-lucide="clock" class="task-icon"></i>
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="task-icon">
+                <circle cx="12" cy="12" r="10"/>
+                <polyline points="12 6 12 12 16 14"/>
+              </svg>
               <div class="task-info">
                 <span class="task-name" id="tasks-sidebar-label">Tasks</span>
               </div>
@@ -60,7 +69,9 @@
         <div id="skill-list-items">
           <div id="skills-sidebar-item" class="task-item task-item-summary">
             <div class="task-row">
-              <i data-lucide="puzzle" class="task-icon"></i>
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="task-icon">
+                <path d="M19.439 7.85c-.049.322.059.648.289.878l1.568 1.568c.47.47.706 1.087.706 1.704s-.235 1.233-.706 1.704l-1.611 1.611a.98.98 0 0 1-.837.276c-.47-.07-.802-.48-.968-.925a2.501 2.501 0 1 0-3.214 3.214c.446.166.855.497.925.968a.979.979 0 0 1-.276.837l-1.61 1.61a2.404 2.404 0 0 1-1.705.707 2.402 2.402 0 0 1-1.704-.706l-1.568-1.568a1.026 1.026 0 0 0-.877-.29c-.493.074-.84.504-1.02.968a2.5 2.5 0 1 1-3.237-3.237c.464-.18.894-.527.967-1.02a1.026 1.026 0 0 0-.289-.877l-1.568-1.568A2.402 2.402 0 0 1 1.998 12c0-.617.236-1.234.706-1.704L4.23 8.77c.24-.24.581-.353.917-.303.515.077.877.528 1.073 1.01a2.5 2.5 0 1 0 3.259-3.259c-.482-.196-.933-.558-1.01-1.073-.05-.336.062-.676.303-.917l1.525-1.525A2.402 2.402 0 0 1 12 1.998c.617 0 1.234.236 1.704.706l1.568 1.568c.23.23.556.338.877.29.493-.074.84-.504 1.02-.968a2.5 2.5 0 1 1 3.237 3.237c-.464.18-.894.527-.967 1.02Z"/>
+              </svg>
               <div class="task-info">
                 <span class="task-name" id="skills-sidebar-label">Skills</span>
               </div>
@@ -198,7 +209,10 @@
           <h2 class="task-page-title">Scheduled Tasks</h2>
           <p class="task-page-subtitle">Manage and schedule automated tasks for your assistant</p>
           <button id="btn-create-task" class="btn-create-task" title="Create a new task">
-            <i data-lucide="plus" class="icon-sm"></i>
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon-sm">
+              <path d="M5 12h14"/>
+              <path d="M12 5v14"/>
+            </svg>
             <span>Create Task</span>
           </button>
         </div>
@@ -253,7 +267,10 @@
           <h2 class="skills-page-title">Skills</h2>
           <p class="skills-page-subtitle">Extend your assistant's capabilities with custom skills</p>
           <button id="btn-create-skill" class="btn-create-skill" title="Create a new skill">
-            <i data-lucide="plus" class="icon-sm"></i>
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon-sm">
+              <path d="M5 12h14"/>
+              <path d="M12 5v14"/>
+            </svg>
             <span>New Skill</span>
           </button>
         </div>
@@ -274,7 +291,12 @@
         <div id="skills-tab-brand" class="skills-tab-content" style="display:none">
           <div id="brand-skills-header">
             <button id="btn-refresh-brand-skills" class="btn-brand-skills-refresh" title="Refresh from cloud">
-              <i data-lucide="refresh-cw" class="icon-sm"></i> Refresh
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon-sm">
+                <path d="M21 2v6h-6"/>
+                <path d="M3 12a9 9 0 0 1 15-6.7L21 8"/>
+                <path d="M3 22v-6h6"/>
+                <path d="M21 12a9 9 0 0 1-15 6.7L3 16"/>
+              </svg> Refresh
             </button>
           </div>
           <div id="brand-skills-list"></div>
@@ -384,20 +406,5 @@
 <script src="/onboard.js"></script>
 <script src="/brand.js"></script>
 <script src="/app.js"></script>
-<script>
-  // Initialize Lucide icons after DOM is loaded
-  document.addEventListener('DOMContentLoaded', () => {
-    if (typeof lucide !== 'undefined') {
-      lucide.createIcons();
-    }
-  });
-  
-  // Global helper to reinitialize Lucide icons after dynamic content updates
-  window.reinitLucide = function() {
-    if (typeof lucide !== 'undefined') {
-      lucide.createIcons();
-    }
-  };
-</script>
 </body>
 </html>

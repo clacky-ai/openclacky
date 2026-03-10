@@ -185,7 +185,7 @@ body {
   flex-shrink: 0;
 }
 
-/* ── Lucide Icon Styles ──────────────────────────────────────────────────── */
+/* ── Icon Styles ─────────────────────────────────────────────────────────── */
 .icon-sm {
   width: 16px;
   height: 16px;
@@ -589,7 +589,9 @@ body {
 }
 
 .task-create-btn {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   padding: 7px 18px;
   background: var(--color-button-primary);
   color: #fff;
