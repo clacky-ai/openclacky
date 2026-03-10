@@ -52,7 +52,7 @@ Gem::Specification.new do |spec|
     end
   end
   spec.bindir = "bin"
-  spec.executables = ["clacky", "openclacky", "clarky"]
+  spec.executables = ["clacky", "openclacky", "clarky", "clacky-im-bridge"]
   spec.require_paths = ["lib"]
 
   # Runtime dependencies

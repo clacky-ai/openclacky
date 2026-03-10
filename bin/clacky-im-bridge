@@ -1,0 +1,19 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+# IM Bridge daemon entry point.
+# Started by scripts/daemon.sh via: clacky-im-bridge
+
+$LOAD_PATH.unshift File.expand_path("../lib", __dir__)
+
+require "clacky"
+require "clacky/im"
+
+daemon = Clacky::IM::Daemon.new
+
+# Graceful shutdown
+Signal.trap("TERM") do
+  Thread.new { daemon.stop rescue nil; exit 0 }
+end
+
+daemon.start
