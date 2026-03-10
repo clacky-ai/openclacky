@@ -5,39 +5,62 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title id="page-title">{{BRAND_NAME}}</title>
   <link rel="stylesheet" href="/app.css">
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
 </head>
 <body>
 <div id="app">
 
+  <!-- ── TOP HEADER ──────────────────────────────────────────────────────── -->
+  <header id="top-header">
+    <div id="header-left">
+      <button id="btn-toggle-sidebar" class="sidebar-toggle-btn" title="Toggle sidebar">
+        <i data-lucide="panel-left" class="icon-sm"></i>
+      </button>
+      <span class="header-logo" id="header-logo">{{BRAND_NAME}}</span>
+    </div>
+    <div id="header-right">
+      <button id="theme-toggle-header" class="theme-toggle-btn" title="Toggle theme">
+        <i data-lucide="moon" class="icon-sm"></i>
+      </button>
+    </div>
+  </header>
+
+  <!-- ── CONTENT ROW (Sidebar + Main) ────────────────────────────────────── -->
+  <div id="content-row">
+
   <!-- ── SIDEBAR ──────────────────────────────────────────────────────── -->
   <aside id="sidebar">
-    <div id="sidebar-header">
-      <span class="logo" id="sidebar-logo">{{BRAND_NAME}}</span>
-      <button id="btn-new-session" title="New Session">＋</button>
-    </div>
-
-    <!-- Combined list: sessions + tasks -->
+    <!-- Sidebar navigation groups -->
     <div id="sidebar-list">
-      <div id="session-list"></div>
-      <div id="tasks-section">
-        <div class="sidebar-divider"><span>Scheduled Tasks</span></div>
+      <!-- Chat Group -->
+      <div id="chat-section">
+        <div class="sidebar-divider">
+          <span>Chat</span>
+          <button id="btn-new-session-inline" class="btn-new-inline" title="New Session">
+            <i data-lucide="plus" class="icon-sm"></i>
+          </button>
+        </div>
+        <div id="session-list"></div>
+      </div>
+      
+      <!-- Config Group -->
+      <div id="config-section">
+        <div class="sidebar-divider"><span>Config</span></div>
         <div id="task-list-items">
           <div id="tasks-sidebar-item" class="task-item task-item-summary">
             <div class="task-row">
-              <span class="task-icon">⏰</span>
+              <i data-lucide="clock" class="task-icon"></i>
               <div class="task-info">
                 <span class="task-name" id="tasks-sidebar-label">Tasks</span>
               </div>
             </div>
           </div>
         </div>
-      </div>
-      <div id="skills-section">
-        <div class="sidebar-divider"><span>Skills</span></div>
         <div id="skill-list-items">
           <div id="skills-sidebar-item" class="task-item task-item-summary">
             <div class="task-row">
-              <span class="task-icon">🧩</span>
+              <i data-lucide="puzzle" class="task-icon"></i>
               <div class="task-info">
                 <span class="task-name" id="skills-sidebar-label">Skills</span>
               </div>
@@ -47,7 +70,7 @@
       </div>
     </div>
 
-    <!-- Bottom nav -->
+    <!-- Bottom Settings -->
     <div id="sidebar-footer">
       <button id="btn-settings" class="sidebar-nav-btn" title="Settings">
         <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -83,9 +106,17 @@
           <!-- Provider quick-select -->
           <div class="onboard-field">
             <label class="onboard-label">Provider</label>
-            <select id="onboard-provider-select" class="onboard-select">
-              <option value="">— Choose provider —</option>
-            </select>
+            <div class="custom-select-wrapper" id="onboard-provider-wrapper">
+              <div class="custom-select-trigger">
+                <span class="custom-select-value placeholder">— Choose provider —</span>
+                <svg class="custom-select-arrow" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+                </svg>
+              </div>
+              <div class="custom-select-dropdown" id="onboard-provider-dropdown">
+                <div class="custom-select-option" data-value="">— Choose provider —</div>
+              </div>
+            </div>
           </div>
           <div class="onboard-field">
             <label class="onboard-label">Model</label>
@@ -99,7 +130,12 @@
             <label class="onboard-label">API Key</label>
             <div class="onboard-input-row">
               <input id="onboard-api-key" type="password" class="onboard-input" placeholder="sk-…">
-              <button id="onboard-toggle-key" class="btn-toggle-key" title="Show/hide">👁</button>
+              <button id="onboard-toggle-key" class="btn-toggle-key" title="Show/hide">
+                <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path>
+                </svg>
+              </button>
             </div>
           </div>
 
@@ -156,11 +192,19 @@
 
     <!-- Scheduled Tasks list panel (shown when user clicks "Scheduled Tasks") -->
     <div id="task-detail-panel" style="display:none">
-      <header id="task-detail-header">
-        <span id="task-detail-title">Scheduled Tasks</span>
-        <button id="btn-create-task" title="Create a new task">+ Create Task</button>
-      </header>
-      <div id="task-list-table"></div>
+      <div id="task-detail-body">
+        <!-- Title and Description -->
+        <div class="task-page-header">
+          <h2 class="task-page-title">Scheduled Tasks</h2>
+          <p class="task-page-subtitle">Manage and schedule automated tasks for your assistant</p>
+          <button id="btn-create-task" class="btn-create-task" title="Create a new task">
+            <i data-lucide="plus" class="icon-sm"></i>
+            <span>Create Task</span>
+          </button>
+        </div>
+        
+        <div id="task-list-table"></div>
+      </div>
     </div>
 
     <!-- Chat panel -->
@@ -203,11 +247,17 @@
 
     <!-- ── SKILLS PANEL ───────────────────────────────────────────────── -->
     <div id="skills-panel" style="display:none">
-      <header id="skills-header">
-        <span>Skills</span>
-        <button id="btn-create-skill" title="Create a new skill">+ New Skill</button>
-      </header>
       <div id="skills-body">
+        <!-- Title and Description -->
+        <div class="skills-page-header">
+          <h2 class="skills-page-title">Skills</h2>
+          <p class="skills-page-subtitle">Extend your assistant's capabilities with custom skills</p>
+          <button id="btn-create-skill" class="btn-create-skill" title="Create a new skill">
+            <i data-lucide="plus" class="icon-sm"></i>
+            <span>New Skill</span>
+          </button>
+        </div>
+
         <!-- Tab bar -->
         <div id="skills-tabs">
           <button class="skills-tab active" data-tab="my-skills">My Skills</button>
@@ -223,7 +273,9 @@
         <!-- Tab: Brand Skills (only visible when license is activated) -->
         <div id="skills-tab-brand" class="skills-tab-content" style="display:none">
           <div id="brand-skills-header">
-            <button id="btn-refresh-brand-skills" class="btn-brand-skills-refresh" title="Refresh from cloud">↻ Refresh</button>
+            <button id="btn-refresh-brand-skills" class="btn-brand-skills-refresh" title="Refresh from cloud">
+              <i data-lucide="refresh-cw" class="icon-sm"></i> Refresh
+            </button>
           </div>
           <div id="brand-skills-list"></div>
         </div>
@@ -307,7 +359,10 @@
     </div>
 
   </main>
-</div>
+
+  </div><!-- end #content-row -->
+
+</div><!-- end #app -->
 
 <!-- ── CONFIRMATION MODAL ────────────────────────────────────────────────── -->
 <div id="modal-overlay" class="modal-overlay" style="display:none">
@@ -320,6 +375,7 @@
   </div>
 </div>
 
+<script src="/theme.js"></script>
 <script src="/ws.js"></script>
 <script src="/sessions.js"></script>
 <script src="/tasks.js"></script>
@@ -328,5 +384,20 @@
 <script src="/onboard.js"></script>
 <script src="/brand.js"></script>
 <script src="/app.js"></script>
+<script>
+  // Initialize Lucide icons after DOM is loaded
+  document.addEventListener('DOMContentLoaded', () => {
+    if (typeof lucide !== 'undefined') {
+      lucide.createIcons();
+    }
+  });
+  
+  // Global helper to reinitialize Lucide icons after dynamic content updates
+  window.reinitLucide = function() {
+    if (typeof lucide !== 'undefined') {
+      lucide.createIcons();
+    }
+  };
+</script>
 </body>
 </html>
