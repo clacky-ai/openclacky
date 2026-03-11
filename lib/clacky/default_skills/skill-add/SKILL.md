@@ -11,12 +11,36 @@ A comprehensive skill management tool that helps you create new skills interacti
 
 ## ⚠️ Usage Instructions
 
-- **GitHub URL**: Call `ruby lib/clacky/default_skills/skill-add/scripts/install_from_github.rb <url>` via safe_shell
+- **Zip URL** (e.g. from Public Store): Call `ruby <skill_directory>/scripts/install_from_zip.rb <url>` via safe_shell
+- **GitHub URL**: Call `ruby <skill_directory>/scripts/install_from_github.rb <url>` via safe_shell
 - **Text description or no arguments**: Handle interactively via conversation, create files with write tool
 
 ## Usage Modes
 
-### 1. Install from GitHub Repository
+### 1. Install from Zip URL (Public Store)
+```
+/skill-add Install the "my-skill" skill from https://example.com/my-skill-1.0.0.zip
+```
+
+**When the URL ends with `.zip`, execute the `install_from_zip.rb` script:**
+
+Use the **Skill Directory** path shown below, and call:
+```bash
+ruby <skill_directory>/scripts/install_from_zip.rb <zip_url> <slug>
+```
+Pass the skill's `slug` as the second argument so the installed directory gets the correct name.
+
+The script will automatically:
+- Download the zip archive from the URL (follows HTTP redirects)
+- Extract the archive to a temporary directory
+- Find all skill directories containing SKILL.md files
+- Copy them to `.clacky/skills/` in the current project (overwrites existing)
+- Report installed skills with descriptions
+- Clean up temporary files
+
+**Do NOT manually download or unzip files - the script handles everything.**
+
+### 2. Install from GitHub Repository
 ```
 /skill-add https://github.com/username/repo-name
 /skill-add https://github.com/username/repo-name.git
@@ -104,6 +128,20 @@ You can now use: /api-tester
 - Create the skill with best practices
 
 ## Implementation Guidelines
+
+### For Zip URL Installation (Public Store)
+
+Detect a zip URL when the argument contains `.zip` (case-insensitive).
+Use the `install_from_zip.rb` script (available in Supporting Files):
+
+```bash
+ruby <skill_directory>/scripts/install_from_zip.rb <zip_url> <slug>
+```
+Pass the skill slug as the second argument (e.g. `ui-ux-pro-max`) so the installed directory gets the correct name.
+
+The Skill Directory path is shown at the bottom of this document.
+
+**Do NOT manually download or extract files - let the script handle everything.**
 
 ### For GitHub Installation
 
