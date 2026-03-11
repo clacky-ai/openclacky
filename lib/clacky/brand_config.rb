@@ -32,7 +32,7 @@ module Clacky
     BRAND_FILE  = File.join(CONFIG_DIR, "brand.yml")
 
     # OpenClacky Cloud API base URL
-    API_BASE_URL = "https://openclacky.com"
+    API_BASE_URL = "https://www.openclacky.com"
 
     # How often to send a heartbeat (seconds) — once per day
     HEARTBEAT_INTERVAL = 86_400
@@ -43,7 +43,7 @@ module Clacky
     attr_reader :brand_name, :license_key, :license_activated_at,
                 :license_expires_at, :license_last_heartbeat, :device_id,
                 :brand_command, :distribution_name, :product_name,
-                :logo_url, :support_contact
+                :logo_url, :support_contact, :license_user_id
 
     def initialize(attrs = {})
       @brand_name              = attrs["brand_name"]
@@ -57,6 +57,8 @@ module Clacky
       @license_expires_at      = parse_time(attrs["license_expires_at"])
       @license_last_heartbeat  = parse_time(attrs["license_last_heartbeat"])
       @device_id               = attrs["device_id"]
+      # user_id returned by the license server when the license is bound to a specific user
+      @license_user_id         = attrs["license_user_id"]
 
       # In-memory decryption key cache: "skill_id:skill_version_id" => { key:, expires_at: }
       # Never persisted to disk. Survives across multiple skill invocations within one session.
@@ -107,6 +109,13 @@ module Clacky
       (Time.now.utc - @license_last_heartbeat) >= HEARTBEAT_GRACE_PERIOD
     end
 
+    # Returns true when the license is bound to a specific user (user_id present).
+    # User-licensed installations gain additional capabilities such as the ability
+    # to upload custom skills via the web UI.
+    def user_licensed?
+      activated? && !@license_user_id.nil? && !@license_user_id.to_s.strip.empty?
+    end
+
     # Save current state to ~/.clacky/brand.yml
     def save
       FileUtils.mkdir_p(CONFIG_DIR)
@@ -146,9 +155,14 @@ module Clacky
         @license_expires_at     = parse_time(data["expires_at"])
         # Use brand_name returned by the API; fall back to any existing value
         @brand_name = data["brand_name"] if data["brand_name"] && !data["brand_name"].to_s.strip.empty?
+        # Save owner_user_id returned by the server when the license is bound to a specific user.
+        # Server returns "owner_user_id" for system licenses; plan-based licenses return nil.
+        owner_uid = data["owner_user_id"]
+        @license_user_id = owner_uid.to_s.strip if owner_uid && !owner_uid.to_s.strip.empty?
         apply_distribution(data["distribution"])
         save
-        { success: true, message: "License activated successfully!", brand_name: @brand_name, data: data }
+        { success: true, message: "License activated successfully!", brand_name: @brand_name,
+          user_id: @license_user_id, data: data }
       else
         @license_key = nil
         { success: false, message: response[:error] || "Activation failed", data: {} }
@@ -219,6 +233,104 @@ module Clacky
       end
     end
 
+    # Upload (publish) a custom skill ZIP to the OpenClacky Cloud API.
+    # Calls POST /api/v1/client/skills (system-license endpoint).
+    # zip_data is the raw binary content of the ZIP file.
+    # Returns { success: bool, error: String }.
+    # Upload a skill ZIP to the OpenClacky cloud.
+    # skill_name: slug string
+    # zip_data:   binary ZIP content
+    # force:      when true, use PATCH to overwrite an existing skill instead of POST
+    #
+    # Returns { success: true, skill: {...} } or { success: false, error: "...", already_exists: true/false }
+    def upload_skill!(skill_name, zip_data, force: false)
+      return { success: false, error: "License not activated" } unless activated?
+      return { success: false, error: "User license required to upload skills" } unless user_licensed?
+
+      require "net/http"
+      require "uri"
+
+      # The client skills API uses @license_user_id (the platform owner user id),
+      # NOT the user_id embedded in the license key structure.
+      user_id   = @license_user_id.to_s
+      key_hash  = Digest::SHA256.hexdigest(@license_key)
+      ts        = Time.now.utc.to_i.to_s
+      nonce     = SecureRandom.hex(16)
+      message   = "#{user_id}:#{@device_id}:#{ts}:#{nonce}"
+      signature = OpenSSL::HMAC.hexdigest("SHA256", @license_key, message)
+
+      # POST /api/v1/client/skills        → create (first upload)
+      # PATCH /api/v1/client/skills/:slug → update (force overwrite)
+      if force
+        uri = URI.parse("#{API_BASE_URL}/api/v1/client/skills/#{URI.encode_www_form_component(skill_name)}")
+      else
+        uri = URI.parse("#{API_BASE_URL}/api/v1/client/skills")
+      end
+
+      http = Net::HTTP.new(uri.host, uri.port)
+      http.use_ssl       = uri.scheme == "https"
+      http.open_timeout  = 15
+      http.read_timeout  = 60
+
+      boundary = "----ClackySkillUpload#{SecureRandom.hex(8)}"
+      crlf     = "\r\n"
+
+      # Build multipart body as a binary string using Array#pack so that null bytes
+      # in the ZIP data are preserved. Net::HTTP's body= raises on null bytes in
+      # the body string — avoid by writing all parts as binary and using body_stream.
+      parts = []
+      {
+        "key_hash"  => key_hash,
+        "user_id"   => user_id,
+        "device_id" => @device_id,
+        "timestamp" => ts,
+        "nonce"     => nonce,
+        "signature" => signature,
+        "slug"      => skill_name.to_s
+      }.each do |field, value|
+        parts << "--#{boundary}#{crlf}"
+        parts << "Content-Disposition: form-data; name=\"#{field}\"#{crlf}#{crlf}"
+        parts << value.to_s
+        parts << crlf
+      end
+      # Binary file part
+      parts << "--#{boundary}#{crlf}"
+      parts << "Content-Disposition: form-data; name=\"skill_zip\"; filename=\"#{skill_name}.zip\"#{crlf}"
+      parts << "Content-Type: application/zip#{crlf}#{crlf}"
+      # zip_data is binary — keep as-is
+      parts << zip_data.b
+      parts << "#{crlf}--#{boundary}--#{crlf}"
+
+      # Concatenate all parts as a single binary string
+      body_bytes = parts.map { |p| p.b }.join
+
+      request = force ? Net::HTTP::Patch.new(uri.path) : Net::HTTP::Post.new(uri.path)
+      request["Content-Type"]   = "multipart/form-data; boundary=#{boundary}"
+      request["Content-Length"] = body_bytes.bytesize.to_s
+      request.body_stream = StringIO.new(body_bytes)
+
+      response = http.request(request)
+      parsed   = JSON.parse(response.body) rescue {}
+
+      code_i = response.code.to_i
+      if code_i == 200 || code_i == 201
+        { success: true, skill: parsed["skill"] }
+      else
+        # Server returns { status: "error", code: "...", errors: [...] }
+        code   = parsed["code"] || parsed["error"]
+        errors = parsed["errors"]&.join(", ")
+        msg    = [code, errors].compact.join(": ")
+        msg    = "Upload failed (HTTP #{response.code})" if msg.empty?
+
+        # Detect "already exists" conflicts (HTTP 409 or slug_taken error code)
+        # so the caller can offer the user an overwrite option.
+        already_exists = code_i == 409 || code.to_s.include?("slug_taken") || code.to_s.include?("already")
+        { success: false, error: msg, already_exists: already_exists }
+      end
+    rescue StandardError => e
+      { success: false, error: "Network error: #{e.message}" }
+    end
+
     # Fetch the brand skills list from the OpenClacky Cloud API.
     # Requires an activated license. Returns { success: bool, skills: [], error: }.
     def fetch_brand_skills!
@@ -247,12 +359,18 @@ module Clacky
         # Merge local installed version info into each skill
         installed = installed_brand_skills
         skills = (body["skills"] || []).map do |skill|
-          slug = skill["slug"] || skill["name"]&.downcase&.gsub(/\s+/, "-")
-          local = installed[slug]
+          slug         = skill["slug"] || skill["name"]&.downcase&.gsub(/\s+/, "-")
+          local        = installed[slug]
+          # The authoritative "latest" version lives in latest_version.version when present,
+          # falling back to the top-level version field for older API responses.
+          latest_ver   = (skill["latest_version"] || {})["version"] || skill["version"]
+          # Only flag needs_update when the server has a strictly newer version than local.
+          # If local >= latest (e.g. a dev build), suppress the update badge.
+          needs_update = local ? version_older?(local["version"], latest_ver) : false
           skill.merge(
             "slug"              => slug,
             "installed_version" => local ? local["version"] : nil,
-            "needs_update"      => local ? (local["version"] != skill["version"]) : false
+            "needs_update"      => needs_update
           )
         end
         { success: true, skills: skills, expires_at: body["expires_at"] }
@@ -549,7 +667,9 @@ module Clacky
         branded:            branded?,
         activated:          activated?,
         expired:            expired?,
-        license_expires_at: @license_expires_at&.iso8601
+        license_expires_at: @license_expires_at&.iso8601,
+        user_licensed:      user_licensed?,
+        license_user_id:    @license_user_id
       }
     end
 
@@ -568,7 +688,27 @@ module Clacky
       data["license_expires_at"]     = @license_expires_at.iso8601     if @license_expires_at
       data["license_last_heartbeat"] = @license_last_heartbeat.iso8601 if @license_last_heartbeat
       data["device_id"]              = @device_id              if @device_id
+      # Persist user_id so user-licensed features remain available across restarts
+      data["license_user_id"]        = @license_user_id        if @license_user_id && !@license_user_id.strip.empty?
       YAML.dump(data)
+    end
+
+    # Compare two semver strings. Returns true when `installed` is strictly
+    # older than `latest` (i.e. the server has a newer version available).
+    # Returns false when installed >= latest, or when either version is blank/nil,
+    # so a local dev build never shows a spurious "Update" badge.
+    def self.version_older?(installed, latest)
+      return false if installed.to_s.strip.empty? || latest.to_s.strip.empty?
+
+      Gem::Version.new(installed.to_s.strip) < Gem::Version.new(latest.to_s.strip)
+    rescue ArgumentError
+      # Unparseable version strings — treat as "not older" to avoid false positives
+      false
+    end
+
+    # Instance-level delegate so fetch_brand_skills! can call version_older? directly.
+    private def version_older?(installed, latest)
+      self.class.version_older?(installed, latest)
     end
 
     # Apply distribution fields from API response.

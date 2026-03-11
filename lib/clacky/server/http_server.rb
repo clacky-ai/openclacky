@@ -211,6 +211,7 @@ module Clacky
         when ["POST",   "/api/tasks"]         then api_create_task(req, res)
         when ["POST",   "/api/tasks/run"]     then api_run_task(req, res)
         when ["GET",    "/api/skills"]         then api_list_skills(res)
+        when ["POST",   "/api/my-skills/upload"] then api_upload_my_skill(req, res)
         when ["GET",    "/api/config"]        then api_get_config(res)
         when ["POST",   "/api/config"]        then api_save_config(req, res)
         when ["POST",   "/api/config/test"]   then api_test_config(req, res)
@@ -257,6 +258,9 @@ module Clacky
           elsif method == "POST" && path.match?(%r{^/api/brand/skills/[^/]+/install$})
             slug = URI.decode_www_form_component(path.sub("/api/brand/skills/", "").sub("/install", ""))
             api_brand_skill_install(slug, req, res)
+          elsif method == "POST" && path.match?(%r{^/api/my-skills/[^/]+/publish$})
+            name = URI.decode_www_form_component(path.sub("/api/my-skills/", "").sub("/publish", ""))
+            api_publish_my_skill(name, req, res)
           else
             not_found(res)
           end
@@ -386,7 +390,9 @@ module Clacky
           needs_activation: false,
           brand_name:       brand.brand_name,
           warning:          warning,
-          test_mode:        @brand_test
+          test_mode:        @brand_test,
+          user_licensed:    brand.user_licensed?,
+          license_user_id:  brand.license_user_id
         })
       end
 
@@ -409,7 +415,12 @@ module Clacky
           # Refresh skill_loader with the now-activated brand config so brand
           # skills are loadable from this point forward (e.g. after sync).
           @skill_loader = Clacky::SkillLoader.new(working_dir: nil, brand_config: brand)
-          json_response(res, 200, { ok: true, brand_name: result[:brand_name] || brand.brand_name })
+          json_response(res, 200, {
+            ok:           true,
+            brand_name:   result[:brand_name] || brand.brand_name,
+            user_id:      result[:user_id] || brand.license_user_id,
+            user_licensed: brand.user_licensed?
+          })
         else
           json_response(res, 422, { ok: false, error: result[:message] })
         end
@@ -494,7 +505,7 @@ module Clacky
         if result[:success]
           # Reload skills so the Agent can pick up the new skill immediately.
           # Re-create the loader with the current brand_config so brand skills are decryptable.
-          @skill_loader = Clacky::SkillLoader.new(nil, brand_config: brand)
+          @skill_loader = Clacky::SkillLoader.new(working_dir: nil, brand_config: brand)
           json_response(res, 200, { ok: true, slug: result[:slug], version: result[:version] })
         else
           json_response(res, 422, { ok: false, error: result[:error] })
@@ -666,7 +677,7 @@ module Clacky
           latest_v = (skill["latest_version"] || {})["version"]
           skill.merge(
             "installed_version" => local ? local["version"] : nil,
-            "needs_update"      => local ? (local["version"] != latest_v) : false
+            "needs_update"      => local ? Clacky::BrandConfig.version_older?(local["version"], latest_v) : false
           )
         end
 
@@ -847,6 +858,206 @@ module Clacky
         json_response(res, 200, { ok: true, name: skill.identifier, enabled: !skill.disabled? })
       rescue Clacky::AgentError => e
         json_response(res, 422, { error: e.message })
+      end
+
+      # POST /api/my-skills/upload
+      # Upload a custom skill as a ZIP file (multipart/form-data).
+      # Requires a user-licensed activation (license bound to a user_id).
+      #
+      # The ZIP must contain a SKILL.md at the root or inside a single top-level
+      # directory. The skill name is derived from the directory name in the ZIP, or
+      # falls back to the uploaded filename (without extension).
+      #
+      # Request: multipart/form-data with field "skill_file" containing the ZIP.
+      # Response: { ok: true, name: "skill-name" } on success.
+      def api_upload_my_skill(req, res)
+        brand = Clacky::BrandConfig.load
+
+        unless brand.user_licensed?
+          json_response(res, 403, { ok: false, error: "User license required to upload skills" })
+          return
+        end
+
+        # Parse multipart body to extract the uploaded file
+        upload = parse_multipart_upload(req, "skill_file")
+        unless upload
+          json_response(res, 422, { ok: false, error: "skill_file field is required (ZIP file)" })
+          return
+        end
+
+        filename    = upload[:filename].to_s
+        file_data   = upload[:data]
+
+        unless filename.end_with?(".zip")
+          json_response(res, 422, { ok: false, error: "Only ZIP files are supported" })
+          return
+        end
+
+        begin
+          require "zip"
+          require "tmpdir"
+
+          # Write the uploaded zip to a temp file
+          tmp_dir = Dir.mktmpdir("clacky_skill_upload_")
+          tmp_zip = File.join(tmp_dir, filename)
+          File.binwrite(tmp_zip, file_data)
+
+          # Detect skill name from zip structure
+          skill_name = nil
+          Zip::File.open(tmp_zip) do |zip|
+            entries = zip.entries.reject(&:directory?)
+            top_dirs = entries.map { |e| e.name.split("/").first }.uniq
+
+            # Single root dir → use it as skill name
+            if top_dirs.length == 1 && entries.any? { |e| e.name.include?("/") }
+              candidate = top_dirs.first.strip.downcase.gsub(/[^a-z0-9-]/, "-").gsub(/-+/, "-").gsub(/^-|-$/, "")
+              skill_name = candidate unless candidate.empty?
+            end
+
+            # Check SKILL.md exists in zip
+            has_skill_md = entries.any? { |e| File.basename(e.name) == "SKILL.md" }
+            unless has_skill_md
+              raise "ZIP must contain a SKILL.md file"
+            end
+          end
+
+          # Fall back to filename without extension
+          skill_name ||= File.basename(filename, ".zip").strip.downcase
+                              .gsub(/[^a-z0-9-]/, "-").gsub(/-+/, "-").gsub(/^-|-$/, "")
+          skill_name = "my-skill" if skill_name.empty?
+
+          # Install to ~/.clacky/skills/
+          dest_dir = File.join(Dir.home, ".clacky", "skills", skill_name)
+          FileUtils.mkdir_p(dest_dir)
+
+          # Extract ZIP contents into dest_dir, stripping single root folder if present
+          Zip::File.open(tmp_zip) do |zip|
+            entries  = zip.entries.reject(&:directory?)
+            top_dirs = entries.map { |e| e.name.split("/").first }.uniq
+            has_root = top_dirs.length == 1 && entries.any? { |e| e.name.include?("/") }
+
+            entries.each do |entry|
+              rel_path = if has_root
+                           parts = entry.name.split("/")
+                           parts[1..].join("/")
+                         else
+                           entry.name
+                         end
+
+              next if rel_path.nil? || rel_path.empty?
+
+              out = File.join(dest_dir, rel_path)
+              FileUtils.mkdir_p(File.dirname(out))
+              File.open(out, "wb") { |f| f.write(entry.get_input_stream.read) }
+            end
+          end
+
+          # Reload skills
+          @skill_loader.load_all
+
+          json_response(res, 200, { ok: true, name: skill_name })
+        rescue StandardError, ScriptError => e
+          json_response(res, 422, { ok: false, error: e.message })
+        ensure
+          FileUtils.rm_rf(tmp_dir) if tmp_dir && Dir.exist?(tmp_dir)
+        end
+      end
+
+      # POST /api/my-skills/:name/publish
+      # Auto-packages the named skill directory into a ZIP and uploads it to the
+      # OpenClacky cloud. No file picker is required — the server finds the skill
+      # directory, zips it, and streams the ZIP to the cloud API.
+      #
+      # Response: { ok: true, name: } on success, { ok: false, error: } on failure.
+      private def api_publish_my_skill(name, req, res)
+        brand = Clacky::BrandConfig.load
+
+        unless brand.user_licensed?
+          json_response(res, 403, { ok: false, error: "User license required to publish skills" })
+          return
+        end
+
+        # Reload skills to ensure we have latest state
+        @skill_loader.load_all
+        skill = @skill_loader[name]
+
+        unless skill
+          json_response(res, 404, { ok: false, error: "Skill '#{name}' not found" })
+          return
+        end
+
+        source = @skill_loader.loaded_from[name]
+        # Only allow publishing user-owned custom skills.
+        # :default  — built-in gem skills (lib/clacky/default_skills/)
+        # :brand    — encrypted brand/system skills from ~/.clacky/brand_skills/ (cannot re-upload)
+        if source == :default || source == :brand
+          json_response(res, 422, { ok: false, error: "Built-in system skills cannot be published" })
+          return
+        end
+
+        skill_dir = skill.directory.to_s
+
+        unless Dir.exist?(skill_dir)
+          json_response(res, 422, { ok: false, error: "Skill directory not found: #{skill_dir}" })
+          return
+        end
+
+        # Parse ?force=true query parameter for overwrite (re-upload existing skill via PATCH)
+        query = URI.decode_www_form(req.query_string.to_s).to_h
+        force = query["force"] == "true"
+
+        begin
+          require "zip"
+          require "tmpdir"
+
+          # Build ZIP in memory / temp file
+          tmp_dir  = Dir.mktmpdir("clacky_skill_publish_")
+          zip_path = File.join(tmp_dir, "#{name}.zip")
+
+          # Directories and file patterns to exclude from the published ZIP.
+          # These are generated/binary files that would cause server-side errors
+          # (e.g., Python .pyc files contain null bytes rejected by PostgreSQL).
+          excluded_dirs     = %w[__pycache__ .git .svn node_modules .cache]
+          excluded_patterns = /\.(pyc|rbc|class|o|so|dylib|dll|exe)$|\.DS_Store$|Thumbs\.db$/i
+
+          Zip::OutputStream.open(zip_path) do |zos|
+            Dir.glob("**/*", base: skill_dir).sort.each do |rel|
+              full = File.join(skill_dir, rel)
+              next if File.directory?(full)
+
+              # Skip excluded directories anywhere in path
+              path_parts = rel.split(File::SEPARATOR)
+              next if path_parts.any? { |part| excluded_dirs.include?(part) }
+
+              # Skip excluded file patterns (compiled bytecode, shared libs, OS files)
+              next if rel.match?(excluded_patterns)
+
+              entry_name = "#{name}/#{rel}"
+              zos.put_next_entry(entry_name)
+              zos.write(File.binread(full))
+            end
+          end
+
+          zip_data = File.binread(zip_path)
+
+          # Upload to cloud API as multipart (force=true uses PATCH for overwrite)
+          result = brand.upload_skill!(name, zip_data, force: force)
+
+          if result[:success]
+            json_response(res, 200, { ok: true, name: name })
+          else
+            # Pass already_exists flag so the frontend can offer an overwrite prompt
+            json_response(res, 422, {
+              ok:             false,
+              error:          result[:error],
+              already_exists: result[:already_exists] || false
+            })
+          end
+        rescue StandardError, ScriptError => e
+          json_response(res, 500, { ok: false, error: e.message })
+        ensure
+          FileUtils.rm_rf(tmp_dir) if tmp_dir && Dir.exist?(tmp_dir)
+        end
       end
 
       # ── Config API ────────────────────────────────────────────────────────────
@@ -1313,6 +1524,54 @@ module Clacky
         JSON.parse(req.body)
       rescue JSON::ParserError
         {}
+      end
+
+      # Parse a multipart/form-data request body to extract a single file upload.
+      # Returns { filename:, data: } or nil when the field is not found.
+      # This is a lightweight parser that handles the standard WEBrick multipart format.
+      #
+      # @param req [WEBrick::HTTPRequest]
+      # @param field_name [String] The form field name to look for
+      # @return [Hash, nil] { filename: String, data: String (binary) }
+      private def parse_multipart_upload(req, field_name)
+        content_type = req["Content-Type"].to_s
+        return nil unless content_type.include?("multipart/form-data")
+
+        # Extract boundary from Content-Type header
+        boundary_match = content_type.match(/boundary=([^\s;]+)/)
+        return nil unless boundary_match
+
+        boundary = "--" + boundary_match[1].strip.gsub(/^"(.*)"$/, '')
+        body     = req.body.to_s.b  # treat as binary
+
+        # Split body by boundary and find the target field
+        parts = body.split(Regexp.new(Regexp.escape(boundary)))
+        parts.each do |part|
+          # Each part has headers, then blank line, then body
+          # Use \r\n\r\n or \n\n as separator between headers and body
+          header_body_sep = part.index("\r\n\r\n") || part.index("\n\n")
+          next unless header_body_sep
+
+          sep_len     = part[header_body_sep, 4] == "\r\n\r\n" ? 4 : 2
+          raw_headers = part[0, header_body_sep]
+          raw_body    = part[(header_body_sep + sep_len)..]
+
+          # Remove trailing CRLF from part body
+          raw_body = raw_body.sub(/\r\n\z/, "").sub(/\n\z/, "")
+
+          # Check Content-Disposition for our field name
+          next unless raw_headers.include?("Content-Disposition")
+
+          name_match = raw_headers.match(/name="([^"]+)"/)
+          next unless name_match && name_match[1] == field_name
+
+          file_match = raw_headers.match(/filename="([^"]*)"/)
+          filename   = file_match ? file_match[1] : field_name
+
+          return { filename: filename, data: raw_body }
+        end
+
+        nil
       end
 
       def not_found(res)

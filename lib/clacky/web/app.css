@@ -1679,6 +1679,53 @@ body {
   overflow-y: auto;
 }
 
+/* ── My Skills upload area (user-licensed only) ───────────────────────────── */
+.my-skills-upload-area {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 0 4px;
+  border-bottom: 1px solid var(--color-border-primary);
+  margin-bottom: 4px;
+}
+.btn-upload-skill {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  background: var(--color-bg-secondary);
+  color: var(--color-text-primary);
+  border: 1px solid var(--color-border-primary);
+  border-radius: 7px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+  flex-shrink: 0;
+}
+.btn-upload-skill:hover {
+  background: var(--color-bg-hover);
+  border-color: var(--color-accent-primary);
+}
+.btn-upload-skill:active {
+  transform: translateY(1px);
+}
+.btn-upload-skill:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+.upload-skill-status {
+  font-size: 13px;
+  color: var(--color-text-secondary);
+  flex: 1;
+}
+.upload-skill-status.upload-ok {
+  color: var(--color-success, #22c55e);
+}
+.upload-skill-status.upload-error {
+  color: var(--color-error, #ef4444);
+}
+
 /* ── My Skills list ──────────────────────────────────────────────────────── */
 #skills-list {
   display: flex;
@@ -1708,6 +1755,12 @@ body {
   gap: 12px;
 }
 .skill-card-info { flex: 1; min-width: 0; }
+.skill-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
 .skill-card-title {
   display: flex;
   align-items: center;
@@ -1791,6 +1844,131 @@ body {
 }
 .skill-toggle-input:checked + .skill-toggle-track::after {
   left: 19px;
+}
+
+/* ── Skill Card inline upload button ────────────────────────────────────── */
+/* ── Skill Card — Upload / Publish button ────────────────────────────────── */
+.btn-skill-upload-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 11px;
+  background: transparent;
+  color: var(--color-text-secondary);
+  border: 1px solid var(--color-border-primary);
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  flex-shrink: 0;
+  min-width: 78px;
+  justify-content: center;
+  transition: background-color 0.15s ease, color 0.15s ease,
+              border-color 0.15s ease, opacity 0.15s ease;
+  position: relative;
+  overflow: hidden;
+}
+.btn-skill-upload-inline:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-accent-primary);
+  border-color: var(--color-accent-primary);
+}
+.btn-skill-upload-inline:active {
+  transform: translateY(1px);
+}
+.btn-skill-upload-inline:disabled {
+  cursor: not-allowed;
+}
+
+/* Icon — subtle spin while uploading */
+.btn-skill-upload-inline .btn-upload-icon {
+  transition: opacity 0.2s ease;
+  flex-shrink: 0;
+}
+
+/* ── Uploading state ─────────────────────────────────────────────────────── */
+.btn-skill-upload-inline[data-state="uploading"] {
+  color: var(--color-accent-primary);
+  border-color: var(--color-accent-primary);
+  background: rgba(96, 165, 250, 0.06);
+  opacity: 0.9;
+}
+.btn-skill-upload-inline[data-state="uploading"] .btn-upload-icon {
+  animation: upload-bounce 0.8s ease-in-out infinite alternate;
+}
+@keyframes upload-bounce {
+  from { transform: translateY(0);   opacity: 1; }
+  to   { transform: translateY(-3px); opacity: 0.6; }
+}
+
+/* ── Success state ───────────────────────────────────────────────────────── */
+.btn-skill-upload-inline[data-state="success"] {
+  color: var(--color-success, #34d399);
+  border-color: var(--color-success, #34d399);
+  background: rgba(52, 211, 153, 0.08);
+}
+.btn-skill-upload-inline[data-state="success"] .btn-upload-icon {
+  opacity: 0;
+}
+
+/* ── Error state ─────────────────────────────────────────────────────────── */
+.btn-skill-upload-inline[data-state="error"] {
+  color: var(--color-error, #f87171);
+  border-color: var(--color-error, #f87171);
+  background: rgba(248, 113, 113, 0.08);
+  animation: upload-shake 0.35s ease;
+}
+@keyframes upload-shake {
+  0%   { transform: translateX(0); }
+  20%  { transform: translateX(-4px); }
+  40%  { transform: translateX(4px); }
+  60%  { transform: translateX(-3px); }
+  80%  { transform: translateX(2px); }
+  100% { transform: translateX(0); }
+}
+.btn-skill-upload-inline[data-state="error"] .btn-upload-icon {
+  opacity: 0;
+}
+
+/* ── Uploaded (persisted success) state ─────────────────────────────────── */
+/* Applied when a skill has already been successfully uploaded to the cloud.  */
+/* Shows a green tint so the user can see it was previously uploaded.         */
+.btn-skill-upload-inline.btn-skill-uploaded {
+  color: var(--color-success, #34d399);
+  border-color: rgba(52, 211, 153, 0.45);
+  background: rgba(52, 211, 153, 0.06);
+}
+.btn-skill-upload-inline.btn-skill-uploaded:hover {
+  background: rgba(52, 211, 153, 0.12);
+  border-color: var(--color-success, #34d399);
+  color: var(--color-success, #34d399);
+}
+.btn-skill-upload-inline.btn-skill-uploaded .btn-upload-icon {
+  opacity: 0.7;
+}
+
+/* ── Skill Card upload progress bar ─────────────────────────────────────── */
+.skill-upload-progress-wrap {
+  margin-top: 8px;
+  height: 2px;
+  background: var(--color-border-primary);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.skill-upload-progress-bar {
+  height: 100%;
+  width: 0%;
+  background: var(--color-accent-primary);
+  border-radius: 2px;
+  transition: width 0.25s ease;
+}
+.skill-upload-progress-bar[data-state="success"] {
+  background: var(--color-success, #34d399);
+  transition: background-color 0.3s ease, width 0.2s ease;
+}
+.skill-upload-progress-bar[data-state="error"] {
+  background: var(--color-error, #f87171);
+  transition: background-color 0.3s ease, width 0.2s ease;
 }
 
 /* ── Store Grid ──────────────────────────────────────────────────────────── */
