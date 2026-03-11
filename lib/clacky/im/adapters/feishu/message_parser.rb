@@ -55,6 +55,9 @@ module Clacky
             return nil unless message && sender
 
             # Only handle text messages for now
+            # Ignore messages sent by bots (including ourselves) to avoid feedback loops
+            return nil if sender["sender_type"] == "app"
+
             msg_type = message["message_type"]
             return nil unless msg_type == "text"
 
