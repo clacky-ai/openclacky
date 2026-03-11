@@ -211,7 +211,6 @@ module Clacky
         when ["POST",   "/api/tasks"]         then api_create_task(req, res)
         when ["POST",   "/api/tasks/run"]     then api_run_task(req, res)
         when ["GET",    "/api/skills"]         then api_list_skills(res)
-        when ["POST",   "/api/my-skills/upload"] then api_upload_my_skill(req, res)
         when ["GET",    "/api/config"]        then api_get_config(res)
         when ["POST",   "/api/config"]        then api_save_config(req, res)
         when ["POST",   "/api/config/test"]   then api_test_config(req, res)
@@ -914,104 +913,6 @@ module Clacky
         json_response(res, 422, { error: e.message })
       end
 
-      # POST /api/my-skills/upload
-      # Upload a custom skill ZIP directly to the cloud.
-      # Requires a user-licensed activation (license bound to a user_id).
-      #
-      # The ZIP must contain a SKILL.md at the root or inside a single top-level
-      # directory. The skill name is derived from the directory name in the ZIP, or
-      # falls back to the uploaded filename (without extension).
-      #
-      # Supports ?force=true to overwrite an existing skill (PATCH instead of POST).
-      #
-      # Request: multipart/form-data with field "skill_file" containing the ZIP.
-      # Response: { ok: true, name: "skill-name" } on success.
-      #           { ok: false, error: "...", already_exists: true } on conflict.
-      def api_upload_my_skill(req, res)
-        brand = Clacky::BrandConfig.load
-
-        unless brand.user_licensed?
-          json_response(res, 403, { ok: false, error: "User license required to upload skills" })
-          return
-        end
-
-        # Parse multipart body to extract the uploaded file
-        upload = parse_multipart_upload(req, "skill_file")
-        unless upload
-          json_response(res, 422, { ok: false, error: "skill_file field is required (ZIP file)" })
-          return
-        end
-
-        filename  = upload[:filename].to_s
-        file_data = upload[:data]
-
-        unless filename.end_with?(".zip")
-          json_response(res, 422, { ok: false, error: "Only ZIP files are supported" })
-          return
-        end
-
-        # Parse ?force=true query parameter for overwrite
-        query = URI.decode_www_form(req.query_string.to_s).to_h
-        force = query["force"] == "true"
-
-        begin
-          require "zip"
-
-          # Derive skill name and read version from ZIP structure (in memory, no disk I/O)
-          skill_name   = nil
-          skill_version = nil
-          Zip::File.open_buffer(file_data) do |zip|
-            entries  = zip.entries.reject(&:directory?)
-            top_dirs = entries.map { |e| e.name.split("/").first }.uniq
-
-            # Single root dir → use it as skill name
-            if top_dirs.length == 1 && entries.any? { |e| e.name.include?("/") }
-              candidate = top_dirs.first.strip.downcase
-                                  .gsub(/[^a-z0-9-]/, "-").gsub(/-+/, "-").gsub(/^-|-$/, "")
-              skill_name = candidate unless candidate.empty?
-            end
-
-            # Validate SKILL.md exists and read version from frontmatter
-            skill_md_entry = entries.find { |e| File.basename(e.name) == "SKILL.md" }
-            raise "ZIP must contain a SKILL.md file" unless skill_md_entry
-
-            skill_md_content = skill_md_entry.get_input_stream.read.force_encoding("UTF-8")
-            if skill_md_content =~ /\A---\s*\n(.*?)\n---\s*\n/m
-              require "yaml"
-              frontmatter   = YAML.safe_load($1) rescue {}
-              skill_version = frontmatter["version"].to_s.strip
-            end
-          end
-
-          # Fall back to filename without extension
-          skill_name ||= File.basename(filename, ".zip").strip.downcase
-                             .gsub(/[^a-z0-9-]/, "-").gsub(/-+/, "-").gsub(/^-|-$/, "")
-          skill_name = "my-skill" if skill_name.empty?
-
-          # When overwriting, auto-bump the patch version so the cloud accepts the new upload.
-          # Cloud rejects PATCH requests where the version is not greater than the current one.
-          version_override = nil
-          if force && skill_version.present?
-            version_override = bump_patch_version(skill_version)
-          end
-
-          # Upload ZIP directly to cloud (no local installation)
-          result = brand.upload_skill!(skill_name, file_data, force: force, version_override: version_override)
-
-          if result[:success]
-            json_response(res, 200, { ok: true, name: skill_name, version: version_override || skill_version })
-          else
-            json_response(res, 422, {
-              ok:             false,
-              error:          result[:error],
-              already_exists: result[:already_exists] || false
-            })
-          end
-        rescue StandardError, ScriptError => e
-          json_response(res, 422, { ok: false, error: e.message })
-        end
-      end
-
       # POST /api/my-skills/:name/publish
       # Auto-packages the named skill directory into a ZIP and uploads it to the
       # OpenClacky cloud. No file picker is required — the server finds the skill
@@ -1582,20 +1483,6 @@ module Clacky
       # @param req [WEBrick::HTTPRequest]
       # @param field_name [String] The form field name to look for
       # @return [Hash, nil] { filename: String, data: String (binary) }
-      # Increment the patch segment of a semver string (e.g. "1.2.3" → "1.2.4").
-      # Falls back to appending ".1" for non-standard version strings.
-      private def bump_patch_version(version)
-        parts = version.to_s.strip.split(".")
-        if parts.length >= 3
-          parts[-1] = (parts[-1].to_i + 1).to_s
-          parts.join(".")
-        elsif parts.length == 2
-          "#{parts[0]}.#{parts[1]}.1"
-        else
-          "#{version}.0.1"
-        end
-      end
-
       private def parse_multipart_upload(req, field_name)
         content_type = req["Content-Type"].to_s
         return nil unless content_type.include?("multipart/form-data")
