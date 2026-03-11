@@ -472,7 +472,7 @@ module Clacky
         if result[:success]
           # Reload skills so the Agent can pick up the new skill immediately.
           # Re-create the loader with the current brand_config so brand skills are decryptable.
-          @skill_loader = Clacky::SkillLoader.new(working_dir: nil, brand_config: brand)
+          @skill_loader = Clacky::SkillLoader.new(nil, brand_config: brand)
           json_response(res, 200, { ok: true, slug: result[:slug], version: result[:version] })
         else
           json_response(res, 422, { ok: false, error: result[:error] })
