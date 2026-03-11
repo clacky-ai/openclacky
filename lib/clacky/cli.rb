@@ -4,6 +4,7 @@ require "thor"
 require "tty-prompt"
 require "fileutils"
 require_relative "ui2"
+require_relative "im"
 require_relative "json_ui_controller"
 require_relative "plain_ui_controller"
 require_relative "brand_config"
@@ -104,6 +105,13 @@ module Clacky
       # Create new agent if no session loaded
       agent ||= Clacky::Agent.new(client, agent_config, working_dir: working_dir, ui: nil, profile: agent_profile)
 
+      # Start IM bridge in background thread if configured
+      im_daemon = nil
+      if Clacky::IM::Config.exist?
+        im_daemon = Clacky::IM::Daemon.new
+        Thread.new { im_daemon.start }
+      end
+
       # Change to working directory
       original_dir = Dir.pwd
       should_chdir = File.realpath(working_dir) != File.realpath(original_dir)
@@ -117,6 +125,7 @@ module Clacky
           run_agent_with_ui2(agent, working_dir, agent_config, session_manager, client, is_session_load: is_session_load)
         end
       ensure
+        im_daemon&.stop
         Dir.chdir(original_dir)
       end
     end

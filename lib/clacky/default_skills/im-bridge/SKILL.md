@@ -2,10 +2,10 @@
 name: im-bridge
 description: |
   Connect open-clacky to IM platforms (Feishu/Lark, WeCom).
-  Trigger on: "im setup", "im start", "im stop", "im status", "im logs", "im doctor",
-  "start bridge", "stop bridge", "bridge status", "setup feishu", "setup wecom".
-  Subcommands: setup, start, stop, status, logs [N], reconfigure, doctor.
-argument-hint: "setup | start | stop | status | logs [N] | reconfigure | doctor"
+  Trigger on: "im setup", "im logs", "im doctor", "im reconfigure",
+  "setup feishu", "setup wecom".
+  Subcommands: setup, logs [N], reconfigure, doctor.
+argument-hint: "setup | logs [N] | reconfigure | doctor"
 allowed-tools:
   - Bash
   - Read
@@ -19,13 +19,7 @@ allowed-tools:
 
 You are managing the open-clacky IM bridge.
 
-User config is stored at `~/.clacky/im-bridge/config.env`.
-Logs are at `~/.clacky/im-bridge/logs/bridge.log`.
-
-First, locate the skill directory:
-- Use Glob with pattern `**/default_skills/im-bridge/SKILL.md` to find its path
-- Derive SKILL_DIR from the result (parent of SKILL.md)
-- Store SKILL_DIR mentally for all subsequent file references
+The IM bridge starts and stops automatically with `clacky`. Configuration is stored at `~/.clacky/im-bridge/config.env`. Logs are written to `~/.clacky/logger/clacky-YYYY-MM-DD.log`.
 
 ## Command Parsing
 
@@ -34,9 +28,6 @@ Map user intent to subcommand:
 | User says | Subcommand |
 |---|---|
 | `setup`, `configure`, `setup feishu`, `setup wecom` | setup |
-| `start`, `start bridge` | start |
-| `stop`, `stop bridge` | stop |
-| `status`, `bridge status` | status |
 | `logs`, `logs 200` | logs |
 | `reconfigure`, `reconfig`, `modify config` | reconfigure |
 | `doctor`, `diagnose` | doctor |
@@ -66,7 +57,7 @@ Ask:
 >
 > Enter a number:
 
-If user selects 3, inform them it's not yet supported and ask if they want to proceed with 1 or 2.
+If user selects an unsupported option, inform them it's not yet supported and ask if they want to proceed with 1 or 2.
 
 ---
 
@@ -176,7 +167,7 @@ Accept `1` or `2`. Default to `auto_approve` if user types `1` or anything unrec
 2. Ask user to confirm by showing:
    > Is the above configuration correct? Type "confirm" to save:
 3. Only proceed if user inputs "confirm", "yes", or "y".
-4. Use Bash to create directories: `mkdir -p ~/.clacky/im-bridge/{logs,runtime}`
+4. Use Bash to create directory: `mkdir -p ~/.clacky/im-bridge`
 5. Use Write to create `~/.clacky/im-bridge/config.env`
 6. Use Bash to set permissions: `chmod 600 ~/.clacky/im-bridge/config.env`
 7. Validate Feishu credentials:
@@ -187,7 +178,7 @@ Accept `1` or `2`. Default to `auto_approve` if user types `1` or anything unrec
      -d "{\"app_id\":\"${APP_ID}\",\"app_secret\":\"${APP_SECRET}\"}"
    ```
    Check for `"code":0` in the response. If validation fails, explain and ask if they want to re-enter credentials.
-8. On success, tell the user: "Configuration complete! Run `/im-bridge start` to start the bridge."
+8. On success, tell the user: "Configuration complete! The bridge will connect automatically next time you start clacky."
 
 Feishu config file format:
 ```
@@ -240,11 +231,11 @@ Same as Feishu Step 3.
 2. Ask user to confirm by showing:
    > Is the above configuration correct? Type "confirm" to save:
 3. Only proceed if user inputs "confirm", "yes", or "y".
-4. Use Bash to create directories: `mkdir -p ~/.clacky/im-bridge/{logs,runtime}`
+4. Use Bash to create directory: `mkdir -p ~/.clacky/im-bridge`
 5. Use Write to create `~/.clacky/im-bridge/config.env`
 6. Use Bash to set permissions: `chmod 600 ~/.clacky/im-bridge/config.env`
 7. No API validation needed for WeCom (credentials are verified on WebSocket connect).
-8. Tell the user: "Configuration complete! Run `/im-bridge start` to start the bridge."
+8. Tell the user: "Configuration complete! The bridge will connect automatically next time you start clacky."
 
 WeCom config file format:
 ```
@@ -254,28 +245,11 @@ IM_WECOM_BOT_ID=xxx
 IM_WECOM_SECRET=xxx
 ```
 
-### `start`
-
-Check config exists first.
-
-Run: `bash "${SKILL_DIR}/scripts/daemon.sh" start`
-
-Show the output. If it fails:
-- Suggest: Run `/im-bridge doctor` to diagnose
-- Show recent logs: `/im-bridge logs`
-
-### `stop`
-
-Run: `bash "${SKILL_DIR}/scripts/daemon.sh" stop`
-
-### `status`
-
-Run: `bash "${SKILL_DIR}/scripts/daemon.sh" status`
-
 ### `logs`
 
 Extract line count N from arguments (default 50).
-Run: `bash "${SKILL_DIR}/scripts/daemon.sh" logs N`
+
+Read the most recent log file matching `~/.clacky/logger/clacky-*.log` and show the last N lines that are IM-related (e.g. contain "IM bridge", "adapter", or a platform name). If no IM-specific lines are found, show the last N lines of the log file.
 
 ### `reconfigure`
 
@@ -295,31 +269,28 @@ Run: `bash "${SKILL_DIR}/scripts/daemon.sh" logs N`
 - Collect credentials for the new platform following the same steps as in `setup`
 - Append the new platform to `IM_ENABLED_PLATFORMS` (comma-separated) and add its keys to the config
 - Write config atomically (write to .tmp, rename)
-- Remind: "Run `/im-bridge stop` then `/im-bridge start` to apply changes."
+- Remind: "Restart clacky to apply changes."
 
 **If user chooses other options:**
 - Collect the new value(s)
 - For Feishu credential changes: show the relevant credential steps from the setup wizard inline (same instructions as Step 2a/2b above)
 - Update config atomically (write to .tmp, rename)
 - Re-validate changed Feishu credentials if app_id or app_secret changed
-- Remind: "Run `/im-bridge stop` then `/im-bridge start` to apply changes."
+- Remind: "Restart clacky to apply changes."
 
 ### `doctor`
 
 Diagnose the IM bridge by checking the following, one at a time:
 
-1. **Binary**: Run `which clacky-im-bridge` — if missing, suggest `gem install openclacky`
-2. **Config**: Check if `~/.clacky/im-bridge/config.env` exists and is readable — if missing, suggest `/im-bridge setup`
-3. **Config permissions**: Run `stat ~/.clacky/im-bridge/config.env` — warn if not 600
-4. **Enabled platforms**: Read config and check `IM_ENABLED_PLATFORMS` is set and each platform's required keys are present
-5. **Feishu API** (if feishu enabled): Validate credentials with a token request — report success or HTTP error. WeCom has no equivalent REST auth endpoint — credentials are verified at WebSocket connect time, so skip API check for WeCom
-6. **Daemon**: Check if the PID in `~/.clacky/im-bridge/runtime/bridge.pid` is a running process
-7. **Recent errors**: Read the last 100 lines of `~/.clacky/im-bridge/logs/bridge.log` — summarize any ERROR lines and suggest fixes
+1. **Config**: Check if `~/.clacky/im-bridge/config.env` exists and is readable — if missing, suggest `/im-bridge setup`
+2. **Config permissions**: Run `stat ~/.clacky/im-bridge/config.env` — warn if not 600
+3. **Enabled platforms**: Read config and check `IM_ENABLED_PLATFORMS` is set and each platform's required keys are present
+4. **Feishu API** (if feishu enabled): Validate credentials with a token request — report success or HTTP error. WeCom has no equivalent REST auth endpoint — credentials are verified at WebSocket connect time, so skip API check for WeCom
+5. **Recent errors**: Read the most recent `~/.clacky/logger/clacky-*.log` — summarize any IM-related ERROR lines and suggest fixes
 
 Report a clear pass/fail for each check and give specific remediation steps for failures.
 
 ## Security Notes
 
 - Always mask secrets in output (show only last 4 characters)
-- Never start the daemon without valid config
 - Config file should always be `chmod 600`
