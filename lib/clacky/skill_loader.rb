@@ -62,6 +62,7 @@ module Clacky
     # @return [Array<Skill>]
     def load_brand_skills
       return [] unless @brand_config&.activated?
+      return [] if ENV["CLACKY_TEST"] == "1"
 
       # Use brand_config#brand_skills_dir so the path respects CONFIG_DIR,
       # which is important for test isolation via stub_const.
