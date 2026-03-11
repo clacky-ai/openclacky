@@ -2,7 +2,7 @@
 
 require "shellwords"
 require "socket"
-require "uri"
+require "tmpdir"
 require_relative "base"
 require_relative "shell"
 
@@ -11,18 +11,19 @@ module Clacky
     class Browser < Base
       self.tool_name = "browser"
       self.tool_description = <<~DESC
-        Use this tool ONLY when the task requires the user's login session, such as:
-        - Posting on social media
-        - Accessing account pages or dashboards
-        - Filling forms while logged in
-        - Any action that requires authentication
+        Control browser to open pages, fill forms, click, scroll, etc.
 
-        Do NOT use this tool for:
-        - Simply opening or visiting a URL
-        - General web search
-        - Fetching public information
+        isolated param: true = built-in browser (works immediately, login persists). false = user's Chrome (keeps cookies/login, needs one-time debug setup).
 
-        For those cases, use web_search or web_fetch instead.
+        WORKFLOW:
+        - If the user has already stated a preference (e.g. "use my Chrome" or "use built-in"), skip check and set isolated accordingly.
+        - If isolated is unknown, call command="check" first. If ask_user_preference=true, ask the user to choose:
+            - Use my Chrome: keeps login state/cookies; needs one-time remote debugging setup; Allow dialog once per Chrome restart.
+            - Use built-in: no setup, works immediately; login state also persists.
+        - If Chrome not installed or user chose built-in: use isolated=true.
+        - If user chose their Chrome: use isolated=false. We auto-open chrome://inspect when needed — guide user to enable the toggle.
+
+        Commands: 'check', 'open <url>', 'snapshot -i', 'click @e1', 'fill @e2 "text"', 'screenshot', etc.
       DESC
       self.tool_category = "web"
       self.tool_parameters = {
@@ -30,15 +31,15 @@ module Clacky
         properties: {
           command: {
             type: "string",
-            description: "agent-browser command and arguments. Examples: 'open https://example.com', 'snapshot -i', 'click @e1', 'fill @e2 \"hello\"', 'get text @e3', 'screenshot', 'scroll down'"
+            description: "agent-browser command. Use 'check' only if isolated preference is unknown. Then 'open https://...', 'snapshot -i', etc."
           },
           session: {
             type: "string",
-            description: "Named session for parallel browser instances (optional, defaults to shared session)"
+            description: "Named session for parallel browser instances (optional)"
           },
           isolated: {
             type: "boolean",
-            description: "Use isolated browser without user's cookies/login (default: false, uses user's Chrome)"
+            description: "true = built-in browser (no setup, login state persists). false = user's Chrome (keeps login, needs one-time debug setup). Use per user's choice from check."
           }
         },
         required: ["command"]
@@ -47,35 +48,72 @@ module Clacky
       AGENT_BROWSER_BIN = "agent-browser"
       DEFAULT_SESSION_NAME = "clacky"
       CHROME_DEBUG_PORT = 9222
+      BROWSER_COMMAND_TIMEOUT = 30
       CHROME_DEBUG_PAGE = "chrome://inspect/#remote-debugging"
 
       def execute(command:, session: nil, isolated: nil, working_dir: nil)
-        # Default: try to connect to user's Chrome (unless isolated mode requested)
-        use_auto_connect = !isolated
-        persistent_session_name = nil
+        unless agent_browser_installed?
+          install_result = auto_install_agent_browser
+          return install_result if install_result[:error]
+        end
 
-        # Ensure Chrome is reachable via CDP before invoking agent-browser.
-        # agent-browser silently falls back to launching a new Chromium when --auto-connect
-        # fails (exit 0), so we must detect and handle this ourselves.
+        if check_command?(command)
+          return browser_check_status
+        end
+
+        use_auto_connect = !isolated
+        persistent_session_name = isolated ? DEFAULT_SESSION_NAME : nil
+
+        we_launched_chrome = false
         if use_auto_connect && !chrome_debug_running?
           launch_result = ensure_chrome_debug_ready
           if launch_result == :not_installed
-            # Chrome not installed: fall back to isolated mode with a persistent
-            # session so the user only needs to log in once.
             use_auto_connect = false
             persistent_session_name = DEFAULT_SESSION_NAME
-          elsif !launch_result
+          elsif launch_result
+            we_launched_chrome = true
+          else
             return chrome_setup_instructions
           end
         end
 
-        full_command = build_command(command, session, auto_connect: use_auto_connect, session_name: persistent_session_name)
+        full_command = build_command(
+          command, session,
+          auto_connect: use_auto_connect,
+          session_name: persistent_session_name,
+          headed: use_auto_connect ? false : true
+        )
 
-        result = Shell.new.execute(command: full_command, hard_timeout: 60)
+        result = Shell.new.execute(command: full_command, hard_timeout: BROWSER_COMMAND_TIMEOUT, working_dir: working_dir)
 
-        # Safety net: catch explicit connection errors in stderr
-        if use_auto_connect && !result[:success] && result[:stderr].to_s.include?("Could not connect")
-          return chrome_setup_instructions
+        if !result[:success] && session_closed_error?(result) && persistent_session_name
+          full_command = build_command(
+            command, session,
+            auto_connect: use_auto_connect,
+            session_name: nil,
+            headed: use_auto_connect ? false : true
+          )
+          result = Shell.new.execute(command: full_command, hard_timeout: BROWSER_COMMAND_TIMEOUT, working_dir: working_dir)
+        end
+
+        if playwright_missing?(result)
+          pw_result = install_playwright_chromium
+          return pw_result if pw_result[:error]
+          result = Shell.new.execute(command: full_command, hard_timeout: BROWSER_COMMAND_TIMEOUT, working_dir: working_dir)
+        end
+
+        if use_auto_connect && !result[:success] && connection_error?(result)
+          if we_launched_chrome
+            result = Shell.new.execute(command: full_command, hard_timeout: BROWSER_COMMAND_TIMEOUT, working_dir: working_dir)
+          end
+          if !result[:success] && connection_error?(result)
+            open_chrome_remote_debugging_page
+            return chrome_setup_instructions
+          end
+        end
+
+        if use_auto_connect && !result[:success] && timeout?(result)
+          return chrome_setup_instructions(timeout: true)
         end
 
         result[:command] = command
@@ -87,12 +125,16 @@ module Clacky
       def format_call(args)
         cmd = args[:command] || args["command"] || ""
         session = args[:session] || args["session"]
+        isolated = args[:isolated] || args["isolated"]
         session_label = session ? " [#{session}]" : ""
-        "browser(#{cmd})#{session_label}"
+        isolated_label = isolated ? " [built-in]" : ""
+        "browser(#{cmd})#{session_label}#{isolated_label}"
       end
 
       def format_result(result)
-        if result[:error]
+        if result[:status] == "check"
+          "[Check] #{result[:chrome_installed] ? "Chrome installed" : "Chrome not installed"} | #{result[:ask_user_preference] ? "ask user" : "built-in"}"
+        elsif result[:error]
           "[Error] #{result[:error][0..80]}"
         elsif result[:success]
           stdout = result[:stdout] || ""
@@ -104,11 +146,39 @@ module Clacky
         end
       end
 
+      MAX_LLM_OUTPUT_CHARS = 6000
+
+      def format_result_for_llm(result)
+        return result if result[:error]
+        return result if result[:status] == "check"
+
+        stdout = result[:stdout] || ""
+        stderr = result[:stderr] || ""
+        command_name = command_name_for_temp(result[:command])
+
+        compact = {
+          command: result[:command],
+          success: result[:success],
+          exit_code: result[:exit_code]
+        }
+
+        stdout_info = truncate_and_save(stdout, MAX_LLM_OUTPUT_CHARS, "stdout", command_name)
+        compact[:stdout] = stdout_info[:content]
+        compact[:stdout_full] = stdout_info[:temp_file] if stdout_info[:temp_file]
+
+        stderr_info = truncate_and_save(stderr, 500, "stderr", command_name)
+        compact[:stderr] = stderr_info[:content] unless stderr.empty?
+        compact[:stderr_full] = stderr_info[:temp_file] if stderr_info[:temp_file]
+
+        compact
+      end
+
       private
 
-      def build_command(command, session, auto_connect: false, session_name: nil)
+      def build_command(command, session, auto_connect: false, session_name: nil, headed: false)
         parts = [AGENT_BROWSER_BIN]
-        parts << "--auto-connect" if auto_connect
+        parts << "--auto-connect" << (auto_connect ? "true" : "false")
+        parts << "--headed" << (headed ? "true" : "false")
         parts += ["--session", Shellwords.escape(session)] if session
         parts += ["--session-name", Shellwords.escape(session_name)] if session_name
         parts << command
@@ -120,6 +190,51 @@ module Clacky
         true
       rescue Errno::ECONNREFUSED, Errno::ETIMEDOUT, SocketError
         false
+      end
+
+      def connection_error?(result)
+        output = "#{result[:stderr]}#{result[:stdout]}"
+        output.include?("Could not connect") ||
+          output.include?("No running Chrome instance") ||
+          output.include?("remote debugging")
+      end
+
+      def session_closed_error?(result)
+        output = "#{result[:stderr]}#{result[:stdout]}"
+        output.include?("has been close") || output.include?("has been closed")
+      end
+
+      def timeout?(result)
+        result[:state] == "TIMEOUT" ||
+          result[:stderr].to_s.include?("timed out")
+      end
+
+      def check_command?(cmd)
+        c = (cmd || "").strip.downcase
+        c == "check" || c == "status"
+      end
+
+      def browser_check_status
+        chrome_installed = !!find_chrome
+        agent_ready = agent_browser_installed?
+
+        unless chrome_installed
+          return {
+            status: "check",
+            chrome_installed: false,
+            agent_browser_ready: agent_ready,
+            ask_user_preference: false,
+            recommendation: "isolated"
+          }
+        end
+
+        {
+          status: "check",
+          chrome_installed: true,
+          agent_browser_ready: agent_ready,
+          ask_user_preference: true,
+          pros_cons: "1) Use my Chrome: keeps your existing login state and cookies; needs one-time remote debugging setup; click Allow once per Chrome restart. 2) Use built-in: works out of the box, no config; login state also persists."
+        }
       end
 
       def find_chrome
@@ -172,10 +287,20 @@ module Clacky
         executable = find_chrome
         return :not_installed unless executable
 
-        pid = Process.spawn([executable, executable], out: File::NULL, err: File::NULL)
+        spawn_chrome_with_debug_port(executable)
+        return true
+      end
+
+      def spawn_chrome_with_debug_port(executable)
+        pid = Process.spawn(
+          executable,
+          "--remote-debugging-port=#{CHROME_DEBUG_PORT}",
+          "--no-first-run",
+          "--no-default-browser-check",
+          out: File::NULL,
+          err: File::NULL
+        )
         Process.detach(pid)
-        open_chrome_remote_debugging_page
-        false
       end
 
       def open_chrome_remote_debugging_page
@@ -197,15 +322,128 @@ module Clacky
         RbConfig::CONFIG["host_os"].include?("linux")
       end
 
-      def chrome_setup_instructions
-        {
+      def chrome_setup_instructions(timeout: false)
+        base = {
           error: "Cannot connect to Chrome browser",
-          message: "Opened #{CHROME_DEBUG_PAGE} in Chrome. Please enable the 'Allow remote debugging for this browser instance' toggle, then tell me when done.",
-          instructions: "Follow this two-phase flow with the user: " \
-            "Phase 1 — Ask the user to: open #{CHROME_DEBUG_PAGE}, enable the 'Allow remote debugging for this browser instance' toggle, then tell you when done. " \
-            "Phase 2 — Once the user confirms the toggle is enabled, warn them BEFORE retrying: 'Chrome will now show an Allow remote debugging confirmation dialog — please click Allow.' Then retry the browser command.",
-          note: "Do NOT retry immediately. Wait for the user to confirm the toggle is enabled, warn about the Allow dialog, then retry."
+          message: "Opened Chrome with #{CHROME_DEBUG_PAGE}. Please enable the 'Allow remote debugging for this browser instance' toggle, then tell me when done. If the page shows 'Server running at: starting...' and connection fails, fully quit Chrome and reopen it, then retry.",
+          instructions: "Follow this flow with the user: " \
+            "Phase 1 — Chrome has been opened with the inspect page. If Chrome was closed, it should now be open. Ask the user to enable the 'Allow remote debugging for this browser instance' toggle if not already on, then tell you when done. " \
+            "Phase 2 — Once the user confirms, retry the browser command. The Allow dialog appears once per Chrome session (each time the user reopens Chrome) — this is Chrome's security and cannot be skipped. Ask the user to click Allow when it appears. " \
+            "Phase 3 — If connection still fails and the page shows 'Server running at: starting...', tell the user to fully quit Chrome and reopen it; the server may be stuck. Once it shows 'Server running at: 127.0.0.1:9222', retry.",
+          note: "Do NOT retry immediately. Wait for the user to confirm. The toggle persists — if they enabled it before, reopening Chrome is enough. Allow dialog is once per session."
         }
+        if timeout
+          base[:error] = "Browser command timed out"
+          base[:message] = "Command timed out. This usually means the Allow dialog is showing — please click Allow in the Chrome dialog, then tell me when done."
+          base[:instructions] = "Timeout usually means the Allow dialog is waiting. Do NOT retry. Ask the user: 'Please click the Allow button in the Chrome dialog, then tell me when done.' Only retry after the user confirms they clicked Allow."
+        end
+        base
+      end
+
+      def agent_browser_installed?
+        !!find_in_path(AGENT_BROWSER_BIN)
+      end
+
+      def auto_install_agent_browser
+        npm = find_or_install_npm
+        unless npm
+          return {
+            error: "agent-browser not installed",
+            message: "agent-browser is required for browser automation but is not installed. " \
+              "Node.js not found; tried to install via mise but failed.\n\n" \
+              "Please run: mise install node@22 && mise use -g node@22"
+          }
+        end
+
+        result = Shell.new.execute(command: "#{npm} install -g agent-browser", hard_timeout: 120)
+        unless result[:success]
+          return {
+            error: "Failed to auto-install agent-browser",
+            message: "npm install -g agent-browser failed: #{result[:stderr]}\n\nPlease run it manually."
+          }
+        end
+
+        {}
+      end
+
+      def find_or_install_npm
+        npm = find_in_path("npm")
+        return npm if npm
+
+        mise = find_mise_bin
+        return nil unless mise
+
+        path = `#{Shellwords.escape(mise)} which npm 2>/dev/null`.strip
+        return path if path && !path.empty? && File.executable?(path)
+        system(mise, "install", "node@22", out: File::NULL, err: File::NULL)
+        system(mise, "use", "-g", "node@22", out: File::NULL, err: File::NULL)
+
+        path = `#{Shellwords.escape(mise)} which npm 2>/dev/null`.strip
+        return path if path && !path.empty? && File.executable?(path)
+
+        nil
+      end
+
+      def find_mise_bin
+        mise = find_in_path("mise")
+        return mise if mise
+
+        candidate = "#{Dir.home}/.local/bin/mise"
+        File.executable?(candidate) ? candidate : nil
+      end
+
+      def command_name_for_temp(command)
+        first_word = (command || "").strip.split(/\s+/).first
+        File.basename(first_word.to_s, ".*")
+      end
+
+      def truncate_and_save(output, max_chars, _label, command_name)
+        return { content: "", temp_file: nil } if output.empty?
+
+        return { content: output, temp_file: nil } if output.length <= max_chars
+
+        lines = output.lines
+        return { content: output, temp_file: nil } if lines.length <= 2
+
+        safe_name = command_name.gsub(/[^\w\-.]/, "_")[0...50]
+        temp_dir = Dir.mktmpdir
+        temp_file = File.join(temp_dir, "browser_#{safe_name}_#{Time.now.strftime("%Y%m%d_%H%M%S")}.output")
+        File.write(temp_file, output)
+
+        notice_overhead = 200
+        available_chars = max_chars - notice_overhead
+
+        first_part = []
+        accumulated = 0
+        lines.each do |line|
+          break if accumulated + line.length > available_chars
+          first_part << line
+          accumulated += line.length
+        end
+
+        notice = "\n\n... [Output truncated: showing #{first_part.size} of #{lines.size} lines, full: #{temp_file} (use grep to search)] ...\n"
+
+        { content: first_part.join + notice, temp_file: temp_file }
+      end
+
+      def playwright_missing?(result)
+        output = "#{result[:stdout]}#{result[:stderr]}"
+        output.include?("Executable doesn't exist") ||
+          output.include?("Please run the following command to download new browsers")
+      end
+
+      def install_playwright_chromium
+        playwright = find_in_path("playwright")
+        cmd = playwright ? "#{playwright} install chromium" : "npx playwright install chromium"
+
+        result = Shell.new.execute(command: cmd, hard_timeout: 300)
+        unless result[:success]
+          return {
+            error: "Failed to install Playwright Chromium",
+            message: "Automatic browser installation failed. Please run manually:\n  npx playwright install chromium"
+          }
+        end
+        {}
       end
     end
   end
