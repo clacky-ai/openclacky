@@ -153,8 +153,20 @@ module Clacky
         @messages.each do |msg|
           role = msg[:role].to_s
 
-          if role == "user" && !msg[:system_injected] && msg[:content].is_a?(String) &&
-             !msg[:content].to_s.start_with?("[SYSTEM]")
+          # A real user message can have either a String content or an Array content
+          # (Array = multipart: text + image blocks). Exclude system-injected messages
+          # and synthetic [SYSTEM] text messages.
+          is_real_user_msg = role == "user" && !msg[:system_injected] &&
+            if msg[:content].is_a?(String)
+              !msg[:content].start_with?("[SYSTEM]")
+            elsif msg[:content].is_a?(Array)
+              # Must contain at least one text or image block (not a tool_result array)
+              msg[:content].any? { |b| b.is_a?(Hash) && %w[text image].include?(b[:type].to_s) }
+            else
+              false
+            end
+
+          if is_real_user_msg
             # Start a new round at each real user message
             current_round = { user_msg: msg, events: [] }
             rounds << current_round
@@ -175,8 +187,10 @@ module Clacky
         page.each do |round|
           msg = round[:user_msg]
           display_text = extract_text_from_content(msg[:content])
+          # Extract image data URLs from multipart content (for history replay rendering)
+          images = extract_images_from_content(msg[:content])
           # Emit user message with its timestamp for dedup on the frontend
-          ui.show_user_message(display_text, created_at: msg[:created_at])
+          ui.show_user_message(display_text, created_at: msg[:created_at], images: images)
 
           round[:events].each do |ev|
             # Skip system-injected messages (e.g. synthetic skill content, memory prompts)
@@ -239,6 +253,24 @@ module Clacky
       rescue StandardError => e
         # Log and continue — a stale system prompt is better than a broken restore
         Clacky::Logger.warn("refresh_system_prompt failed during session restore: #{e.message}")
+      end
+
+      # Extract base64 data URLs from multipart content (image blocks).
+      # Returns an empty array when there are no images or content is plain text.
+      # @param content [String, Array, Object] Message content
+      # @return [Array<String>] Array of data URLs (e.g. "data:image/png;base64,...")
+      def extract_images_from_content(content)
+        return [] unless content.is_a?(Array)
+
+        content.filter_map do |block|
+          next unless block.is_a?(Hash) && block[:type].to_s == "image"
+
+          # Anthropic format: { type: "image", source: { type: "base64", media_type: "image/png", data: "..." } }
+          source = block[:source]
+          next unless source.is_a?(Hash) && source[:type].to_s == "base64"
+
+          "data:#{source[:media_type]};base64,#{source[:data]}"
+        end
       end
 
       # Extract text from message content (handles string and array formats)
