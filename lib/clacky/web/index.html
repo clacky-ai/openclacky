@@ -284,6 +284,14 @@
 
         <!-- Tab: My Skills -->
         <div id="skills-tab-my" class="skills-tab-content">
+          <!-- Upload area: hidden, kept for legacy JS compatibility -->
+          <div id="my-skills-upload-area" class="my-skills-upload-area" style="display:none">
+            <input type="file" id="skill-upload-input" accept=".zip" style="display:none">
+            <button id="btn-upload-skill" class="btn-upload-skill" title="Upload a skill as a ZIP file" style="display:none">
+              <span>Upload Skill</span>
+            </button>
+            <span id="upload-skill-status" class="upload-skill-status"></span>
+          </div>
           <div id="skills-list"></div>
         </div>
 
