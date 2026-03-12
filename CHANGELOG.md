@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.6] - 2026-03-12
+
+### Added
+- **Channel system with Feishu & WeCom support**: integrated IM platform adapters — agents can now receive and reply to messages via Feishu (WebSocket) and WeCom channels
+- **Skill encryption (brand skills)**: brand skills can be distributed as encrypted `.enc` files, decrypted on-the-fly using license keys; includes a full key management and manifest system
+- **Cron task creator & skill creator default skills**: two new built-in skills for creating scheduled tasks and new skills directly from chat
+- **Image messages in session history restore**: session restore now correctly replays image-containing messages, including thumbnail display in the UI
+- **Skill auto-upload to cloud**: skills can be uploaded to the cloud store from within the UI
+
+### Improved
+- **WeCom setup flow**: improved step-by-step WeCom channel configuration UX (#11)
+- **Skill autocomplete UI**: enhanced slash-command autocomplete interaction — better keyboard navigation, input behavior, and visual feedback (#6)
+- **Chrome setup UX**: simplified Chrome installation flow with improved error messages and progress indicators (#8)
+- **WebUI colors and layout**: polished light/dark mode colors, sidebar alignment, and badge styles for a more consistent look
+- **Test suite speed**: `CLACKY_TEST` guard prevents brand skill network calls during tests — suite now runs ~60× faster per example
+
+### Fixed
+- **Duplicate user bubble on skill install**: prevented an extra chat bubble appearing when installing a skill from the store
+- **Image thumbnails in session replay**: restored missing image thumbnails when replaying historical sessions
+- **WebUI permission mode**: Web UI sessions now correctly use `confirm_all` permission mode
+- **Feishu WS log noise**: removed emoji characters from WebSocket connection log messages
+
+### More
+- Subagent memory update disabled to reduce noise
+- Ping request `max_tokens` bumped from 10 to 16
+- WebUI updated to use new cron-task-creator and skill-creator skills
+
 ## [0.8.5] - 2026-03-11
 
 ### Fixed

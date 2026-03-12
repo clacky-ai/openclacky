@@ -560,6 +560,7 @@ module Clacky
     # @return [Thread, nil] The background thread, or nil if skipped.
     def sync_brand_skills_async!(on_complete: nil)
       return nil unless activated?
+      return nil if ENV["CLACKY_TEST"] == "1"
 
       Thread.new do
         Thread.current.abort_on_exception = false

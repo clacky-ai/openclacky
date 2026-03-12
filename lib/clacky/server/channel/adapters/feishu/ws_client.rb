@@ -77,7 +77,7 @@ module Clacky
             @ws = WebSocket::Driver.client(wrapper)
 
             @ws.on :open do
-              Clacky::Logger.info("[feishu-ws] WebSocket connected ✅")
+              Clacky::Logger.info("[feishu-ws] WebSocket connected")
             end
 
             @ws.on :message do |event|
@@ -168,7 +168,7 @@ module Clacky
             when "handshake"
               status = frame[:headers]["handshake-status"]
               if status == "200"
-                Clacky::Logger.info("[feishu-ws] Handshake successful ✅")
+                Clacky::Logger.info("[feishu-ws] Handshake successful")
               else
                 Clacky::Logger.warn("[feishu-ws] Handshake failed: #{frame[:headers]['handshake-msg']}")
               end

@@ -330,6 +330,31 @@ RSpec.describe Clacky::Tools::SafeShell do
 
       expect(compact[:elapsed]).to eq(1.234)
     end
+
+    it "truncates individual long lines (e.g. minified CSS/JS)" do
+      # Simulate minified CSS: only 2 lines but each is huge
+      long_line = ".hover\:opacity-50{opacity:.5}" + ("a" * 50000) + "\n"
+      minified_output = long_line * 2
+      result = {
+        command: "grep hover application.css",
+        exit_code: 0,
+        success: true,
+        stdout: minified_output,
+        stderr: ""
+      }
+
+      compact = tool.format_result_for_llm(result)
+
+      expect(compact[:stdout].length).to be < minified_output.length
+      expect(compact[:stdout]).to include("line truncated")
+    end
+
+    it "truncate_long_lines is accessible from SafeShell (inheritance check)" do
+      # Regression test: private def in parent class breaks subclass access
+      expect { tool.truncate_long_lines("a" * 600 + "\n", 500) }.not_to raise_error
+      result = tool.truncate_long_lines("a" * 600 + "\n", 500)
+      expect(result).to include("line truncated")
+    end
   end
 end
 
