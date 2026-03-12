@@ -19,7 +19,8 @@ module Clacky
         - Default: use isolated=true (built-in browser). No setup, works immediately.
         - If the user explicitly wants their Chrome (e.g. "use my Chrome"), set isolated=false. We auto-open chrome://inspect when needed — guide user to enable the toggle. When opening URLs, we use a new tab to avoid replacing the user's current page.
 
-        Commands: 'open <url>', 'snapshot -i', 'click @e1', 'fill @e2 "text"', 'screenshot', etc.
+        Commands: 'open <url>', 'snapshot -i', 'click @e1', 'fill @e2 "text"', etc.
+        IMPORTANT: Always use 'snapshot -i' to inspect page state. NEVER use 'screenshot' without explicit user permission — it costs significantly more tokens. If snapshot is insufficient, tell the user and ask if they want a screenshot.
       DESC
       self.tool_category = "web"
       self.tool_parameters = {
@@ -27,7 +28,7 @@ module Clacky
         properties: {
           command: {
             type: "string",
-            description: "agent-browser command, e.g. 'open https://...', 'snapshot -i', 'click @e1', 'fill @e2 \"text\"', 'screenshot'"
+            description: "agent-browser command, e.g. 'open https://...', 'snapshot -i', 'click @e1', 'fill @e2 \"text\"'"
           },
           session: {
             type: "string",

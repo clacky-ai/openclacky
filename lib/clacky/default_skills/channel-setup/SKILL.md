@@ -24,6 +24,7 @@ Configure IM platform channels for open-clacky. Config is stored at `~/.clacky/c
 ## Browser Automation Principles
 
 - **Always use built-in browser**: Pass `isolated: true` on every browser tool call. Do NOT ask the user to choose — use the built-in browser only.
+- **Never use `screenshot`**: Use `snapshot -i` instead to get page structure as text. Do NOT generate image files.
 - Use `open <url>` for navigation.
 - AI navigates; user performs form fills, clicks, and pastes when instructed.
 - If a login page or QR code appears, tell the user to log in and wait for "done" before continuing.
@@ -76,7 +77,7 @@ Ask:
 #### Phase 1 — Open Feishu Open Platform
 
 1. Navigate: `open https://open.feishu.cn/app`. Pass `isolated: true`.
-2. Take a snapshot. If a login page or QR code is shown, tell the user to log in and wait for "done".
+2. Use `snapshot -i` to check page state. If a login page or QR code is shown, tell the user to log in and wait for "done".
 3. Confirm the app list is visible.
 
 #### Phase 2 — Create a new app
@@ -141,8 +142,8 @@ On success: "✅ Feishu channel configured. The channel is already active."
 ### WeCom setup
 
 1. Navigate: `open https://work.weixin.qq.com/wework_admin/frame#/aiHelper/create`. Pass `isolated: true`.
-2. Take a snapshot. If a login page or QR code is shown, tell the user to log in and wait for "done".
-3. Steps 3–7: Do NOT take snapshots or screenshots. Guide the user: "Scroll to the bottom of the right panel and click 'API mode creation'. Reply done." Wait for "done".
+2. Use `snapshot -i` to check page state. If a login page or QR code is shown, tell the user to log in and wait for "done".
+3. Steps 3–7: Do NOT take snapshots. Guide the user: "Scroll to the bottom of the right panel and click 'API mode creation'. Reply done." Wait for "done".
 4. Guide the user: "Click 'Add' next to 'Visible Range'. In the scope dialog, select the top-level company node (or specific users/departments). Click Confirm. Reply done." Wait for "done".
 5. Guide the user: "If Secret is not visible, click 'Get Secret'. Copy Bot ID and Secret **before** clicking Save — do NOT click 'Get Secret' again after copying (it invalidates the previous secret). Paste here. Reply with: Bot ID: xxx, Secret: xxx" Wait for "done".
 6. Guide the user: "Click Save. In the dialog, enter name (e.g. Open Clacky) and description (e.g. AI assistant powered by open-clacky). Click Confirm. Click Save again. Reply done." Wait for "done".
