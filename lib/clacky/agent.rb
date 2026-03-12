@@ -720,6 +720,9 @@ module Clacky
       )
       subagent.instance_variable_set(:@is_subagent, true)
 
+      # Inherit previous_total_tokens so the first iteration delta is calculated correctly
+      subagent.instance_variable_set(:@previous_total_tokens, @previous_total_tokens)
+
       # Deep clone messages to avoid cross-contamination
       subagent.instance_variable_set(:@messages, deep_clone(@messages))
 
