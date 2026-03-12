@@ -331,6 +331,8 @@ module Clacky
       # Format result for LLM consumption - limit output size to save tokens
       # Maximum characters to include in LLM output
       MAX_LLM_OUTPUT_CHARS = 4000
+      # Maximum characters per line before truncating (handles minified CSS/JS files)
+      MAX_LINE_CHARS = 500
 
       def format_result_for_llm(result)
         # Return error info as-is if command failed or timed out
@@ -378,6 +380,10 @@ module Clacky
       # Truncate output for LLM and optionally save full content to temp file
       def truncate_and_save(output, max_chars, label, command_name)
         return { content: "", temp_file: nil } if output.empty?
+
+        # Truncate individual long lines first (e.g., minified CSS/JS files)
+        # This prevents a single huge line from consuming all token budget
+        output = truncate_long_lines(output, MAX_LINE_CHARS)
 
         return { content: output, temp_file: nil } if output.length <= max_chars
 
@@ -428,6 +434,22 @@ module Clacky
         content = first_part.join + notice
 
         { content: content, temp_file: temp_file }
+      end
+
+      # Truncate individual lines that exceed max_line_chars
+      # Useful for minified CSS/JS files where a single line can be megabytes
+      def truncate_long_lines(output, max_line_chars)
+        lines = output.lines
+        return output if lines.none? { |l| l.chomp.length > max_line_chars }
+
+        lines.map do |line|
+          chopped = line.chomp
+          if chopped.length > max_line_chars
+            "#{chopped[0...max_line_chars]}... [line truncated: #{chopped.length} chars total]\n"
+          else
+            line
+          end
+        end.join
       end
 
       # Update shared output buffer for real-time access
