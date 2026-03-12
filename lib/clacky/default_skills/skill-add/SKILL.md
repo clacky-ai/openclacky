@@ -1,6 +1,6 @@
 ---
 name: skill-add
-description: Install skills from a zip URL or create new skills interactively
+description: 'Install skills from a zip URL, or create new skills interactively. Use this skill whenever the user wants to install a skill from a zip URL, add a new skill to Clacky, create a custom skill from scratch, or use commands like /skill-add. Trigger on phrases like: install skill, add skill, skill install, create a skill, 安装skill, 添加skill, 创建skill, install from zip, skill from url, skill from zip, add skill from zip.'
 disable-model-invocation: false
 user-invocable: true
 ---
@@ -9,144 +9,109 @@ user-invocable: true
 
 A skill management tool that installs skills from a zip URL or creates new skills interactively.
 
-## ⚠️ Usage Instructions
+## Quick Reference
 
-- **Zip URL** (e.g. from Public Store): Call `ruby <skill_directory>/scripts/install_from_zip.rb <url> <slug>` via safe_shell
-- **Text description or no arguments**: Handle interactively via conversation, create files with write tool
+- **Zip URL** → run `install_from_zip.rb` script (see below for the exact path)
+- **Text description or no arguments** → create skill interactively via conversation
+
+## Finding the Script Path
+
+The `install_from_zip.rb` script lives inside this skill's own directory. Skills are stored in one of two locations:
+- Project-level: `.clacky/skills/skill-add/` (relative to current working directory)
+- Global: `~/.clacky/skills/skill-add/`
+
+Use `safe_shell` to locate the script at runtime:
+```bash
+ruby "$(find ~/.clacky/skills/skill-add .clacky/skills/skill-add -name 'install_from_zip.rb' 2>/dev/null | head -1)" <zip_url> <slug>
+```
+
+Or simply look at the **Supporting Files** section at the bottom of this document — it confirms `scripts` exists — then construct the path from whichever skill location is active.
+
+---
 
 ## Usage Modes
 
 ### 1. Install from Zip URL (Public Store)
+
 ```
 /skill-add Install the "my-skill" skill from https://example.com/my-skill-1.0.0.zip
 ```
 
-**When the URL ends with `.zip`, execute the `install_from_zip.rb` script:**
+When the user provides a URL ending in `.zip`, run the installer script:
 
-Use the **Skill Directory** path shown below, and call:
 ```bash
-ruby <skill_directory>/scripts/install_from_zip.rb <zip_url> <slug>
+ruby "$(find ~/.clacky/skills/skill-add .clacky/skills/skill-add -name 'install_from_zip.rb' 2>/dev/null | head -1)" <zip_url> <slug>
 ```
-Pass the skill's `slug` as the second argument so the installed directory gets the correct name.
+
+- `<zip_url>` — the download URL provided by the user
+- `<slug>` — the skill's directory name (e.g. `ui-ux-pro-max`); if the user didn't provide one, infer it from the URL filename by stripping version suffixes
 
 The script will automatically:
-- Download the zip archive from the URL (follows HTTP redirects)
-- Extract the archive to a temporary directory
-- Find all skill directories containing SKILL.md files
-- Copy them to `.clacky/skills/` in the current project (overwrites existing)
+- Download the zip archive (follows HTTP redirects)
+- Extract and locate all `SKILL.md` files inside
+- Copy skill directories to `.clacky/skills/` in the current project (overwrites existing)
 - Report installed skills with descriptions
-- Clean up temporary files
 
-**Do NOT manually download or unzip files - the script handles everything.**
+**Do NOT manually download or unzip files — the script handles everything.**
 
 ### 2. Interactive Creation Mode
+
 ```
 /skill-add Brief description of what the skill should do
 /skill-add Create a skill for database migrations
 ```
 
-**Process:**
-1. Understand the skill requirement from user's description
-2. Ask clarifying questions:
-   - What is the main purpose?
-   - What inputs/parameters are needed?
-   - Should it have helper scripts?
-   - Any specific commands or tools needed?
-3. Design the skill structure:
-   - Skill name (kebab-case)
-   - Description
-   - Usage instructions
-   - Step-by-step process
-   - Optional: Create helper scripts in `scripts/` subdirectory
-4. Create the skill in `.clacky/skills/{skill-name}/`
-5. Show summary of created files
+When the user provides a description (not a URL), create the skill through conversation:
+
+1. **Understand the intent** from their description
+2. **Ask focused questions** (up to 3):
+   - What should we call this skill? (suggest a kebab-case name)
+   - What inputs or arguments does it need?
+   - Should it have helper scripts? (bash/ruby/python)
+3. **Design and create** the skill structure:
+   - `.clacky/skills/{skill-name}/SKILL.md` — valid YAML frontmatter + clear instructions
+   - `.clacky/skills/{skill-name}/scripts/` — helper scripts if needed
+4. **Confirm** by showing what was created and how to invoke it
 
 **Example Interaction:**
 ```
 User: /skill-add Create a skill for API testing with curl
 
-Agent: I'll help you create an API testing skill. Let me ask a few questions:
+Agent: I'll help you create an API testing skill. A couple of quick questions:
 
-Q1: What's the main purpose of this skill?
-User: Test REST APIs quickly with different HTTP methods
-
-Agent: Great! A few more questions:
-Q2: Should it support authentication (API keys, tokens)?
+Q1: Should it support authentication (Bearer tokens, API keys)?
 User: Yes, Bearer tokens
 
-Q3: Should it have pre-configured examples?
-User: Yes, for common patterns like GET, POST, PUT, DELETE
+Q2: Should it include pre-built examples for GET, POST, PUT, DELETE?
+User: Yes please
 
-Agent: Perfect! Creating skill...
+Agent: Creating skill...
 
-Created files:
+Created:
 ✓ .clacky/skills/api-tester/SKILL.md
 ✓ .clacky/skills/api-tester/scripts/test_endpoint.sh
-✓ .clacky/skills/api-tester/scripts/examples.json
 
 You can now use: /api-tester
 ```
 
 ### 3. Quick Start (No Arguments)
+
 ```
 /skill-add
 ```
 
-**Process:**
-- Ask user what they want to create
-- Offer suggestions based on common patterns:
-  - Command runner
-  - Code analyzer
-  - File processor
-  - Data transformer
-  - Custom workflow
-- Guide them through creation with focused questions
-- Create the skill with best practices
+Ask the user what they want to build and offer concrete suggestions:
+- Command runner
+- Code analyzer
+- File processor
+- Data transformer
+- Custom workflow
 
-## Implementation Guidelines
+Guide them through creation with focused questions, then build it.
 
-### For Zip URL Installation (Public Store)
+---
 
-Detect a zip URL when the argument contains `.zip` (case-insensitive).
-Use the `install_from_zip.rb` script (available in Supporting Files):
-
-```bash
-ruby <skill_directory>/scripts/install_from_zip.rb <zip_url> <slug>
-```
-Pass the skill slug as the second argument (e.g. `ui-ux-pro-max`) so the installed directory gets the correct name.
-
-The Skill Directory path is shown at the bottom of this document.
-
-**Do NOT manually download or extract files - let the script handle everything.**
-
-### For Interactive Creation
-
-When user provides a description or no arguments:
-
-1. **Parse Intent**: Understand what the user wants to create from their description
-
-2. **Gather Requirements**: Ask 3-5 focused questions through conversation:
-   - What should we call this skill? (suggest a name based on description)
-   - What inputs/arguments does it need?
-   - What are the main steps it should perform?
-   - Should it have helper scripts? (bash/ruby/python)
-   - Any specific tools or commands to use?
-
-3. **Design Structure**: Based on answers, design the SKILL.md content with:
-   - Valid YAML frontmatter (name, description, etc.)
-   - Clear usage instructions
-   - Step-by-step process
-   - Examples
-   - Scripts if needed
-
-4. **Create Files** using write tool:
-   - `.clacky/skills/{skill-name}/SKILL.md`
-   - `.clacky/skills/{skill-name}/scripts/` (if needed)
-   - Helper scripts with proper permissions
-
-5. **Confirm**: Show what was created and how to use it
-
-## Skill Structure
+## Skill Structure Reference
 
 ### Minimal SKILL.md
 ```markdown
@@ -162,12 +127,12 @@ user-invocable: true
 ## Usage
 Say "hello" or `/hello-world`
 
-## Process Steps
-### 1. Greet the user
-### 2. Offer assistance
+## Steps
+1. Greet the user
+2. Offer assistance
 ```
 
-### Full-Featured Skill
+### Full-Featured SKILL.md
 ```markdown
 ---
 name: db-migrate
@@ -179,40 +144,31 @@ user-invocable: true
 # Database Migration Helper
 
 ## Usage
-`/db-migrate [action] [options]`
+`/db-migrate [action]`
 
-Actions:
-- create - Create new migration
-- up - Run pending migrations
-- down - Rollback last migration
-- status - Show migration status
+Actions: `create` · `up` · `down` · `status`
 
-## Process Steps
-
-### 1. Determine Action
-Parse the command arguments to identify the action.
-
-### 2. Execute Action
-Run the appropriate migration script from scripts/ directory.
-
-### 3. Report Results
-Show migration status and any errors.
+## Steps
+1. Parse the action from arguments
+2. Run the appropriate script from `scripts/`
+3. Report results and any errors
 ```
+
+---
 
 ## Best Practices
 
-1. **Clear Naming**: Use kebab-case for skill names (e.g., `api-tester`, `code-formatter`)
-2. **Good Descriptions**: Write concise, actionable descriptions
-3. **Structured Steps**: Break down process into clear, numbered steps
-4. **Helper Scripts**: Use scripts/ directory for complex logic
-5. **Examples**: Always include usage examples
-6. **Documentation**: Explain all parameters and options
+1. **Naming**: kebab-case only (`api-tester`, `code-formatter`)
+2. **Description**: concise and action-oriented; include trigger phrases
+3. **Steps**: numbered and specific — the model should be able to follow them mechanically
+4. **Scripts**: put complex logic in `scripts/` rather than inline instructions
+5. **Examples**: always include at least one usage example
 
 ## Notes
 
-- Skills are installed to `.clacky/skills/` in the current project directory
-- Project skills (`.clacky/skills/`) override global skills (`~/.clacky/skills/`)
-- Skill names must be lowercase with hyphens only
+- Skills install to `.clacky/skills/` in the current project
+- Project skills override global skills (`~/.clacky/skills/`)
+- Skill names: lowercase + hyphens only
 - SKILL.md must have valid YAML frontmatter
-- Scripts should be executable (chmod +x)
-- Test skills after creation with `/skill-name`
+- Scripts should be executable (`chmod +x`)
+- Test after creation with `/skill-name`
