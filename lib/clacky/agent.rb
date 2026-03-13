@@ -675,7 +675,7 @@ module Clacky
       @tool_registry.register(Tools::WebSearch.new)
       @tool_registry.register(Tools::WebFetch.new)
       @tool_registry.register(Tools::TodoManager.new)
-      @tool_registry.register(Tools::RunProject.new)
+      # @tool_registry.register(Tools::RunProject.new) # temporarily disabled
       @tool_registry.register(Tools::RequestUserFeedback.new)
       @tool_registry.register(Tools::InvokeSkill.new)
       @tool_registry.register(Tools::UndoTask.new)
