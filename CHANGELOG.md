@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.8] - 2026-03-13
+
+### Added
+- **i18n system with zh/en runtime switching**: WebUI now supports Chinese and English; all UI text is served through an `I18n` module and switches instantly without a page reload
+- **Onboard language selection step**: first-time setup now opens with a language picker (中文 / English) before any configuration, so the entire onboard experience is conducted in the user's chosen language
+- **Onboard "what's your name" step**: onboard flow now asks for the user's preferred name early on and addresses them by name throughout the rest of the setup
+- **Chinese SOUL.md default**: when a user onboards in Chinese and skips the soul-setup conversation, a Chinese-language SOUL.md is written automatically so the assistant responds in Chinese by default
+
+### Fixed
+- **Onboard WS race condition**: fixed a bug where the first auto-triggered `/onboard` command was silently lost — the WebSocket `session_list` event arrived before the session view was active and redirected the UI to the welcome screen, hiding the agent's response
+
 ## [0.8.7] - 2026-03-13
 
 ### Added
