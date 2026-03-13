@@ -1362,26 +1362,7 @@ module Clacky
           broadcast(session_id, { type: "session_renamed", session_id: session_id, name: auto_name })
         end
 
-        @registry.update(session_id, status: :running)
-        broadcast_session_update(session_id)
-
-        thread = Thread.new do
-          agent.run(content, images: images, files: [])
-          @registry.update(session_id, status: :idle, error: nil)
-          broadcast_session_update(session_id)
-          @session_manager.save(agent.to_session_data(status: :success))
-        rescue Clacky::AgentInterrupted
-          @registry.update(session_id, status: :idle)
-          broadcast_session_update(session_id)
-          broadcast(session_id, { type: "interrupted", session_id: session_id })
-          @session_manager.save(agent.to_session_data(status: :interrupted))
-        rescue => e
-          @registry.update(session_id, status: :error, error: e.message)
-          broadcast_session_update(session_id)
-          broadcast(session_id, { type: "error", session_id: session_id, message: e.message })
-          @session_manager.save(agent.to_session_data(status: :error, error_message: e.message))
-        end
-        @registry.with_session(session_id) { |s| s[:thread] = thread }
+        run_agent_task(session_id, agent) { agent.run(content, images: images, files: []) }
       end
 
       def deliver_confirmation(session_id, conf_id, result)
@@ -1392,6 +1373,7 @@ module Clacky
 
       def interrupt_session(session_id)
         @registry.with_session(session_id) do |s|
+          s[:idle_timer]&.cancel
           s[:thread]&.raise(Clacky::AgentInterrupted, "Interrupted by user")
         end
       end
@@ -1414,14 +1396,29 @@ module Clacky
         @registry.with_session(session_id) { |s| agent = s[:agent] }
         return unless agent
 
+        run_agent_task(session_id, agent) { agent.run(prompt) }
+      end
+
+      # Run an agent task in a background thread, handling status updates,
+      # session persistence, and idle compression timer lifecycle.
+      # Yields to the caller to perform the actual agent.run call.
+      private def run_agent_task(session_id, agent, &task)
+        idle_timer = nil
+        @registry.with_session(session_id) { |s| idle_timer = s[:idle_timer] }
+
+        # Cancel any pending idle compression before starting a new task
+        idle_timer&.cancel
+
         @registry.update(session_id, status: :running)
         broadcast_session_update(session_id)
 
         thread = Thread.new do
-          agent.run(prompt)
+          task.call
           @registry.update(session_id, status: :idle, error: nil)
           broadcast_session_update(session_id)
           @session_manager.save(agent.to_session_data(status: :success))
+          # Start idle compression timer now that the agent is idle
+          idle_timer&.start
         rescue Clacky::AgentInterrupted
           @registry.update(session_id, status: :idle)
           broadcast_session_update(session_id)
@@ -1505,10 +1502,12 @@ module Clacky
         agent = Clacky::Agent.new(client, config, working_dir: working_dir, ui: ui, profile: profile,
                                   session_id: session_id)
         agent.rename(name) unless name.nil? || name.empty?
+        idle_timer = build_idle_timer(session_id, agent)
 
         @registry.with_session(session_id) do |s|
-          s[:agent] = agent
-          s[:ui]    = ui
+          s[:agent]      = agent
+          s[:ui]         = ui
+          s[:idle_timer] = idle_timer
         end
 
         session_id
@@ -1532,13 +1531,26 @@ module Clacky
         broadcaster = method(:broadcast)
         ui = WebUIController.new(original_id, broadcaster)
         agent = Clacky::Agent.from_session(client, config, session_data, ui: ui, profile: "general")
+        idle_timer = build_idle_timer(original_id, agent)
 
         @registry.with_session(original_id) do |s|
-          s[:agent] = agent
-          s[:ui]    = ui
+          s[:agent]      = agent
+          s[:ui]         = ui
+          s[:idle_timer] = idle_timer
         end
 
         original_id
+      end
+
+      # Build an IdleCompressionTimer for a session.
+      # Broadcasts session_update after successful compression so clients see the new cost.
+      private def build_idle_timer(session_id, agent)
+        Clacky::IdleCompressionTimer.new(
+          agent:           agent,
+          session_manager: @session_manager
+        ) do |_success|
+          broadcast_session_update(session_id)
+        end
       end
 
       # Mask API key for display: show first 8 + last 4 chars, middle replaced with ****

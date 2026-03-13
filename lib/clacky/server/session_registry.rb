@@ -33,6 +33,7 @@ module Clacky
           agent:                nil,
           ui:                   nil,
           thread:               nil,
+          idle_timer:           nil,     # IdleCompressionTimer instance
           pending_task:         nil,
           pending_working_dir:  nil
         }
@@ -76,6 +77,7 @@ module Clacky
           session = @sessions.delete(session_id)
           return false unless session
 
+          session[:idle_timer]&.cancel
           session[:thread]&.raise(Clacky::AgentInterrupted, "Session deleted")
           true
         end

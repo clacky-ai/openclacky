@@ -586,9 +586,19 @@ module Clacky
         ui_controller.set_skill_loader(agent.skill_loader, agent.agent_profile)
 
         # Track current working thread (agent or idle compression that can be interrupted)
-        # idle_timer is tracked separately because it should not be interrupted during sleep
         current_task_thread = nil
-        idle_timer_thread = nil
+
+        # Idle compression timer - triggers compression after 180s of inactivity
+        idle_timer = Clacky::IdleCompressionTimer.new(
+          agent:           agent,
+          session_manager: session_manager,
+          logger:          ->(msg, level:) { ui_controller.log(msg, level: level) }
+        ) do |success|
+          if success
+            ui_controller.update_sessionbar(tasks: agent.total_tasks, cost: agent.total_cost)
+          end
+          ui_controller.set_idle_status
+        end
 
         # Set up mode toggle handler
         ui_controller.on_mode_toggle do |new_mode|
@@ -673,59 +683,7 @@ module Clacky
           end
 
           # Cancel idle timer if running (new input means user is active)
-          if idle_timer_thread&.alive?
-            # ui_controller.log("Idle timer killed, start new 1", level: :debug)
-            idle_timer_thread.kill
-            idle_timer_thread = nil
-          end
-
-          # Helper method to start idle timer after agent completes
-          start_idle_timer = lambda do
-            # Cancel any existing idle timer first
-            if idle_timer_thread&.alive?
-              # ui_controller.log("Idle timer killed, start new 2", level: :debug)
-              idle_timer_thread.kill
-              idle_timer_thread = nil
-            end
-
-            # Start idle timer - trigger compression after 180 seconds of inactivity
-            idle_timer_thread = Thread.new do
-              # ui_controller.log("Idle timer started, will trigger compression in 180 seconds", level: :debug)
-              # Sleep outside of rescue block - if interrupted here, let it propagate and exit
-              sleep 180
-              # ui_controller.log("Idle timer sleep completed, starting compression", level: :debug)
-
-              # After sleep completes, switch to current_task_thread for compression
-              # (so it can be interrupted by Ctrl+C)
-              current_task_thread = Thread.new do
-                begin
-                  # After 60 seconds, start idle compression
-                  ui_controller.set_working_status
-                  success = agent.trigger_idle_compression
-
-                  if success
-                    # Update session bar after compression
-                    ui_controller.update_sessionbar(tasks: agent.total_tasks, cost: agent.total_cost)
-                    # Save session after compression
-                    session_manager&.save(agent.to_session_data(status: :success))
-                  end
-                rescue Clacky::AgentInterrupted
-                  # Compression was interrupted by user
-                  ui_controller.append_output("")
-                  ui_controller.show_info("Idle compression cancelled")
-                rescue => e
-                  ui_controller.log("Idle compression error: #{e.message}", level: :error)
-                ensure
-                  ui_controller.set_idle_status
-                  current_task_thread = nil
-                end
-              end
-
-              # Wait for compression to complete
-              current_task_thread.join
-              idle_timer_thread = nil
-            end
-          end
+          idle_timer.cancel
 
           # Run agent in background thread
           current_task_thread = Thread.new do
@@ -749,7 +707,7 @@ module Clacky
             ensure
               current_task_thread = nil
               # Start idle timer after agent completes
-              start_idle_timer.call
+              idle_timer.start
             end
           end
         end
@@ -767,7 +725,8 @@ module Clacky
         # Start input loop (blocks until exit)
         ui_controller.start_input_loop
 
-        # Cleanup: kill any running thread
+        # Cleanup: kill any running threads
+        idle_timer.cancel
         current_task_thread&.kill
 
         # Save final session state
