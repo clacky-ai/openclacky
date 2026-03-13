@@ -259,12 +259,16 @@ install_macos_dependencies() {
     print_info "Installing mise..."
     if ! command_exists mise; then
         if curl https://mise.run | sh; then
-            # Add mise to shell
+            # Add mise to shell (create file if not exists, append if exists)
             if [ -f ~/.zshrc ]; then
-                echo 'eval "$(~/.local/bin/mise activate bash)"' >> ~/.zshrc
+                echo 'eval "$(~/.local/bin/mise activate zsh)"' >> ~/.zshrc
+            else
+                echo 'eval "$(~/.local/bin/mise activate zsh)"' > ~/.zshrc
             fi
             if [ -f ~/.bash_profile ]; then
                 echo 'eval "$(~/.local/bin/mise activate bash)"' >> ~/.bash_profile
+            else
+                echo 'eval "$(~/.local/bin/mise activate bash)"' > ~/.bash_profile
             fi
 
             export PATH="$HOME/.local/bin:$PATH"
