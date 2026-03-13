@@ -1188,7 +1188,7 @@ module Clacky
       end
 
       def api_rename_session(session_id, req, res)
-        body = JSON.parse(req.body.read.to_s) rescue {}
+        body = parse_json_body(req)
         new_name = body["name"].to_s.strip
 
         return json_response(res, 400, { error: "name is required" }) if new_name.empty?
