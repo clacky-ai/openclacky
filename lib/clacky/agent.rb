@@ -423,6 +423,9 @@ module Clacky
       end
       # Store token_usage in the message so replay_history can re-emit it
       msg[:token_usage] = response[:token_usage] if response[:token_usage]
+      # Preserve reasoning_content so it is echoed back to APIs that require it
+      # (e.g. Kimi/Moonshot extended thinking — omitting it causes HTTP 400)
+      msg[:reasoning_content] = response[:reasoning_content] if response[:reasoning_content]
       @messages << msg
 
       response
