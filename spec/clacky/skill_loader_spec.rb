@@ -254,10 +254,10 @@ RSpec.describe Clacky::SkillLoader do
       skills_dir = File.join(working_dir, ".clacky", "skills")
       FileUtils.mkdir_p(skills_dir)
 
-      # There are 8 default skills built into the gem.
-      # Stub MAX_SKILLS to 10 so we have room for 2 project skills before hitting the cap.
+      # There are 11 default skills built into the gem (update this count when adding new default skills).
+      # Stub MAX_SKILLS to 13 so we have room for 2 project skills before hitting the cap.
       # Then create 5 project skills — only 2 should be loaded, the rest skipped.
-      stub_const("Clacky::SkillLoader::MAX_SKILLS", 10)
+      stub_const("Clacky::SkillLoader::MAX_SKILLS", 13)
 
       5.times do |i|
         skill_dir = File.join(skills_dir, "overflow-skill-#{i}")
@@ -274,7 +274,7 @@ RSpec.describe Clacky::SkillLoader do
       loader = described_class.new(working_dir: working_dir, brand_config: nil)
 
       # Total skills must not exceed MAX_SKILLS
-      expect(loader.count).to be <= 10
+      expect(loader.count).to be <= 13
 
       # At least one warning should mention the limit
       expect(loader.errors).to include(a_string_matching(/Skill limit reached/))

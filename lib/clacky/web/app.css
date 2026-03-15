@@ -3018,6 +3018,52 @@ body {
 
 .brand-warning-bar button:hover { opacity: 1; }
 
+/* ── Brand activation banner (top info bar, replaces full-screen panel) ──── */
+.brand-activation-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 16px;
+  background: var(--color-accent-subtle, #eff6ff);
+  border-bottom: 1px solid var(--color-accent-border, #bfdbfe);
+  color: var(--color-accent-fg, #1d4ed8);
+  font-size: 13px;
+  flex-shrink: 0;
+}
+
+.brand-activation-banner > span {
+  flex: 1;
+  color: var(--color-accent-fg, #1d4ed8);
+}
+
+.brand-activation-banner-link {
+  background: var(--color-accent, #2563eb);
+  border: none;
+  border-radius: 5px;
+  color: #fff;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 12px;
+  white-space: nowrap;
+  transition: opacity 0.15s;
+}
+
+.brand-activation-banner-link:hover { opacity: 0.85; }
+
+.brand-activation-banner-close {
+  background: transparent;
+  border: none;
+  color: var(--color-accent-fg, #1d4ed8);
+  cursor: pointer;
+  font-size: 14px;
+  padding: 0 4px;
+  opacity: 0.6;
+  flex-shrink: 0;
+}
+
+.brand-activation-banner-close:hover { opacity: 1; }
+
 /* ── Scrollbar ───────────────────────────────────────────────────────────── */
 ::-webkit-scrollbar       { width: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
