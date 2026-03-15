@@ -50,6 +50,8 @@ module Clacky
             @ws_client.start do |raw|
               handle_raw_message(raw)
             end
+          rescue WSClient::AuthError => e
+            Clacky::Logger.warn("[WecomAdapter] Authentication failed, not retrying: #{e.message}")
           end
 
           def stop

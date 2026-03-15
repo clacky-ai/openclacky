@@ -23,6 +23,9 @@ module Clacky
           HEARTBEAT_INTERVAL = 30 # seconds
           RECONNECT_DELAY = 5     # seconds
 
+          # Raised when WeCom rejects credentials — signals caller not to retry.
+          class AuthError < StandardError; end
+
           def initialize(bot_id:, secret:, ws_url: WS_URL)
             @bot_id = bot_id
             @secret = secret
@@ -39,6 +42,10 @@ module Clacky
             while @running
               begin
                 connect_and_listen
+              rescue AuthError => e
+                warn "WeCom authentication error (not retrying): #{e.message}"
+                @running = false
+                raise
               rescue => e
                 warn "WeCom WebSocket error: #{e.message}"
                 sleep RECONNECT_DELAY if @running
@@ -139,6 +146,12 @@ module Clacky
               errcode = frame["errcode"] || body["errcode"]
               if errcode && errcode != 0
                 warn "WeCom WS error response: #{frame.inspect}"
+                # Auth failures are fatal — stop reconnecting and surface the error
+                if req_id.start_with?("subscribe_")
+                  errmsg = frame["errmsg"] || body["errmsg"] || "unknown error"
+                  @running = false
+                  raise AuthError, "WeCom authentication failed (errcode=#{errcode}): #{errmsg}"
+                end
               end
             end
           rescue JSON::ParserError => e
