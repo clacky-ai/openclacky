@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.3] - 2026-03-16
+
+### Added
+- **Brand logo banner on web server startup**: a styled block-font logo now displays in the terminal when `clacky server` launches, giving a polished startup experience
+- **BlockFont renderer replaces artii dependency**: the gem now ships its own high-quality block-font engine for rendering large ASCII logos, removing the external `artii` dependency and enabling full offline use
+- **Hover-to-expand token usage and session info bar**: hovering over the token usage line or session info bar in the WebUI now expands it to show full details, keeping the UI compact by default
+- **Redesigned setup panel with Back button and Custom provider support**: the model setup flow now includes a Back button for navigation and a dedicated "Custom provider" path, making it easier to configure non-standard API endpoints; also fixes a dropdown re-entry bug
+- **License activation via non-blocking top banner**: the brand activation flow no longer blocks the entire UI with a full-screen panel — it now shows a slim top banner, and activation is handled through a dedicated skill
+- **`startSoulSession` exposed on Onboard public interface**: third-party integrations can now trigger soul session initialization directly from the onboard module
+
+### Improved
+- **Browser tool simplified and config-driven**: the browser tool setup is now handled through a unified config object, removing ~250 lines of complex auto-restart logic and making the tool more predictable and maintainable
+- **Prompt caching more stable**: cache anchoring now uses the last assistant message as the stable boundary, reducing cache misses caused by system prompt variations; caching is correctly restored for both Anthropic and OpenRouter paths
+- **Message format extracted to dedicated modules**: OpenAI and Anthropic message formatting now live in separate modules (`Clacky::MessageFormat::OpenAI` and `Clacky::MessageFormat::Anthropic`), making the client code easier to read and test
+- **WeCom channel reliability**: auth failure handling is improved with proper reconnection logic; the `channel-setup` skill guidance is also updated for clarity
+- **Install script and license expiry handling**: the install script is streamlined, license-expired states are handled gracefully, and encrypted skills are decrypted at load time
+
+### Fixed
+- **Prompt cache stability across turns**: cache was occasionally invalidated between turns due to message boundary drift; now anchored reliably to the last assistant message
+- **`request_user_feedback` missing from session history replay**: feedback prompts sent during a session were not rendered when replaying history in the WebUI; they now appear correctly as assistant messages
+- **Brand activation banner not shown when API key is missing**: the banner now correctly appears even when no API key is configured, with a translated skip warning
+- **Zip extraction security**: zip files are now read in chunks with size verification, preventing potential zip-bomb or oversized-file issues
+
+### More
+- Remove browser tool auto-restart logic that was causing instability in headless environments
+- Add security design documentation
+
 ## [0.9.2] - 2026-03-15
 
 ### Fixed
