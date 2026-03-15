@@ -22,6 +22,9 @@ module Clacky
   #   product_name: "JohnAI Pro"
   #   logo_url: "https://example.com/logo.png"
   #   support_contact: "support@johnai.com"
+  #   support_qr_url: "https://example.com/qr.png"
+  #   theme_color: "#3B82F6"
+  #   homepage_url: "https://johnai.com"
   #   license_key: "0000002A-00000007-DEADBEEF-CAFEBABE-A1B2C3D4"
   #   license_activated_at: "2025-03-01T00:00:00Z"
   #   license_expires_at: "2026-03-01T00:00:00Z"
@@ -43,7 +46,8 @@ module Clacky
     attr_reader :brand_name, :license_key, :license_activated_at,
                 :license_expires_at, :license_last_heartbeat, :device_id,
                 :brand_command, :distribution_name, :product_name,
-                :logo_url, :support_contact, :license_user_id
+                :logo_url, :support_contact, :license_user_id,
+                :support_qr_url, :theme_color, :homepage_url
 
     def initialize(attrs = {})
       @brand_name              = attrs["brand_name"]
@@ -52,6 +56,9 @@ module Clacky
       @product_name            = attrs["product_name"]
       @logo_url                = attrs["logo_url"]
       @support_contact         = attrs["support_contact"]
+      @support_qr_url          = attrs["support_qr_url"]
+      @theme_color             = attrs["theme_color"]
+      @homepage_url            = attrs["homepage_url"]
       @license_key             = attrs["license_key"]
       @license_activated_at    = parse_time(attrs["license_activated_at"])
       @license_expires_at      = parse_time(attrs["license_expires_at"])
@@ -708,6 +715,9 @@ module Clacky
         product_name:       @product_name,
         logo_url:           @logo_url,
         support_contact:    @support_contact,
+        support_qr_url:     @support_qr_url,
+        theme_color:        @theme_color,
+        homepage_url:       @homepage_url,
         branded:            branded?,
         activated:          activated?,
         expired:            expired?,
@@ -727,6 +737,9 @@ module Clacky
       data["product_name"]           = @product_name           if @product_name
       data["logo_url"]               = @logo_url               if @logo_url
       data["support_contact"]        = @support_contact        if @support_contact
+      data["support_qr_url"]         = @support_qr_url         if @support_qr_url
+      data["theme_color"]            = @theme_color            if @theme_color
+      data["homepage_url"]           = @homepage_url           if @homepage_url
       data["license_key"]            = @license_key            if @license_key
       data["license_activated_at"]   = @license_activated_at.iso8601   if @license_activated_at
       data["license_expires_at"]     = @license_expires_at.iso8601     if @license_expires_at
@@ -756,14 +769,19 @@ module Clacky
     end
 
     # Apply distribution fields from API response.
-    # Updates name, product_name, logo_url, support_contact from the distribution hash.
+    # Updates name, product_name, logo_url, support_contact, support_qr_url,
+    # theme_color, and homepage_url from the distribution hash.
     private def apply_distribution(dist)
       return unless dist.is_a?(Hash)
 
-      @distribution_name = dist["name"]           if dist["name"].to_s.strip != ""
+      @distribution_name = dist["name"]            if dist["name"].to_s.strip != ""
       @product_name      = dist["product_name"]    if dist["product_name"].to_s.strip != ""
       @logo_url          = dist["logo_url"]         if dist["logo_url"].to_s.strip != ""
       @support_contact   = dist["support_contact"]  if dist["support_contact"].to_s.strip != ""
+      # New branding fields returned by the API (logo, QR code, theme, homepage)
+      @support_qr_url    = dist["support_qr_url"]   if dist.key?("support_qr_url")
+      @theme_color       = dist["theme_color"]       if dist.key?("theme_color")
+      @homepage_url      = dist["homepage_url"]      if dist.key?("homepage_url")
     end
 
     # Download a remote URL to a local file path.

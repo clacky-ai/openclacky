@@ -146,11 +146,49 @@ body {
 .sidebar-toggle-btn:active {
   transform: scale(0.95);
 }
+/* Header brand area: logo image + brand name */
+#header-brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
 .header-logo {
   font-weight: 700;
-  font-size: 18px;
-  color: var(--color-accent-primary);
-  letter-spacing: -0.5px;
+  font-size: 17px;
+  color: var(--color-text-primary);
+  letter-spacing: -0.3px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 180px;
+  line-height: 1;
+}
+/* When a logo image is present, slightly dim the text to act as a subtitle */
+#header-brand.has-logo .header-logo {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  letter-spacing: 0;
+}
+.header-logo-img {
+  height: 28px;
+  max-width: 120px;
+  object-fit: contain;
+  display: block;
+  flex-shrink: 0;
+  border-radius: 4px;
+}
+/* Subtle divider between logo image and brand name text */
+#header-brand.has-logo .header-logo-divider {
+  display: block;
+  width: 1px;
+  height: 16px;
+  background: var(--color-border-primary);
+  flex-shrink: 0;
+}
+#header-brand .header-logo-divider {
+  display: none;
 }
 #header-right {
   display: flex;
@@ -2559,6 +2597,18 @@ body {
   flex-direction: column;
   gap: 10px;
 }
+/* Inner layout: status fields on the left, QR code on the right */
+.brand-status-main {
+  display: flex;
+  align-items: flex-start;
+  gap: 20px;
+}
+.brand-status-fields {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
 .brand-status-row {
   display: flex;
   align-items: center;
@@ -2579,9 +2629,164 @@ body {
   padding-top: 12px;
   border-top: 1px solid var(--color-border-primary);
 }
-.badge-active   { color: var(--color-success); }
-.badge-expired  { color: var(--color-error); }
-.badge-inactive { color: var(--color-text-secondary); }
+.badge-active    { color: var(--color-success); }
+.badge-expired   { color: var(--color-error); }
+.badge-expiring  { color: var(--color-warning); }
+.badge-inactive  { color: var(--color-text-secondary); }
+
+/* Support QR code */
+.brand-support-qr {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+/* Clickable QR button wrapper */
+.brand-support-qr-btn {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  border-radius: 10px;
+  overflow: hidden;
+  outline: none;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+.brand-support-qr-btn:hover {
+  transform: scale(1.03);
+  box-shadow: 0 4px 16px rgba(0,0,0,0.25);
+}
+.brand-support-qr-btn:hover .brand-support-qr-zoom-hint {
+  opacity: 1;
+}
+.brand-support-qr-btn:focus-visible {
+  box-shadow: 0 0 0 2px var(--color-accent-primary);
+}
+
+.brand-support-qr-img {
+  width: 110px;
+  height: 110px;
+  border-radius: 10px;
+  border: 1px solid var(--color-border-primary);
+  object-fit: cover;
+  background: #fff;
+  display: block;
+}
+
+/* Hover overlay hint — "Click to enlarge" */
+.brand-support-qr-zoom-hint {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 5px 4px;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+  border-radius: 0 0 10px 10px;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.brand-support-qr-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-text-secondary);
+  text-align: center;
+}
+
+/* ── QR Lightbox Modal ──────────────────────────────────────── */
+.qr-lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.qr-lightbox-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+.qr-lightbox-content {
+  position: relative;
+  z-index: 1;
+  background: var(--color-bg-primary);
+  border: 1px solid var(--color-border-primary);
+  border-radius: 16px;
+  padding: 28px 32px 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.4);
+  animation: qr-lightbox-in 0.2s ease;
+}
+@keyframes qr-lightbox-in {
+  from { opacity: 0; transform: scale(0.88); }
+  to   { opacity: 1; transform: scale(1); }
+}
+.qr-lightbox-img {
+  width: 240px;
+  height: 240px;
+  border-radius: 10px;
+  object-fit: contain;
+  background: #fff;
+  border: 1px solid var(--color-border-primary);
+  display: block;
+  padding: 8px;
+}
+.qr-lightbox-label {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--color-text-primary);
+  margin: 0;
+  text-align: center;
+}
+.qr-lightbox-hint {
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  margin: 0;
+  text-align: center;
+}
+.qr-lightbox-close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 30px;
+  height: 30px;
+  border: none;
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-secondary);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.qr-lightbox-close:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
 
 .brand-activate-form {
   background: var(--color-bg-secondary);

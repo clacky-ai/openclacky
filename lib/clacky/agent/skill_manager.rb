@@ -155,6 +155,13 @@ module Clacky
         skill = parsed[:skill]
         arguments = parsed[:arguments]
 
+        # Encrypted brand skills and fork-agent skills must run in an isolated subagent.
+        # Injecting their plaintext into @messages would expose confidential content to the LLM.
+        if skill.encrypted? || skill.fork_agent?
+          execute_skill_with_subagent(skill, arguments)
+          return
+        end
+
         # Expand skill content (substitutes $ARGUMENTS if present)
         expanded_content = skill.process_content(arguments, template_context: build_template_context)
 

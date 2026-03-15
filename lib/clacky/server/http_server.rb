@@ -421,6 +421,11 @@ module Clacky
           warning = "Your #{brand.brand_name} license has expired. Please renew to continue."
         elsif brand.grace_period_exceeded?
           warning = "License server unreachable for more than 3 days. Please check your connection."
+        elsif brand.license_expires_at && !brand.expired?
+          days_remaining = ((brand.license_expires_at - Time.now.utc) / 86_400).ceil
+          if days_remaining <= 7
+            warning = "Your #{brand.brand_name} license expires in #{days_remaining} day#{"s" if days_remaining != 1}. Please renew soon."
+          end
         end
 
         json_response(res, 200, {
