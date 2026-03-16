@@ -31,8 +31,9 @@ module Clacky
   #   license_last_heartbeat: "2025-03-05T00:00:00Z"
   #   device_id: "abc123def456..."
   class BrandConfig
-    CONFIG_DIR  = File.join(Dir.home, ".clacky")
-    BRAND_FILE  = File.join(CONFIG_DIR, "brand.yml")
+    CONFIG_DIR   = File.join(Dir.home, ".clacky")
+    BRAND_FILE   = File.join(CONFIG_DIR, "brand.yml")
+    BACKUPS_DIR  = File.join(CONFIG_DIR, "brand_backups")
 
     # OpenClacky Cloud API base URL
     API_BASE_URL = "https://www.openclacky.com"
@@ -136,9 +137,30 @@ module Clacky
 
     # Activate the license against the OpenClacky Cloud API using HMAC proof.
     # Returns a result hash: { success: bool, message: String, data: Hash }
+    #
+    # Re-activation flow (license change / license renewal):
+    #   1. Backup current brand data (brand.yml + assets + skills) before any mutation.
+    #   2. Reset all brand/license fields so the previous activation cannot leak into
+    #      the new one (e.g. switching from brand A to brand B clears A's metadata).
+    #   3. Call the remote API with the new license key.
+    #   4. On success: write new data to disk and take effect immediately.
+    #   5. On failure: restore the in-memory state from disk so the old activation
+    #      remains operative for the current session.
     def activate!(license_key)
-      @license_key = license_key.strip
-      @device_id ||= generate_device_id
+      new_key = license_key.strip
+
+      # Step 1: back up existing data before any mutation
+      backup_path = backup!
+
+      # Step 2: reset all brand/license fields so a key-switch starts clean
+      reset_brand_state!
+
+      # Generate a fresh device_id for this activation. Because we just reset
+      # @device_id to nil, generate_device_id is called unconditionally here.
+      # The result is deterministic (hostname:user:platform hash), so repeated
+      # calls on the same machine always yield the same value.
+      @license_key = new_key
+      @device_id   = generate_device_id
 
       user_id  = parse_user_id_from_key(@license_key)
       key_hash = Digest::SHA256.hexdigest(@license_key)
@@ -178,10 +200,15 @@ module Clacky
         server_device_id = data["device_id"].to_s.strip
         @device_id = server_device_id unless server_device_id.empty?
         apply_distribution(data["distribution"])
+        # Step 4: persist to disk — new activation takes effect immediately
         save
         { success: true, message: "License activated successfully!", brand_name: @brand_name,
-          user_id: @license_user_id, data: data }
+          user_id: @license_user_id, backup_path: backup_path, data: data }
       else
+        # Step 5: API rejected the key — wipe the bad key from memory.
+        # The backup already preserves the previous state on disk; the caller
+        # (http_server) will reload BrandConfig.load on the next request so the
+        # old activation is restored automatically.
         @license_key = nil
         { success: false, message: response[:error] || "Activation failed", data: {} }
       end
@@ -194,12 +221,21 @@ module Clacky
     # (e.g. "0000002A" → user_id 42 → "Brand42") unless one is already set.
     # A fixed 1-year expiry is written so the UI can display a realistic date.
     #
+    # Re-activation behaviour mirrors activate!:
+    #   1. Backup existing data before mutation.
+    #   2. Reset all brand/license fields (clean slate).
+    #   3. Write new mock state and persist immediately.
+    #
     # Returns the same { success:, message:, brand_name:, data: } shape as activate!
     def activate_mock!(license_key)
+      # Step 1: back up existing data before any mutation
+      backup_path = backup!
+
+      # Step 2: reset all brand/license fields for a clean slate
+      reset_brand_state!
+
       @license_key = license_key.strip
-      # Pin a stable device_id for this activation. Once set (from a prior load or
-      # a previous call), never regenerate — the same rule as activate!.
-      @device_id ||= generate_device_id
+      @device_id   = generate_device_id
 
       # Always derive brand_name fresh from the key in mock mode,
       # so switching keys produces a different brand each time.
@@ -209,13 +245,16 @@ module Clacky
       @license_activated_at   = Time.now.utc
       @license_last_heartbeat = Time.now.utc
       @license_expires_at     = Time.now.utc + (365 * 86_400)  # 1 year from now
+
+      # Step 3: persist immediately so the new state takes effect right away
       save
 
       {
-        success:    true,
-        message:    "License activated (mock mode).",
-        brand_name: @brand_name,
-        data:       { status: "active", expires_at: @license_expires_at.iso8601 }
+        success:     true,
+        message:     "License activated (mock mode).",
+        brand_name:  @brand_name,
+        backup_path: backup_path,
+        data:        { status: "active", expires_at: @license_expires_at.iso8601 }
       }
     end
 
@@ -582,6 +621,50 @@ module Clacky
       { success: false, error: e.message }
     end
 
+    # Perform a startup heartbeat + brand-skills sync in a single background thread.
+    #
+    # Called once when an Agent instance is initialised.  The sequence is:
+    #   1. heartbeat! — validates the license, refreshes expires_at, and calls
+    #      apply_distribution so logo/theme/skills-config from the server are
+    #      applied immediately (before the first user message arrives).
+    #   2. sync_brand_skills_async! — compares remote skill versions and downloads
+    #      any skills that are missing or out-of-date.
+    #
+    # Both steps are skipped gracefully when:
+    #   - The license is not activated.
+    #   - CLACKY_TEST=1 is set (avoids network calls in the test suite).
+    #   - Any network / server error occurs (failures are swallowed so the agent
+    #     always starts without interruption).
+    #
+    # @return [Thread, nil] The daemon thread, or nil when skipped.
+    def startup_sync_async!
+      return nil unless activated?
+      return nil if ENV["CLACKY_TEST"] == "1"
+
+      Thread.new do
+        Thread.current.abort_on_exception = false
+
+        begin
+          # Step 1: heartbeat — refreshes license state and applies distribution
+          # (logo, theme_color, skills config, etc.) from the server.
+          heartbeat!
+        rescue StandardError
+          # Network errors during heartbeat are non-fatal; continue to skill sync.
+        end
+
+        begin
+          # Step 2: skill sync — install/update any brand skills that need it.
+          result = fetch_brand_skills!
+          next unless result[:success]
+
+          skills_needing_update = result[:skills].select { |s| s["needs_update"] || s["installed_version"].nil? }
+          skills_needing_update.each { |skill_info| install_brand_skill!(skill_info) }
+        rescue StandardError
+          # Background sync failures are intentionally swallowed.
+        end
+      end
+    end
+
     # Synchronise brand skills in the background.
     #
     # Fetches the remote skills list and installs any skill whose remote version
@@ -775,7 +858,148 @@ module Clacky
       @support_qr_url
     end
 
+    # Create a timestamped backup snapshot of all license/brand-related data.
+    #
+    # Backup layout:
+    #   ~/.clacky/brand_backups/<YYYYMMDDTHHMMSSZ>/
+    #     brand.yml            ← copy of ~/.clacky/brand.yml
+    #     brand_assets/        ← copy of ~/.clacky/brand_assets/
+    #     brand_skills/        ← copy of ~/.clacky/brand_skills/
+    #
+    # Deduplication:
+    #   If the most recent existing backup contains an identical license_key AND
+    #   device_id (read from its brand.yml), the backup is skipped to avoid
+    #   accumulating redundant snapshots when re-activating the same key.
+    #
+    # Returns the backup directory path on success, or nil when skipped/no data.
+    def backup!
+      # Nothing to back up when no brand.yml exists yet
+      return nil unless File.exist?(BRAND_FILE)
+
+      # Read current brand.yml to extract fingerprint for deduplication
+      current_data = YAML.safe_load(File.read(BRAND_FILE)) || {}
+      current_key  = current_data["license_key"].to_s.strip
+      current_did  = current_data["device_id"].to_s.strip
+
+      # Skip backup when there is no license key yet (nothing meaningful to save)
+      return nil if current_key.empty?
+
+      # Deduplication: compare against the most recent backup's fingerprint
+      if backup_identical_to_latest?(current_key, current_did)
+        return nil
+      end
+
+      # Build a unique, time-ordered backup directory name
+      timestamp  = Time.now.utc.strftime("%Y%m%dT%H%M%SZ")
+      backup_dir = File.join(BACKUPS_DIR, timestamp)
+
+      # Append a microsecond suffix when a directory with this timestamp already exists
+      # (e.g. rapid successive calls within the same second)
+      if Dir.exist?(backup_dir)
+        backup_dir = "#{backup_dir}_#{Time.now.utc.strftime('%6N')}"
+      end
+
+      FileUtils.mkdir_p(backup_dir)
+
+      # 1. Copy brand.yml
+      FileUtils.cp(BRAND_FILE, File.join(backup_dir, "brand.yml"))
+
+      # 2. Copy brand_assets/ directory (logo, QR images)
+      assets_src = File.join(CONFIG_DIR, "brand_assets")
+      if Dir.exist?(assets_src)
+        FileUtils.cp_r(assets_src, File.join(backup_dir, "brand_assets"))
+      end
+
+      # 3. Copy brand_skills/ directory (installed skill files + index)
+      skills_src = brand_skills_dir
+      if Dir.exist?(skills_src)
+        FileUtils.cp_r(skills_src, File.join(backup_dir, "brand_skills"))
+      end
+
+      backup_dir
+    rescue StandardError
+      # Backup failures must never interrupt the activation flow
+      nil
+    end
+
+    # Returns a sorted list of backup directory paths (oldest first).
+    def self.list_backups
+      return [] unless Dir.exist?(BACKUPS_DIR)
+
+      Dir.glob(File.join(BACKUPS_DIR, "*")).select { |p| File.directory?(p) }.sort
+    end
+
     private
+
+    # Reset all brand and license instance variables to nil/empty so that a
+    # re-activation starts from a completely clean state. This prevents any
+    # metadata from the previous license (brand name, logo, skills, etc.) from
+    # leaking into the newly activated session.
+    #
+    # Also clears in-memory caches (decryption keys, last server contact) since
+    # they are bound to the old license and must not be reused.
+    private def reset_brand_state!
+      # ── In-memory fields ────────────────────────────────────────────────────
+      @brand_name             = nil
+      @brand_command          = nil
+      @distribution_name      = nil
+      @product_name           = nil
+      @logo_url               = nil
+      @support_contact        = nil
+      @support_qr_url         = nil
+      @theme_color            = nil
+      @homepage_url           = nil
+      @logo_local             = nil
+      @support_qr_local       = nil
+      @license_key            = nil
+      @license_activated_at   = nil
+      @license_expires_at     = nil
+      @license_last_heartbeat = nil
+      @device_id              = nil
+      @license_user_id        = nil
+      # Clear in-memory caches — they are bound to the old license
+      @decryption_keys        = {}
+      @last_server_contact_at = nil
+
+      # ── Disk cleanup — brand-specific cached files ───────────────────────────
+      # After the backup has already been made, we wipe the old brand's cached
+      # files so they cannot bleed into the newly-activated brand:
+      #
+      #   brand_assets/  — old logo + QR images belong to the old brand.
+      #                    cache_assets! (called from apply_distribution) will
+      #                    re-download the new brand's images on success.
+      #   brand_skills/  — old encrypted skill files are licensed to the old
+      #                    key.  They must be removed before the new key's
+      #                    skills are fetched, otherwise stale skills would
+      #                    remain loadable even after the key has changed.
+      #
+      # NOTE: brand.yml is intentionally NOT deleted here.  On a successful
+      # activation, activate!/activate_mock! calls save which overwrites it
+      # atomically.  On failure, the old brand.yml stays on disk and serves
+      # as automatic recovery: BrandConfig.load on the next request restores
+      # the previous activation without any extra restore step.
+      [brand_assets_dir, brand_skills_dir].each do |path|
+        FileUtils.rm_rf(path)
+      rescue StandardError
+        # Swallow individual errors — a failed cleanup must not abort activation
+      end
+    end
+
+    # Returns true when the most recent backup has the same license_key and device_id
+    # as the given values. Used to prevent duplicate consecutive backups.
+    private def backup_identical_to_latest?(license_key, device_id)
+      latest = self.class.list_backups.last
+      return false unless latest
+
+      backed_up_yml = File.join(latest, "brand.yml")
+      return false unless File.exist?(backed_up_yml)
+
+      backed_data = YAML.safe_load(File.read(backed_up_yml)) || {}
+      backed_data["license_key"].to_s.strip  == license_key &&
+        backed_data["device_id"].to_s.strip  == device_id
+    rescue StandardError
+      false
+    end
 
     # Returns true when the given local asset filename (e.g. "logo.png") exists
     # on disk inside brand_assets_dir.
@@ -834,14 +1058,16 @@ module Clacky
     private def apply_distribution(dist)
       return unless dist.is_a?(Hash)
 
-      @distribution_name = dist["name"]            if dist["name"].to_s.strip != ""
-      @product_name      = dist["product_name"]    if dist["product_name"].to_s.strip != ""
-      @logo_url          = dist["logo_url"]         if dist["logo_url"].to_s.strip != ""
-      @support_contact   = dist["support_contact"]  if dist["support_contact"].to_s.strip != ""
-      # New branding fields returned by the API (logo, QR code, theme, homepage)
-      @support_qr_url    = dist["support_qr_url"]   if dist.key?("support_qr_url")
-      @theme_color       = dist["theme_color"]       if dist.key?("theme_color")
-      @homepage_url      = dist["homepage_url"]      if dist.key?("homepage_url")
+      # Only overwrite a field when the server returns a non-blank value.
+      # This prevents a null / empty response from wiping an existing local value
+      # that was set during a previous successful heartbeat or activation.
+      @distribution_name = dist["name"]           if dist["name"].to_s.strip != ""
+      @product_name      = dist["product_name"]   if dist["product_name"].to_s.strip != ""
+      @logo_url          = dist["logo_url"]        if dist["logo_url"].to_s.strip != ""
+      @support_contact   = dist["support_contact"] if dist["support_contact"].to_s.strip != ""
+      @support_qr_url    = dist["support_qr_url"]  if dist["support_qr_url"].to_s.strip != ""
+      @theme_color       = dist["theme_color"]     if dist["theme_color"].to_s.strip != ""
+      @homepage_url      = dist["homepage_url"]    if dist["homepage_url"].to_s.strip != ""
 
       # Download logo and QR code to local cache so they are available offline.
       cache_assets!

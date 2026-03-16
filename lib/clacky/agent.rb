@@ -82,9 +82,10 @@ module Clacky
       # Skill loader for skill management (brand_config enables encrypted skill loading)
       @skill_loader = SkillLoader.new(working_dir: @working_dir, brand_config: @brand_config)
 
-      # Background sync: compare remote skill versions and download updates quietly.
-      # Runs in a daemon thread so Agent startup is never blocked.
-      @brand_config.sync_brand_skills_async!
+      # Startup sync: send a heartbeat (refreshes license state + applies latest
+      # distribution config from server) then sync brand skills — all in a
+      # background thread so Agent startup is never blocked.
+      @brand_config.startup_sync_async!
 
       # Initialize Time Machine
       init_time_machine
@@ -139,6 +140,23 @@ module Clacky
         model: model["model"],
         base_url: model["base_url"]
       }
+    end
+
+    # Replace the brand config on this agent instance with a freshly activated one.
+    # Called by the HTTP server after a successful license activation so that all
+    # live Agent instances immediately use the new brand without requiring a restart.
+    #
+    # Steps:
+    #   1. Swap @brand_config to the new instance (disk already updated by activate!).
+    #   2. Rebuild @skill_loader so encrypted brand skills use the new decryption keys.
+    #   3. Re-trigger background skill sync — any skills that belong to the new license
+    #      but are not yet on disk will be downloaded in the background.
+    def reload_brand_config!(brand)
+      @brand_config = brand
+      @skill_loader = SkillLoader.new(working_dir: @working_dir, brand_config: @brand_config)
+      # After a license swap we only need to sync skills — the activate! call
+      # already performed heartbeat + apply_distribution, so we skip that here.
+      @brand_config.sync_brand_skills_async!
     end
 
     # Get current model name

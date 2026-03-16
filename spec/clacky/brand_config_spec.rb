@@ -345,6 +345,112 @@ RSpec.describe Clacky::BrandConfig do
     end
   end
 
+  # ── #startup_sync_async! ──────────────────────────────────────────────────
+
+  describe "#startup_sync_async!" do
+    def activated_brand(tmp_dir)
+      described_class.new(
+        "brand_name"           => "AcmeCLI",
+        "license_key"          => "0000002A-00000007-DEADBEEF-CAFEBABE-A1B2C3D4",
+        "license_expires_at"   => "2099-01-01T00:00:00Z",
+        "license_activated_at" => "2025-01-01T00:00:00Z",
+        "device_id"            => "dev-abc"
+      )
+    end
+
+    context "when license is not activated" do
+      it "returns nil without spawning a thread" do
+        config = described_class.new("brand_name" => "AcmeCLI")
+        result = config.startup_sync_async!
+        expect(result).to be_nil
+      end
+    end
+
+    context "when CLACKY_TEST=1" do
+      around { |ex| ClimateControl.modify(CLACKY_TEST: "1") { ex.run } rescue ex.run }
+
+      it "returns nil without spawning a thread" do
+        # set env directly since ClimateControl may not be available
+        orig = ENV["CLACKY_TEST"]
+        ENV["CLACKY_TEST"] = "1"
+        config = activated_brand(nil)
+        result = config.startup_sync_async!
+        expect(result).to be_nil
+      ensure
+        ENV["CLACKY_TEST"] = orig
+      end
+    end
+
+    context "when activated and CLACKY_TEST unset" do
+      around do |ex|
+        orig = ENV["CLACKY_TEST"]
+        ENV.delete("CLACKY_TEST")
+        ex.run
+      ensure
+        ENV["CLACKY_TEST"] = orig
+      end
+
+      it "calls heartbeat! then fetch_brand_skills! in the background thread" do
+        with_temp_brand_file do |brand_file|
+          config = activated_brand(nil)
+          heartbeat_called    = false
+          fetch_skills_called = false
+
+          allow(config).to receive(:heartbeat!) do
+            heartbeat_called = true
+            { success: true }
+          end
+          allow(config).to receive(:fetch_brand_skills!) do
+            fetch_skills_called = true
+            { success: false, skills: [] }   # no skills to install
+          end
+
+          thread = config.startup_sync_async!
+          expect(thread).to be_a(Thread)
+          thread.join(5)   # wait up to 5s for background work to complete
+
+          expect(heartbeat_called).to be true
+          expect(fetch_skills_called).to be true
+        end
+      end
+
+      it "proceeds to fetch_brand_skills! even when heartbeat! raises" do
+        with_temp_brand_file do
+          config = activated_brand(nil)
+          fetch_skills_called = false
+
+          allow(config).to receive(:heartbeat!).and_raise(StandardError, "network down")
+          allow(config).to receive(:fetch_brand_skills!) do
+            fetch_skills_called = true
+            { success: false, skills: [] }
+          end
+
+          thread = config.startup_sync_async!
+          thread.join(5)
+
+          expect(fetch_skills_called).to be true
+        end
+      end
+
+      it "heartbeat! is called unconditionally (no heartbeat_due? gate)" do
+        with_temp_brand_file do
+          config = activated_brand(nil)
+          # Simulate a very recent heartbeat — heartbeat_due? would return false
+          config.instance_variable_set(:@license_last_heartbeat, Time.now.utc)
+
+          heartbeat_called = false
+          allow(config).to receive(:heartbeat!) { heartbeat_called = true; { success: true } }
+          allow(config).to receive(:fetch_brand_skills!).and_return({ success: false, skills: [] })
+
+          thread = config.startup_sync_async!
+          thread.join(5)
+
+          expect(heartbeat_called).to be true
+        end
+      end
+    end
+  end
+
   # ── #save — local asset fields ─────────────────────────────────────────────
 
   describe "#save (local asset fields)" do

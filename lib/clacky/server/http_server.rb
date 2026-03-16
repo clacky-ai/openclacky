@@ -485,15 +485,29 @@ module Clacky
         result = @brand_test ? brand.activate_mock!(key) : brand.activate!(key)
 
         if result[:success]
-          # Refresh skill_loader with the now-activated brand config so brand
-          # skills are loadable from this point forward (e.g. after sync).
+          # Refresh the server-level skill_loader with the now-activated brand config
+          # so brand skills are loadable from this point forward (e.g. after sync).
           @skill_loader = Clacky::SkillLoader.new(working_dir: nil, brand_config: brand)
-          json_response(res, 200, {
-            ok:           true,
-            brand_name:   result[:brand_name] || brand.brand_name,
-            user_id:      result[:user_id] || brand.license_user_id,
+
+          # Propagate the new brand config to every live Agent instance in the registry.
+          # Without this, each Agent's @brand_config still points to the old license,
+          # and its background sync thread would re-download the old license's skills
+          # right after reset_brand_state! wiped them — causing stale skills to reappear.
+          @registry.list.each do |summary|
+            @registry.with_session(summary[:id]) do |session|
+              session[:agent]&.reload_brand_config!(brand)
+            end
+          end
+
+          response_body = {
+            ok:            true,
+            brand_name:    result[:brand_name] || brand.brand_name,
+            user_id:       result[:user_id] || brand.license_user_id,
             user_licensed: brand.user_licensed?
-          })
+          }
+          # Surface backup path so the client can inform the user where old data was saved
+          response_body[:backup_path] = result[:backup_path] if result[:backup_path]
+          json_response(res, 200, response_body)
         else
           json_response(res, 422, { ok: false, error: result[:message] })
         end
