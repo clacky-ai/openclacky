@@ -3954,4 +3954,50 @@ body.setup-mode[data-theme="dark"] {
   line-height: 1.5;
 }
 
+/* ── Plugin System ───────────────────────────────────────────────────────── */
 
+/* Plugin panel container — mirrors the flex layout of other panels */
+.plugin-panel {
+  display: none;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+/* Default placeholder shown when plugin has no panel.html */
+.plugin-panel-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  gap: 12px;
+  color: var(--color-text-secondary, #8b949e);
+}
+
+.plugin-panel-placeholder span {
+  font-size: 48px;
+}
+
+.plugin-panel-placeholder h2 {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--color-text-primary, #c9d1d9);
+  margin: 0;
+}
+
+.plugin-panel-placeholder p {
+  font-size: 14px;
+  margin: 0;
+}
+
+/* Plugin sidebar section */
+#plugins-section {
+  margin-top: 4px;
+}
+
+/* Plugin sidebar entry active state */
+.plugin-sidebar-entry.active {
+  background-color: var(--color-bg-tertiary, #21262d);
+  border-radius: 6px;
+}

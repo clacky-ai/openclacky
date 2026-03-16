@@ -15,6 +15,7 @@ require_relative "scheduler"
 require_relative "../brand_config"
 require_relative "channel"
 require_relative "../banner"
+require_relative "../plugin_loader"
 
 module Clacky
   module Server
@@ -70,6 +71,39 @@ module Clacky
       # Ignore all other UI methods (progress, errors, etc.) during history replay
       def method_missing(name, *args, **kwargs); end
       def respond_to_missing?(name, include_private = false) = true
+    end
+
+    # PluginRouter — DSL used by plugin routes.rb files to register API routes.
+    #
+    # Each plugin's routes.rb is evaluated via instance_eval on a PluginRouter instance.
+    # Registered routes are stored in the HttpServer's _plugin_routes table and matched
+    # on every incoming request after the built-in routes fail to match.
+    #
+    # Usage in plugin's routes.rb:
+    #   get("/api/plugins/my-plugin/items") { |req, res, _| ... }
+    #   post("/api/plugins/my-plugin/items") { |req, res, _| ... }
+    #   get(%r{^/api/plugins/my-plugin/items/([^/]+)$}) { |req, res, captures| id = captures[0]; ... }
+    #
+    # The handler block is instance_exec'd on the HttpServer, giving access to all
+    # server helpers: json_response, parse_json_body, build_session, @registry, etc.
+    class PluginRouter
+      def initialize(server)
+        @server = server
+      end
+
+      def get(pattern, &block)    = _register("GET",    pattern, block)
+      def post(pattern, &block)   = _register("POST",   pattern, block)
+      def delete(pattern, &block) = _register("DELETE", pattern, block)
+      def patch(pattern, &block)  = _register("PATCH",  pattern, block)
+      def put(pattern, &block)    = _register("PUT",    pattern, block)
+
+      private def _register(method, pattern, block)
+        server = @server
+        # Wrap the block so it is always instance_exec'd on the HttpServer,
+        # regardless of the lexical self where the block was defined.
+        wrapped = proc { |req, res, captures| server.instance_exec(req, res, captures, &block) }
+        @server._plugin_routes << { method: method, pattern: pattern, handler: wrapped }
+      end
     end
 
     # HttpServer runs an embedded WEBrick HTTP server with WebSocket support.
@@ -156,6 +190,8 @@ module Clacky
           channel_config:   Clacky::ChannelConfig.load
         )
         @skill_loader    = Clacky::SkillLoader.new(working_dir: nil, brand_config: Clacky::BrandConfig.load)
+        # Load plugin-specific route handlers from each plugin's routes.rb (if present).
+        _load_plugin_routes
       end
 
       def start
@@ -282,6 +318,7 @@ module Clacky
         when ["GET",    "/api/version"]           then api_get_version(res)
         when ["POST",   "/api/version/upgrade"]   then api_upgrade_version(req, res)
         when ["POST",   "/api/restart"]           then api_restart(req, res)
+        when ["GET",    "/api/plugins"]           then api_list_plugins(res)
         else
           if method == "POST" && path.match?(%r{^/api/channels/[^/]+/test$})
             platform = path.sub("/api/channels/", "").sub("/test", "")
@@ -322,6 +359,19 @@ module Clacky
           elsif method == "POST" && path.match?(%r{^/api/my-skills/[^/]+/publish$})
             name = URI.decode_www_form_component(path.sub("/api/my-skills/", "").sub("/publish", ""))
             api_publish_my_skill(name, req, res)
+          # ── generic plugin asset serving ─────────────────────────────────
+          elsif method == "GET" && path.match?(%r{^/api/plugins/[^/]+/assets/[^/]+$})
+            # GET /api/plugins/:id/assets/:filename
+            # Serve a plugin asset file (sidebar.html, panel.html, plugin.js)
+            parts     = path.split("/")  # ["", "api", "plugins", id, "assets", filename]
+            plugin_id = URI.decode_www_form_component(parts[3])
+            filename  = URI.decode_www_form_component(parts[5])
+            api_plugin_asset(plugin_id, filename, res)
+          # ── plugin-registered routes ──────────────────────────────────────
+          # Each plugin may register custom routes via its routes.rb file.
+          # Routes are matched in registration order; first match wins.
+          elsif (handler = _match_plugin_route(method, path))
+            handler.call(req, res)
           else
             not_found(res)
           end
@@ -607,6 +657,111 @@ module Clacky
       end
 
       # GET /api/brand
+      # ── Plugin API ────────────────────────────────────────────────────────────
+
+      # GET /api/plugins
+      # Returns all installed plugins from ~/.clacky/plugins/.
+      # When no plugins are installed, returns an empty array — UI shows nothing.
+      def api_list_plugins(res)
+        loader  = Clacky::PluginLoader.new
+        plugins = loader.load_all.map do |p|
+          # Strip internal :dir key — not needed by frontend
+          p.reject { |k, _| k == :dir }
+        end
+        json_response(res, 200, { plugins: plugins })
+      end
+
+      # ── Generic plugin route registry ────────────────────────────────────────
+      #
+      # Plugins register their own API routes by providing a routes.rb file.
+      # On server boot, http_server.rb loads each plugin's routes.rb and calls
+      # its `register(router)` method, where `router` is a PluginRouter instance.
+      #
+      # routes.rb API:
+      #   router.get(pattern)  { |req, res, captures| ... }
+      #   router.post(pattern) { |req, res, captures| ... }
+      #   router.delete(pattern) { |req, res, captures| ... }
+      #
+      # Pattern can be a String (exact) or Regexp (with captures passed to block).
+      # The handler block runs in the context of the HttpServer instance, giving
+      # access to all server helpers (json_response, build_session, @registry, etc.).
+      #
+      # Example (in coding-agent/routes.rb):
+      #   router.get("/api/plugins/coding-agent/projects") { |req, res, _| ... }
+
+      # Registered plugin route table: [{ method:, pattern:, handler: }]
+      # Must be public so PluginRouter can call @server._plugin_routes from outside.
+      public def _plugin_routes
+        @_plugin_routes ||= []
+      end
+
+      # Called once on boot to load all plugin routes.rb files.
+      private def _load_plugin_routes
+        loader = Clacky::PluginLoader.new
+        loader.load_all.each do |plugin|
+          routes_path = File.join(plugin[:dir], "routes.rb")
+          next unless File.exist?(routes_path)
+
+          router = PluginRouter.new(self)
+          begin
+            # Evaluate routes.rb with router as self, so DSL methods (get, post,
+            # delete, etc.) are called directly on the PluginRouter instance.
+            # Handler blocks are wrapped inside _register to be instance_exec'd
+            # on HttpServer at dispatch time, giving them access to all server
+            # helpers (json_response, build_session, @registry, etc.).
+            routes_code = File.read(routes_path)
+            router.instance_eval(routes_code, routes_path)
+          rescue StandardError => e
+            warn "[PluginRouter] Failed to load routes for '#{plugin[:id]}': #{e.message}"
+          end
+        end
+      end
+
+      # Match an incoming request against registered plugin routes.
+      # Returns the handler Proc if matched, nil otherwise.
+      private def _match_plugin_route(method, path)
+        _plugin_routes.each do |route|
+          next unless route[:method] == method
+
+          captures = case route[:pattern]
+                     when String then route[:pattern] == path ? [] : nil
+                     when Regexp
+                       m = path.match(route[:pattern])
+                       m ? m.captures : nil
+                     end
+          return ->( req, res) { route[:handler].call(req, res, captures) } if captures
+        end
+        nil
+      end
+
+      # GET /api/plugins/:id/assets/:filename
+      # Serve a plugin asset file (sidebar.html, panel.html, plugin.js).
+      # Only .html and .js files are allowed for security.
+      PLUGIN_ASSET_ALLOWED = %w[sidebar.html panel.html plugin.js].freeze
+
+      private def api_plugin_asset(plugin_id, filename, res)
+        unless PLUGIN_ASSET_ALLOWED.include?(filename)
+          res.status = 403
+          res.body   = "Forbidden"
+          return
+        end
+
+        loader  = Clacky::PluginLoader.new
+        content = loader.read_asset(plugin_id, filename)
+
+        if content.nil?
+          not_found(res)
+          return
+        end
+
+        content_type = filename.end_with?(".js") ? "application/javascript; charset=utf-8" \
+                                                  : "text/html; charset=utf-8"
+        res.status          = 200
+        res["Content-Type"] = content_type
+        res["Cache-Control"] = "no-store"
+        res.body            = content
+      end
+
       # Returns brand metadata consumed by the WebUI on boot
       # to dynamically replace branding strings.
       def api_brand_info(res)
@@ -1674,7 +1829,7 @@ module Clacky
       # Restore a persisted session from saved session_data (from SessionManager).
       # The agent keeps its original session_id so the frontend URL hash stays valid
       # across server restarts.
-      def build_session_from_data(session_data, permission_mode: :confirm_all)
+      def build_session_from_data(session_data, permission_mode: :confirm_all, profile: "general")
         original_id = session_data[:session_id]
 
         # Skip if this session is already registered (e.g., restored by a previous call)
@@ -1688,7 +1843,7 @@ module Clacky
         config.permission_mode = permission_mode
         broadcaster = method(:broadcast)
         ui = WebUIController.new(original_id, broadcaster)
-        agent = Clacky::Agent.from_session(client, config, session_data, ui: ui, profile: "general")
+        agent = Clacky::Agent.from_session(client, config, session_data, ui: ui, profile: profile)
         idle_timer = build_idle_timer(original_id, agent)
 
         @registry.with_session(original_id) do |s|
