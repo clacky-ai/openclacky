@@ -267,5 +267,111 @@ RSpec.describe Clacky::BrandConfig do
         expired:    false
       )
     end
+
+    context "when local cached assets exist" do
+      it "returns local route for logo_url when logo_local file is present" do
+        with_temp_brand_file do
+          assets_dir = File.join(Clacky::BrandConfig::CONFIG_DIR, "brand_assets")
+          FileUtils.mkdir_p(assets_dir)
+          File.write(File.join(assets_dir, "logo.png"), "fakepng")
+
+          config = described_class.new(
+            "brand_name"  => "AcmeCLI",
+            "logo_url"    => "https://example.com/logo.png",
+            "logo_local"  => "logo.png"
+          )
+          h = config.to_h
+          expect(h[:logo_url]).to eq("/api/brand/assets/logo.png")
+        end
+      end
+
+      it "falls back to remote logo_url when local file is missing" do
+        with_temp_brand_file do
+          config = described_class.new(
+            "brand_name" => "AcmeCLI",
+            "logo_url"   => "https://example.com/logo.png",
+            "logo_local" => "logo.png"  # filename set but file not on disk
+          )
+          h = config.to_h
+          expect(h[:logo_url]).to eq("https://example.com/logo.png")
+        end
+      end
+
+      it "returns local route for support_qr_url when support_qr_local file is present" do
+        with_temp_brand_file do
+          assets_dir = File.join(Clacky::BrandConfig::CONFIG_DIR, "brand_assets")
+          FileUtils.mkdir_p(assets_dir)
+          File.write(File.join(assets_dir, "support_qr.png"), "fakepng")
+
+          config = described_class.new(
+            "brand_name"       => "AcmeCLI",
+            "support_qr_url"   => "https://example.com/qr.png",
+            "support_qr_local" => "support_qr.png"
+          )
+          h = config.to_h
+          expect(h[:support_qr_url]).to eq("/api/brand/assets/support_qr.png")
+        end
+      end
+
+      it "falls back to remote support_qr_url when local file is missing" do
+        with_temp_brand_file do
+          config = described_class.new(
+            "brand_name"       => "AcmeCLI",
+            "support_qr_url"   => "https://example.com/qr.png",
+            "support_qr_local" => "support_qr.png"
+          )
+          h = config.to_h
+          expect(h[:support_qr_url]).to eq("https://example.com/qr.png")
+        end
+      end
+    end
+
+    context "when no local cached assets exist" do
+      it "returns remote logo_url directly" do
+        config = described_class.new(
+          "brand_name" => "AcmeCLI",
+          "logo_url"   => "https://example.com/logo.png"
+        )
+        expect(config.to_h[:logo_url]).to eq("https://example.com/logo.png")
+      end
+
+      it "returns remote support_qr_url directly" do
+        config = described_class.new(
+          "brand_name"     => "AcmeCLI",
+          "support_qr_url" => "https://example.com/qr.png"
+        )
+        expect(config.to_h[:support_qr_url]).to eq("https://example.com/qr.png")
+      end
+    end
+  end
+
+  # ── #save — local asset fields ─────────────────────────────────────────────
+
+  describe "#save (local asset fields)" do
+    it "persists logo_local and support_qr_local to brand.yml" do
+      with_temp_brand_file do |brand_file|
+        config = described_class.new(
+          "brand_name"       => "AcmeCLI",
+          "logo_local"       => "logo.png",
+          "support_qr_local" => "support_qr.png"
+        )
+        config.save
+
+        saved = YAML.safe_load(File.read(brand_file))
+        expect(saved["logo_local"]).to eq("logo.png")
+        expect(saved["support_qr_local"]).to eq("support_qr.png")
+      end
+    end
+
+    it "omits logo_local and support_qr_local when nil" do
+      with_temp_brand_file do |brand_file|
+        config = described_class.new("brand_name" => "AcmeCLI")
+        config.save
+
+        saved = YAML.safe_load(File.read(brand_file))
+        expect(saved).not_to have_key("logo_local")
+        expect(saved).not_to have_key("support_qr_local")
+      end
+    end
   end
 end

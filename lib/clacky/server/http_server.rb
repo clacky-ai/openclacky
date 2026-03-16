@@ -283,7 +283,10 @@ module Clacky
         when ["POST",   "/api/version/upgrade"]   then api_upgrade_version(req, res)
         when ["POST",   "/api/restart"]           then api_restart(req, res)
         else
-          if method == "POST" && path.match?(%r{^/api/channels/[^/]+/test$})
+          if method == "GET" && path.start_with?("/api/brand/assets/")
+            filename = URI.decode_www_form_component(path.sub("/api/brand/assets/", ""))
+            api_brand_asset(filename, res)
+          elsif method == "POST" && path.match?(%r{^/api/channels/[^/]+/test$})
             platform = path.sub("/api/channels/", "").sub("/test", "")
             api_test_channel(platform, req, res)
           elsif method == "POST" && path.start_with?("/api/channels/")
@@ -612,6 +615,45 @@ module Clacky
       def api_brand_info(res)
         brand = Clacky::BrandConfig.load
         json_response(res, 200, brand.to_h)
+      end
+
+      # GET /api/brand/assets/:filename
+      # Serves a locally cached brand asset (logo or support QR image) from
+      # ~/.clacky/brand_assets/. Only files within that directory are served.
+      # Returns 404 when the file is not found or the filename is unsafe.
+      def api_brand_asset(filename, res)
+        # Sanitize filename: reject any path traversal attempts
+        if filename.include?("/") || filename.include?("..") || filename.strip.empty?
+          not_found(res)
+          return
+        end
+
+        assets_dir = File.join(Dir.home, ".clacky", "brand_assets")
+        file_path  = File.join(assets_dir, filename)
+
+        unless File.exist?(file_path) && File.file?(file_path)
+          not_found(res)
+          return
+        end
+
+        # Determine MIME type from extension
+        ext       = File.extname(filename).downcase
+        mime_type = case ext
+                    when ".png"  then "image/png"
+                    when ".jpg", ".jpeg" then "image/jpeg"
+                    when ".gif"  then "image/gif"
+                    when ".webp" then "image/webp"
+                    when ".svg"  then "image/svg+xml"
+                    else              "application/octet-stream"
+                    end
+
+        data = File.binread(file_path)
+        res.status = 200
+        res["Content-Type"]   = mime_type
+        res["Content-Length"] = data.bytesize.to_s
+        # Allow caching for 7 days — assets change only on re-activation
+        res["Cache-Control"]  = "public, max-age=604800"
+        res.body = data
       end
 
       # ── Version API ───────────────────────────────────────────────────────────

@@ -66,6 +66,10 @@ module Clacky
       @device_id               = attrs["device_id"]
       # user_id returned by the license server when the license is bound to a specific user
       @license_user_id         = attrs["license_user_id"]
+      # Local cached filenames for brand assets (relative to brand_assets_dir).
+      # These are populated during activation / heartbeat when cache_assets! runs.
+      @logo_local              = attrs["logo_local"]
+      @support_qr_local        = attrs["support_qr_local"]
 
       # In-memory decryption key cache: "skill_id:skill_version_id" => { key:, expires_at: }
       # Never persisted to disk. Survives across multiple skill invocations within one session.
@@ -732,15 +736,18 @@ module Clacky
     end
 
     # Returns a hash representation for JSON serialization (e.g. /api/brand).
+    # When local cached asset files exist, logo_url and support_qr_url are
+    # replaced with the local serving route /api/brand/assets/:filename so that
+    # the browser loads from disk rather than making an outbound request.
     def to_h
       {
         brand_name:         @brand_name,
         brand_command:      @brand_command,
         distribution_name:  @distribution_name,
         product_name:       @product_name,
-        logo_url:           @logo_url,
+        logo_url:           effective_logo_url,
         support_contact:    @support_contact,
-        support_qr_url:     @support_qr_url,
+        support_qr_url:     effective_support_qr_url,
         theme_color:        @theme_color,
         homepage_url:       @homepage_url,
         branded:            branded?,
@@ -752,7 +759,31 @@ module Clacky
       }
     end
 
+    # Returns the URL that the browser should use to load the brand logo.
+    # Prefers the local cached asset route; falls back to the remote URL.
+    def effective_logo_url
+      return "/api/brand/assets/#{@logo_local}" if local_asset_exists?(@logo_local)
+
+      @logo_url
+    end
+
+    # Returns the URL that the browser should use to load the support QR image.
+    # Prefers the local cached asset route; falls back to the remote URL.
+    def effective_support_qr_url
+      return "/api/brand/assets/#{@support_qr_local}" if local_asset_exists?(@support_qr_local)
+
+      @support_qr_url
+    end
+
     private
+
+    # Returns true when the given local asset filename (e.g. "logo.png") exists
+    # on disk inside brand_assets_dir.
+    def local_asset_exists?(filename)
+      return false if filename.to_s.strip.empty?
+
+      File.exist?(File.join(CONFIG_DIR, "brand_assets", filename))
+    end
 
     def to_yaml
       data = {}
@@ -772,6 +803,9 @@ module Clacky
       data["device_id"]              = @device_id              if @device_id
       # Persist user_id so user-licensed features remain available across restarts
       data["license_user_id"]        = @license_user_id        if @license_user_id && !@license_user_id.strip.empty?
+      # Persist local asset filenames for offline / cached access
+      data["logo_local"]             = @logo_local             if @logo_local && !@logo_local.strip.empty?
+      data["support_qr_local"]       = @support_qr_local       if @support_qr_local && !@support_qr_local.strip.empty?
       YAML.dump(data)
     end
 
@@ -796,6 +830,7 @@ module Clacky
     # Apply distribution fields from API response.
     # Updates name, product_name, logo_url, support_contact, support_qr_url,
     # theme_color, and homepage_url from the distribution hash.
+    # After updating URLs, downloads the image assets to local cache.
     private def apply_distribution(dist)
       return unless dist.is_a?(Hash)
 
@@ -807,6 +842,47 @@ module Clacky
       @support_qr_url    = dist["support_qr_url"]   if dist.key?("support_qr_url")
       @theme_color       = dist["theme_color"]       if dist.key?("theme_color")
       @homepage_url      = dist["homepage_url"]      if dist.key?("homepage_url")
+
+      # Download logo and QR code to local cache so they are available offline.
+      cache_assets!
+    end
+
+    # Download brand image assets (logo, support QR code) to local cache directory.
+    # Stores files under ~/.clacky/brand_assets/ and updates @logo_local and
+    # @support_qr_local with local filenames. Silently skips on download failure.
+    private def cache_assets!
+      FileUtils.mkdir_p(brand_assets_dir)
+
+      if @logo_url.to_s.strip != ""
+        ext  = File.extname(URI.parse(@logo_url).path).downcase
+        ext  = ".png" if ext.empty?
+        dest = File.join(brand_assets_dir, "logo#{ext}")
+        begin
+          download_file(@logo_url, dest)
+          @logo_local = "logo#{ext}"
+        rescue StandardError
+          # Silently ignore — remote logo is used as fallback
+        end
+      end
+
+      if @support_qr_url.to_s.strip != ""
+        ext  = File.extname(URI.parse(@support_qr_url).path).downcase
+        ext  = ".png" if ext.empty?
+        dest = File.join(brand_assets_dir, "support_qr#{ext}")
+        begin
+          download_file(@support_qr_url, dest)
+          @support_qr_local = "support_qr#{ext}"
+        rescue StandardError
+          # Silently ignore — remote QR URL is used as fallback
+        end
+      end
+    rescue StandardError
+      # Broad guard: asset caching must never break activation flow
+    end
+
+    # Returns the local brand assets directory path.
+    private def brand_assets_dir
+      File.join(CONFIG_DIR, "brand_assets")
     end
 
     # Download a remote URL to a local file path.
