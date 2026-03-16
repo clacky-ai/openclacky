@@ -75,6 +75,19 @@ module Clacky
         end
       end
 
+      # Return a lightweight summary for a single session (including hidden ones).
+      # Used by plugins that manage their own hidden sessions and need to return
+      # session metadata to the frontend without going through the public list.
+      # Returns nil if the session does not exist.
+      def summary(session_id)
+        @mutex.synchronize do
+          session = @sessions[session_id]
+          return nil unless session
+
+          session_summary(session)
+        end
+      end
+
       # Delete a session. Also interrupts any running agent thread.
       def delete(session_id)
         @mutex.synchronize do
