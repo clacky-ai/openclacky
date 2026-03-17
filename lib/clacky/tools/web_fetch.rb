@@ -102,7 +102,9 @@ module Clacky
 
         loop do
           request = Net::HTTP::Get.new(uri)
-          request["User-Agent"] = "Mozilla/5.0 (compatible; Clacky/1.0)"
+          request["User-Agent"] = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+          request["Accept"] = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+          request["Accept-Language"] = "zh-CN,zh;q=0.9,en;q=0.8"
 
           response = Net::HTTP.start(uri.hostname, uri.port, use_ssl: uri.scheme == "https", read_timeout: 15) do |http|
             http.request(request)
