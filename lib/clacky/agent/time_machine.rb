@@ -147,7 +147,7 @@ module Clacky
         tasks = []
         (1..@current_task_id).to_a.reverse.take(limit).reverse.each do |task_id|
           # Find first user message for this task
-          first_user_msg = @messages.find do |msg|
+          first_user_msg = @history.to_a.find do |msg|
             msg[:task_id] == task_id && msg[:role] == "user"
           end
 
