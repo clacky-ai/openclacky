@@ -180,7 +180,6 @@ check_network() {
         echo "  │  Option 2 — Set a proxy and re-run:                                  │"
         echo "  │     export https_proxy=http://127.0.0.1:7890                         │"
         echo "  │     export http_proxy=http://127.0.0.1:7890                          │"
-        echo "  │     curl -fsSL https://openclacky.com/install.sh | bash              │"
         echo "  │                                                                       │"
         echo "  └───────────────────────────────────────────────────────────────────────┘"
         echo ""
@@ -247,11 +246,11 @@ install_via_gem() {
         return 1
     fi
 
-    print_info "Installing OpenClacky gem..."
+    print_info "Installing ${DISPLAY_NAME}..."
     gem install openclacky --no-document
 
     if [ $? -eq 0 ]; then
-        print_success "OpenClacky installed successfully via gem!"
+        print_success "${DISPLAY_NAME} installed successfully!"
         install_agent_browser
         return 0
     else
@@ -481,7 +480,7 @@ suggest_ruby_installation() {
 
     elif [ "$OS" = "Windows" ]; then
         print_info "Windows Subsystem for Linux (WSL) Installation (Recommended)"
-        echo "  OpenClacky requires a Unix-like environment. We recommend using WSL."
+        echo "  ${DISPLAY_NAME} requires a Unix-like environment. We recommend using WSL."
         echo ""
         echo "  1. Open PowerShell or Windows Command Prompt in administrator mode"
         echo "  2. Install WSL with Ubuntu 24.04:"
@@ -526,6 +525,8 @@ parse_args() {
                 ;;
         esac
     done
+    # Global display name: brand name if provided, otherwise fall back to OpenClacky
+    DISPLAY_NAME="${BRAND_NAME:-OpenClacky}"
 }
 
 # Write brand configuration and install the wrapper command.
@@ -582,14 +583,13 @@ main() {
     echo ""
     echo "╔═══════════════════════════════════════════════════════════╗"
     echo "║                                                           ║"
-    echo "║   🤖 OpenClacky Installation Script                      ║"
-    echo "║                                                           ║"
-    echo "║   AI Agent CLI with Tool Use Capabilities                ║"
+    printf "║   %-55s ║\n" "${DISPLAY_NAME} Installation"
     echo "║                                                           ║"
     echo "╚═══════════════════════════════════════════════════════════╝"
     echo ""
 
     detect_os
+    detect_shell
     check_network
 
     # Strategy 1: Check Ruby and install via gem
@@ -612,7 +612,7 @@ main() {
                 show_post_install_info
                 exit 0
             else
-                print_error "Failed to install OpenClacky gem"
+                print_error "Failed to install ${DISPLAY_NAME}"
                 exit 1
             fi
         else
@@ -623,7 +623,7 @@ main() {
             exit 1
         fi
     else
-        print_error "Could not install OpenClacky automatically"
+        print_error "Could not install ${DISPLAY_NAME} automatically"
         echo ""
         suggest_ruby_installation
         echo ""
@@ -645,38 +645,22 @@ show_post_install_info() {
     local cmd="${BRAND_COMMAND:-openclacky}"
 
     echo ""
-    echo "╔═══════════════════════════════════════════════════════════╗"
-    echo "║                                                           ║"
-    echo "║   ✨ OpenClacky Installed Successfully!                   ║"
-    echo "║                                                           ║"
-    echo "╚═══════════════════════════════════════════════════════════╝"
-    echo ""
-    print_step "Quick Start Guide:"
-    echo ""
-    print_info "1. Configure your API key:"
-    echo "   $cmd"
-    echo "   > /config"
-    echo ""
-    print_info "2. Start (Terminal / CLI mode):"
-    echo "   $cmd"
-    echo ""
-    print_info "3. Start (Web UI mode):"
-    echo "   $cmd server"
-    echo "   Then open http://localhost:7070 in your browser"
-    echo ""
-    print_info "4. Create a new project:"
-    echo "   > /new your-project-name"
-    echo ""
-    print_info "5. Get help:"
-    echo "   > /help"
-    echo ""
-    print_success "Happy coding! 🚀"
-    echo ""
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo ""
-    echo -e "  ${RED}IMPORTANT: Please restart your terminal${NC}"
+    echo -e "  ${GREEN}${DISPLAY_NAME} installed successfully!${NC}"
     echo ""
-    echo -e "  After restarting, type: ${GREEN}$cmd${NC}"
+    echo "  First, reload your shell environment:"
+    echo ""
+    echo -e "    ${YELLOW}source ${SHELL_RC}${NC}"
+    echo ""
+    echo "  Then pick how you want to start:"
+    echo ""
+    echo -e "  ${GREEN}Web UI${NC} (recommended):"
+    echo "    $cmd server"
+    echo "    Open http://localhost:7070 in your browser"
+    echo ""
+    echo -e "  ${GREEN}Terminal mode${NC}:"
+    echo "    $cmd"
     echo ""
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo ""
