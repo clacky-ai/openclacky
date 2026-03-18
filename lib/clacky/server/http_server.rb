@@ -225,6 +225,7 @@ module Clacky
         end
 
         banner = Clacky::Banner.new
+        puts ""
         puts banner.colored_cli_logo
         puts banner.colored_tagline
         puts ""

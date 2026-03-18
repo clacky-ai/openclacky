@@ -206,7 +206,11 @@ module Clacky
                   raise AuthError, "WeCom authentication failed (errcode=#{errcode}): #{errmsg}"
                 end
               else
-                Clacky::Logger.info("[WecomWSClient] ack/heartbeat req_id=#{req_id}")
+                if req_id.start_with?("ping_")
+                  Clacky::Logger.debug("[WecomWSClient] ack/heartbeat req_id=#{req_id}")
+                else
+                  Clacky::Logger.info("[WecomWSClient] ack/heartbeat req_id=#{req_id}")
+                end
               end
             else
               Clacky::Logger.info("[WecomWSClient] unknown cmd=#{cmd}")
@@ -218,7 +222,11 @@ module Clacky
           def send_frame(cmd:, req_id:, body: nil)
             frame = { cmd: cmd, headers: { req_id: req_id } }
             frame[:body] = body if body
-            Clacky::Logger.info("[WecomWSClient] >> cmd=#{cmd} req_id=#{req_id}")
+            if cmd == "ping"
+              Clacky::Logger.debug("[WecomWSClient] >> cmd=#{cmd} req_id=#{req_id}")
+            else
+              Clacky::Logger.info("[WecomWSClient] >> cmd=#{cmd} req_id=#{req_id}")
+            end
             @ws.text(JSON.generate(frame))
           rescue => e
             Clacky::Logger.error("[WecomWSClient] failed to send frame cmd=#{cmd}: #{e.message}")
