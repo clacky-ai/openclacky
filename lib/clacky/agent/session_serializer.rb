@@ -122,7 +122,7 @@ module Clacky
       #   created_at < before. Pass nil to get the most recent rounds.
       # @return [Hash] { has_more: Boolean } — whether older rounds exist beyond this page
       def replay_history(ui, limit: 20, before: nil)
-        # Split @messages into rounds, each starting at a real user message
+        # Split @history into rounds, each starting at a real user message
         rounds = []
         current_round = nil
 
@@ -160,7 +160,7 @@ module Clacky
         # kept slice, render the surviving assistant/tool messages directly so the user can
         # still see the last visible state of the chat (e.g. compressed summary + recent work).
         if rounds.empty?
-          visible = @messages.reject { |m| m[:role].to_s == "system" || m[:system_injected] }
+          visible = @history.to_a.reject { |m| m[:role].to_s == "system" || m[:system_injected] }
           visible.each { |msg| _replay_single_message(msg, ui) }
           return { has_more: false }
         end
