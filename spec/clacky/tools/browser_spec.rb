@@ -6,28 +6,6 @@ require "clacky/tools/browser"
 RSpec.describe Clacky::Tools::Browser do
   let(:tool) { described_class.new }
 
-  describe "#snapshot_command?" do
-    it "recognises plain snapshot" do
-      expect(tool.send(:snapshot_command?, "snapshot")).to be true
-    end
-
-    it "recognises snapshot with flags" do
-      expect(tool.send(:snapshot_command?, "snapshot -i")).to be true
-    end
-
-    it "does not match open" do
-      expect(tool.send(:snapshot_command?, "open https://example.com")).to be false
-    end
-
-    it "does not match click" do
-      expect(tool.send(:snapshot_command?, "click @e1")).to be false
-    end
-
-    it "handles nil gracefully" do
-      expect(tool.send(:snapshot_command?, nil)).to be false
-    end
-  end
-
   describe "#compress_snapshot" do
     let(:snapshot_output) do
       <<~SNAP
@@ -111,7 +89,7 @@ RSpec.describe Clacky::Tools::Browser do
 
       let(:result) do
         {
-          command: "snapshot",
+          action: "snapshot",
           success: true,
           exit_code: 0,
           stdout: big_snapshot,
@@ -131,10 +109,10 @@ RSpec.describe Clacky::Tools::Browser do
       end
     end
 
-    context "when command is not snapshot" do
+    context "when action is not snapshot" do
       let(:result) do
         {
-          command: "open https://example.com",
+          action: "open",
           success: true,
           exit_code: 0,
           stdout: "Page loaded\n",
