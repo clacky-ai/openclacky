@@ -51,7 +51,7 @@ module Clacky
               handle_raw_message(raw)
             end
           rescue WSClient::AuthError => e
-            Clacky::Logger.warn("[WecomAdapter] Authentication failed, not retrying: #{e.message}")
+            Clacky::Logger.error("[WecomAdapter] Authentication failed, not retrying: #{e.message}")
           end
 
           def stop
@@ -61,6 +61,10 @@ module Clacky
 
           def send_text(chat_id, text, reply_to: nil)
             @ws_client.send_message(chat_id, text)
+          end
+
+          def send_file(chat_id, path, name: nil)
+            @ws_client.send_file(chat_id, path, name: name)
           end
 
           def validate_config(config)
@@ -133,7 +137,7 @@ module Clacky
 
             @on_message&.call(event)
           rescue => e
-            warn "WeCom handle_raw_message error: #{e.message}"
+            Clacky::Logger.error("[WecomAdapter] handle_raw_message error: #{e.message}\n#{e.backtrace.first(3).join("\n")}")
             begin
               @ws_client.send_message(chat_id, "Error processing message: #{e.message}") if chat_id
             rescue

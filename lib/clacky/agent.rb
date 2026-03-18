@@ -6,6 +6,7 @@ require "tty-prompt"
 require "set"
 require_relative "utils/arguments_parser"
 require_relative "utils/file_processor"
+require_relative "utils/environment_detector"
 
 # Load all agent modules
 require_relative "agent/message_compressor"
@@ -245,7 +246,7 @@ module Clacky
             if @memory_updating && response[:content] && !response[:content].empty?
               @ui&.show_info(response[:content].strip)
             elsif response[:content] && !response[:content].empty?
-              @ui&.show_assistant_message(response[:content])
+              emit_assistant_message(response[:content])
             end
 
             # Show token usage after the assistant message so WebUI renders it below the bubble
@@ -270,7 +271,7 @@ module Clacky
           # Show assistant message if there's content before tool calls
           # During memory update phase, suppress text output (only tool calls matter)
           if response[:content] && !response[:content].empty? && !@memory_updating
-            @ui&.show_assistant_message(response[:content])
+            emit_assistant_message(response[:content])
           end
 
           # Show token usage after assistant message (or immediately if no message).
@@ -304,7 +305,7 @@ module Clacky
               next
             else
               # User just said "no" without feedback - stop and wait
-              @ui&.show_assistant_message("Tool execution was denied. Please give more instructions...")
+              @ui&.show_assistant_message("Tool execution was denied. Please give more instructions...", files: [])
               break
             end
           end
@@ -589,7 +590,7 @@ module Clacky
           # Special handling for request_user_feedback: show directly as message
           if call[:name] == "request_user_feedback"
             if result.is_a?(Hash) && result[:message]
-              @ui&.show_assistant_message(result[:message])
+              @ui&.show_assistant_message(result[:message], files: [])
             end
 
             if @config.permission_mode == :auto_approve
@@ -977,7 +978,16 @@ module Clacky
       # Skip if we already have a context for today
       return if @history.last_session_context_date == today
 
-      content = "[Session context: Today is #{Time.now.strftime('%Y-%m-%d, %A')}. Current model: #{current_model}]"
+      os      = Clacky::Utils::EnvironmentDetector.os_type
+      desktop = Clacky::Utils::EnvironmentDetector.desktop_path
+      parts   = [
+        "Today is #{Time.now.strftime('%Y-%m-%d, %A')}",
+        "Current model: #{current_model}",
+        os != :unknown ? "OS: #{Clacky::Utils::EnvironmentDetector.os_label}" : nil,
+        desktop ? "Desktop: #{desktop}" : nil
+      ].compact.join(". ")
+
+      content = "[Session context: #{parts}]"
       @history.append({
         role: "user",
         content: content,
@@ -985,6 +995,35 @@ module Clacky
         session_context: true,
         session_date: today
       })
+    end
+
+    # Parse markdown file:// links from assistant message content.
+    # Handles both regular links and inline images:
+    #   [Download report](file:///path/to/file.pdf)
+    #   ![chart](file:///path/to/chart.png)
+    #
+    # Returns { text: String, files: Array<{name:, path:, inline:}> }
+    # File links are stripped from the returned text.
+    private def parse_file_links(content)
+      return { text: content, files: [] } if content.nil? || content.empty?
+
+      files = []
+      text = content.gsub(/(!?)\[([^\]]*)\]\(file:\/\/([^)]+)\)/) do
+        inline = $1 == "!"
+        name   = $2.empty? ? File.basename($3) : $2
+        path   = File.expand_path($3)
+        files << { name: name, path: path, inline: inline }
+        ""
+      end
+      { text: text.strip, files: files }
+    end
+
+    # Emit assistant message to UI, parsing any embedded file:// links first.
+    private def emit_assistant_message(content)
+      return if content.nil? || content.empty?
+
+      parsed = parse_file_links(content)
+      @ui&.show_assistant_message(parsed[:text], files: parsed[:files])
     end
 
     # Track modified files for Time Machine snapshots

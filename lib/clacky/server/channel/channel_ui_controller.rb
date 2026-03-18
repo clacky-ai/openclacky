@@ -33,11 +33,10 @@ module Clacky
 
       # === Output display ===
 
-      def show_assistant_message(content)
-        return if content.nil? || content.to_s.strip.empty?
-
+      def show_assistant_message(content, files:)
         flush_buffer
-        send_text(content)
+        send_text(content) unless content.nil? || content.to_s.strip.empty?
+        files.each { |f| send_file(f[:path], f[:name]) }
       end
 
       def show_tool_call(name, args)
@@ -50,7 +49,7 @@ module Clacky
 
       def show_tool_error(error)
         msg = error.is_a?(Exception) ? error.message : error.to_s
-        send_text("❌ Tool error: #{msg}")
+        send_text("Tool error: #{msg}")
       end
 
       def show_tool_args(formatted_args)
@@ -59,19 +58,19 @@ module Clacky
 
       def show_file_write_preview(path, is_new_file:)
         action = is_new_file ? "create" : "overwrite"
-        buffer_line("📝 #{action}: `#{path}`")
+        buffer_line("#{action}: #{path}")
       end
 
       def show_file_edit_preview(path)
-        buffer_line("✏️ edit: `#{path}`")
+        buffer_line("edit: #{path}")
       end
 
       def show_shell_preview(command)
-        buffer_line("🔧 `#{command}`")
+        buffer_line("$ #{command}")
       end
 
       def show_file_error(error_message)
-        send_text("❌ File error: #{error_message}")
+        send_text("File error: #{error_message}")
       end
 
       def show_diff(old_content, new_content, max_lines: 50)
@@ -84,7 +83,7 @@ module Clacky
 
       def show_complete(iterations:, cost:, duration: nil, cache_stats: nil, awaiting_user_feedback: false)
         flush_buffer
-        parts = ["✅ Done", "#{iterations} step#{"s" if iterations != 1}"]
+        parts = ["Done", "#{iterations} step#{"s" if iterations != 1}"]
         parts << "$#{cost.round(4)}" if cost && cost > 0
         parts << "#{duration.round(1)}s" if duration
         send_text(parts.join(" · "))
@@ -103,15 +102,15 @@ module Clacky
       end
 
       def show_warning(message)
-        send_text("⚠️ #{message}")
+        send_text("Warning: #{message}")
       end
 
       def show_error(message)
-        send_text("❌ #{message}")
+        send_text("Error: #{message}")
       end
 
       def show_success(message)
-        send_text("✅ #{message}")
+        send_text(message)
       end
 
       def log(message, level: :info)
@@ -138,7 +137,7 @@ module Clacky
       # and only notifies IM via show_warning. Implemented as auto-approve
       # as a safety fallback in case this is ever called directly.
       def request_confirmation(message, default: true)
-        send_text("⚠️ Confirmation requested (auto-approved): #{message}")
+        send_text("Confirmation requested (auto-approved): #{message}")
         default
       end
 
@@ -155,6 +154,18 @@ module Clacky
       rescue StandardError => e
         warn "[ChannelUI] send_text failed (#{@platform}/#{@chat_id}): #{e.message}"
         nil
+      end
+
+      def send_file(path, name = nil)
+        if @adapter.respond_to?(:send_file)
+          @adapter.send_file(@chat_id, path, name: name)
+        else
+          # Fallback for adapters that don't support file sending
+          send_text("File: #{name || File.basename(path)}\n#{path}")
+        end
+      rescue StandardError => e
+        warn "[ChannelUI] send_file failed (#{@platform}/#{@chat_id}): #{e.message}"
+        send_text("Failed to send file: #{File.basename(path)}")
       end
 
       def buffer_line(line)

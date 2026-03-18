@@ -28,10 +28,12 @@ module Clacky
 
     # === Output display ===
 
-    def show_assistant_message(content)
-      return if content.nil? || content.strip.empty?
+    def show_assistant_message(content, files:)
+      return if (content.nil? || content.strip.empty?) && files.empty?
 
-      emit("assistant_message", content: content)
+      data = { content: content.to_s }
+      data[:files] = files if files.any?
+      emit("assistant_message", **data)
     end
 
     def show_tool_call(name, args)

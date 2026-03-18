@@ -357,7 +357,7 @@ module Clacky
 
       # Show assistant message
       # @param content [String] Message content
-      def show_assistant_message(content)
+      def show_assistant_message(content, files:)
         # Filter out thinking tags from models like MiniMax M2.1 that use <think>...</think>
         filtered_content = filter_thinking_tags(content)
         return if filtered_content.nil? || filtered_content.strip.empty?

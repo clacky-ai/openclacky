@@ -35,7 +35,7 @@ module Clacky
         @events << ev
       end
 
-      def show_assistant_message(content)
+      def show_assistant_message(content, files:)
         return if content.nil? || content.to_s.strip.empty?
 
         @events << { type: "assistant_message", session_id: @session_id, content: content }
@@ -152,9 +152,11 @@ module Clacky
           session_builder:  method(:build_session)
         )
         @channel_manager = Clacky::Channel::ChannelManager.new(
-          session_registry: @registry,
-          session_builder:  method(:build_session),
-          channel_config:   Clacky::ChannelConfig.load
+          session_registry:  @registry,
+          session_builder:   method(:build_session),
+          run_agent_task:    method(:run_agent_task),
+          interrupt_session: method(:interrupt_session),
+          channel_config:    Clacky::ChannelConfig.load
         )
         @skill_loader    = Clacky::SkillLoader.new(working_dir: nil, brand_config: Clacky::BrandConfig.load)
       end

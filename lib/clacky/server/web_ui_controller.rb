@@ -72,11 +72,11 @@ module Clacky
         emit("history_user_message", **data)
       end
 
-      def show_assistant_message(content)
+      def show_assistant_message(content, files:)
         return if content.nil? || content.to_s.strip.empty?
 
-        emit("assistant_message", content: content)
-        forward_to_subscribers { |sub| sub.show_assistant_message(content) }
+        emit("assistant_message", content: content, files: files)
+        forward_to_subscribers { |sub| sub.show_assistant_message(content, files: files) }
       end
 
       def show_tool_call(name, args)

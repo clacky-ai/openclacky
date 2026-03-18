@@ -5,7 +5,9 @@ module Clacky
   # All UI controllers (UIController, JsonUIController) must implement these methods.
   module UIInterface
     # === Output display ===
-    def show_assistant_message(content); end
+    # @param content [String] text portion of the assistant reply (file:// links stripped)
+    # @param files   [Array<Hash>] extracted file refs: [{ name:, path:, inline: }]
+    def show_assistant_message(content, files:); end
     def show_tool_call(name, args); end
     def show_tool_result(result); end
     def show_tool_error(error); end

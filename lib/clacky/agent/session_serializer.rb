@@ -198,7 +198,7 @@ module Clacky
         when "assistant"
           # Text content
           text = extract_text_from_content(msg[:content]).to_s.strip
-          ui.show_assistant_message(text) unless text.empty?
+          ui.show_assistant_message(text, files: []) unless text.empty?
 
           # Tool calls embedded in assistant message
           Array(msg[:tool_calls]).each do |tc|
@@ -210,7 +210,7 @@ module Clacky
             # assistant message (matching real-time behavior), not as a tool call.
             if name == "request_user_feedback"
               question = args.is_a?(Hash) ? (args[:question] || args["question"]).to_s : ""
-              ui.show_assistant_message(question) unless question.empty?
+              ui.show_assistant_message(question, files: []) unless question.empty?
             else
               ui.show_tool_call(name, args)
             end
