@@ -3,11 +3,265 @@
 require "shellwords"
 require "yaml"
 require "tmpdir"
+require "json"
+require "open3"
+require "socket"
+require "net/http"
 require_relative "base"
 require_relative "shell"
 
 module Clacky
   module Tools
+    # Detects the user's default Chromium-based browser and resolves its
+    # userDataDir so we can read DevToolsActivePort and connect to the
+    # running browser directly — identical to how openclaw does it.
+    module ChromiumDetector
+      # Minimum Chromium major version that supports the attach consent dialog
+      # (the "Allow remote debugging?" popup that lets us connect without
+      # pre-launching Chrome with --remote-debugging-port).
+      MIN_CHROMIUM_MAJOR = 144
+
+      # macOS Launch Services plist — records which app handles http/https
+      MAC_LS_PLIST = File.expand_path(
+        "~/Library/Preferences/com.apple.LaunchServices/com.apple.launchservices.secure.plist"
+      )
+
+      # Known Chromium-based bundle IDs on macOS, in rough priority order.
+      # Note: Edge on macOS uses "com.microsoft.edgemac" (not "com.microsoft.Edge").
+      MAC_CHROMIUM_BUNDLE_IDS = {
+        "com.google.Chrome"                  => :chrome,
+        "com.google.Chrome.beta"             => :chrome,
+        "com.google.Chrome.canary"           => :chrome,
+        "com.google.Chrome.dev"              => :chrome,
+        "com.microsoft.edgemac"              => :edge,   # real macOS bundle ID
+        "com.microsoft.edgemac.Beta"         => :edge,
+        "com.microsoft.edgemac.Dev"          => :edge,
+        "com.microsoft.edgemac.Canary"       => :edge,
+        "com.microsoft.Edge"                 => :edge,   # kept for compatibility
+        "com.microsoft.EdgeBeta"             => :edge,
+        "com.microsoft.EdgeDev"              => :edge,
+        "com.microsoft.EdgeCanary"           => :edge,
+        "com.brave.Browser"                  => :brave,
+        "com.brave.Browser.beta"             => :brave,
+        "com.brave.Browser.nightly"          => :brave,
+        "org.chromium.Chromium"              => :chromium,
+        "com.vivaldi.Vivaldi"                => :chromium,
+        "com.operasoftware.Opera"            => :chromium,
+        "com.operasoftware.OperaGX"          => :chromium,
+        "com.yandex.desktop.yandex-browser"  => :chromium,
+        "company.thebrowser.Browser"         => :chromium, # Arc
+      }.freeze
+
+      # macOS userDataDir per browser kind.
+      # Edge stores data under "Microsoft Edge", not "msedge".
+      MAC_USER_DATA_DIRS = {
+        chrome:   "~/Library/Application Support/Google/Chrome",
+        edge:     "~/Library/Application Support/Microsoft Edge",
+        brave:    "~/Library/Application Support/BraveSoftware/Brave-Browser",
+        chromium: "~/Library/Application Support/Chromium",
+      }.freeze
+
+      # Fallback app paths to search when default browser is not Chromium
+      MAC_FALLBACK_BROWSERS = [
+        { kind: :chrome,   path: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" },
+        { kind: :chrome,   path: "~/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" },
+        { kind: :edge,     path: "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge" },
+        { kind: :edge,     path: "~/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge" },
+        { kind: :brave,    path: "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser" },
+        { kind: :brave,    path: "~/Applications/Brave Browser.app/Contents/MacOS/Brave Browser" },
+        { kind: :chromium, path: "/Applications/Chromium.app/Contents/MacOS/Chromium" },
+        { kind: :chromium, path: "~/Applications/Chromium.app/Contents/MacOS/Chromium" },
+      ].freeze
+
+      # Linux .desktop IDs that belong to Chromium-based browsers
+      LINUX_CHROMIUM_DESKTOP_IDS = %w[
+        google-chrome.desktop
+        google-chrome-beta.desktop
+        google-chrome-unstable.desktop
+        brave-browser.desktop
+        microsoft-edge.desktop
+        microsoft-edge-beta.desktop
+        microsoft-edge-dev.desktop
+        chromium.desktop
+        chromium-browser.desktop
+        vivaldi.desktop
+        vivaldi-stable.desktop
+        opera.desktop
+        org.chromium.Chromium.desktop
+      ].freeze
+
+      # Linux userDataDir per desktop-id kind
+      LINUX_USER_DATA_DIRS = {
+        chrome:   "~/.config/google-chrome",
+        edge:     "~/.config/microsoft-edge",
+        brave:    "~/.config/BraveSoftware/Brave-Browser",
+        chromium: "~/.config/chromium",
+      }.freeze
+
+      # Windows AppData paths (resolved at runtime via ENV)
+      # Returns {kind: Symbol, user_data_dir: String} or nil
+      def self.detect
+        case RUBY_PLATFORM
+        when /darwin/
+          detect_mac
+        when /linux/
+          detect_linux
+        when /mswin|mingw|cygwin/
+          detect_windows
+        end
+      end
+
+      # --- macOS ---
+
+      def self.detect_mac
+        bundle_id = mac_default_browser_bundle_id
+        kind = bundle_id && MAC_CHROMIUM_BUNDLE_IDS[bundle_id]
+
+        if kind
+          user_data_dir = File.expand_path(MAC_USER_DATA_DIRS[kind])
+          # No version check here — Stage 2/3 (DevToolsActivePort) validates connectivity.
+          # Version check via osascript is too slow (1-2 s) for the hot path.
+          return { kind: kind, user_data_dir: user_data_dir, default_is_chromium: true }
+        end
+
+        # Default browser is not Chromium — search installed fallback browsers.
+        fallback = mac_fallback_chromium
+        fallback&.merge(default_is_chromium: false)
+      end
+
+      private_class_method def self.mac_default_browser_bundle_id
+        return nil unless File.exist?(MAC_LS_PLIST)
+
+        raw = run_cmd("/usr/bin/plutil",
+                      "-extract", "LSHandlers", "json", "-o", "-", "--", MAC_LS_PLIST)
+        return nil unless raw
+
+        handlers = JSON.parse(raw) rescue nil
+        return nil unless handlers.is_a?(Array)
+
+        %w[http https].each do |scheme|
+          handlers.each do |entry|
+            next unless entry.is_a?(Hash) && entry["LSHandlerURLScheme"] == scheme
+            id = entry["LSHandlerRoleAll"] || entry["LSHandlerRoleViewer"]
+            return id if id
+          end
+        end
+        nil
+      end
+
+      private_class_method def self.mac_browser_version_for_bundle(bundle_id)
+        app_path_raw = run_cmd("/usr/bin/osascript",
+                               "-e", %(POSIX path of (path to application id "#{bundle_id}")))
+        return nil unless app_path_raw
+
+        app_path = app_path_raw.strip.chomp("/")
+        exe_name = run_cmd("/usr/bin/defaults",
+                           "read", "#{app_path}/Contents/Info", "CFBundleShortVersionString")
+        return nil unless exe_name
+
+        exe_name.strip
+      end
+
+      private_class_method def self.mac_fallback_chromium
+        MAC_FALLBACK_BROWSERS.each do |entry|
+          path = File.expand_path(entry[:path])
+          next unless File.executable?(path)
+
+          user_data_dir = File.expand_path(MAC_USER_DATA_DIRS[entry[:kind]])
+          return { kind: entry[:kind], user_data_dir: user_data_dir }
+        end
+        nil
+      end
+
+      # --- Linux ---
+
+      def self.detect_linux
+        desktop_id = linux_default_desktop_id
+        kind = linux_kind_from_desktop_id(desktop_id)
+
+        if kind
+          user_data_dir = File.expand_path(LINUX_USER_DATA_DIRS[kind])
+          return { kind: kind, user_data_dir: user_data_dir, default_is_chromium: true }
+        end
+
+        fallback = linux_fallback_chromium
+        fallback&.merge(default_is_chromium: false)
+      end
+
+      private_class_method def self.linux_default_desktop_id
+        id = run_cmd("xdg-settings", "get", "default-web-browser") ||
+             run_cmd("xdg-mime", "query", "default", "x-scheme-handler/http")
+        id&.strip
+      end
+
+      private_class_method def self.linux_kind_from_desktop_id(desktop_id)
+        return nil unless desktop_id && LINUX_CHROMIUM_DESKTOP_IDS.include?(desktop_id)
+
+        case desktop_id
+        when /brave/    then :brave
+        when /edge/     then :edge
+        when /chromium/ then :chromium
+        else                 :chrome
+        end
+      end
+
+      private_class_method def self.linux_fallback_chromium
+        candidates = [
+          { kind: :chrome,   path: "/usr/bin/google-chrome" },
+          { kind: :chrome,   path: "/usr/bin/google-chrome-stable" },
+          { kind: :brave,    path: "/usr/bin/brave-browser" },
+          { kind: :edge,     path: "/usr/bin/microsoft-edge" },
+          { kind: :chromium, path: "/usr/bin/chromium" },
+          { kind: :chromium, path: "/usr/bin/chromium-browser" },
+          { kind: :chromium, path: "/snap/bin/chromium" },
+        ]
+        candidates.each do |entry|
+          next unless File.executable?(entry[:path])
+          user_data_dir = File.expand_path(LINUX_USER_DATA_DIRS[entry[:kind]])
+          return { kind: entry[:kind], user_data_dir: user_data_dir }
+        end
+        nil
+      end
+
+      # --- Windows ---
+
+      def self.detect_windows
+        local_app_data = ENV["LOCALAPPDATA"] || ""
+        return nil if local_app_data.empty?
+
+        # On Windows we only scan for known Chromium-based browsers.
+        # All successfully detected browsers count as default_is_chromium: true
+        # because we have no reliable way to detect the OS default browser here.
+        candidates = [
+          { kind: :chrome,   dir: File.join(local_app_data, "Google", "Chrome", "User Data") },
+          { kind: :edge,     dir: File.join(local_app_data, "Microsoft", "Edge", "User Data") },
+          { kind: :brave,    dir: File.join(local_app_data, "BraveSoftware", "Brave-Browser", "User Data") },
+          { kind: :chromium, dir: File.join(local_app_data, "Chromium", "User Data") },
+        ]
+        candidates.each do |entry|
+          # Check if the UserData dir exists (browser installed and has been used)
+          next unless File.directory?(entry[:dir])
+          return { kind: entry[:kind], user_data_dir: entry[:dir], default_is_chromium: true }
+        end
+        nil
+      end
+
+      # --- Helpers ---
+
+      private_class_method def self.chromium_version_ok?(version_str)
+        return true if version_str.nil? # unknown version — optimistically allow
+        major = version_str.to_s.match(/(\d+)/)&.[](1).to_i
+        major == 0 || major >= MIN_CHROMIUM_MAJOR
+      end
+
+      private_class_method def self.run_cmd(*args)
+        out, _err, status = Open3.capture3(*args.map(&:to_s))
+        status.success? ? out.strip : nil
+      rescue StandardError
+        nil
+      end
+    end
+
     class Browser < Base
       self.tool_name = "browser"
       self.tool_description = <<~DESC
@@ -46,28 +300,37 @@ module Clacky
       BROWSER_COMMAND_TIMEOUT = 30
       MIN_AGENT_BROWSER_VERSION = "0.20.0"
 
+      # DevToolsActivePort poll settings — Chrome/Edge 144+ writes this file
+      # after the user clicks "Allow" in the attach consent dialog.
+      #
+      # Two wait budgets:
+      #   SHORT — browser just restarted; CDP is already enabled (user-enabled=true)
+      #           and the server starts quickly. 5 s is plenty.
+      #   LONG  — user needs to open edge://inspect and tick the checkbox
+      #           (user-enabled=false). We give them 45 s to find and click it.
+      DEV_TOOLS_PORT_WAIT_SECS_SHORT = 5
+      DEV_TOOLS_PORT_WAIT_SECS_LONG  = 45
+      DEV_TOOLS_PORT_POLL_INTERVAL   = 0.3
+
       # Inline config — reads ~/.clacky/browser.yml, falls back to built-in defaults.
       #
       # Example ~/.clacky/browser.yml:
       #   headed: true          # show browser window (default: true)
       #   session_name: clacky  # persistent session name (default: clacky)
-      #   auto_connect: false   # false = built-in browser (default), true = user's Chrome
       class BrowserConfig
         USER_CONFIG_FILE = File.join(Dir.home, ".clacky", "browser.yml")
 
         DEFAULTS = {
           "headed"       => true,
-          "session_name" => "clacky",
-          "auto_connect" => false
+          "session_name" => "clacky"
         }.freeze
 
-        attr_reader :headed, :session_name, :auto_connect
+        attr_reader :headed, :session_name
 
         def initialize(attrs = {})
           merged = DEFAULTS.merge(attrs)
           @headed       = merged["headed"]
           @session_name = merged["session_name"]
-          @auto_connect = merged["auto_connect"]
         end
 
         def self.load
@@ -85,15 +348,41 @@ module Clacky
 
         cfg = BrowserConfig.load
 
-        # In auto_connect mode, open commands become new tabs in user's Chrome
-        effective_command = command
-        if cfg.auto_connect && (m = command.strip.match(/\A(open|goto|navigate)\s+(.+)\z/i))
-          effective_command = "tab new #{m[2].strip}"
+        # Detect the system's default browser once for the entire request.
+        # We use the result to (a) find the CDP port and (b) warn when the
+        # default browser is not Chromium-based.
+        browser_info = ChromiumDetector.detect
+
+        # Step 1: Try to connect to the user's real browser via CDP.
+        #         Three-stage discovery: DevToolsActivePort file → trigger popup.
+        #         This replicates openclaw's "existing-session" experience without any config.
+        #         Pass browser_info so we don't call ChromiumDetector.detect twice.
+        cdp_port = resolve_user_browser_cdp_port(browser_info)
+
+        if cdp_port
+          # In real-browser mode, 'open' becomes 'tab new' so we open in a new tab
+          # of the user's existing window instead of navigating away from their page.
+          effective_command = rewrite_open_as_tab(command, real_browser: true)
+          full_command = build_command(effective_command, cdp_port: cdp_port)
+
+          result = Shell.new.execute(command: full_command,
+                                     hard_timeout: BROWSER_COMMAND_TIMEOUT,
+                                     working_dir: working_dir)
+
+          if result[:success] || !user_browser_connect_error?(result)
+            result[:command] = command
+            result[:browser_mode] = :user_browser
+            return format_result_hash(result)
+          end
+
+          # Connection failed (browser closed, user dismissed popup, etc.).
+          # Fall through to sandboxed browser.
         end
 
+        # Step 2: Fallback — launch agent-browser's own sandboxed Chromium.
+        effective_command = command
         full_command = build_command(effective_command,
-                                     auto_connect: cfg.auto_connect,
-                                     session_name: cfg.auto_connect ? nil : cfg.session_name,
+                                     session_name: cfg.session_name,
                                      headed: cfg.headed)
 
         result = Shell.new.execute(command: full_command,
@@ -102,17 +391,20 @@ module Clacky
 
         # Session may have been closed — retry without session name
         if !result[:success] && session_closed_error?(result) && cfg.session_name
-          full_command = build_command(effective_command,
-                                       auto_connect: cfg.auto_connect,
-                                       session_name: nil,
-                                       headed: cfg.headed)
+          full_command = build_command(effective_command, headed: cfg.headed)
           result = Shell.new.execute(command: full_command,
                                      hard_timeout: BROWSER_COMMAND_TIMEOUT,
                                      working_dir: working_dir)
         end
 
         result[:command] = command
-        result
+        result[:browser_mode] = :sandbox
+
+        # Attach a human-readable notice when we had to fall back because the
+        # default browser is not Chromium-based.
+        result[:browser_notice] = sandbox_fallback_notice(browser_info)
+
+        format_result_hash(result)
       rescue StandardError => e
         { error: "Failed to run agent-browser: #{e.message}" }
       end
@@ -166,28 +458,288 @@ module Clacky
         compact[:stderr]      = stderr_info[:content] unless stderr.empty?
         compact[:stderr_full] = stderr_info[:temp_file] if stderr_info[:temp_file]
 
+        # Forward the browser notice so the LLM can relay it to the user.
+        compact[:browser_notice] = result[:browser_notice] if result[:browser_notice]
+
         compact
       end
 
       private
 
-      def agent_browser_ready?
+      # -----------------------------------------------------------------------
+      # Real-browser connection — three-stage discovery
+      # -----------------------------------------------------------------------
+
+      # Returns a CDP port number for the user's default Chromium browser, or nil.
+      #
+      # We exclusively use the browser's own DevToolsActivePort file, which
+      # Chrome/Edge 144+ writes to <userDataDir> after the user allows remote
+      # debugging. This approach is immune to other Chromium processes that may
+      # be running on well-known ports (e.g. a dev Chrome with --remote-debugging-port=9222).
+      #
+      # Stage 1 — read DevToolsActivePort (already allowed, normal path)
+      # Stage 2 — trigger the attach consent dialog, then poll for the file
+      # Returns a notice string to include in the sandbox-fallback result, explaining
+      # why we couldn't connect to the user's real browser.
+      # Returns nil when the default browser IS Chromium and already connected.
+      private def sandbox_fallback_notice(browser_info)
+        if browser_info.nil?
+          # Could not detect any Chromium-based browser at all.
+          "⚠️  No Chromium-based browser found on this system. " \
+          "Using a sandboxed browser instead. " \
+          "For best results, please install Google Chrome, Microsoft Edge, or Brave."
+
+        elsif browser_info[:default_is_chromium] == false
+          # A Chromium browser was found as fallback, but the OS default is not Chromium.
+          fallback_kind = browser_info[:kind].to_s.capitalize
+          "⚠️  Your default browser is not Chromium-based, so it cannot be controlled by the agent. " \
+          "Using #{fallback_kind} (found on this system) in sandboxed mode instead. " \
+          "For the best experience, set Chrome, Edge, or Brave as your default browser."
+
+        end
+        # Returns nil implicitly when the browser is Chromium and CDP is reachable.
+      end
+
+      # Returns a CDP port or nil.
+      #
+      # Stage 1 — DevToolsActivePort file exists AND HTTP /json/version returns 200.
+      #           Fast-path: the user's browser is already running with CDP enabled
+      #           (e.g. launched via edge://inspect/#remote-debugging previously).
+      #           We connect directly — zero disruption to the user's session.
+      #
+      # Stage 2 — No reachable CDP port. We spawn a brand-new, isolated browser
+      #           instance with --remote-debugging-port=0 in a temporary user-data-dir.
+      #           This approach:
+      #             • Never touches the user's running browser or their open tabs
+      #             • Completely bypasses the approval-mode consent dialog (which only
+      #               appears for *attach* connections, not self-debugged launches)
+      #             • Works even when the user's browser is not running at all
+      #           The new instance starts headless in the background. The agent's
+      #           commands run inside it, isolated from the user's real profile.
+      #
+      # Returns nil when CDP cannot be established (unsupported platform, browser
+      # binary not found, or spawn timed out).
+      private def resolve_user_browser_cdp_port(info = nil)
+        info ||= ChromiumDetector.detect
+        return nil unless info
+
+        # Stage 1: DevToolsActivePort file exists AND CDP HTTP is fully ready (200 OK).
+        port = read_dev_tools_port_once(info[:user_data_dir])
+        if port && cdp_port_alive?(port)
+          return port
+        end
+
+        # Stage 2: spawn a new browser instance with CDP enabled, reusing the
+        # user's real user-data-dir so login state and cookies are preserved.
+        spawn_debugging_browser(info[:kind], info[:user_data_dir])
+      end
+
+      # Returns true if the CDP endpoint at the given port is fully ready —
+      # i.e. GET /json/version returns HTTP 200 with JSON content.
+      #
+      # Edge in approval-mode listens on TCP but returns HTTP 404 until the user
+      # clicks "Allow" in the consent dialog. TCP-only probes cannot distinguish
+      # between "ready" and "waiting for approval", so we use HTTP here.
+      private def cdp_port_alive?(port)
+        uri = URI("http://127.0.0.1:#{port}/json/version")
+        res = Net::HTTP.start(uri.host, uri.port, open_timeout: 1, read_timeout: 2) do |http|
+          http.get(uri.path)
+        end
+        res.is_a?(Net::HTTPOK) && !res.body.to_s.empty?
+      rescue StandardError
+        false
+      end
+
+
+      # Read DevToolsActivePort immediately — no waiting.
+      # Returns port Integer or nil.
+      private def read_dev_tools_port_once(user_data_dir)
+        port_file = File.join(user_data_dir, "DevToolsActivePort")
+        return nil unless File.exist?(port_file)
+
+        content = File.read(port_file).strip
+        port    = content.lines.first&.strip
+        (port =~ /\A\d+\z/ && port.to_i > 0) ? port.to_i : nil
+      rescue StandardError
+        nil
+      end
+
+      # Poll for DevToolsActivePort up to `wait_secs` seconds.
+      private def read_dev_tools_port(user_data_dir, wait_secs)
+        deadline = Time.now + wait_secs
+        loop do
+          port = read_dev_tools_port_once(user_data_dir)
+          return port if port
+          break if Time.now >= deadline
+          sleep DEV_TOOLS_PORT_POLL_INTERVAL
+        end
+        nil
+      end
+
+      # Returns true if the browser's Local State indicates the user has enabled
+      # remote debugging via the inspect page (devtools.remote_debugging.user-enabled).
+      #
+      # When this pref is true, the browser starts the CDP server automatically
+      # on launch (approval-mode). When false, it does nothing until the user
+      # ticks the checkbox on the inspect page.
+      #
+      # Falls back to false if the file cannot be read or parsed — safer to
+      # assume setup is needed than to wait too short.
+      private def cdp_user_enabled?(user_data_dir)
+        local_state_path = File.join(user_data_dir, "Local State")
+        return false unless File.exist?(local_state_path)
+
+        data = JSON.parse(File.read(local_state_path))
+        data.dig("devtools", "remote_debugging", "user-enabled") == true
+      rescue StandardError
+        false
+      end
+
+      # Open the browser's inspect page to trigger the "Allow remote debugging?"
+      # consent dialog (Chrome/Edge 144+ feature).
+      # MacOS application names for each browser kind (used with `open -a`)
+      MAC_BROWSER_APP_NAMES = {
+        chrome:   "Google Chrome",
+        edge:     "Microsoft Edge",
+        brave:    "Brave Browser",
+        chromium: "Chromium",
+      }.freeze
+
+      # Internal URL schemes for the DevTools inspect page
+      CDP_INSPECT_SCHEMES = {
+        chrome:   "chrome",
+        edge:     "edge",
+        brave:    "brave",
+        chromium: "chrome",
+      }.freeze
+
+      # macOS binary paths for each browser kind — used to launch a new debugging
+      # instance with --remote-debugging-port=0 directly (not via `open -a`, which
+      # doesn't forward flags to an already-running browser process).
+      MAC_BROWSER_EXECUTABLES = {
+        chrome:   "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+        edge:     "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+        brave:    "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
+        chromium: "/Applications/Chromium.app/Contents/MacOS/Chromium",
+      }.freeze
+
+      # Spawn a new browser instance with --remote-debugging-port=0, reusing the
+      # user's real user-data-dir (so cookies and login state are fully preserved).
+      #
+      # Chromium prevents two processes from sharing the same user-data-dir via
+      # three symlink "Singleton" files (SingletonLock, SingletonCookie,
+      # SingletonSocket). We remove those files before launching so the new
+      # instance treats the directory as unclaimed. The original browser process
+      # (if running) is left completely undisturbed — the user's tabs stay open.
+      #
+      # The browser writes the chosen port to DevToolsActivePort in the data dir
+      # as soon as its CDP server is ready. We poll for that file and do an HTTP
+      # health-check before returning.
+      #
+      # Returns the CDP port Integer on success, or nil on failure.
+      private def spawn_debugging_browser(browser_kind, user_data_dir)
+        return nil unless RUBY_PLATFORM.include?("darwin")
+
+        exe = MAC_BROWSER_EXECUTABLES[browser_kind]
+        exe = File.expand_path(exe)
+        return nil unless exe && File.executable?(exe)
+
+        # Remove Chromium's singleton lock files so the new instance can claim
+        # the directory without conflicting with the already-running browser.
+        %w[SingletonLock SingletonCookie SingletonSocket].each do |f|
+          File.delete(File.join(user_data_dir, f)) rescue nil
+        end
+
+        # Remove stale port file so we can detect the fresh one cleanly.
+        File.delete(File.join(user_data_dir, "DevToolsActivePort")) rescue nil
+
+        # Launch directly (not via `open -a`) so flags reach the new process.
+        # Stdout/stderr go to /dev/null to avoid polluting agent output.
+        Process.spawn(
+          exe,
+          "--remote-debugging-port=0",
+          "--user-data-dir=#{user_data_dir}",
+          "--no-first-run",
+          [:out, :err] => File::NULL
+        )
+        # Intentionally no Process.wait — browser must stay running.
+
+        # Poll DevToolsActivePort, then HTTP-verify CDP is truly ready.
+        deadline = Time.now + DEV_TOOLS_PORT_WAIT_SECS_SHORT
+        loop do
+          port = read_dev_tools_port_once(user_data_dir)
+          return port if port && cdp_port_alive?(port)
+          break if Time.now >= deadline
+          sleep DEV_TOOLS_PORT_POLL_INTERVAL
+        end
+
+        nil
+      end
+
+      # -----------------------------------------------------------------------
+      # Command building
+      # -----------------------------------------------------------------------
+
+      # Rewrites 'open <url>' to 'tab new <url>' when connecting to the user's
+      # real browser, so we open a new tab instead of hijacking an existing page.
+      private def rewrite_open_as_tab(command, real_browser: false)
+        return command unless real_browser
+        if (m = command.strip.match(/\A(?:open|goto|navigate)\s+(.+)\z/i))
+          "tab new #{m[1].strip}"
+        else
+          command
+        end
+      end
+
+      private def build_command(command, cdp_port: nil, session_name: nil, headed: true)
+        parts = [AGENT_BROWSER_BIN]
+        if cdp_port
+          # Connect to user's real browser via CDP — no session-name, no --headed flag
+          parts += ["--cdp", cdp_port.to_s]
+        else
+          parts << "--headed" if headed
+          parts += ["--session-name", Shellwords.escape(session_name)] if session_name
+        end
+        parts << command
+        parts.join(" ")
+      end
+
+      # -----------------------------------------------------------------------
+      # Error detection helpers
+      # -----------------------------------------------------------------------
+
+      private def user_browser_connect_error?(result)
+        output = "#{result[:stderr]}#{result[:stdout]}"
+        # Typical messages when the browser isn't reachable or the CDP port is gone
+        output.match?(/ECONNREFUSED|ECONNRESET|net::ERR|connect.*refused|Cannot connect|not.*running|Failed to connect/i)
+      end
+
+      private def session_closed_error?(result)
+        output = "#{result[:stderr]}#{result[:stdout]}"
+        output.include?("has been close") || output.include?("has been closed")
+      end
+
+      # -----------------------------------------------------------------------
+      # agent-browser availability
+      # -----------------------------------------------------------------------
+
+      private def agent_browser_ready?
         agent_browser_installed? && !agent_browser_outdated?
       end
 
-      def not_ready_response
+      private def not_ready_response
         {
           error: "agent-browser not ready",
           instructions: "Tell the user that browser automation is not set up yet, and ask them to run `/onboard browser` to complete the setup."
         }
       end
 
-      def agent_browser_installed?
+      private def agent_browser_installed?
         result = Shell.new.execute(command: "which #{AGENT_BROWSER_BIN}")
         result[:success] && !result[:stdout].to_s.strip.empty?
       end
 
-      def agent_browser_outdated?
+      private def agent_browser_outdated?
         result  = Shell.new.execute(command: "#{AGENT_BROWSER_BIN} --version")
         version = result[:stdout].to_s.strip.split.last
         return false if version.nil? || version.empty?
@@ -196,21 +748,16 @@ module Clacky
         false
       end
 
-      def build_command(command, auto_connect: false, session_name: nil, headed: true)
-        parts = [AGENT_BROWSER_BIN]
-        parts << "--auto-connect" if auto_connect
-        parts << "--headed"       if headed
-        parts += ["--session-name", Shellwords.escape(session_name)] if session_name
-        parts << command
-        parts.join(" ")
+      # -----------------------------------------------------------------------
+      # Output formatting helpers
+      # -----------------------------------------------------------------------
+
+      # Normalises the raw Shell result into the hash format used internally
+      private def format_result_hash(result)
+        result
       end
 
-      def session_closed_error?(result)
-        output = "#{result[:stderr]}#{result[:stdout]}"
-        output.include?("has been close") || output.include?("has been closed")
-      end
-
-      def snapshot_command?(command)
+      private def snapshot_command?(command)
         return false unless command.is_a?(String)
         cmd = command.strip.downcase
         cmd == "snapshot" || cmd.start_with?("snapshot ")
@@ -222,7 +769,7 @@ module Clacky
       #   - "- /url: ..." lines         — LLM uses [ref=eN], not URLs
       #   - "- /placeholder: ..." lines  — already shown inline in textbox label
       #   - bare "- img" lines with no alt text — zero information
-      def compress_snapshot(output)
+      private def compress_snapshot(output)
         return output if output.empty?
 
         lines    = output.lines
@@ -238,12 +785,12 @@ module Clacky
         filtered.join
       end
 
-      def command_name_for_temp(command)
+      private def command_name_for_temp(command)
         first_word = (command || "").strip.split(/\s+/).first
         File.basename(first_word.to_s, ".*")
       end
 
-      def truncate_and_save(output, max_chars, _label, command_name)
+      private def truncate_and_save(output, max_chars, _label, command_name)
         return { content: "", temp_file: nil } if output.empty?
         return { content: output, temp_file: nil } if output.length <= max_chars
 
