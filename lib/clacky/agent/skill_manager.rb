@@ -136,15 +136,6 @@ module Clacky
       # instructions and acts on them — no waiting for the LLM to discover and call
       # invoke_skill on its own.
       #
-      # Message structure after injection:
-      #   user:      "/pptx write a deck about X"
-      #   assistant: "[full skill content]"   <- injected here
-      #   (LLM continues from here)
-      #
-      # Fires when:
-      #   1. Input starts with "/"
-      #   2. The named skill exists and is user-invocable
-      #
       # @param user_input [String] Raw user input
       # @param task_id [Integer] Current task ID (for message tagging)
       # @return [void]
@@ -161,25 +152,32 @@ module Clacky
           return
         end
 
-        # Expand skill content (substitutes $ARGUMENTS if present)
+        inject_skill_as_assistant_message(skill, arguments, task_id)
+      end
+
+      # Core injection logic: expand skill content and insert as synthetic assistant + user messages.
+      #
+      # Used by both the slash command path (inject_skill_command_as_assistant_message)
+      # and the invoke_skill tool path (InvokeSkill#execute), so all skills go through
+      # a single unified injection pipeline.
+      #
+      # Message structure after injection:
+      #   assistant: "[expanded skill content]"    ← system_injected (skill instructions)
+      #   user:      "[SYSTEM] Please proceed..."  ← system_injected (Claude compat shim)
+      #
+      # For brand skills (encrypted), both messages are marked transient: true so they
+      # are excluded from session.json serialization — the LLM sees the content during
+      # the current session but it is never persisted to disk.
+      #
+      # @param skill [Skill] The skill to inject
+      # @param arguments [String] Arguments / task description for the skill
+      # @param task_id [Integer] Current task ID (for message tagging)
+      # @return [void]
+      def inject_skill_as_assistant_message(skill, arguments, task_id)
+        # Expand skill content (substitutes $ARGUMENTS and template variables)
         expanded_content = skill.process_content(arguments, template_context: build_template_context)
 
-        # Inject as a synthetic assistant message so the LLM treats it as already read.
-        #
-        # Then immediately append a synthetic user message to keep the conversation
-        # sequence valid for strict providers like Claude (Anthropic API), which require
-        # alternating user/assistant turns. Without this extra user message the next
-        # real LLM call would find an assistant message at the tail of the history,
-        # causing a 400 "invalid message order" error.
-        #
-        # For encrypted (brand) skills, both injected messages are marked transient: true
-        # so they are excluded from session.json serialization. The LLM sees the content
-        # during the current session, but it is never persisted to disk.
-        #
-        # Final message order:
-        #   user:      "/skill-name [args]"          ← real user input
-        #   assistant: "[expanded skill content]"    ← system_injected (skill instructions)
-        #   user:      "[SYSTEM] Please proceed..."  ← system_injected (Claude compat shim)
+        # Brand skill plaintext must not be persisted to session.json.
         transient = skill.encrypted?
 
         @history.append({
@@ -190,6 +188,10 @@ module Clacky
           transient: transient
         })
 
+        # Append a synthetic user message to keep the conversation sequence valid for
+        # strict providers like Claude (Anthropic API), which require alternating
+        # user/assistant turns. Without this shim the next real LLM call would find an
+        # assistant message at the tail of the history, causing a 400 error.
         @history.append({
           role: "user",
           content: "[SYSTEM] The skill instructions above have been loaded. Please proceed to execute the task now.",
