@@ -1059,7 +1059,7 @@ module Clacky
       # GET /api/skills — list all loaded skills with metadata
       def api_list_skills(res)
         @skill_loader.load_all  # refresh from disk on each request
-        skills = @skill_loader.all_skills.map do |skill|
+        skills = @skill_loader.all_skills.reject(&:brand_skill).map do |skill|
           source = @skill_loader.loaded_from[skill.identifier]
           entry = {
             name:        skill.identifier,
