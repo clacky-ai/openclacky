@@ -282,30 +282,42 @@ RSpec.describe Clacky::Tools::Browser do
     end
   end
 
-  describe "#chrome_mcp_available?" do
-    it "returns a boolean" do
-      expect([true, false]).to include(tool.send(:chrome_mcp_available?))
+  describe "#node_error" do
+    it "returns nil when node is installed and version is sufficient" do
+      allow(tool).to receive(:node_major_version).and_return(22)
+      expect(tool.send(:node_error)).to be_nil
+    end
+
+    it "returns an error hash when node is not installed" do
+      allow(tool).to receive(:node_major_version).and_return(nil)
+      result = tool.send(:node_error)
+      expect(result).to be_a(Hash)
+      expect(result[:error]).to include("Node.js")
+      expect(result[:error]).to include("nodejs.org")
+    end
+
+    it "returns an error hash when node version is too old" do
+      allow(tool).to receive(:node_major_version).and_return(18)
+      result = tool.send(:node_error)
+      expect(result).to be_a(Hash)
+      expect(result[:error]).to include("版本过低")
+      expect(result[:error]).to include("v18")
     end
   end
 
   describe "#build_mcp_command" do
-    it "returns an array starting with env hash and npx command" do
-      allow(tool).to receive(:find_node_binary).and_return("/usr/local/bin/node")
+    it "returns an array starting with npx" do
       cmd = tool.send(:build_mcp_command)
       expect(cmd).to be_an(Array)
-      expect(cmd.first).to be_a(Hash)        # env hash
-      expect(cmd.first["NODE"]).to eq("/usr/local/bin/node")
-      expect(cmd[1]).to be_a(String)          # npx path
+      expect(cmd.first).to eq("npx")
     end
 
     it "includes --userDataDir when user_data_dir is provided" do
-      allow(tool).to receive(:find_node_binary).and_return("/usr/local/bin/node")
       cmd = tool.send(:build_mcp_command, user_data_dir: "/tmp/profile")
       expect(cmd).to include("--userDataDir", "/tmp/profile")
     end
 
     it "excludes --userDataDir when user_data_dir is nil" do
-      allow(tool).to receive(:find_node_binary).and_return("/usr/local/bin/node")
       cmd = tool.send(:build_mcp_command)
       expect(cmd).not_to include("--userDataDir")
     end

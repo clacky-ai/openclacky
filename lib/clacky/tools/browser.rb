@@ -291,11 +291,8 @@ module Clacky
       end
 
       private def execute_user_browser(action, opts)
-        unless chrome_mcp_available?
-          return {
-            error: "chrome-devtools-mcp requires Node.js and npx. " \
-                   "Install Node.js 18+ and ensure 'npx' is in PATH."
-          }
+        if (err = node_error)
+          return err
         end
 
         unless chrome_installed?
@@ -516,55 +513,79 @@ module Clacky
       # Chrome MCP — process management & JSON-RPC over stdio
       # -----------------------------------------------------------------------
 
-      # Returns the path to a Node.js binary that meets MIN_NODE_MAJOR.
-      # Searches nvm-managed versions first (newest first), then falls back
-      # to the system `node`.  Returns nil if no suitable node is found.
+      # Returns the path to the system `node` binary, or nil if not found.
+      # Does NOT search nvm or other version managers — the user is responsible
+      # for ensuring the correct Node.js version is active in their PATH.
       private def find_node_binary
-        # Check nvm-managed versions (newest LTS first)
-        nvm_base = File.expand_path("~/.nvm/versions/node")
-        if Dir.exist?(nvm_base)
-          candidates = Dir.glob(File.join(nvm_base, "v*/bin/node")).sort.reverse
-          candidates.each do |path|
-            version_str = path.split("/").reverse[2] # e.g. "v22.22.0"
-            major = version_str.gsub(/^v/, "").split(".").first.to_i
-            return path if major >= MIN_NODE_MAJOR
-          end
+        path = `which node 2>/dev/null`.strip
+        return nil if path.empty? || !File.executable?(path)
+
+        path
+      end
+
+      # Returns the installed Node.js major version, or nil if not installed.
+      private def node_major_version
+        node = find_node_binary
+        return nil unless node
+
+        out = `#{node} --version 2>/dev/null`.strip # e.g. "v22.1.0"
+        out.gsub(/^v/, "").split(".").first.to_i
+      end
+
+      # Checks Node.js availability and version.
+      # Returns nil if everything is fine, or an error Hash with a user-facing message.
+      private def node_error
+        major = node_major_version
+
+        if major.nil?
+          return {
+            error: <<~MSG
+              ⚠️  IMPORTANT — STOP and tell the user:
+
+              ──────────────────────────────────────────────────
+              浏览器自动化需要 Node.js（>= #{MIN_NODE_MAJOR}）。
+
+              系统未检测到 Node.js，请安装后重试：
+              https://nodejs.org/en/download
+
+              安装完成后告诉我，我来重试。
+              ──────────────────────────────────────────────────
+
+              Do NOT fall back to web_search or any other workaround.
+            MSG
+          }
         end
 
-        # Fall back to system node
-        sys_node = `which node 2>/dev/null`.strip
-        return nil if sys_node.empty? || !File.executable?(sys_node)
+        if major < MIN_NODE_MAJOR
+          return {
+            error: <<~MSG
+              ⚠️  IMPORTANT — STOP and tell the user:
 
-        version_line = `#{sys_node} --version 2>/dev/null`.strip # "v22.1.0"
-        major = version_line.gsub(/^v/, "").split(".").first.to_i
-        major >= MIN_NODE_MAJOR ? sys_node : nil
+              ──────────────────────────────────────────────────
+              当前 Node.js 版本过低（v#{major}），需要 >= #{MIN_NODE_MAJOR}。
+
+              请升级 Node.js 后重试：
+              https://nodejs.org/en/download
+
+              升级完成后告诉我，我来重试。
+              ──────────────────────────────────────────────────
+
+              Do NOT fall back to web_search or any other workaround.
+            MSG
+          }
+        end
+
+        nil
       end
 
-      # Returns true if a suitable Node.js + npx are available for Chrome MCP.
-      private def chrome_mcp_available?
-        !!find_node_binary
-      end
-
-      # Build the [env, npx_path, *args] command array for chrome-devtools-mcp.
+      # Build the command array for chrome-devtools-mcp.
+      # Uses `npx` from the system PATH — no version-manager magic.
       # If user_data_dir is provided, appends --userDataDir.
       private def build_mcp_command(user_data_dir: nil)
-        node_bin  = find_node_binary
-        node_dir  = File.dirname(node_bin)
-        npx_path  = File.join(node_dir, "npx")
-        npx_path  = "npx" unless File.executable?(npx_path)
-
-        # Prepend the node bin dir so npx resolves the correct node executable
-        env = {
-          "PATH"  => "#{node_dir}:#{ENV.fetch('PATH', '')}",
-          "NODE"  => node_bin
-        }
-
         args = CHROME_MCP_BASE_ARGS.dup
-        if user_data_dir && !user_data_dir.to_s.empty?
-          args += ["--userDataDir", user_data_dir.to_s]
-        end
+        args += ["--userDataDir", user_data_dir.to_s] if user_data_dir && !user_data_dir.to_s.empty?
 
-        [env, npx_path, *args]
+        ["npx", *args]
       end
 
       # Calls a Chrome MCP tool over the persistent daemon process.
