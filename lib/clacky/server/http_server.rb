@@ -210,8 +210,8 @@ module Clacky
 
         server.mount_proc("/") do |req, res|
           if req.path == "/" || req.path == "/index.html"
-            brand_name = Clacky::BrandConfig.load.brand_name || "Clacky"
-            html = File.read(index_html_path).gsub("{{BRAND_NAME}}", brand_name)
+            product_name = Clacky::BrandConfig.load.product_name || "Clacky"
+            html = File.read(index_html_path).gsub("{{BRAND_NAME}}", product_name)
             res.status                = 200
             res["Content-Type"]       = "text/html; charset=utf-8"
             res["Cache-Control"]      = "no-store"
@@ -429,9 +429,9 @@ module Clacky
       # Response:
       #   { branded: false }                              → no brand, nothing to do
       #   { branded: true, needs_activation: true,
-      #     brand_name: "JohnAI" }                       → license key required
+      #     product_name: "JohnAI" }                     → license key required
       #   { branded: true, needs_activation: false,
-      #     brand_name: "JohnAI", warning: "..." }       → activated, possible warning
+      #     product_name: "JohnAI", warning: "..." }     → activated, possible warning
       def api_brand_status(res)
         brand = Clacky::BrandConfig.load
 
@@ -444,7 +444,7 @@ module Clacky
           json_response(res, 200, {
             branded:          true,
             needs_activation: true,
-            brand_name:       brand.brand_name,
+            product_name:     brand.product_name,
             test_mode:        @brand_test
           })
           return
@@ -452,20 +452,20 @@ module Clacky
 
         warning = nil
         if brand.expired?
-          warning = "Your #{brand.brand_name} license has expired. Please renew to continue."
+          warning = "Your #{brand.product_name} license has expired. Please renew to continue."
         elsif brand.grace_period_exceeded?
           warning = "License server unreachable for more than 3 days. Please check your connection."
         elsif brand.license_expires_at && !brand.expired?
           days_remaining = ((brand.license_expires_at - Time.now.utc) / 86_400).ceil
           if days_remaining <= 7
-            warning = "Your #{brand.brand_name} license expires in #{days_remaining} day#{"s" if days_remaining != 1}. Please renew soon."
+            warning = "Your #{brand.product_name} license expires in #{days_remaining} day#{"s" if days_remaining != 1}. Please renew soon."
           end
         end
 
         json_response(res, 200, {
           branded:          true,
           needs_activation: false,
-          brand_name:       brand.brand_name,
+          product_name:     brand.product_name,
           warning:          warning,
           test_mode:        @brand_test,
           user_licensed:    brand.user_licensed?,
@@ -493,9 +493,9 @@ module Clacky
           # skills are loadable from this point forward (e.g. after sync).
           @skill_loader = Clacky::SkillLoader.new(working_dir: nil, brand_config: brand)
           json_response(res, 200, {
-            ok:           true,
-            brand_name:   result[:brand_name] || brand.brand_name,
-            user_id:      result[:user_id] || brand.license_user_id,
+            ok:            true,
+            product_name:  result[:product_name] || brand.product_name,
+            user_id:       result[:user_id] || brand.license_user_id,
             user_licensed: brand.user_licensed?
           })
         else

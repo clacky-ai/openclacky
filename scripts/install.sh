@@ -546,8 +546,8 @@ setup_brand() {
     # Write brand.yml — minimal entry; license_key is filled in later via
     # the CLI or WebUI activation flow.
     cat > "$brand_file" <<YAML
-brand_name: "${BRAND_NAME}"
-brand_command: "${BRAND_COMMAND}"
+product_name: "${BRAND_NAME}"
+package_name: "${BRAND_COMMAND}"
 YAML
 
     print_success "Brand configuration written to $brand_file"

@@ -26,11 +26,11 @@ module Clacky
     end
 
     # Returns the CLI logo text.
-    # If branded, renders brand_command using BlockFont (big Unicode art).
+    # If branded, renders package_name using BlockFont (big Unicode art).
     # Falls back to default OPENCLACKY logo when not branded.
     def cli_logo
       if @brand.branded?
-        render_key = @brand.brand_command.to_s.strip
+        render_key = @brand.package_name.to_s.strip
         render_key = "clacky" if render_key.empty?
         Clacky::BlockFont.render(render_key)
       else
@@ -41,7 +41,7 @@ module Clacky
     # Returns the tagline string.
     def tagline
       if @brand.branded?
-        @brand.brand_name.to_s
+        @brand.product_name.to_s
       else
         TAGLINE
       end

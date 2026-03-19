@@ -9,7 +9,7 @@ module Clacky
     module Components
       # WelcomeBanner displays the startup screen with ASCII logo, tagline, tips, and agent info.
       #
-      # When a brand_name is configured via BrandConfig, the hardcoded OPENCLACKY
+      # When a product_name is configured via BrandConfig, the hardcoded OPENCLACKY
       # ASCII art is replaced by a dynamically generated logo using artii (FIGlet).
       # Falls back to plain text when the terminal is too narrow or artii fails.
       class WelcomeBanner
@@ -124,14 +124,14 @@ module Clacky
         end
 
         # Generate a brand logo using BlockFont (Unicode █ ╗ ╔ style).
-        # Renders brand_command as the big ASCII art logo.
-        # Shows brand_name as a subtitle when it differs from brand_command.
-        # Falls back to plain brand_name text when terminal is too narrow.
+        # Renders package_name as the big ASCII art logo.
+        # Shows product_name as a subtitle when it differs from package_name.
+        # Falls back to plain product_name text when terminal is too narrow.
         private def generate_brand_logo(brand, width)
-          # Use brand_command as the renderable ASCII-safe identifier for the logo.
-          # brand_name may contain CJK or special characters unsuitable for block art.
-          render_key = brand.brand_command.to_s.strip
-          render_key = brand.brand_name.to_s.strip if render_key.empty?
+          # Use package_name as the renderable ASCII-safe identifier for the logo.
+          # product_name may contain CJK or special characters unsuitable for block art.
+          render_key = brand.package_name.to_s.strip
+          render_key = brand.product_name.to_s.strip if render_key.empty?
 
           art = UI2::BlockFont.render(render_key)
 
@@ -142,9 +142,9 @@ module Clacky
             lines << @pastel.bright_green(render_key)
           end
 
-          # Show brand_name as subtitle when it differs from the render key
-          if brand.brand_name.to_s.strip != render_key
-            lines << @pastel.bright_cyan("    #{brand.brand_name}")
+          # Show product_name as subtitle when it differs from the render key
+          if brand.product_name.to_s.strip != render_key
+            lines << @pastel.bright_cyan("    #{brand.product_name}")
           end
 
           lines.join("\n")

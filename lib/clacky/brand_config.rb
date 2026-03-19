@@ -13,13 +13,12 @@ module Clacky
   # BrandConfig manages white-label branding for the OpenClacky gem.
   #
   # Brand information is stored separately in ~/.clacky/brand.yml to avoid
-  # polluting the main config.yml. When no brand_name is configured, the
+  # polluting the main config.yml. When no product_name is configured, the
   # gem behaves exactly like the standard OpenClacky experience.
   #
   # brand.yml structure:
-  #   brand_name: "JohnAI"
-  #   distribution_name: "JohnAI Distribution"
-  #   product_name: "JohnAI Pro"
+  #   product_name: "JohnAI"
+  #   package_name: "johnai"
   #   logo_url: "https://example.com/logo.png"
   #   support_contact: "support@johnai.com"
   #   support_qr_url: "https://example.com/qr.png"
@@ -45,17 +44,14 @@ module Clacky
     # Grace period for offline heartbeat failures (3 days)
     HEARTBEAT_GRACE_PERIOD = 3 * 86_400
 
-    attr_reader :brand_name, :license_key, :license_activated_at,
+    attr_reader :product_name, :package_name, :license_key, :license_activated_at,
                 :license_expires_at, :license_last_heartbeat, :device_id,
-                :brand_command, :distribution_name, :product_name,
                 :logo_url, :support_contact, :license_user_id,
                 :support_qr_url, :theme_color, :homepage_url
 
     def initialize(attrs = {})
-      @brand_name              = attrs["brand_name"]
-      @brand_command           = attrs["brand_command"]
-      @distribution_name       = attrs["distribution_name"]
       @product_name            = attrs["product_name"]
+      @package_name            = attrs["package_name"]
       @logo_url                = attrs["logo_url"]
       @support_contact         = attrs["support_contact"]
       @support_qr_url          = attrs["support_qr_url"]
@@ -87,9 +83,9 @@ module Clacky
       new({})
     end
 
-    # Returns true when this installation has a brand name configured.
+    # Returns true when this installation has a product name configured.
     def branded?
-      !@brand_name.nil? && !@brand_name.strip.empty?
+      !@product_name.nil? && !@product_name.strip.empty?
     end
 
     # Returns true when a license key has been stored (post-activation).
@@ -162,8 +158,7 @@ module Clacky
         @license_activated_at   = Time.now.utc
         @license_last_heartbeat = Time.now.utc
         @license_expires_at     = parse_time(data["expires_at"])
-        # Use brand_name returned by the API; fall back to any existing value
-        @brand_name = data["brand_name"] if data["brand_name"] && !data["brand_name"].to_s.strip.empty?
+        # product_name is applied via apply_distribution; no top-level product_name field expected at this level
         # Save owner_user_id returned by the server when the license is bound to a specific user.
         # Server returns "owner_user_id" for system licenses; plan-based licenses return nil.
         owner_uid = data["owner_user_id"]
@@ -177,7 +172,7 @@ module Clacky
         @device_id = server_device_id unless server_device_id.empty?
         apply_distribution(data["distribution"])
         save
-        { success: true, message: "License activated successfully!", brand_name: @brand_name,
+        { success: true, message: "License activated successfully!", product_name: @product_name,
           user_id: @license_user_id, data: data }
       else
         @license_key = nil
@@ -188,21 +183,21 @@ module Clacky
     # Activate the license locally without calling the remote API.
     # Used in brand-test mode for development and integration testing.
     #
-    # The mock derives a plausible brand_name from the key's first segment
+    # The mock derives a plausible product_name from the key's first segment
     # (e.g. "0000002A" → user_id 42 → "Brand42") unless one is already set.
     # A fixed 1-year expiry is written so the UI can display a realistic date.
     #
-    # Returns the same { success:, message:, brand_name:, data: } shape as activate!
+    # Returns the same { success:, message:, product_name:, data: } shape as activate!
     def activate_mock!(license_key)
       @license_key = license_key.strip
       # Pin a stable device_id for this activation. Once set (from a prior load or
       # a previous call), never regenerate — the same rule as activate!.
       @device_id ||= generate_device_id
 
-      # Always derive brand_name fresh from the key in mock mode,
+      # Always derive product_name fresh from the key in mock mode,
       # so switching keys produces a different brand each time.
-      user_id     = parse_user_id_from_key(@license_key)
-      @brand_name = "Brand#{user_id}"
+      user_id       = parse_user_id_from_key(@license_key)
+      @product_name = "Brand#{user_id}"
 
       @license_activated_at   = Time.now.utc
       @license_last_heartbeat = Time.now.utc
@@ -210,10 +205,10 @@ module Clacky
       save
 
       {
-        success:    true,
-        message:    "License activated (mock mode).",
-        brand_name: @brand_name,
-        data:       { status: "active", expires_at: @license_expires_at.iso8601 }
+        success:      true,
+        message:      "License activated (mock mode).",
+        product_name: @product_name,
+        data:         { status: "active", expires_at: @license_expires_at.iso8601 }
       }
     end
 
@@ -742,10 +737,8 @@ module Clacky
     # Returns a hash representation for JSON serialization (e.g. /api/brand).
     def to_h
       {
-        brand_name:         @brand_name,
-        brand_command:      @brand_command,
-        distribution_name:  @distribution_name,
         product_name:       @product_name,
+        package_name:       @package_name,
         logo_url:           @logo_url,
         support_contact:    @support_contact,
         support_qr_url:     @support_qr_url,
@@ -764,10 +757,8 @@ module Clacky
 
     def to_yaml
       data = {}
-      data["brand_name"]             = @brand_name             if @brand_name
-      data["brand_command"]          = @brand_command          if @brand_command
-      data["distribution_name"]      = @distribution_name      if @distribution_name
       data["product_name"]           = @product_name           if @product_name
+      data["package_name"]           = @package_name           if @package_name
       data["logo_url"]               = @logo_url               if @logo_url
       data["support_contact"]        = @support_contact        if @support_contact
       data["support_qr_url"]         = @support_qr_url         if @support_qr_url
@@ -802,19 +793,18 @@ module Clacky
     end
 
     # Apply distribution fields from API response.
-    # Updates name, product_name, logo_url, support_contact, support_qr_url,
+    # Updates product_name, package_name, logo_url, support_contact, support_qr_url,
     # theme_color, and homepage_url from the distribution hash.
     private def apply_distribution(dist)
       return unless dist.is_a?(Hash)
 
-      @distribution_name = dist["name"]            if dist["name"].to_s.strip != ""
-      @product_name      = dist["product_name"]    if dist["product_name"].to_s.strip != ""
-      @logo_url          = dist["logo_url"]         if dist["logo_url"].to_s.strip != ""
-      @support_contact   = dist["support_contact"]  if dist["support_contact"].to_s.strip != ""
-      # New branding fields returned by the API (logo, QR code, theme, homepage)
-      @support_qr_url    = dist["support_qr_url"]   if dist.key?("support_qr_url")
-      @theme_color       = dist["theme_color"]       if dist.key?("theme_color")
-      @homepage_url      = dist["homepage_url"]      if dist.key?("homepage_url")
+      @product_name    = dist["product_name"]   if dist["product_name"].to_s.strip != ""
+      @package_name    = dist["package_name"]   if dist["package_name"].to_s.strip != ""
+      @logo_url        = dist["logo_url"]        if dist["logo_url"].to_s.strip != ""
+      @support_contact = dist["support_contact"] if dist["support_contact"].to_s.strip != ""
+      @support_qr_url  = dist["support_qr_url"]  if dist.key?("support_qr_url")
+      @theme_color     = dist["theme_color"]      if dist.key?("theme_color")
+      @homepage_url    = dist["homepage_url"]     if dist.key?("homepage_url")
     end
 
     # Download a remote URL to a local file path.

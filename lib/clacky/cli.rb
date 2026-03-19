@@ -256,7 +256,7 @@ module Clacky
 
         if brand.expired?
           say ""
-          say "WARNING: Your #{brand.brand_name} license has expired. Please renew to continue.", :yellow
+          say "WARNING: Your #{brand.product_name} license has expired. Please renew to continue.", :yellow
           say ""
           return
         end
@@ -266,7 +266,7 @@ module Clacky
           unless result[:success]
             if brand.grace_period_exceeded?
               say ""
-              say "WARNING: Could not reach the #{brand.brand_name} license server.", :yellow
+              say "WARNING: Could not reach the #{brand.product_name} license server.", :yellow
               say "License has been offline for more than 3 days. Please check your connection.", :yellow
               say ""
             else
@@ -281,7 +281,7 @@ module Clacky
         prompt = TTY::Prompt.new
 
         say ""
-        say "Welcome to #{brand.brand_name}!", :cyan
+        say "Welcome to #{brand.product_name}!", :cyan
         say "A license key is required to activate this installation."
         say ""
 
