@@ -174,7 +174,8 @@ module Clacky
           total_tokens: total_tokens,
           cache_write: cache_write,
           cache_read: cache_read,
-          cost: cost
+          cost: cost,
+          cost_source: @cost_source
         }
       end
     end

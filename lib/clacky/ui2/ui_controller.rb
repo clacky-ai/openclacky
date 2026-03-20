@@ -290,9 +290,15 @@ module Clacky
         token_info << pastel.dim("Total: #{token_data[:total_tokens]}")
 
         # Cost for this iteration with color coding (red/yellow for high cost, dim for normal)
-        if token_data[:cost]
+        # :api    => "$0.001234"      (exact, from API)
+        # :price  => "~$0.001234"     (estimated from pricing table)
+        # :default => "N/A"           (model not in pricing table, unknown cost)
+        cost_source = token_data[:cost_source]
+        if cost_source == :default
+          token_info << pastel.dim("Cost: N/A")
+        elsif token_data[:cost]
           cost = token_data[:cost]
-          cost_value = "$#{cost.round(6)}"
+          cost_value = cost_source == :price ? "~$#{cost.round(6)}" : "$#{cost.round(6)}"
           if cost >= 0.1
             # High cost - red warning
             colored_cost = pastel.decorate(cost_value, :red, :dim)

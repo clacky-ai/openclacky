@@ -371,7 +371,25 @@ module Clacky
         # If the user typed the skill command with no arguments (e.g. "/jade-appraisal"),
         # use a generic trigger phrase so the user message is never empty.
         task_input = arguments.to_s.strip.empty? ? "Please proceed." : arguments
-        result = subagent.run(task_input)
+
+        begin
+          result = subagent.run(task_input)
+        rescue Clacky::AgentInterrupted
+          # Subagent was interrupted by user (Ctrl+C).
+          # Write an interrupted summary into history so the parent agent's history
+          # has a clean tool result — prevents a dangling tool_call with no tool_result
+          # which would confuse the LLM on the next user message.
+          interrupted_summary = "[Subagent '#{skill.identifier}' was interrupted by the user before completing.]"
+          @history.mutate_last_matching(->(m) { m[:subagent_instructions] }) do |m|
+            m[:content] = interrupted_summary
+            m.delete(:subagent_instructions)
+            m[:subagent_result] = true
+            m[:skill_name] = skill.identifier
+            m[:interrupted] = true
+          end
+
+          raise  # Re-raise so parent agent also exits cleanly
+        end
 
         # Generate summary
         summary = generate_subagent_summary(subagent)
