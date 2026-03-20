@@ -251,7 +251,7 @@ module Clacky
     # zip_data is the raw binary content of the ZIP file.
     # Returns { success: bool, error: String }.
     # Upload a skill ZIP to the OpenClacky cloud.
-    # skill_name: slug string
+    # skill_name: skill name string (slug format)
     # zip_data:   binary ZIP content
     # force:      when true, use PATCH to overwrite an existing skill instead of POST
     #
@@ -272,8 +272,8 @@ module Clacky
       message   = "#{user_id}:#{@device_id}:#{ts}:#{nonce}"
       signature = OpenSSL::HMAC.hexdigest("SHA256", @license_key, message)
 
-      # POST /api/v1/client/skills        → create (first upload)
-      # PATCH /api/v1/client/skills/:slug → update (force overwrite)
+      # POST /api/v1/client/skills         → create (first upload)
+      # PATCH /api/v1/client/skills/:name → update (force overwrite)
       if force
         uri = URI.parse("#{API_BASE_URL}/api/v1/client/skills/#{URI.encode_www_form_component(skill_name)}")
       else
@@ -299,7 +299,7 @@ module Clacky
         "timestamp" => ts,
         "nonce"     => nonce,
         "signature" => signature,
-        "slug"      => skill_name.to_s
+        "name"      => skill_name.to_s
       }
       # Include version override when bumping an existing skill version
       fields["version"] = version_override.to_s if version_override
@@ -339,9 +339,9 @@ module Clacky
         msg    = [code, errors].compact.join(": ")
         msg    = "Upload failed (HTTP #{response.code})" if msg.empty?
 
-        # Detect "already exists" conflicts (HTTP 409 or slug_taken error code)
+        # Detect "already exists" conflicts (HTTP 409 or name_taken error code)
         # so the caller can offer the user an overwrite option.
-        already_exists = code_i == 409 || code.to_s.include?("slug_taken") || code.to_s.include?("already")
+        already_exists = code_i == 409 || code.to_s.include?("name_taken") || code.to_s.include?("already")
         { success: false, error: msg, already_exists: already_exists }
       end
     rescue StandardError => e
@@ -355,7 +355,7 @@ module Clacky
     # Returns { success: bool, skills: [], error: }.
     #
     # Each skill in the returned array is a hash with at minimum:
-    #   "slug", "name", "description", "icon", "repo"
+    #   "name", "description", "icon", "repo"
     def fetch_store_skills!
       return { success: false, error: "License not activated", skills: [] } unless activated?
 
@@ -415,7 +415,7 @@ module Clacky
         # Merge local installed version info into each skill
         installed = installed_brand_skills
         skills = (body["skills"] || []).map do |skill|
-          # Normalize name to slug format; prefer the matching local installed dir name
+          # Normalize name to valid skill name format; prefer the matching local installed dir name
           normalized   = skill["name"].to_s.downcase.gsub(/[\s_]+/, "-").gsub(/[^a-z0-9-]/, "").gsub(/-+/, "-")
           name         = installed.keys.find { |k| k == normalized } || normalized
           local        = installed[name]
@@ -438,16 +438,16 @@ module Clacky
     end
 
     # Install (or update) a single brand skill by downloading and extracting its zip.
-    # skill_info: a hash from fetch_brand_skills! with at least slug + latest_version.download_url + version
+    # skill_info: a hash from fetch_brand_skills! with at least name + latest_version.download_url + version
     def install_brand_skill!(skill_info)
       require "net/http"
       require "uri"
 
-      slug    = skill_info["slug"].to_s.strip
+      slug    = skill_info["name"].to_s.strip
       version = (skill_info["latest_version"] || {})["version"] || skill_info["version"]
       url     = (skill_info["latest_version"] || {})["download_url"]
 
-      return { success: false, error: "Missing slug" } if slug.empty?
+      return { success: false, error: "Missing skill name" } if slug.empty?
 
       if url.nil?
         FileUtils.mkdir_p(File.join(brand_skills_dir, slug))
@@ -509,9 +509,9 @@ module Clacky
       # Record installed version in brand_skills.json (including description for
       # offline display when the remote API is unreachable).
       # encrypted: true because the ZIP contains MANIFEST.enc.json + AES-256-GCM encrypted files.
-      record_installed_skill(slug, version, skill_info["name"], skill_info["description"], encrypted: true)
+      record_installed_skill(slug, version, skill_info["description"], encrypted: true)
 
-      { success: true, slug: slug, version: version }
+      { success: true, name: slug, version: version }
     rescue StandardError, ScriptError => e
       { success: false, error: e.message }
     end
@@ -528,17 +528,17 @@ module Clacky
     # is also mocked.  Both sides will be replaced together during backend
     # integration.
     #
-    # @param skill_info [Hash] Must include "slug", "name", "description", and
+    # @param skill_info [Hash] Must include "name", "description", and
     #   optionally "version" and "emoji".
-    # @return [Hash] { success: bool, slug:, version: }
+    # @return [Hash] { success: bool, name:, version: }
     def install_mock_brand_skill!(skill_info)
-      slug        = skill_info["slug"].to_s.strip
+      slug        = skill_info["name"].to_s.strip
       version     = (skill_info["latest_version"] || {})["version"] || skill_info["version"] || "1.0.0"
-      name        = skill_info["name"] || slug
+      name        = slug
       description = skill_info["description"] || "A private brand skill."
       emoji       = skill_info["emoji"] || "⭐"
 
-      return { success: false, error: "Missing slug" } if slug.empty?
+      return { success: false, error: "Missing skill name" } if slug.empty?
 
       dest_dir = File.join(brand_skills_dir, slug)
       FileUtils.mkdir_p(dest_dir)
@@ -571,8 +571,8 @@ module Clacky
       File.binwrite(enc_path, mock_content.encode("UTF-8"))
 
       # encrypted: false — mock skills store plain bytes in .enc, no MANIFEST needed.
-      record_installed_skill(slug, version, name, description, encrypted: false)
-      { success: true, slug: slug, version: version }
+      record_installed_skill(slug, version, description, encrypted: false)
+      { success: true, name: slug, version: version }
     rescue StandardError => e
       { success: false, error: e.message }
     end
@@ -637,7 +637,7 @@ module Clacky
     #   When no MANIFEST.enc.json exists in the skill directory, the method falls
     #   back to reading the .enc file as raw UTF-8 bytes (mock/dev mode).
     #
-    # @param encrypted_path [String] Path to the .enc file on disk (e.g. ".../slug/SKILL.md.enc")
+    # @param encrypted_path [String] Path to the .enc file on disk (e.g. ".../name/SKILL.md.enc")
     # @return [String] Decrypted file content (UTF-8)
     # @raise [RuntimeError] If license is not activated or decryption fails
     def decrypt_skill_content(encrypted_path)
@@ -700,7 +700,7 @@ module Clacky
     # is silently dropped from the result and the JSON file is cleaned up so
     # subsequent installs start from a clean state.
     #
-    # Returns a hash keyed by slug: { "version" => "1.0.0", "name" => "..." }
+    # Returns a hash keyed by name: { "version" => "1.0.0", "name" => "..." }
     def installed_brand_skills
       path = File.join(brand_skills_dir, "brand_skills.json")
       return {} unless File.exist?(path)
@@ -711,13 +711,13 @@ module Clacky
       valid   = {}
       changed = false
 
-      raw.each do |slug, meta|
-        skill_dir = File.join(brand_skills_dir, slug)
+      raw.each do |name, meta|
+        skill_dir = File.join(brand_skills_dir, name)
         has_files = Dir.exist?(skill_dir) &&
                     Dir.glob(File.join(skill_dir, "SKILL.md{,.enc}")).any?
 
         if has_files
-          valid[slug] = meta
+          valid[name] = meta
         else
           # JSON record exists but files are missing — mark for cleanup.
           changed = true
@@ -845,23 +845,21 @@ module Clacky
     # description is stored so it can be shown locally even when the remote API
     # is unreachable (e.g. offline or license server down).
     #
-    # The stored `name` must be a valid skill slug (lowercase letters, numbers,
+    # The stored `name` must be a valid skill name (lowercase letters, numbers,
     # hyphens only; no leading/trailing hyphens) because it is used as the
     # slash command identifier (/name).  We sanitize aggressively here so that
     # bad data from the platform never reaches the local registry:
     #
     #   1. name already valid            → use name as-is
-    #   2. name invalid, slug valid      → use slug, log warning
-    #   3. both invalid                  → sanitize (downcase, spaces→hyphens,
-    #                                      strip illegal chars), log warning
-    #   4. still invalid after sanitize  → raise, caller gets { success: false }
-    private def record_installed_skill(slug, version, name, description = nil, encrypted: true)
-      safe_name = sanitize_skill_name(name, slug)
+    #   2. name invalid — sanitize       → downcase, spaces→hyphens, strip illegal chars
+    #   3. still invalid after sanitize  → raise, caller gets { success: false }
+    private def record_installed_skill(name, version, description = nil, encrypted: true)
+      safe_name = sanitize_skill_name(name)
 
       FileUtils.mkdir_p(brand_skills_dir)
       path      = File.join(brand_skills_dir, "brand_skills.json")
       installed = installed_brand_skills
-      installed[slug] = {
+      installed[safe_name] = {
         "version"      => version,
         "name"         => safe_name,
         "description"  => description.to_s,
@@ -871,26 +869,17 @@ module Clacky
       File.write(path, JSON.generate(installed))
     end
 
-    # Normalize a skill name to a valid slug, with fallback escalation.
+    # Normalize a skill name to a valid identifier (lowercase letters, numbers, hyphens).
     # @param name [String, nil] Raw name from platform
-    # @param slug [String] Directory slug from platform (used as fallback)
-    # @return [String] A valid slug
-    # @raise [RuntimeError] When all sanitization attempts still yield an invalid slug
-    private def sanitize_skill_name(name, slug)
-      valid_slug = ->(s) { s.to_s.match?(/\A[a-z0-9][a-z0-9-]*[a-z0-9]\z/) || s.to_s.match?(/\A[a-z0-9]\z/) }
+    # @return [String] A valid skill name
+    # @raise [RuntimeError] When sanitization still yields an invalid name
+    private def sanitize_skill_name(name)
+      valid_name = ->(s) { s.to_s.match?(/\A[a-z0-9][a-z0-9-]*[a-z0-9]\z/) || s.to_s.match?(/\A[a-z0-9]\z/) }
 
       # 1. name already valid
-      return name if valid_slug.call(name)
+      return name if valid_name.call(name)
 
-      # 2. name invalid — try slug
-      if valid_slug.call(slug)
-        Clacky::Logger.warn(
-          "Brand skill name '#{name}' is not a valid slug; using slug '#{slug}' instead."
-        )
-        return slug
-      end
-
-      # 3. both invalid — sanitize: downcase, spaces/underscores → hyphens, strip illegal chars
+      # 2. name invalid — sanitize: downcase, spaces/underscores → hyphens, strip illegal chars
       sanitized = name.to_s
         .downcase
         .gsub(/[\s_]+/, "-")
@@ -898,16 +887,15 @@ module Clacky
         .gsub(/-+/, "-")
         .gsub(/\A-+|-+\z/, "")
 
-      if valid_slug.call(sanitized)
+      if valid_name.call(sanitized)
         Clacky::Logger.warn(
-          "Brand skill name '#{name}' and slug '#{slug}' are both invalid slugs; " \
-          "sanitized to '#{sanitized}'."
+          "Brand skill name '#{name}' is not a valid name; sanitized to '#{sanitized}'."
         )
         return sanitized
       end
 
-      # 4. still invalid — refuse to write garbage into the registry
-      raise "Cannot derive a valid skill slug from name='#{name}' or slug='#{slug}'. " \
+      # 3. still invalid — refuse to write garbage into the registry
+      raise "Cannot derive a valid skill name from '#{name}'. " \
             "Expected lowercase letters, numbers, and hyphens (e.g. 'my-skill')."
     end
 

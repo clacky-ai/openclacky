@@ -33,30 +33,30 @@ RSpec.describe Clacky::BrandConfig do
         with_temp_brand_file do
           config = described_class.load
           expect(config.branded?).to be false
-          expect(config.brand_name).to be_nil
+          expect(config.product_name).to be_nil
         end
       end
     end
 
-    context "when brand.yml exists with a brand_name" do
-      it "loads brand_name" do
-        with_temp_brand_file("brand_name" => "JohnAI") do
+    context "when brand.yml exists with a product_name" do
+      it "loads product_name" do
+        with_temp_brand_file("product_name" => "JohnAI") do
           config = described_class.load
           expect(config.branded?).to be true
-          expect(config.brand_name).to eq("JohnAI")
+          expect(config.product_name).to eq("JohnAI")
         end
       end
 
-      it "loads brand_command" do
-        with_temp_brand_file("brand_name" => "JohnAI", "brand_command" => "johncli") do
+      it "loads package_name" do
+        with_temp_brand_file("product_name" => "JohnAI", "package_name" => "johncli") do
           config = described_class.load
-          expect(config.brand_command).to eq("johncli")
+          expect(config.package_name).to eq("johncli")
         end
       end
 
       it "loads license fields" do
         data = {
-          "brand_name"            => "JohnAI",
+          "product_name"          => "JohnAI",
           "license_key"           => "0000002A-00000007-DEADBEEF-CAFEBABE-A1B2C3D4",
           "license_activated_at"  => "2025-03-01T00:00:00Z",
           "license_expires_at"    => "2099-03-01T00:00:00Z",
@@ -84,18 +84,18 @@ RSpec.describe Clacky::BrandConfig do
   # ── #branded? ─────────────────────────────────────────────────────────────
 
   describe "#branded?" do
-    it "returns false when brand_name is nil" do
+    it "returns false when product_name is nil" do
       config = described_class.new({})
       expect(config.branded?).to be false
     end
 
-    it "returns false when brand_name is blank" do
-      config = described_class.new("brand_name" => "  ")
+    it "returns false when product_name is blank" do
+      config = described_class.new("product_name" => "  ")
       expect(config.branded?).to be false
     end
 
-    it "returns true when brand_name is present" do
-      config = described_class.new("brand_name" => "AcmeCLI")
+    it "returns true when product_name is present" do
+      config = described_class.new("product_name" => "AcmeCLI")
       expect(config.branded?).to be true
     end
   end
@@ -104,7 +104,7 @@ RSpec.describe Clacky::BrandConfig do
 
   describe "#activated?" do
     it "returns false when license_key is absent" do
-      config = described_class.new("brand_name" => "X")
+      config = described_class.new("product_name" => "X")
       expect(config.activated?).to be false
     end
 
@@ -181,19 +181,19 @@ RSpec.describe Clacky::BrandConfig do
   # ── #save ─────────────────────────────────────────────────────────────────
 
   describe "#save" do
-    it "writes brand_name and brand_command to brand.yml" do
+    it "writes product_name and package_name to brand.yml" do
       with_temp_brand_file do |brand_file|
-        config = described_class.new("brand_name" => "JohnAI", "brand_command" => "johncli")
+        config = described_class.new("product_name" => "JohnAI", "package_name" => "johncli")
         config.save
         saved = YAML.safe_load(File.read(brand_file))
-        expect(saved["brand_name"]).to eq("JohnAI")
-        expect(saved["brand_command"]).to eq("johncli")
+        expect(saved["product_name"]).to eq("JohnAI")
+        expect(saved["package_name"]).to eq("johncli")
       end
     end
 
     it "sets file permissions to 0600" do
       with_temp_brand_file do |brand_file|
-        described_class.new("brand_name" => "Test").save
+        described_class.new("product_name" => "Test").save
         mode = File.stat(brand_file).mode & 0o777
         expect(mode).to eq(0o600)
       end
@@ -201,7 +201,7 @@ RSpec.describe Clacky::BrandConfig do
 
     it "omits nil fields from the saved YAML" do
       with_temp_brand_file do |brand_file|
-        described_class.new("brand_name" => "Test").save
+        described_class.new("product_name" => "Test").save
         saved = YAML.safe_load(File.read(brand_file))
         expect(saved.key?("license_key")).to be false
         expect(saved.key?("device_id")).to be false
@@ -214,42 +214,42 @@ RSpec.describe Clacky::BrandConfig do
   describe "#activate_mock!" do
     it "stores the license key and sets timestamps without hitting the API" do
       with_temp_brand_file do
-        config = described_class.new("brand_name" => "JohnAI")
+        config = described_class.new("product_name" => "JohnAI")
         result = config.activate_mock!("0000002A-00000007-DEADBEEF-CAFEBABE-A1B2C3D4")
 
         expect(result[:success]).to be true
-        # brand_name is always derived fresh from the key (user_id 0x2A = 42 → Brand42)
-        expect(result[:brand_name]).to eq("Brand42")
+        # product_name is always derived fresh from the key (user_id 0x2A = 42 → Brand42)
+        expect(result[:product_name]).to eq("Brand42")
         expect(config.activated?).to be true
         expect(config.expired?).to be false
         expect(config.license_expires_at).to be > Time.now
       end
     end
 
-    it "derives brand_name from the key's first segment regardless of existing brand_name" do
+    it "derives product_name from the key's first segment regardless of existing product_name" do
       with_temp_brand_file do
         # 0x00000001 = 1 → Brand1
-        config = described_class.new("brand_name" => "OldBrand")
+        config = described_class.new("product_name" => "OldBrand")
         result = config.activate_mock!("00000001-FFFFFFFF-DEADBEEF-CAFEBABE-00000001")
 
-        expect(result[:brand_name]).to eq("Brand1")
-        expect(config.brand_name).to eq("Brand1")
+        expect(result[:product_name]).to eq("Brand1")
+        expect(config.product_name).to eq("Brand1")
 
         # 0x0000002A = 42 → Brand42
         result2 = config.activate_mock!("0000002A-00000007-DEADBEEF-CAFEBABE-A1B2C3D4")
-        expect(result2[:brand_name]).to eq("Brand42")
-        expect(config.brand_name).to eq("Brand42")
+        expect(result2[:product_name]).to eq("Brand42")
+        expect(config.product_name).to eq("Brand42")
       end
     end
 
-    it "persists brand_name derived from key to brand.yml" do
+    it "persists product_name derived from key to brand.yml" do
       with_temp_brand_file do |brand_file|
-        config = described_class.new("brand_name" => "TestBrand")
+        config = described_class.new("product_name" => "TestBrand")
         config.activate_mock!("0000002A-00000007-DEADBEEF-CAFEBABE-A1B2C3D4")
 
         saved = YAML.safe_load(File.read(brand_file))
         expect(saved["license_key"]).to eq("0000002A-00000007-DEADBEEF-CAFEBABE-A1B2C3D4")
-        expect(saved["brand_name"]).to eq("Brand42")
+        expect(saved["product_name"]).to eq("Brand42")
       end
     end
   end
@@ -258,13 +258,13 @@ RSpec.describe Clacky::BrandConfig do
 
   describe "#to_h" do
     it "returns correct keys" do
-      config = described_class.new("brand_name" => "AcmeCLI")
+      config = described_class.new("product_name" => "AcmeCLI")
       h = config.to_h
       expect(h).to include(
-        brand_name: "AcmeCLI",
-        branded:    true,
-        activated:  false,
-        expired:    false
+        product_name: "AcmeCLI",
+        branded:      true,
+        activated:    false,
+        expired:      false
       )
     end
   end

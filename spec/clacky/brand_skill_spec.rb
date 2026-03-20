@@ -75,8 +75,7 @@ RSpec.describe "Brand Skill system" do
   describe "Clacky::BrandConfig#install_mock_brand_skill!" do
     let(:skill_info) do
       {
-        "slug"        => "code-review-bot",
-        "name"        => "Code Review Bot",
+        "name"        => "code-review-bot",
         "description" => "Automated AI code review.",
         "emoji"       => "🔍",
         "latest_version" => { "version" => "1.2.0" }
@@ -89,7 +88,7 @@ RSpec.describe "Brand Skill system" do
         result = config.install_mock_brand_skill!(skill_info)
 
         expect(result[:success]).to be true
-        expect(result[:slug]).to eq("code-review-bot")
+        expect(result[:name]).to eq("code-review-bot")
         expect(result[:version]).to eq("1.2.0")
 
         enc_path = File.join(tmp, "brand_skills", "code-review-bot", "SKILL.md.enc")
@@ -107,7 +106,7 @@ RSpec.describe "Brand Skill system" do
 
         expect(content).to include("---")
         expect(content).to include("name: code-review-bot")
-        expect(content).to include("Code Review Bot")
+        expect(content).to include("code-review-bot")
       end
     end
 
@@ -121,12 +120,12 @@ RSpec.describe "Brand Skill system" do
       end
     end
 
-    it "returns error when slug is missing" do
+    it "returns error when name is missing" do
       with_temp_config_dir do |tmp|
         config = activated_brand_config(tmp)
-        result = config.install_mock_brand_skill!("slug" => "")
+        result = config.install_mock_brand_skill!("name" => "")
         expect(result[:success]).to be false
-        expect(result[:error]).to match(/slug/i)
+        expect(result[:error]).to match(/name/i)
       end
     end
   end

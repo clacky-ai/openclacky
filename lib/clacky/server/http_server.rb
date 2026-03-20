@@ -545,10 +545,9 @@ module Clacky
         else
           # Remote API failed — fall back to locally installed skills so the user
           # can still see and use what they already have. Surface a soft warning.
-          local_skills = brand.installed_brand_skills.map do |slug, meta|
+          local_skills = brand.installed_brand_skills.map do |name, meta|
             {
-              "slug"              => slug,
-              "name"              => meta["name"] || slug,
+              "name"              => meta["name"] || name,
               # Use locally cached description so it renders correctly offline
               "description"       => meta["description"].to_s,
               "installed_version" => meta["version"],
@@ -563,7 +562,7 @@ module Clacky
         end
       end
 
-      # POST /api/brand/skills/:slug/install
+      # POST /api/brand/skills/:name/install
       # Downloads and installs (or updates) the given brand skill.
       # Body may optionally contain { skill_info: {...} } from the frontend cache;
       # otherwise we re-fetch to get the download_url.
@@ -587,7 +586,7 @@ module Clacky
           all_skills = fetch_result[:skills]
         end
 
-        skill_info = all_skills.find { |s| s["slug"] == slug }
+        skill_info = all_skills.find { |s| s["name"] == slug }
         unless skill_info
           json_response(res, 404, { ok: false, error: "Skill '#{slug}' not found in license" })
           return
@@ -601,7 +600,7 @@ module Clacky
           # Reload skills so the Agent can pick up the new skill immediately.
           # Re-create the loader with the current brand_config so brand skills are decryptable.
           @skill_loader = Clacky::SkillLoader.new(working_dir: nil, brand_config: brand)
-          json_response(res, 200, { ok: true, slug: result[:slug], version: result[:version] })
+          json_response(res, 200, { ok: true, name: result[:name], version: result[:version] })
         else
           json_response(res, 422, { ok: false, error: result[:error] })
         end
@@ -881,8 +880,7 @@ module Clacky
         mock_skills = [
           {
             "id"          => 1,
-            "name"        => "Code Review Bot",
-            "slug"        => "code-review-bot",
+            "name"        => "code-review-bot",
             "description" => "Automated AI code review with inline suggestions.",
             "visibility"  => "private",
             "version"     => "1.2.0",
@@ -897,8 +895,7 @@ module Clacky
           },
           {
             "id"          => 2,
-            "name"        => "Deploy Assistant",
-            "slug"        => "deploy-assistant",
+            "name"        => "deploy-assistant",
             "description" => "One-command deployment for Rails / Node / Docker projects.",
             "visibility"  => "private",
             "version"     => "2.0.1",
@@ -913,8 +910,7 @@ module Clacky
           },
           {
             "id"          => 3,
-            "name"        => "Test Runner",
-            "slug"        => "test-runner",
+            "name"        => "test-runner",
             "description" => "Run your test suite and summarize failures with AI insights.",
             "visibility"  => "private",
             "version"     => "1.0.0",
@@ -928,8 +924,8 @@ module Clacky
             }
           }
         ].map do |skill|
-          slug  = skill["slug"]
-          local = installed[slug]
+          name     = skill["name"]
+          local    = installed[name]
           latest_v = (skill["latest_version"] || {})["version"]
           skill.merge(
             "installed_version" => local ? local["version"] : nil,
