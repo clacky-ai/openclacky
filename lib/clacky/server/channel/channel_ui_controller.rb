@@ -31,7 +31,22 @@ module Clacky
         @mutex      = Mutex.new
       end
 
+      # Update the reply context for the current inbound message.
+      # Called at the start of each route_message so replies are threaded correctly.
+      # @param event [Hash] inbound event with :message_id
+      def update_message_context(event)
+        @mutex.synchronize { @message_id = event[:message_id] }
+      end
+
       # === Output display ===
+
+      # Forward WebUI user messages to the IM channel so both sides stay in sync.
+      # Prefixed with the product/user context so it's clear who sent it.
+      def show_user_message(content)
+        return if content.nil? || content.to_s.strip.empty?
+
+        send_text("[USER] #{content}")
+      end
 
       def show_assistant_message(content, files:)
         flush_buffer

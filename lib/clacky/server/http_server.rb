@@ -1580,6 +1580,11 @@ module Clacky
           broadcast(session_id, { type: "session_renamed", session_id: session_id, name: auto_name })
         end
 
+        # Broadcast user message through web_ui so channel subscribers (飞书/企微) receive it.
+        web_ui = nil
+        @registry.with_session(session_id) { |s| web_ui = s[:ui] }
+        web_ui&.show_user_message(content, source: :web)
+
         # File references are now handled inside agent.run — injected as a system_injected
         # message after the user message, so replay_history skips them automatically.
         run_agent_task(session_id, agent) { agent.run(content, files: files) }
@@ -1647,7 +1652,10 @@ module Clacky
         rescue => e
           @registry.update(session_id, status: :error, error: e.message)
           broadcast_session_update(session_id)
-          broadcast(session_id, { type: "error", session_id: session_id, message: e.message })
+          # Route error through web_ui so channel subscribers (飞书/企微) receive it too.
+          web_ui = nil
+          @registry.with_session(session_id) { |s| web_ui = s[:ui] }
+          web_ui&.show_error(e.message)
           @session_manager.save(agent.to_session_data(status: :error, error_message: e.message))
         end
         @registry.with_session(session_id) { |s| s[:thread] = thread }

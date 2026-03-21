@@ -39,6 +39,7 @@ module Clacky
         @adapter_threads   = []
         @running           = false
         @mutex             = Mutex.new
+        @session_counters  = Hash.new(0)  # platform => count, for short session names
       end
 
       # Start all enabled adapters in background threads. Non-blocking.
@@ -157,7 +158,7 @@ module Clacky
         end
 
         session_id = resolve_session(event)
-        session_id = auto_create_session(event) unless session_id
+        session_id = auto_create_session(adapter, event) unless session_id
 
         session = @registry.get(session_id)
         unless session
@@ -177,20 +178,19 @@ module Clacky
         agent  = session[:agent]
         web_ui = session[:ui]
 
-        adapter.send_text(event[:chat_id], "Working...")
+        # Update reply context so responses thread under the current message.
+        # channel_ui is bound to the session for its full lifetime (created in auto_create_session).
+        channel_ui_for_session(session_id)&.update_message_context(event)
 
-        channel_ui = ChannelUIController.new(event, adapter)
-        web_ui&.subscribe_channel(channel_ui)
+        # Sync the inbound message to WebUI so it shows up in the browser session.
+        # source: :channel prevents the message from being echoed back to the IM channel.
+        web_ui&.show_user_message(text, source: :channel) unless text.nil? || text.empty?
+
+        # Acknowledge to the IM channel only — WebUI doesn't need a "Working..." noise.
+        adapter.send_text(event[:chat_id], "Working...")
 
         @run_agent_task.call(session_id, agent) do
           agent.run(text, files: files)
-        end
-
-        # Unsubscribe channel_ui once the task thread finishes
-        Thread.new do
-          Thread.current.name = "channel-cleanup-#{session_id[0, 8]}"
-          sleep 0.1 until @registry.get(session_id)&.dig(:status) != :running
-          web_ui&.unsubscribe_channel(channel_ui)
         end
       end
 
@@ -213,7 +213,23 @@ module Clacky
             adapter.send_text(chat_id, "Session not found. Use /list to see available sessions.")
             return
           end
+
+          # Detach channel_ui from the old session's web_ui, reattach to the new one.
+          old_session_id = resolve_session(event)
+          channel_ui = old_session_id ? channel_ui_for_session(old_session_id) : nil
+
+          if channel_ui
+            @registry.with_session(old_session_id) { |s| s[:ui]&.unsubscribe_channel(channel_ui); s.delete(:channel_ui) }
+          else
+            channel_ui = ChannelUIController.new(event, adapter)
+          end
+
           bind_key_to_session(key, session_id)
+          @registry.with_session(session_id) do |s|
+            s[:ui]&.subscribe_channel(channel_ui)
+            s[:channel_ui] = channel_ui
+          end
+
           Clacky::Logger.info("[ChannelManager] Bound #{key} -> session #{session_id[0, 8]}")
           adapter.send_text(chat_id, "Bound to session `#{session_id[0, 8]}`.")
 
@@ -271,13 +287,32 @@ module Clacky
         nil
       end
 
-      def auto_create_session(event)
-        key = channel_key(event)
-        name = "channel-#{event[:platform]}-#{event[:user_id]}"
+      def auto_create_session(adapter, event)
+        key      = channel_key(event)
+        platform = event[:platform].to_s
+        count    = @mutex.synchronize { @session_counters[platform] += 1 }
+        name     = "#{platform}-#{count}"
         session_id = @session_builder.call(name: name, working_dir: Dir.home)
         bind_key_to_session(key, session_id)
+
+        # Create a long-lived ChannelUIController for this session and subscribe it
+        # to the session's WebUIController. It stays for the session's full lifetime
+        # so all events (agent output, errors, status) flow through web_ui → channel_ui.
+        channel_ui = ChannelUIController.new(event, adapter)
+        @registry.with_session(session_id) do |s|
+          s[:ui]&.subscribe_channel(channel_ui)
+          s[:channel_ui] = channel_ui
+        end
+
         Clacky::Logger.info("[ChannelManager] Auto-created session #{session_id[0, 8]} for #{key}")
         session_id
+      end
+
+      # Retrieve the ChannelUIController bound to a session (if any).
+      def channel_ui_for_session(session_id)
+        result = nil
+        @registry.with_session(session_id) { |s| result = s[:channel_ui] }
+        result
       end
 
       def bind_key_to_session(key, session_id)

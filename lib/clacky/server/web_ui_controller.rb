@@ -65,11 +65,15 @@ module Clacky
 
       # === Output display ===
 
-      def show_user_message(content, created_at: nil, images: [])
+      def show_user_message(content, created_at: nil, images: [], source: :web)
         data = { content: content }
         data[:created_at] = created_at if created_at
         data[:images]     = images if images && !images.empty?
         emit("history_user_message", **data)
+        # Only forward to channel subscribers when the message originated from the WebUI,
+        # to avoid echoing channel messages back to the same channel.
+        return unless source == :web
+        forward_to_subscribers { |sub| sub.show_user_message(content) if sub.respond_to?(:show_user_message) }
       end
 
       def show_assistant_message(content, files:)
