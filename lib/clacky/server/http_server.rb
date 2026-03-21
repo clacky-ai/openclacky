@@ -158,6 +158,7 @@ module Clacky
           interrupt_session: method(:interrupt_session),
           channel_config:    Clacky::ChannelConfig.load
         )
+        @browser_manager = Clacky::BrowserManager.instance
         @skill_loader    = Clacky::SkillLoader.new(working_dir: nil, brand_config: Clacky::BrandConfig.load)
       end
 
@@ -243,6 +244,9 @@ module Clacky
         # Start IM channel adapters (non-blocking — each platform runs in its own thread)
         @channel_manager.start
 
+        # Start browser MCP daemon if browser.yml is configured (non-blocking)
+        @browser_manager.start
+
         server.start
       end
 
@@ -274,6 +278,8 @@ module Clacky
         when ["POST",   "/api/config/test"]   then api_test_config(req, res)
         when ["GET",    "/api/providers"]     then api_list_providers(res)
         when ["GET",    "/api/onboard/status"]    then api_onboard_status(res)
+        when ["GET",    "/api/browser/status"]    then api_browser_status(res)
+        when ["POST",   "/api/browser/reload"]    then api_browser_reload(res)
         when ["POST",   "/api/onboard/complete"]  then api_onboard_complete(req, res)
         when ["POST",   "/api/onboard/skip-soul"] then api_onboard_skip_soul(req, res)
         when ["GET",    "/api/store/skills"]          then api_store_skills(res)
@@ -388,6 +394,22 @@ module Clacky
         else
           json_response(res, 200, { needs_onboard: false })
         end
+      end
+
+      # GET /api/browser/status
+      # Returns real daemon liveness from BrowserManager (not just yml read).
+      def api_browser_status(res)
+        json_response(res, 200, @browser_manager.status)
+      end
+
+      # POST /api/browser/reload
+      # Called by browser-setup skill after writing browser.yml.
+      # Hot-reloads the MCP daemon with the new configuration.
+      def api_browser_reload(res)
+        @browser_manager.reload
+        json_response(res, 200, { ok: true })
+      rescue StandardError => e
+        json_response(res, 500, { ok: false, error: e.message })
       end
 
       # POST /api/onboard/complete

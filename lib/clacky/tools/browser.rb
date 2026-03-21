@@ -161,19 +161,14 @@ module Clacky
       MAX_SNAPSHOT_CHARS   = 4000
       MAX_LLM_OUTPUT_CHARS = 6000
 
-      # ---------------------------------------------------------------------------
-      # Class-level persistent MCP daemon state
-      # ---------------------------------------------------------------------------
-      # @@mcp_process holds the running daemon's IO handles and PID:
-      #   { stdin: IO, stdout: IO, pid: Integer, wait_thr: Thread }
-      # @@mcp_mutex guards all access to avoid race conditions in multi-thread envs.
-      # @@mcp_call_id is an ever-increasing JSON-RPC id counter.
-      @@mcp_process = nil
-      @@mcp_mutex   = Mutex.new
-      @@mcp_call_id = 2  # 1 is reserved for the initialize handshake
+      # MCP daemon is managed by Clacky::BrowserManager (see lib/clacky/server/browser_manager.rb).
+      # Browser tool delegates all mcp_call / lifecycle operations to it via Clacky.browser_manager.
 
       def execute(action:, profile: nil, working_dir: nil, **opts)
-        return browser_not_configured_error unless browser_configured?
+        allowed = action.to_s == "status" ||
+                  (action.to_s == "act" && (opts[:kind] || opts["kind"]).to_s == "evaluate") ||
+                  browser_configured?
+        return browser_not_configured_error unless allowed
         execute_user_browser(action, opts)
       rescue StandardError => e
         { error: "Browser error: #{e.message}\n\n#{BROWSER_RECONNECT_HINT}" }
@@ -238,14 +233,19 @@ module Clacky
 
       # Shown when any browser action fails at runtime (Chrome closed, lost connection, etc.)
       BROWSER_RECONNECT_HINT = <<~HINT.strip.freeze
-        If Chrome was closed or the connection was lost, ask the user to reopen Chrome
-        and run the browser-setup skill to reconfigure: just say "browser setup".
+        Common causes for browser connection failure:
+        1. Chrome is not running — ask the user to open Chrome.
+        2. Remote Debugging is disabled — Chrome must be launched with --remote-debugging-port=9222.
+        3. The browser MCP daemon crashed or lost the connection — it may recover on the next action.
+
+        Inform the user of these possible causes and ask if they'd like to run a diagnosis.
+        If yes, invoke the browser-setup skill with subcommand "doctor" to diagnose and fix.
       HINT
 
       # Returns true if ~/.clacky/browser.yml exists and marks the browser as configured.
       private def browser_configured?
         return false unless File.exist?(BROWSER_CONFIG_PATH)
-        config = YAML.safe_load(File.read(BROWSER_CONFIG_PATH)) rescue {}
+        config = YAML.safe_load(File.read(BROWSER_CONFIG_PATH), permitted_classes: [Date, Time, Symbol])
         config.is_a?(Hash) && config["configured"] == true
       end
 
@@ -253,16 +253,9 @@ module Clacky
       private def browser_not_configured_error
         {
           error: <<~MSG
-            ⚠️  IMPORTANT — STOP and tell the user:
+            The browser connection is not fully configured. This tool call has been rejected to protect user experience.
 
-            ──────────────────────────────────────────────────
-            浏览器工具还没有配置。请先运行浏览器配置向导：
-
-            直接说「browser setup」或「配置浏览器」即可。
-            ──────────────────────────────────────────────────
-
-            Do NOT attempt to use the browser tool until setup is complete.
-            Invoke the browser-setup skill now.
+            Ask the user if they'd like to configure the browser, then invoke the browser-setup skill to guide them through the setup. Retry this tool call after setup is complete.
           MSG
         }
       end
@@ -574,194 +567,21 @@ module Clacky
       end
 
       # Build the command array for chrome-devtools-mcp.
-      # Uses `npx` from the system PATH — no version-manager magic.
+      # Public class method — called by BrowserManager so it doesn't need to
+      # duplicate the arg list.
       # If user_data_dir is provided, appends --userDataDir.
-      private def build_mcp_command(user_data_dir: nil)
+      def self.build_mcp_command(user_data_dir: nil)
         args = CHROME_MCP_BASE_ARGS.dup
         args += ["--userDataDir", user_data_dir.to_s] if user_data_dir && !user_data_dir.to_s.empty?
 
         ["chrome-devtools-mcp", *args]
       end
 
-      # Calls a Chrome MCP tool over the persistent daemon process.
-      #
-      # On the first call (or after the daemon dies), `ensure_mcp_process!` starts
-      # a new npx process and completes the MCP initialize handshake.  Subsequent
-      # calls reuse the same process — Chrome's "Allow remote debugging" dialog is
-      # shown exactly once per daemon lifetime.
-      #
-      # Protocol sequence (per MCP spec):
-      #   Handshake (once on daemon start):
-      #     1. client → initialize
-      #     2. server → initialize result
-      #     3. client → notifications/initialized
-      #   Per call (reusing the same process):
-      #     4. client → tools/call  (with unique id)
-      #     5. server → tools/call result
-      #
-      # Thread safety: all state mutations are protected by @@mcp_mutex.
+      # Delegate MCP tool call to BrowserManager singleton.
+      # BrowserManager owns the daemon process — ensures it's alive, handles
+      # the JSON-RPC protocol, and restarts on crash. Thread-safe.
       private def mcp_call(tool_name, arguments = {}, user_data_dir: nil)
-        call_resp = nil
-
-        @@mcp_mutex.synchronize do
-          # Ensure the daemon is alive (start + handshake if needed)
-          ensure_mcp_process!(user_data_dir: user_data_dir)
-
-          proc_state = @@mcp_process
-          call_id    = @@mcp_call_id
-          @@mcp_call_id += 1
-
-          call_msg = mcp_json_rpc("tools/call", {
-            name:      tool_name,
-            arguments: arguments
-          }, id: call_id)
-
-          proc_state[:stdin].write(call_msg + "\n")
-          proc_state[:stdin].flush
-
-          call_resp = mcp_read_response(proc_state[:stdout], target_id: call_id,
-                                        timeout: MCP_CALL_TIMEOUT)
-
-          unless call_resp
-            # Daemon may have died — clean up so next call restarts it
-            kill_mcp_process!
-            raise "Chrome MCP tools/call '#{tool_name}' timed out after #{MCP_CALL_TIMEOUT}s"
-          end
-
-          # Propagate JSON-RPC protocol errors as Ruby exceptions
-          if call_resp["error"]
-            err = call_resp["error"]
-            raise "Chrome MCP error: #{err.is_a?(Hash) ? err['message'] : err}"
-          end
-
-          result = call_resp["result"] || {}
-
-          # Propagate tool-level errors (isError: true means the MCP tool itself failed,
-          # e.g. Chrome not running, page not found, etc.)
-          if result["isError"]
-            text = extract_text_content(result)
-            raise text.empty? ? "Chrome MCP tool '#{tool_name}' failed" : text
-          end
-
-          result
-        end
-      end
-
-      # ---------------------------------------------------------------------------
-      # Daemon process management (called from within @@mcp_mutex)
-      # ---------------------------------------------------------------------------
-
-      # Ensures the persistent MCP daemon process is running and the MCP handshake
-      # has been completed.  If the process is dead or was never started, a new one
-      # is spawned and the initialize/initialized sequence is executed.
-      #
-      # Must be called while holding @@mcp_mutex.
-      private def ensure_mcp_process!(user_data_dir: nil)
-        return if mcp_process_alive?
-
-        cmd = build_mcp_command(user_data_dir: user_data_dir)
-
-        stdin, stdout, stderr_io, wait_thr = Open3.popen3(*cmd)
-        # Discard stderr asynchronously to avoid pipe buffer deadlocks
-        Thread.new { stderr_io.read rescue nil }
-
-        # MCP handshake: initialize → result → notifications/initialized
-        init_msg = mcp_json_rpc("initialize", {
-          protocolVersion: "2024-11-05",
-          capabilities:    {},
-          clientInfo:      { name: "clacky", version: "1.0" }
-        }, id: 1)
-
-        notify_msg = JSON.generate({
-          jsonrpc: "2.0",
-          method:  "notifications/initialized",
-          params:  {}
-        })
-
-        stdin.write(init_msg + "\n")
-        stdin.flush
-
-        init_resp = mcp_read_response(stdout, target_id: 1, timeout: MCP_HANDSHAKE_TIMEOUT)
-        unless init_resp
-          Process.kill("TERM", wait_thr.pid) rescue nil
-          raise "Chrome MCP initialize handshake timed out"
-        end
-
-        stdin.write(notify_msg + "\n")
-        stdin.flush
-
-        # Handshake complete — store daemon state at class level
-        @@mcp_process = { stdin: stdin, stdout: stdout, pid: wait_thr.pid, wait_thr: wait_thr }
-        # Reset call id counter (id=1 already used for initialize)
-        @@mcp_call_id = 2
-      end
-
-      # Returns true if the daemon process is running and its stdin/stdout are open.
-      # Must be called while holding @@mcp_mutex.
-      private def mcp_process_alive?
-        return false if @@mcp_process.nil?
-
-        ps = @@mcp_process
-        # Check whether the process is still alive via kill(0)
-        Process.kill(0, ps[:pid])
-        !ps[:stdin].closed? && !ps[:stdout].closed?
-      rescue Errno::ESRCH, Errno::EPERM
-        # Process gone — clean up stale state
-        kill_mcp_process!
-        false
-      end
-
-      # Forcibly terminates the daemon process and clears class-level state.
-      # Safe to call even when @@mcp_process is nil.
-      # Must be called while holding @@mcp_mutex (or during teardown).
-      private def kill_mcp_process!
-        ps = @@mcp_process
-        return unless ps
-
-        Process.kill("TERM", ps[:pid]) rescue nil
-        ps[:stdin].close  rescue nil
-        ps[:stdout].close rescue nil
-        @@mcp_process = nil
-      end
-
-      # Public class-level method to shut down the daemon (e.g. at exit or in tests).
-      def self.stop_mcp_process!
-        @@mcp_mutex.synchronize do
-          ps = @@mcp_process
-          return unless ps
-
-          Process.kill("TERM", ps[:pid]) rescue nil
-          ps[:stdin].close  rescue nil
-          ps[:stdout].close rescue nil
-          @@mcp_process = nil
-        end
-      end
-
-      # Build a JSON-RPC 2.0 request message string (with id)
-      private def mcp_json_rpc(method, params, id:)
-        JSON.generate({ jsonrpc: "2.0", id: id, method: method, params: params })
-      end
-
-      # Read newline-delimited JSON from stdout until a message with the given
-      # id is found, or timeout expires.  Returns the parsed Hash or nil.
-      private def mcp_read_response(io, target_id:, timeout: 10)
-        Timeout.timeout(timeout) do
-          loop do
-            line = io.gets
-            break if line.nil?
-            line = line.strip
-            next if line.empty?
-            begin
-              msg = JSON.parse(line)
-              return msg if msg.is_a?(Hash) && msg["id"] == target_id
-            rescue JSON::ParserError
-              next
-            end
-          end
-          nil
-        end
-      rescue Timeout::Error
-        nil
+        Clacky::BrowserManager.instance.mcp_call(tool_name, arguments)
       end
 
       # -----------------------------------------------------------------------

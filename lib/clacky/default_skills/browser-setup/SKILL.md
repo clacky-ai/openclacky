@@ -156,7 +156,17 @@ configured_at: <DATE>
 EOF
 ```
 
-### Step 6 — Done
+### Step 6 — Hot-reload daemon
+
+Notify the server to reload the browser MCP daemon with the new config:
+
+```bash
+curl -s -X POST http://localhost:7070/api/browser/reload
+```
+
+If this fails (server not running), skip silently — the daemon will start lazily on next use.
+
+### Step 7 — Done
 
 Let the user know setup is complete:
 

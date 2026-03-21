@@ -59,6 +59,7 @@ require_relative "clacky/agent"
 
 require_relative "clacky/server/session_registry"
 require_relative "clacky/server/web_ui_controller"
+require_relative "clacky/server/browser_manager"
 require_relative "clacky/cli"
 
 module Clacky
@@ -66,4 +67,5 @@ module Clacky
   class AgentError < StandardError; end
   class RetryableError < StandardError; end  # Transient errors that should be retried (5xx, HTML response, rate limit)
   class ToolCallError < AgentError; end  # Raised when tool call fails due to invalid parameters
+  # BrowserManager singleton: Clacky::BrowserManager.instance
 end
