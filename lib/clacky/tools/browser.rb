@@ -5,6 +5,7 @@ require "open3"
 require "timeout"
 require "tmpdir"
 require "shellwords"
+require "yaml"
 require_relative "base"
 
 module Clacky
@@ -13,7 +14,7 @@ module Clacky
     # via the Chrome DevTools MCP server (chrome-devtools-mcp).
     #
     # Architecture: profile="user" uses the existing-session driver (Chrome MCP).
-    #   npx -y chrome-devtools-mcp@latest --autoConnect --experimentalStructuredContent
+    #   chrome-devtools-mcp --autoConnect --experimentalStructuredContent
     #       --experimental-page-id-routing [--userDataDir <path>]
     #
     # Communication: MCP stdio JSON-RPC 2.0 over a *persistent* (daemon) process.
@@ -38,13 +39,19 @@ module Clacky
         - tabs       → list open tabs
         - focus      → switch to a tab by targetId
         - close      → close current tab
-        - screenshot → capture screenshot. Ask user first (high token cost).
+        - screenshot → EXPENSIVE. Only use when user explicitly asks to "see" or "show" the page. NEVER call without ref= unless user asks for a visual. Use ref= to screenshot a single element (much cheaper).
         - status     → check if browser is running
 
         SNAPSHOT WORKFLOW — always snapshot first:
         - action="snapshot"                            → full accessibility tree
         - action="snapshot", interactive=true          → interactive elements only (recommended)
         - action="snapshot", interactive=true, compact=true → compact interactive
+
+        SCREENSHOT RULES — read before calling screenshot:
+        1. DEFAULT: use snapshot to understand the page. snapshot is FREE; screenshot costs ~30K tokens.
+        2. WITH ref=: screenshot a single element (e.g. ref="e5") — costs ~1-2K tokens. OK to use.
+        3. WITHOUT ref= (full page): ONLY if user explicitly says "show me", "screenshot", "what does it look like". NEVER call proactively.
+        4. If you want to check state / find elements / verify result → use snapshot, NOT screenshot.
 
         ACT KINDS: click, dblclick, type, fill, press, hover, drag, select, scroll, wait, evaluate, click_at
         - click:    ref="e1"
@@ -94,7 +101,7 @@ module Clacky
           },
           ref: {
             type: "string",
-            description: "act: element ref from snapshot (e.g. 'e1')."
+            description: "act: element ref from snapshot (e.g. 'e1'). screenshot: capture only this element (much cheaper than full-page)."
           },
           text: { type: "string", description: "act type/fill: text to enter." },
           key:  { type: "string", description: "act press: key (e.g. 'Enter')." },
@@ -133,11 +140,8 @@ module Clacky
         required: ["action"]
       }
 
-      # Chrome MCP npm package
-      CHROME_MCP_PACKAGE = "chrome-devtools-mcp@latest"
+      # Chrome MCP binary args (chrome-devtools-mcp is installed globally via npm install -g)
       CHROME_MCP_BASE_ARGS = %w[
-        -y
-        chrome-devtools-mcp@latest
         --autoConnect
         --experimentalStructuredContent
         --experimental-page-id-routing
@@ -169,13 +173,10 @@ module Clacky
       @@mcp_call_id = 2  # 1 is reserved for the initialize handshake
 
       def execute(action:, profile: nil, working_dir: nil, **opts)
+        return browser_not_configured_error unless browser_configured?
         execute_user_browser(action, opts)
       rescue StandardError => e
-        if chrome_not_running_error?(e.message)
-          { error: CHROME_SETUP_GUIDE }
-        else
-          { error: "Browser error: #{e.message}" }
-        end
+        { error: "Browser error: #{e.message}\n\n#{BROWSER_RECONNECT_HINT}" }
       end
 
       def format_call(args)
@@ -233,83 +234,42 @@ module Clacky
       # Shown to the user (and Agent) when Chrome remote debugging is not enabled.
       # The strong wording ("STOP", "DO NOT") is intentional — it prevents the
       # Agent from silently falling back to web_search or other workarounds.
-      CHROME_SETUP_GUIDE = <<~GUIDE.freeze
-        ⚠️  IMPORTANT — STOP and read this before doing anything else.
+      BROWSER_CONFIG_PATH = File.expand_path("~/.clacky/browser.yml").freeze
 
-        Chrome remote debugging is not enabled. You MUST ask the user to enable it
-        before retrying. Do NOT fall back to web_search or any other workaround.
+      # Shown when any browser action fails at runtime (Chrome closed, lost connection, etc.)
+      BROWSER_RECONNECT_HINT = <<~HINT.strip.freeze
+        If Chrome was closed or the connection was lost, ask the user to reopen Chrome
+        and run the browser-setup skill to reconfigure: just say "browser setup".
+      HINT
 
-        Please tell the user:
-
-        ──────────────────────────────────────────────────
-        Chrome 还没有开启远程调试，需要你做一个操作：
-
-        1. 打开 Chrome，在地址栏输入：
-              chrome://inspect/#remote-debugging
-           按回车
-
-        2. 勾选 "Discover network targets"（如果没有勾选的话）
-
-        3. 下次 Clacky 控制浏览器时，Chrome 会弹出一个授权对话框，
-           点击「允许」即可。
-
-        完成后告诉我，我来重试。
-        ──────────────────────────────────────────────────
-
-        After the user confirms, retry the original browser action.
-      GUIDE
-
-      # Returns true if Google Chrome appears to be installed on this machine.
-      private def chrome_installed?
-        case RbConfig::CONFIG["host_os"]
-        when /darwin/
-          File.exist?("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome") ||
-            File.exist?(File.expand_path("~/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"))
-        when /mswin|mingw|windows/i
-          local = ENV.fetch("LOCALAPPDATA", "")
-          prog  = ENV.fetch("ProgramFiles", "C:\Program Files")
-          prog86 = ENV.fetch("ProgramFiles(x86)", "C:\Program Files (x86)")
-          File.exist?(File.join(local, "Google", "Chrome", "Application", "chrome.exe")) ||
-            File.exist?(File.join(prog, "Google", "Chrome", "Application", "chrome.exe")) ||
-            File.exist?(File.join(prog86, "Google", "Chrome", "Application", "chrome.exe"))
-        else # linux
-          system("which google-chrome > /dev/null 2>&1") ||
-            system("which google-chrome-stable > /dev/null 2>&1") ||
-            File.exist?("/usr/bin/google-chrome") ||
-            File.exist?("/usr/bin/google-chrome-stable")
-        end
+      # Returns true if ~/.clacky/browser.yml exists and marks the browser as configured.
+      private def browser_configured?
+        return false unless File.exist?(BROWSER_CONFIG_PATH)
+        config = YAML.safe_load(File.read(BROWSER_CONFIG_PATH)) rescue {}
+        config.is_a?(Hash) && config["configured"] == true
       end
 
-      # Returns true if the error message from chrome-devtools-mcp indicates
-      # that Chrome is not running or remote debugging is not enabled.
-      private def chrome_not_running_error?(message)
-        msg = message.to_s.downcase
-        msg.include?("could not connect to chrome") ||
-          msg.include?("devtoolsactiveport") ||
-          msg.include?("remote debugging") ||
-          msg.include?("chrome is running")
+      # Error returned when browser.yml is missing or not configured.
+      private def browser_not_configured_error
+        {
+          error: <<~MSG
+            ⚠️  IMPORTANT — STOP and tell the user:
+
+            ──────────────────────────────────────────────────
+            浏览器工具还没有配置。请先运行浏览器配置向导：
+
+            直接说「browser setup」或「配置浏览器」即可。
+            ──────────────────────────────────────────────────
+
+            Do NOT attempt to use the browser tool until setup is complete.
+            Invoke the browser-setup skill now.
+          MSG
+        }
       end
 
       private def execute_user_browser(action, opts)
         if (err = node_error)
           return err
-        end
-
-        unless chrome_installed?
-          return {
-            error: <<~MSG
-              ⚠️  IMPORTANT — STOP and tell the user:
-
-              ──────────────────────────────────────────────────
-              浏览器自动化需要安装 Google Chrome。
-
-              请先安装 Chrome：https://www.google.com/chrome/
-              安装完成后告诉我，我来重试。
-              ──────────────────────────────────────────────────
-
-              Do NOT fall back to web_search or any other workaround.
-            MSG
-          }
         end
 
         case action.to_s
@@ -468,41 +428,76 @@ module Clacky
         { action: "act", success: true, profile: "user", output: "#{kind} completed." }
       end
 
+      # Max width (px) for screenshots sent to the LLM.
+      # Retina/4K screens produce 2x–4x oversized images — we always downscale to this width.
+      SCREENSHOT_MAX_WIDTH = 800
+      # Hard limit on base64 size after downscaling. If still too large, reject.
+      SCREENSHOT_MAX_BASE64_BYTES = 100_000
+
       private def do_user_screenshot(opts)
         target_id = resolve_target_id(opts)
         return target_id if target_id.is_a?(Hash)
 
-        format    = opts[:format]    || opts["format"]    || "jpeg"
+        # Always request PNG — chunky_png resizer works on PNG without native deps.
+        # full_page defaults to false to avoid tall images that are expensive in tokens.
+        # uid: if provided, screenshots only that element (much cheaper in tokens).
         full_page = opts[:full_page] || opts["full_page"] || false
-        quality   = opts[:quality]   || opts["quality"]
+        uid       = opts[:ref]       || opts["ref"]
 
-        # Do NOT pass filePath — when omitted, MCP returns the image as base64
-        # in the response content (attachImage), which we can send directly to the LLM.
-        call_args = {
-          pageId:   target_id.to_i,
-          format:   format,
-          fullPage: full_page
-        }
-        call_args[:quality] = quality.to_i if quality
-
+        call_args = { pageId: target_id.to_i, format: "png", fullPage: full_page }
+        call_args[:uid] = uid if uid
         result = mcp_call("take_screenshot", call_args)
 
-        # Extract base64 image from MCP response content
-        # MCP returns: { "content": [{ "type": "image", "mimeType": "image/jpeg", "data": "<base64>" }] }
+        # MCP returns: { "content": [{ "type": "image", "mimeType": "image/png", "data": "<base64>" }] }
         image_block = Array(result["content"]).find { |b| b.is_a?(Hash) && b["type"] == "image" }
 
-        if image_block
-          mime_type = image_block["mimeType"] || "image/#{format}"
-          image_data = image_block["data"]
-          { action: "screenshot", success: true, profile: "user",
-            image_data: image_data, mime_type: mime_type,
-            output: "Screenshot captured." }
-        else
-          # Fallback: MCP saved to a temp file (image >= 2MB), extract path from text
+        unless image_block
           text = extract_text_content(result)
-          { action: "screenshot", success: true, profile: "user",
-            output: text.empty? ? "Screenshot captured (large image saved to temp file)." : text }
+          return { action: "screenshot", success: true, profile: "user",
+                   output: text.empty? ? "Screenshot captured (large image saved to temp file)." : text }
         end
+
+        image_data = image_block["data"]
+
+        # Downscale to SCREENSHOT_MAX_WIDTH using pure Ruby PNG resizer (no gems needed).
+        image_data = png_downscale_base64(image_data, SCREENSHOT_MAX_WIDTH)
+
+        if image_data.bytesize > SCREENSHOT_MAX_BASE64_BYTES
+          size_kb = image_data.bytesize / 1024
+          return { action: "screenshot", success: false, profile: "user",
+                   output: "Screenshot too large after resize (#{size_kb}KB). " \
+                           "Use action=snapshot instead — it provides the full accessibility tree without token overhead." }
+        end
+
+        { action: "screenshot", success: true, profile: "user",
+          image_data: image_data, mime_type: "image/png",
+          output: "Screenshot captured." }
+      end
+
+      # ---------------------------------------------------------------------------
+      # PNG downscaler using chunky_png — minimal, reliable, zero native deps
+      #
+      # Accepts base64-encoded PNG, decodes it, and if wider than max_width
+      # downscales proportionally and re-encodes as PNG.
+      # ---------------------------------------------------------------------------
+      private def png_downscale_base64(b64, max_width)
+        require "chunky_png"
+
+        image = ChunkyPNG::Image.from_blob(Base64.strict_decode64(b64))
+        # return b64 if image.width <= max_width
+
+        src_w, src_h  = image.width, image.height
+        before_kb     = b64.bytesize / 1024
+        dst_h         = (src_h * max_width.to_f / src_w).round
+        image.resample_nearest_neighbor!(max_width, dst_h)
+        result        = Base64.strict_encode64(image.to_blob)
+        after_kb      = result.bytesize / 1024
+
+        Clacky::Logger.error("screenshot resized",
+          from: "#{src_w}x#{src_h} (#{before_kb}KB)",
+          to:   "#{max_width}x#{dst_h} (#{after_kb}KB)")
+
+        result
       end
 
       # -----------------------------------------------------------------------
@@ -585,7 +580,7 @@ module Clacky
         args = CHROME_MCP_BASE_ARGS.dup
         args += ["--userDataDir", user_data_dir.to_s] if user_data_dir && !user_data_dir.to_s.empty?
 
-        ["npx", *args]
+        ["chrome-devtools-mcp", *args]
       end
 
       # Calls a Chrome MCP tool over the persistent daemon process.

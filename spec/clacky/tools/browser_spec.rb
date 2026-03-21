@@ -306,10 +306,10 @@ RSpec.describe Clacky::Tools::Browser do
   end
 
   describe "#build_mcp_command" do
-    it "returns an array starting with npx" do
+    it "returns an array starting with chrome-devtools-mcp" do
       cmd = tool.send(:build_mcp_command)
       expect(cmd).to be_an(Array)
-      expect(cmd.first).to eq("npx")
+      expect(cmd.first).to eq("chrome-devtools-mcp")
     end
 
     it "includes --userDataDir when user_data_dir is provided" do

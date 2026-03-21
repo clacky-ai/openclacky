@@ -4,6 +4,7 @@ PATH
     openclacky (0.9.7)
       artii (~> 2.1)
       base64 (~> 0.3.0)
+      chunky_png (~> 1.4)
       diffy (~> 3.4)
       faraday (~> 2.0)
       pastel (~> 0.8)
@@ -22,6 +23,7 @@ GEM
     artii (2.1.2)
     ast (2.4.3)
     base64 (0.3.0)
+    chunky_png (1.4.0)
     climate_control (1.2.0)
     date (3.5.1)
     debug (1.11.1)
@@ -157,6 +159,7 @@ CHECKSUMS
   artii (2.1.2) sha256=15410369690634fccf801fd95ae9762c3b2b7254e17a07e77a069e5cd292bc49
   ast (2.4.3) sha256=954615157c1d6a382bc27d690d973195e79db7f55e9765ac7c481c60bdb4d383
   base64 (0.3.0) sha256=27337aeabad6ffae05c265c450490628ef3ebd4b67be58257393227588f5a97b
+  chunky_png (1.4.0) sha256=89d5b31b55c0cf4da3cf89a2b4ebc3178d8abe8cbaf116a1dba95668502fdcfe
   climate_control (1.2.0) sha256=36b21896193fa8c8536fa1cd843a07cf8ddbd03aaba43665e26c53ec1bd70aa5
   date (3.5.1) sha256=750d06384d7b9c15d562c76291407d89e368dda4d4fff957eb94962d325a0dc0
   debug (1.11.1) sha256=2e0b0ac6119f2207a6f8ac7d4a73ca8eb4e440f64da0a3136c30343146e952b6

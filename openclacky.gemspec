@@ -69,6 +69,7 @@ Gem::Specification.new do |spec|
   spec.add_dependency "webrick", "~> 1.8"
   spec.add_dependency "artii", "~> 2.1"
   spec.add_dependency "rubyzip", "~> 3.0"
+  spec.add_dependency "chunky_png", "~> 1.4"
 
   # For more information and examples about making a new gem, check out our
   # guide at: https://bundler.io/guides/creating_gem.html

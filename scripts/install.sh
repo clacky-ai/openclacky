@@ -251,7 +251,7 @@ install_via_gem() {
 
     if [ $? -eq 0 ]; then
         print_success "${DISPLAY_NAME} installed successfully!"
-        install_agent_browser
+        install_chrome_devtools_mcp
         return 0
     else
         print_error "Gem installation failed"
@@ -634,10 +634,38 @@ main() {
 
 # Install agent-browser (browser automation tool)
 # This step is optional — failures are silently skipped with a hint.
-install_agent_browser() {
-    local script_dir
-    script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-    bash "$script_dir/install_agent_browser.sh" || true
+install_chrome_devtools_mcp() {
+    print_step "Installing chrome-devtools-mcp..."
+
+    # 尝试找到 npm；如果没有，通过 mise 安装 Node.js
+    if ! command_exists npm; then
+        local mise_bin=""
+        if command_exists mise; then
+            mise_bin="mise"
+        elif [ -x "$HOME/.local/bin/mise" ]; then
+            mise_bin="$HOME/.local/bin/mise"
+        fi
+
+        if [ -n "$mise_bin" ]; then
+            print_info "Installing Node.js via mise..."
+            "$mise_bin" install node@22 > /dev/null 2>&1 || true
+            "$mise_bin" use -g node@22 > /dev/null 2>&1 || true
+            eval "$("$mise_bin" activate bash 2>/dev/null)" 2>/dev/null || true
+        fi
+    fi
+
+    if ! command_exists npm; then
+        print_warning "Node.js/npm not found. Browser automation will not be available."
+        print_info "To enable browser support, install Node.js and run: npm install -g chrome-devtools-mcp"
+        return 0
+    fi
+
+    if npm install -g chrome-devtools-mcp > /dev/null 2>&1; then
+        print_success "chrome-devtools-mcp installed"
+    else
+        print_warning "chrome-devtools-mcp installation failed. Browser automation may not work."
+        print_info "To install manually: npm install -g chrome-devtools-mcp"
+    fi
 }
 
 # Post-installation information
