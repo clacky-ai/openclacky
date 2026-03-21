@@ -55,21 +55,33 @@ RSpec.describe Clacky::Tools::InvokeSkill do
 
   # ── inline path ───────────────────────────────────────────────────────────────
 
-  it "delegates to inject_skill_as_assistant_message for plain inline skills" do
+  it "returns a plain string result for inline skills" do
     Dir.mktmpdir do |tmpdir|
       create_skill(tmpdir, name: "my-skill", content: "Do the thing.")
       agent  = build_agent(tmpdir)
       loader = agent.instance_variable_get(:@skill_loader)
 
-      expect(agent).to receive(:inject_skill_as_assistant_message).once
       result = tool.execute(skill_name: "my-skill", task: "run it", agent: agent, skill_loader: loader)
 
-      expect(result[:skill_type]).to eq("inline")
-      expect(result[:error]).to be_nil
+      expect(result).to be_a(String)
+      expect(result).to include("my-skill")
     end
   end
 
-  it "injects assistant + user shim messages into agent history for inline skills" do
+  it "calls agent.enqueue_injection instead of injecting into history directly" do
+    Dir.mktmpdir do |tmpdir|
+      create_skill(tmpdir, name: "my-skill", content: "Do the thing.")
+      agent  = build_agent(tmpdir)
+      loader = agent.instance_variable_get(:@skill_loader)
+
+      expect(agent).to receive(:enqueue_injection).once
+      expect(agent).not_to receive(:inject_skill_as_assistant_message)
+
+      tool.execute(skill_name: "my-skill", task: "run it", agent: agent, skill_loader: loader)
+    end
+  end
+
+  it "does NOT inject into history during execute() — injection is deferred to agent loop" do
     Dir.mktmpdir do |tmpdir|
       create_skill(tmpdir, name: "my-skill", content: "Do the thing.")
       agent  = build_agent(tmpdir)
@@ -77,24 +89,24 @@ RSpec.describe Clacky::Tools::InvokeSkill do
 
       tool.execute(skill_name: "my-skill", task: "run it", agent: agent, skill_loader: loader)
 
+      # No system_injected messages should be in history — injection hasn't happened yet
       injected = agent.history.to_a.select { |m| m[:system_injected] && !m[:session_context] }
-      expect(injected.size).to eq(2)
-      expect(injected[0][:role]).to eq("assistant")
-      expect(injected[0][:content]).to include("Do the thing.")
-      expect(injected[1][:role]).to eq("user")
+      expect(injected.size).to eq(0)
     end
   end
 
-  it "does NOT return skill content in the tool result (content lives in history, not tool result)" do
+  it "enqueues injection with correct skill and task" do
     Dir.mktmpdir do |tmpdir|
-      create_skill(tmpdir, name: "my-skill", content: "Secret content.")
+      create_skill(tmpdir, name: "my-skill", content: "Do the thing.")
       agent  = build_agent(tmpdir)
       loader = agent.instance_variable_get(:@skill_loader)
 
-      result = tool.execute(skill_name: "my-skill", task: "run it", agent: agent, skill_loader: loader)
+      tool.execute(skill_name: "my-skill", task: "run it", agent: agent, skill_loader: loader)
 
-      # Skill content must NOT be in the tool result — it goes into history directly
-      expect(result.to_s).not_to include("Secret content.")
+      pending_injections = agent.instance_variable_get(:@pending_injections)
+      expect(pending_injections.size).to eq(1)
+      expect(pending_injections.first[:skill]).not_to be_nil
+      expect(pending_injections.first[:task]).to eq("run it")
     end
   end
 
@@ -106,7 +118,6 @@ RSpec.describe Clacky::Tools::InvokeSkill do
       agent  = build_agent(tmpdir)
       loader = agent.instance_variable_get(:@skill_loader)
 
-      # Stub subagent execution — we just verify the right path is taken
       allow(agent).to receive(:execute_skill_with_subagent).and_return("subagent summary")
 
       result = tool.execute(skill_name: "forked-skill", task: "do it", agent: agent, skill_loader: loader)
@@ -149,8 +160,8 @@ RSpec.describe Clacky::Tools::InvokeSkill do
       expect(tool.format_result({ skill_type: "subagent" })).to match(/[Ss]ubagent/)
     end
 
-    it "returns injected message for inline type" do
-      expect(tool.format_result({ skill_type: "inline" })).to be_a(String)
+    it "returns injected message for inline string result" do
+      expect(tool.format_result("Skill 'my-skill' instructions expanded.")).to be_a(String)
     end
   end
 end

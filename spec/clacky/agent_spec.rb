@@ -892,4 +892,592 @@ RSpec.describe Clacky::Agent do
       end
     end
   end
+
+  # ── inline skill injection integration ───────────────────────────────────────
+  #
+  # Verifies that when the agent loop executes an invoke_skill tool call for an
+  # inline skill, the resulting history has the correct message order required
+  # by Bedrock (and all providers):
+  #
+  #   [N]   assistant: { toolUse: invoke_skill }
+  #   [N+1] user:      { toolResult: ... }         ← observe() appends first
+  #   [N+2] assistant: { text: skill instructions } ← flush_pending_injections runs here
+  #   [N+3] user:      "[SYSTEM] please proceed"
+  #
+  describe "inline skill injection via agent loop" do
+    let(:skill_content) { "## Skill Instructions\nDo the magic thing." }
+
+    def build_agent_with_inline_skill(tmpdir)
+      # Write a minimal inline skill
+      skill_dir = File.join(tmpdir, ".clacky", "skills", "magic-skill")
+      FileUtils.mkdir_p(skill_dir)
+      File.write(File.join(skill_dir, "SKILL.md"), <<~MD)
+        ---
+        name: magic-skill
+        description: A magic test skill
+        ---
+
+        #{skill_content}
+      MD
+
+      Clacky::Agent.new(
+        client, config,
+        working_dir: tmpdir,
+        ui: nil,
+        profile: "general",
+        session_id: Clacky::SessionManager.generate_id
+      )
+    end
+
+    def stub_client_for_invoke_skill(agent, tool_call_id)
+      # Round 1: assistant calls invoke_skill
+      invoke_skill_response = mock_api_response(
+        content: "好，来调用 skill！",
+        tool_calls: [mock_tool_call(name: "invoke_skill", args: JSON.generate(skill_name: "magic-skill", task: "do it"))]
+      ).merge(id: tool_call_id)
+
+      # Round 2: assistant finishes
+      final_response = mock_api_response(content: "Skill executed.")
+
+      allow(client).to receive(:send_messages_with_tools)
+        .and_return(invoke_skill_response, final_response)
+
+      # format_tool_results: return Anthropic-style user message with toolResult block
+      allow(client).to receive(:format_tool_results) do |_response, tool_results, model:|
+        [{
+          role: "user",
+          content: tool_results.map { |r|
+            { type: "tool_result", tool_use_id: r[:id], content: r[:content] }
+          }
+        }]
+      end
+    end
+
+    it "appends toolResult before skill instructions in history" do
+      require "fileutils"
+      Dir.mktmpdir do |tmpdir|
+        local_agent = build_agent_with_inline_skill(tmpdir)
+        tool_call_id = "tooluse_test_#{SecureRandom.hex(4)}"
+
+        stub_client_for_invoke_skill(local_agent, tool_call_id)
+        allow(local_agent).to receive(:inject_memory_prompt!).and_return(false)
+
+        local_agent.run("invoke magic-skill")
+
+        messages = local_agent.history.to_a
+
+        # Find the user message containing the toolResult block
+        tool_result_idx = messages.index { |m|
+          m[:role] == "user" &&
+          Array(m[:content]).any? { |b| b.is_a?(Hash) && b[:type] == "tool_result" }
+        }
+        expect(tool_result_idx).not_to be_nil, "Expected a toolResult message in history"
+
+        # Find the injected skill instruction message (assistant, system_injected, contains skill content)
+        skill_inject_idx = messages.index { |m|
+          m[:role] == "assistant" &&
+          m[:system_injected] == true &&
+          m[:content].to_s.include?(skill_content.lines.first.strip)
+        }
+        expect(skill_inject_idx).not_to be_nil, "Expected injected skill instruction message in history"
+
+        # Core assertion: toolResult must appear BEFORE skill instructions
+        expect(skill_inject_idx).to be > tool_result_idx,
+          "Skill instructions (idx=#{skill_inject_idx}) must appear AFTER toolResult (idx=#{tool_result_idx})"
+
+        # The "[SYSTEM] ... Please proceed" shim must come after skill instructions
+        shim_idx = messages.index { |m|
+          m[:role] == "user" &&
+          m[:system_injected] == true &&
+          m[:content].to_s.include?("Please proceed to execute the task")
+        }
+        expect(shim_idx).not_to be_nil, "Expected '[SYSTEM] please proceed' shim message in history"
+        expect(shim_idx).to be > skill_inject_idx,
+          "Shim must come after skill instructions"
+      end
+    end
+
+    it "enqueue_injection adds entry to @pending_injections" do
+      Dir.mktmpdir do |tmpdir|
+        local_agent = build_agent_with_inline_skill(tmpdir)
+        skill = local_agent.instance_variable_get(:@skill_loader).find_by_name("magic-skill")
+
+        expect {
+          local_agent.enqueue_injection(skill, "do it")
+        }.to change {
+          local_agent.instance_variable_get(:@pending_injections).size
+        }.by(1)
+      end
+    end
+
+    it "flush_pending_injections injects into history and clears the queue" do
+      Dir.mktmpdir do |tmpdir|
+        local_agent = build_agent_with_inline_skill(tmpdir)
+        skill = local_agent.instance_variable_get(:@skill_loader).find_by_name("magic-skill")
+
+        local_agent.enqueue_injection(skill, "do it")
+        expect(local_agent.instance_variable_get(:@pending_injections).size).to eq(1)
+
+        local_agent.send(:flush_pending_injections)
+
+        # Queue must be cleared
+        expect(local_agent.instance_variable_get(:@pending_injections)).to be_empty
+
+        # Skill instruction must be in history
+        injected = local_agent.history.to_a.select { |m|
+          m[:system_injected] && m[:role] == "assistant" &&
+          m[:content].to_s.include?(skill_content.lines.first.strip)
+        }
+        expect(injected.size).to eq(1)
+      end
+    end
+  end
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Dangling tool_calls cleanup — API error 2013
+  #
+  # Error: "tool call result does not follow tool call"
+  # Root cause: a previous task left an unanswered assistant+tool_calls message in
+  # history (e.g. due to AgentInterrupted during act(), or AgentError during the
+  # second LLM call). When the next task appends a user message,
+  # MessageHistory#append calls drop_dangling_tool_calls! to remove the orphan.
+  #
+  # These tests verify the end-to-end Agent behaviour — that the messages actually
+  # sent to the LLM API never contain a dangling tool_calls assistant message.
+  # ─────────────────────────────────────────────────────────────────────────────
+  describe "dangling tool_calls cleanup (API error 2013 prevention)" do
+    # Shared format_tool_results stub (OpenAI-style)
+    def stub_format_tool_results(client)
+      allow(client).to receive(:format_tool_results) do |response, tool_results, model:|
+        response[:tool_calls].map do |call|
+          result = tool_results.find { |r| r[:id] == call[:id] }
+          {
+            role: "tool",
+            tool_call_id: call[:id],
+            content: result ? result[:content] : JSON.generate({ error: "missing" })
+          }
+        end
+      end
+    end
+
+    context "when previous task was interrupted (AgentInterrupted) after think() appended tool_calls" do
+      # Scenario:
+      #   Task 1: think() returns tool_calls → appended to history.
+      #           act() raises AgentInterrupted before observe() runs.
+      #           → history ends with a dangling assistant+tool_calls message.
+      #   Task 2: run("second task") appends a user message.
+      #           MessageHistory#append must drop the dangling message first.
+      #           → API must NOT receive the orphaned tool_calls message.
+
+      it "drops dangling tool_calls so the next task does not trigger error 2013" do
+        stub_format_tool_results(client)
+
+        tool_call = mock_tool_call(name: "safe_shell", args: '{"command":"ls"}')
+
+        # Task 1 — interrupted run: think returns tool_calls, then act raises AgentInterrupted
+        interrupted_response = mock_api_response(
+          content: "Running ls…",
+          tool_calls: [tool_call]
+        )
+        allow(client).to receive(:send_messages_with_tools)
+          .and_return(interrupted_response)
+          .once
+        allow(agent).to receive(:act).and_raise(Clacky::AgentInterrupted, "user pressed Ctrl+C")
+        allow(agent).to receive(:inject_memory_prompt!).and_return(false)
+
+        expect { agent.run("task one") }.to raise_error(Clacky::AgentInterrupted)
+
+        # History should now have a dangling assistant+tool_calls at the end
+        expect(agent.history.pending_tool_calls?).to be true
+
+        # Task 2 — second run: capture messages sent to LLM
+        messages_sent = nil
+        allow(client).to receive(:send_messages_with_tools) do |msgs, **_opts|
+          messages_sent = msgs
+          mock_api_response(content: "Done with task two")
+        end
+
+        agent.run("task two")
+
+        # The dangling assistant message must NOT appear in messages sent to API
+        dangling = messages_sent.select { |m|
+          m[:role] == "assistant" && Array(m[:tool_calls]).any?
+        }
+        expect(dangling).to be_empty,
+          "Expected no dangling assistant+tool_calls in API messages, but found: #{dangling.inspect}"
+      end
+    end
+
+    context "when previous task ended with AgentError after think() appended tool_calls" do
+      # Scenario:
+      #   Task 1: think() (round 1) returns tool_calls → appended + observe() runs fine.
+      #           think() (round 2, for final answer) raises AgentError.
+      #           Because the round-1 tool_call was properly observed, history is clean
+      #           at that point. But if the error occurs BEFORE observe(), the
+      #           dangling message is left. We simulate the worst case: error fires
+      #           in act() so observe() never runs.
+
+      it "API receives no dangling tool_calls when error occurred before observe()" do
+        stub_format_tool_results(client)
+
+        tool_call = mock_tool_call(name: "safe_shell", args: '{"command":"pwd"}')
+        erroring_response = mock_api_response(content: "Thinking…", tool_calls: [tool_call])
+
+        allow(client).to receive(:send_messages_with_tools).and_return(erroring_response).once
+        allow(agent).to receive(:act).and_raise(Clacky::AgentError, "simulated API failure")
+        allow(agent).to receive(:inject_memory_prompt!).and_return(false)
+
+        expect { agent.run("task one") }.to raise_error(Clacky::AgentError)
+        expect(agent.history.pending_tool_calls?).to be true
+
+        # Task 2 — should clean up and proceed normally
+        messages_sent = nil
+        allow(client).to receive(:send_messages_with_tools) do |msgs, **_opts|
+          messages_sent = msgs
+          mock_api_response(content: "All good now")
+        end
+
+        agent.run("task two")
+
+        dangling = messages_sent.select { |m|
+          m[:role] == "assistant" && Array(m[:tool_calls]).any?
+        }
+        expect(dangling).to be_empty,
+          "Expected no dangling assistant+tool_calls in API messages after error recovery"
+      end
+    end
+
+    context "when history is manually seeded with a dangling assistant+tool_calls" do
+      # Scenario: directly inject a dangling state into history to verify the
+      # cleanup path regardless of how it was created (e.g. session restore edge cases).
+
+      it "drops the dangling message before sending to API" do
+        stub_format_tool_results(client)
+        allow(agent).to receive(:inject_memory_prompt!).and_return(false)
+
+        # Build a fresh agent with controlled history
+        agent.history.append({ role: "system", content: "You are helpful." })
+        agent.history.append({ role: "user", content: "previous task" })
+        # Dangling: assistant with tool_calls, no subsequent tool_result
+        agent.history.append({
+          role: "assistant",
+          content: "",
+          tool_calls: [{ id: "orphan_call_1", type: "function", name: "safe_shell",
+                         function: { name: "safe_shell", arguments: '{"command":"ls"}' } }]
+        })
+
+        expect(agent.history.pending_tool_calls?).to be true
+
+        messages_sent = nil
+        allow(client).to receive(:send_messages_with_tools) do |msgs, **_opts|
+          messages_sent = msgs
+          mock_api_response(content: "Cleaned up and running")
+        end
+
+        agent.run("new task after dangling state")
+
+        dangling = messages_sent.select { |m|
+          m[:role] == "assistant" && Array(m[:tool_calls]).any?
+        }
+        expect(dangling).to be_empty,
+          "Dangling assistant+tool_calls must be stripped before sending to API"
+      end
+    end
+  end
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Brand skill end-to-end tests
+  #
+  # Brand skills (encrypted: true) are injected as transient messages — visible to
+  # the LLM during the current session but never persisted to session.json.
+  #
+  # Three paths are tested end-to-end through agent.run():
+  #   1. invoke_skill tool path  — LLM calls invoke_skill → enqueue → flush
+  #   2. slash command path      — user types /brand-skill → inject_skill_command_as_assistant_message
+  #   3. persistence isolation   — transient messages are absent from to_a after run()
+  # ─────────────────────────────────────────────────────────────────────────────
+  describe "brand skill end-to-end" do
+    # Helper: set up a brand skill in a temp dir, yield agent + skill.
+    # Mirrors the with_brand_skill helper in inject_skill_command_spec.rb.
+    def with_brand_skill_agent(content: "Secret brand instructions.", name: "secret-skill")
+      Dir.mktmpdir do |tmp|
+        stub_const("Clacky::BrandConfig::CONFIG_DIR", tmp)
+        stub_const("Clacky::BrandConfig::BRAND_FILE", File.join(tmp, "brand.yml"))
+
+        brand_config = Clacky::BrandConfig.new(
+          "brand_name"           => "TestBrand",
+          "license_key"          => "0000002A-00000007-DEADBEEF-CAFEBABE-A1B2C3D4",
+          "license_activated_at" => Time.now.utc.iso8601,
+          "license_expires_at"   => (Time.now.utc + 86_400).iso8601,
+          "device_id"            => "testdevice"
+        )
+        allow(Clacky::BrandConfig).to receive(:load).and_return(brand_config)
+
+        skill_dir = File.join(tmp, "brand_skills", name)
+        FileUtils.mkdir_p(skill_dir)
+        File.binwrite(
+          File.join(skill_dir, "SKILL.md.enc"),
+          "---\nname: #{name}\ndescription: A secret brand skill\n---\n\n#{content}"
+        )
+
+        old_test_env = ENV.delete("CLACKY_TEST")
+        begin
+          brand_agent = described_class.new(
+            client, config,
+            working_dir: tmp, ui: nil, profile: "general",
+            session_id: Clacky::SessionManager.generate_id
+          )
+          skill = brand_agent.instance_variable_get(:@skill_loader).find_by_name(name)
+          yield brand_agent, skill, tmp
+        ensure
+          ENV["CLACKY_TEST"] = old_test_env if old_test_env
+        end
+      end
+    end
+
+    context "via invoke_skill tool (inline path)" do
+      # LLM decides to call invoke_skill → enqueue_injection → flush after observe()
+      # Verifies: brand skill content reaches to_api (LLM sees it this session)
+      #           but does NOT appear in to_a (not persisted)
+
+      it "brand skill content is visible in to_api but absent from to_a after run()" do
+        with_brand_skill_agent(content: "Top secret brand instructions.") do |brand_agent, skill, _tmp|
+          expect(skill).not_to be_nil
+          expect(skill.encrypted?).to be true
+
+          tool_call_id = "call_brand_#{SecureRandom.hex(4)}"
+          invoke_response = mock_api_response(
+            content: "Invoking brand skill…",
+            tool_calls: [mock_tool_call(name: "invoke_skill",
+                                        args: JSON.generate(skill_name: "secret-skill", task: "do it"))]
+          ).merge(id: tool_call_id)
+          final_response = mock_api_response(content: "Brand skill done.")
+
+          allow(client).to receive(:send_messages_with_tools)
+            .and_return(invoke_response, final_response)
+          allow(client).to receive(:format_tool_results) do |_resp, tool_results, model:|
+            [{ role: "user",
+               content: tool_results.map { |r|
+                 { type: "tool_result", tool_use_id: r[:id], content: r[:content] }
+               } }]
+          end
+          allow(brand_agent).to receive(:inject_memory_prompt!).and_return(false)
+
+          brand_agent.run("use secret skill")
+
+          # to_api includes transient messages (LLM sees them this session)
+          api_messages = brand_agent.history.to_api
+          has_brand_content = api_messages.any? { |m| m[:content].to_s.include?("Top secret brand instructions.") }
+          # Brand skill content must be present in to_api (LLM must see it)
+          expect(has_brand_content).to eq(true)
+
+          # to_a excludes transient messages (must not be persisted)
+          persisted = brand_agent.history.to_a
+          leaks_brand_content = persisted.any? { |m| m[:content].to_s.include?("Top secret brand instructions.") }
+          # Brand skill content must NOT appear in to_a (must not be persisted)
+          expect(leaks_brand_content).to eq(false)
+        end
+      end
+
+      it "brand skill messages are marked transient in raw history after run()" do
+        with_brand_skill_agent(content: "Proprietary workflow steps.") do |brand_agent, _skill, _tmp|
+          tool_call_id = "call_brand_#{SecureRandom.hex(4)}"
+          invoke_response = mock_api_response(
+            content: nil,
+            tool_calls: [mock_tool_call(name: "invoke_skill",
+                                        args: JSON.generate(skill_name: "secret-skill", task: "run it"))]
+          ).merge(id: tool_call_id)
+          final_response = mock_api_response(content: "All done.")
+
+          allow(client).to receive(:send_messages_with_tools)
+            .and_return(invoke_response, final_response)
+          allow(client).to receive(:format_tool_results) do |_resp, tool_results, model:|
+            [{ role: "user",
+               content: tool_results.map { |r|
+                 { type: "tool_result", tool_use_id: r[:id], content: r[:content] }
+               } }]
+          end
+          allow(brand_agent).to receive(:inject_memory_prompt!).and_return(false)
+
+          brand_agent.run("invoke secret")
+
+          raw = brand_agent.history.instance_variable_get(:@messages)
+          brand_msgs = raw.select { |m|
+            m[:system_injected] && !m[:session_context] &&
+              m[:content].to_s.include?("Proprietary workflow steps.")
+          }
+          expect(brand_msgs).not_to be_empty, "Expected brand skill messages in raw history"
+          expect(brand_msgs).to all(satisfy { |m| m[:transient] == true }),
+            "All brand skill messages must be transient"
+        end
+      end
+    end
+
+    context "via slash command path" do
+      # User types /secret-skill → inject_skill_command_as_assistant_message runs immediately
+      # Verifies same transient isolation guarantees
+
+      it "brand skill injected via slash command is transient and not persisted" do
+        with_brand_skill_agent(content: "Slash command brand instructions.") do |brand_agent, _skill, _tmp|
+          allow(client).to receive(:send_messages_with_tools)
+            .and_return(mock_api_response(content: "Executed slash skill."))
+          allow(brand_agent).to receive(:inject_memory_prompt!).and_return(false)
+
+          brand_agent.run("/secret-skill do the thing")
+
+          # Raw history contains transient brand skill messages
+          raw = brand_agent.history.instance_variable_get(:@messages)
+          brand_msgs = raw.select { |m|
+            m[:system_injected] && !m[:session_context] &&
+              m[:content].to_s.include?("Slash command brand instructions.")
+          }
+          expect(brand_msgs).not_to be_empty, "Expected injected brand skill messages in raw history"
+          expect(brand_msgs).to all(satisfy { |m| m[:transient] == true })
+
+          # to_a must not include brand skill content
+          persisted = brand_agent.history.to_a
+          leaks = persisted.any? { |m| m[:content].to_s.include?("Slash command brand instructions.") }
+          # Brand skill content must not be persisted via to_a
+          expect(leaks).to eq(false)
+        end
+      end
+    end
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # CONFIDENTIALITY NOTICE injection tests
+    #
+    # inject_skill_as_assistant_message appends a [SYSTEM] CONFIDENTIALITY
+    # NOTICE to the expanded content whenever skill.encrypted? is true.
+    # These end-to-end tests verify:
+    #   a) The notice is present in to_api (the LLM receives it)
+    #   b) The notice is absent from to_a  (not persisted to session.json)
+    #   c) Plain (non-encrypted) skills never get the notice injected
+    #
+    # Both injection paths (slash command + invoke_skill tool) are covered.
+    # ─────────────────────────────────────────────────────────────────────────
+    describe "CONFIDENTIALITY NOTICE injection" do
+      CONFIDENTIALITY_NOTICE = "[SYSTEM] CONFIDENTIALITY NOTICE"
+
+      context "slash command path" do
+        it "appends CONFIDENTIALITY NOTICE to the injected content" do
+          with_brand_skill_agent(content: "Slash secret content.") do |brand_agent, _skill, _tmp|
+            allow(client).to receive(:send_messages_with_tools)
+              .and_return(mock_api_response(content: "Done."))
+            allow(brand_agent).to receive(:inject_memory_prompt!).and_return(false)
+
+            brand_agent.run("/secret-skill do the thing")
+
+            api_messages = brand_agent.history.to_api
+            notice_in_api = api_messages.any? { |m| m[:content].to_s.include?(CONFIDENTIALITY_NOTICE) }
+            expect(notice_in_api).to eq(true)
+          end
+        end
+
+        it "CONFIDENTIALITY NOTICE is NOT present in to_a (not persisted)" do
+          with_brand_skill_agent(content: "Slash secret content.") do |brand_agent, _skill, _tmp|
+            allow(client).to receive(:send_messages_with_tools)
+              .and_return(mock_api_response(content: "Done."))
+            allow(brand_agent).to receive(:inject_memory_prompt!).and_return(false)
+
+            brand_agent.run("/secret-skill do the thing")
+
+            persisted = brand_agent.history.to_a
+            notice_leaked = persisted.any? { |m| m[:content].to_s.include?(CONFIDENTIALITY_NOTICE) }
+            expect(notice_leaked).to eq(false)
+          end
+        end
+      end
+
+      context "invoke_skill tool path" do
+        it "appends CONFIDENTIALITY NOTICE when LLM calls invoke_skill for a brand skill" do
+          with_brand_skill_agent(content: "Tool path secret content.") do |brand_agent, _skill, _tmp|
+            invoke_response = mock_api_response(
+              content: nil,
+              tool_calls: [mock_tool_call(name: "invoke_skill",
+                                          args: JSON.generate(skill_name: "secret-skill", task: "run it"))]
+            )
+            final_response = mock_api_response(content: "All done.")
+
+            allow(client).to receive(:send_messages_with_tools)
+              .and_return(invoke_response, final_response)
+            allow(client).to receive(:format_tool_results) do |_resp, tool_results, model:|
+              [{ role: "user",
+                 content: tool_results.map { |r|
+                   { type: "tool_result", tool_use_id: r[:id], content: r[:content] }
+                 } }]
+            end
+            allow(brand_agent).to receive(:inject_memory_prompt!).and_return(false)
+
+            brand_agent.run("use secret skill")
+
+            api_messages = brand_agent.history.to_api
+            notice_in_api = api_messages.any? { |m| m[:content].to_s.include?(CONFIDENTIALITY_NOTICE) }
+            expect(notice_in_api).to eq(true)
+          end
+        end
+
+        it "CONFIDENTIALITY NOTICE is NOT present in to_a (not persisted)" do
+          with_brand_skill_agent(content: "Tool path secret content.") do |brand_agent, _skill, _tmp|
+            invoke_response = mock_api_response(
+              content: nil,
+              tool_calls: [mock_tool_call(name: "invoke_skill",
+                                          args: JSON.generate(skill_name: "secret-skill", task: "run it"))]
+            )
+            final_response = mock_api_response(content: "All done.")
+
+            allow(client).to receive(:send_messages_with_tools)
+              .and_return(invoke_response, final_response)
+            allow(client).to receive(:format_tool_results) do |_resp, tool_results, model:|
+              [{ role: "user",
+                 content: tool_results.map { |r|
+                   { type: "tool_result", tool_use_id: r[:id], content: r[:content] }
+                 } }]
+            end
+            allow(brand_agent).to receive(:inject_memory_prompt!).and_return(false)
+
+            brand_agent.run("use secret skill")
+
+            persisted = brand_agent.history.to_a
+            notice_leaked = persisted.any? { |m| m[:content].to_s.include?(CONFIDENTIALITY_NOTICE) }
+            expect(notice_leaked).to eq(false)
+          end
+        end
+      end
+
+      context "plain (non-encrypted) skill" do
+        it "does NOT inject CONFIDENTIALITY NOTICE for a regular skill" do
+          Dir.mktmpdir do |tmp|
+            # Set up a plain skill (not encrypted) in the project skills dir
+            skill_dir = File.join(tmp, ".clacky", "skills", "plain-skill")
+            FileUtils.mkdir_p(skill_dir)
+            File.write(File.join(skill_dir, "SKILL.md"), <<~SKILL)
+              ---
+              name: plain-skill
+              description: A plain non-encrypted skill.
+              ---
+
+              Plain skill content. No secrets here.
+            SKILL
+
+            plain_agent = described_class.new(
+              client, config,
+              working_dir: tmp, ui: nil, profile: "general",
+              session_id: Clacky::SessionManager.generate_id
+            )
+            allow(client).to receive(:send_messages_with_tools)
+              .and_return(mock_api_response(content: "Done."))
+            allow(plain_agent).to receive(:inject_memory_prompt!).and_return(false)
+
+            plain_agent.run("/plain-skill do something")
+
+            # Neither to_api nor to_a should contain the CONFIDENTIALITY NOTICE
+            all_contents = (plain_agent.history.to_api + plain_agent.history.to_a)
+              .map { |m| m[:content].to_s }
+              .join("\n")
+            expect(all_contents).not_to include(CONFIDENTIALITY_NOTICE)
+          end
+        end
+      end
+    end
+  end
 end

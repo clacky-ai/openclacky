@@ -68,6 +68,7 @@ module Clacky
       @interrupted = false  # Flag for user interrupt
       @ui = ui  # UIController for direct UI interaction
       @debug_logs = []  # Debug logs for troubleshooting
+      @pending_injections = []  # Pending inline skill injections to flush after observe()
 
       # Compression tracking
       @compression_level = 0  # Tracks how many times we've compressed (for progressive summarization)
@@ -285,11 +286,17 @@ module Clacky
           if action_result[:awaiting_feedback]
             awaiting_user_feedback = true
             observe(response, action_result[:tool_results])
+            flush_pending_injections
             break
           end
 
           # Observe: Add tool results to conversation context
           observe(response, action_result[:tool_results])
+
+          # Flush any inline skill injections enqueued by invoke_skill during act().
+          # Must happen AFTER observe() so toolResult is appended before skill instructions,
+          # producing a legal message sequence for all API providers (especially Bedrock).
+          flush_pending_injections
 
           # Check if user denied any tool
           if action_result[:denied]
@@ -659,6 +666,27 @@ module Clacky
     # Called when user presses Ctrl+C during agent execution
     def interrupt!
       @interrupted = true
+    end
+
+    # Enqueue an inline skill injection to be flushed after observe().
+    # Called by InvokeSkill#execute to avoid injecting during tool execution,
+    # which would break Bedrock's toolUse/toolResult pairing requirement.
+    # @param skill [Clacky::Skill] The skill whose instructions should be injected
+    # @param task [String] The task description passed to the skill
+    def enqueue_injection(skill, task)
+      @pending_injections << { skill: skill, task: task }
+    end
+
+    # Flush all pending inline skill injections into history.
+    # Must be called AFTER observe() so toolResult is appended before skill instructions,
+    # producing the correct message sequence for all API providers (especially Bedrock).
+    private def flush_pending_injections
+      return if @pending_injections.empty?
+
+      @pending_injections.each do |entry|
+        inject_skill_as_assistant_message(entry[:skill], entry[:task], @current_task_id)
+      end
+      @pending_injections.clear
     end
 
     # Check if agent is currently running

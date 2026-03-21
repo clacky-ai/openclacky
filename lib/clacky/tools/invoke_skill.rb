@@ -51,16 +51,21 @@ module Clacky
             skill_type: "subagent"
           }
         else
-          # Unified injection path: delegate to SkillManager#inject_skill_as_assistant_message.
-          # This ensures brand skill transient handling, template expansion, and message
-          # structure are identical to the slash command path — single source of truth.
-          task_id = agent.instance_variable_get(:@current_task_id)
-          agent.send(:inject_skill_as_assistant_message, skill, task, task_id)
-
-          {
-            message: "Skill '#{skill_name}' instructions expanded. Proceed to execute the task.",
-            skill_type: "inline"
-          }
+          # Deferred injection path: enqueue the skill inject on the agent.
+          #
+          # Injecting inside execute() would produce an illegal message ordering for Bedrock:
+          #   assistant: {toolUse: invoke_skill}
+          #   assistant: {text: skill_instructions}   ← injected here (breaks pairing)
+          #   user:      {toolResult: invoke_skill}   ← observe() appends this too late
+          #
+          # Instead, enqueue the injection so the agent loop can flush it AFTER observe()
+          # appends the toolResult, producing the correct sequence:
+          #   assistant: {toolUse: invoke_skill}
+          #   user:      {toolResult: ...}            ← observe() appends first
+          #   assistant: {text: skill_instructions}   ← flush_pending_injections runs here
+          #   user:      "[SYSTEM] please proceed"
+          agent.enqueue_injection(skill, task)
+          "Skill '#{skill_name}' instructions expanded. Proceed to execute the task."
         end
       end
 
@@ -76,7 +81,9 @@ module Clacky
       # @param result [Hash] Tool execution result
       # @return [String] Formatted result summary
       def format_result(result)
-        if result[:error]
+        if result.is_a?(String)
+          result
+        elsif result[:error]
           "Error: #{result[:error]}"
         elsif result[:skill_type] == "subagent"
           "Subagent executed successfully"
