@@ -21,6 +21,8 @@ allowed-tools:
 
 Configure IM platform channels for open-clacky. Config is stored at `~/.clacky/channels.yml`.
 
+---
+
 ## Command Parsing
 
 | User says | Subcommand |
@@ -63,29 +65,60 @@ Ask:
 
 ### Feishu setup
 
-#### Phase 1 — Open Feishu Open Platform
+#### Step 1 — Try automated setup (script)
+
+Find the setup script:
+```bash
+SKILL_DIR=$(ruby -e "puts Gem.find_files('clacky/default_skills/channel-setup/feishu_setup.rb').first" 2>/dev/null)
+# Fallback: search common paths
+[ -z "$SKILL_DIR" ] && SKILL_DIR=$(find ~/.gem /usr/local/lib -name "feishu_setup.rb" 2>/dev/null | head -1)
+```
+
+Run it:
+```bash
+ruby "$SKILL_DIR"
+```
+
+**If exit code is 0:**
+- The script completed successfully.
+- Config is already written to `~/.clacky/channels.yml`.
+- Tell the user: "✅ Feishu channel configured automatically! The channel is ready."
+- **Stop here — do not proceed to manual steps.**
+
+**If exit code is non-0 (or script not found):**
+- Note the failure reason from stdout (the last `❌` line).
+- Tell the user: "Automated setup encountered an issue: `<reason>`. Switching to guided setup..."
+- Continue to Step 2 (manual flow) below.
+
+---
+
+#### Step 2 — Manual guided setup (fallback)
+
+Only reach here if the automated script failed.
+
+##### Phase 1 — Open Feishu Open Platform
 
 1. Navigate: `open https://open.feishu.cn/app`. Pass `isolated: true`.
 2. If a login page or QR code is shown, tell the user to log in and wait for "done".
 3. Confirm the app list is visible.
 
-#### Phase 2 — Create a new app
+##### Phase 2 — Create a new app
 
-6. **Always create a new app** — do NOT reuse existing apps. Guide the user: "Click 'Create Enterprise Self-Built App', fill in name (e.g. Open Clacky) and description (e.g. AI assistant powered by open-clacky), then submit. Reply done." Wait for "done".
+4. **Always create a new app** — do NOT reuse existing apps. Guide the user: "Click 'Create Enterprise Self-Built App', fill in name (e.g. Open Clacky) and description (e.g. AI assistant powered by open-clacky), then submit. Reply done." Wait for "done".
 
-#### Phase 3 — Enable Bot capability
+##### Phase 3 — Enable Bot capability
 
-7. Feishu opens Add App Capabilities by default after creating an app. Guide the user: "Find the Bot capability card and click the Add button next to it, then reply done." Wait for "done".
+5. Feishu opens Add App Capabilities by default after creating an app. Guide the user: "Find the Bot capability card and click the Add button next to it, then reply done." Wait for "done".
 
-#### Phase 4 — Get credentials
+##### Phase 4 — Get credentials
 
-8. Navigate to Credentials & Basic Info in the left menu.
-9. Guide the user: "Copy App ID and App Secret, then paste here. Reply with: App ID: xxx, App Secret: xxx" Wait for "done".
+6. Navigate to Credentials & Basic Info in the left menu.
+7. Guide the user: "Copy App ID and App Secret, then paste here. Reply with: App ID: xxx, App Secret: xxx" Wait for the reply. Parse `app_id` and `app_secret`.
 
-#### Phase 5 — Add message permissions
+##### Phase 5 — Add message permissions
 
-10. Navigate to Permission Management and open the bulk import dialog.
-11. Guide the user: "In the bulk import dialog, clear the existing example first (select all, delete), then paste the following JSON. Reply done." Wait for "done". Do NOT try to clear or edit via browser — user does it.
+8. Navigate to Permission Management and open the bulk import dialog.
+9. Guide the user: "In the bulk import dialog, clear the existing example first (select all, delete), then paste the following JSON. Reply done." Wait for "done". Do NOT try to clear or edit via browser — user does it.
 
 ```json
 {
@@ -100,31 +133,38 @@ Ask:
 }
 ```
 
-#### Phase 6 — Configure event subscription (Long Connection)
+##### Phase 6 — Configure event subscription (Long Connection)
 
-**CRITICAL**: Feishu requires the long connection to be established *before* you can save the event config. The platform shows "No application connection detected, ensure long connection is established before saving" until `clacky server` is running and connected. Do NOT try to save until the connection is established.
+**CRITICAL**: Feishu requires the long connection to be established *before* you can save the event config. The platform shows "No application connection detected" until `clacky server` is running and connected.
 
-12. **Apply config and establish connection** — Run `curl -X POST http://localhost:7070/api/channels/feishu -H "Content-Type: application/json" -d '{"app_id":"...","app_secret":"...","domain":"..."}'`. The server hot-reloads the Feishu adapter and establishes the WebSocket.
-13. **Wait for connection** — Wait until the log shows `[feishu-ws] WebSocket connected ✅`.
-14. **Navigate to Events & Callbacks** — Then guide the user: "Select 'Long Connection' mode. Click Save. Then click Add Event, type `im.message.receive_v1` in the search box, select it, click Add. Reply done." Wait for "done".
+10. **Apply config and establish connection** — Run:
+    ```bash
+    curl -X POST http://localhost:7070/api/channels/feishu \
+      -H "Content-Type: application/json" \
+      -d '{"app_id":"<APP_ID>","app_secret":"<APP_SECRET>","domain":"https://open.feishu.cn"}'
+    ```
+11. **Wait for connection** — Poll until log shows `[feishu-ws] WebSocket connected ✅`:
+    ```bash
+    for i in $(seq 1 20); do
+      grep -q "\[feishu-ws\] WebSocket connected" ~/.clacky/logger/clacky-$(date +%Y-%m-%d).log 2>/dev/null && echo "CONNECTED" && break
+      sleep 1
+    done
+    ```
+12. **Configure events** — Guide the user: "In Events & Callbacks, select 'Long Connection' mode. Click Save. Then click Add Event, search `im.message.receive_v1`, select it, click Add. Reply done." Wait for "done".
 
-#### Phase 7 — Publish the app
+##### Phase 7 — Publish the app
 
-15. Navigate to Version Management & Release. Then guide the user: "Create a new version, fill in version (e.g. 1.0.0) and update description (e.g. Initial release for Open Clacky), then publish. Reply done." Wait for "done".
+13. Navigate to Version Management & Release. Guide the user: "Create a new version (e.g. 1.0.0, note: Initial release for Open Clacky) and publish it. Reply done." Wait for "done".
 
-#### Phase 8 — Finalize config and validate
+##### Phase 8 — Validate
 
-Config was applied in step 12 (via API).
-
-Validate:
 ```bash
-curl -s -X POST "${DOMAIN}/open-apis/auth/v3/tenant_access_token/internal" \
+curl -s -X POST "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal" \
   -H "Content-Type: application/json" \
-  -d "{\"app_id\":\"${APP_ID}\",\"app_secret\":\"${APP_SECRET}\"}"
+  -d '{"app_id":"<APP_ID>","app_secret":"<APP_SECRET>"}'
 ```
-Check for `"code":0`. If it fails, explain and offer to retry.
 
-On success: "✅ Feishu channel configured. The channel is already active."
+Check for `"code":0`. On success: "✅ Feishu channel configured."
 
 ---
 
@@ -132,13 +172,18 @@ On success: "✅ Feishu channel configured. The channel is already active."
 
 1. Navigate: `open https://work.weixin.qq.com/wework_admin/frame#/aiHelper/create`. Pass `isolated: true`.
 2. If a login page or QR code is shown, tell the user to log in and wait for "done".
-3. Steps 3–7: Do NOT take snapshots. Guide the user: "Scroll to the bottom of the right panel and click 'API mode creation'. Reply done." Wait for "done".
-4. Guide the user: "Click 'Add' next to 'Visible Range'. In the scope dialog, select the top-level company node (or specific users/departments). Click Confirm. Reply done." Wait for "done".
-5. Guide the user: "If Secret is not visible, click 'Get Secret'. Copy Bot ID and Secret **before** clicking Save — do NOT click 'Get Secret' again after copying (it invalidates the previous secret). Paste here. Reply with: Bot ID: xxx, Secret: xxx" Wait for "done".
-6. Guide the user: "Click Save. In the dialog, enter name (e.g. Open Clacky) and description (e.g. AI assistant powered by open-clacky). Click Confirm. Click Save again. Reply done." Wait for "done".
-7. **Apply config and hot-reload** — Parse credentials from step 5. Trim leading/trailing whitespace from bot_id and secret. Run `curl -X POST http://localhost:7070/api/channels/wecom -H "Content-Type: application/json" -d '{"bot_id":"...","secret":"..."}'`. Ensure bot_id (starts with `aib`) and secret (longer string) are not swapped.
+3. Guide the user: "Scroll to the bottom of the right panel and click 'API mode creation'. Reply done." Wait for "done".
+4. Guide the user: "Click 'Add' next to 'Visible Range'. Select the top-level company node. Click Confirm. Reply done." Wait for "done".
+5. Guide the user: "If Secret is not visible, click 'Get Secret'. Copy Bot ID and Secret **before** clicking Save. Paste here. Reply with: Bot ID: xxx, Secret: xxx" Wait for "done".
+6. Guide the user: "Click Save. Enter name (e.g. Open Clacky) and description. Click Confirm. Click Save again. Reply done." Wait for "done".
+7. Parse credentials. Trim whitespace. Ensure bot_id (starts with `aib`) and secret are not swapped. Run:
+   ```bash
+   curl -X POST http://localhost:7070/api/channels/wecom \
+     -H "Content-Type: application/json" \
+     -d '{"bot_id":"<BOT_ID>","secret":"<SECRET>"}'
+   ```
 
-On success: "✅ WeCom channel configured. To use the bot: WeCom client → Contacts → select Smart Bot to see the newly created bot.".
+On success: "✅ WeCom channel configured. WeCom client → Contacts → Smart Bot to find it."
 
 ---
 
@@ -164,7 +209,7 @@ Say: "❌ `<platform>` channel disabled. Restart `clacky server` to deactivate."
 
 1. Show current config (mask secrets).
 2. Ask: update credentials / change allowed users / add a new platform / enable or disable a platform.
-3. For credential updates, re-run the relevant setup flow (Admin Console or Client flow for WeCom).
+3. For credential updates, re-run the relevant setup flow.
 4. Write atomically: write to `~/.clacky/channels.yml.tmp` then rename to `~/.clacky/channels.yml`.
 5. Say: "Restart `clacky server` to apply changes."
 
@@ -179,12 +224,13 @@ Check each item, report ✅ / ❌ with remediation:
    - Feishu: `app_id`, `app_secret` present and non-empty
    - WeCom: `bot_id`, `secret` present and non-empty
 3. **Feishu credentials** (if enabled) — run the token API call, check `code=0`.
-4. **WeCom credentials** (if enabled) — search today's log for auth-related lines:
+4. **WeCom credentials** (if enabled) — search today's log:
    ```bash
-   grep -iE "wecom adapter loop started|WeCom authentication failed|WeCom WS error response|WecomAdapter" ~/.clacky/logger/clacky-$(date +%Y-%m-%d).log
+   grep -iE "wecom adapter loop started|WeCom authentication failed|WeCom WS error response|WecomAdapter" \
+     ~/.clacky/logger/clacky-$(date +%Y-%m-%d).log
    ```
-   - If output contains `WeCom authentication failed` or `WeCom WS error response` with non-zero errcode: ❌ "WeCom Bot ID or Secret is incorrect — re-run `/channel-setup reconfigure`"
-   - If output contains `[ChannelManager] :wecom adapter loop started` with no auth error after it: ✅
+   - `WeCom authentication failed` or non-zero errcode → ❌ "WeCom credentials incorrect"
+   - `adapter loop started` with no auth error → ✅
 
 ---
 

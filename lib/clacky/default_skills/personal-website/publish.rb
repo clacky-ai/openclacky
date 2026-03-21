@@ -111,12 +111,7 @@ def cmd_publish(name:, html_file:)
     slug  = token_data["slug"]
     token = token_data["update_token"]
 
-    status, body = http_request("PATCH", "/api/v1/cards/#{slug}",
-      body: { html_content: html_content })
-
-    # Attach update token in header for PATCH
-    # (re-request with token header)
-    uri  = URI.parse("#{API_BASE}/api/v1/cards/#{slug}")
+    uri  = URI.parse("#{API_BASE}/api/v1/personal_websites/#{slug}")
     http = Net::HTTP.new(uri.host, uri.port)
     http.use_ssl = uri.scheme == "https"
     req  = Net::HTTP::Patch.new(uri.path)
@@ -128,19 +123,19 @@ def cmd_publish(name:, html_file:)
     body   = JSON.parse(resp.body) rescue { "raw" => resp.body }
 
     if status == 200
-      puts "✅ Card updated: #{body["url"]}"
+      puts "✅ Website updated: #{body["url"]}"
     else
       warn "❌ Update failed (#{status}): #{body["error"] || body.inspect}"
       exit 1
     end
   else
     # First publish — POST to create
-    status, body = http_request("POST", "/api/v1/cards",
+    status, body = http_request("POST", "/api/v1/personal_websites",
       body: { name: name, html_content: html_content })
 
     if status == 201
       save_token_data("slug" => body["slug"], "update_token" => body["update_token"])
-      puts "✅ Card published: #{body["url"]}"
+      puts "✅ Website published: #{body["url"]}"
       puts "   Slug: #{body["slug"]}"
       puts "   Token saved to: #{TOKEN_FILE}"
     else
@@ -161,7 +156,7 @@ def cmd_delete(slug: nil)
     exit 1
   end
 
-  uri  = URI.parse("#{API_BASE}/api/v1/cards/#{slug}")
+  uri  = URI.parse("#{API_BASE}/api/v1/personal_websites/#{slug}")
   http = Net::HTTP.new(uri.host, uri.port)
   http.use_ssl = uri.scheme == "https"
   req  = Net::HTTP::Delete.new(uri.path)
@@ -174,7 +169,7 @@ def cmd_delete(slug: nil)
 
   if status == 200
     File.delete(TOKEN_FILE) if File.exist?(TOKEN_FILE)
-    puts "✅ Website deleted: /~#{slug}"
+    puts "✅ Personal website deleted: /~#{slug}"
   else
     warn "❌ Delete failed (#{status}): #{body["error"] || body.inspect}"
     exit 1

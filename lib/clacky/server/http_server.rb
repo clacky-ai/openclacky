@@ -172,6 +172,14 @@ module Clacky
         File.write(pid_file, Process.pid.to_s)
         at_exit { File.delete(pid_file) if File.exist?(pid_file) }
 
+        # Expose server address and brand name to all child processes (skill scripts, shell commands, etc.)
+        # so they can call back into the server without hardcoding the port,
+        # and use the correct product name without re-reading brand.yml.
+        ENV["CLACKY_SERVER_PORT"]  = @port.to_s
+        ENV["CLACKY_SERVER_HOST"]  = (@host == "0.0.0.0" ? "127.0.0.1" : @host)
+        product_name = Clacky::BrandConfig.load.product_name
+        ENV["CLACKY_PRODUCT_NAME"] = (product_name.nil? || product_name.strip.empty?) ? "OpenClacky" : product_name
+
         # Override WEBrick's built-in signal traps via StartCallback,
         # which fires after WEBrick sets its own INT/TERM handlers.
         # This ensures Ctrl-C always exits immediately.
@@ -288,6 +296,7 @@ module Clacky
         when ["GET",    "/api/brand/skills"]      then api_brand_skills(res)
         when ["GET",    "/api/brand"]             then api_brand_info(res)
         when ["GET",    "/api/channels"]          then api_list_channels(res)
+        when ["POST",   "/api/tool/browser"]      then api_tool_browser(req, res)
         when ["POST",   "/api/upload"]            then api_upload_file(req, res)
         when ["GET",    "/api/version"]           then api_get_version(res)
         when ["POST",   "/api/version/upgrade"]   then api_upgrade_version(req, res)
@@ -775,6 +784,28 @@ module Clacky
 
       # GET /api/channels
       # Returns current config and running status for all supported platforms.
+      # POST /api/tool/browser
+      # Executes a browser tool action via the shared BrowserManager daemon.
+      # Used by skill scripts (e.g. feishu_setup.rb) to reuse the server's
+      # existing Chrome connection without spawning a second MCP daemon.
+      #
+      # Request body: JSON with same params as the browser tool
+      #   { "action": "snapshot", "interactive": true, ... }
+      #
+      # Response: JSON result from the browser tool
+      def api_tool_browser(req, res)
+        params = parse_json_body(req)
+        action = params["action"]
+        return json_response(res, 400, { error: "action is required" }) if action.nil? || action.empty?
+
+        tool   = Clacky::Tools::Browser.new
+        result = tool.execute(**params.transform_keys(&:to_sym))
+
+        json_response(res, 200, result)
+      rescue StandardError => e
+        json_response(res, 500, { error: e.message })
+      end
+
       def api_list_channels(res)
         config   = Clacky::ChannelConfig.load
         running  = @channel_manager.running_platforms
@@ -830,6 +861,20 @@ module Clacky
 
         fields = body.transform_keys(&:to_sym).reject { |k, _| k == :platform }
         fields = fields.transform_values { |v| v.is_a?(String) ? v.strip : v }
+
+        # Validate credentials against live API before persisting.
+        # Merge with existing config so partial updates (e.g. allowed_users only) still validate correctly.
+        klass = Clacky::Channel::Adapters.find(platform)
+        if klass && klass.respond_to?(:test_connection)
+          existing = config.platform_config(platform) || {}
+          merged   = existing.merge(fields)
+          result   = klass.test_connection(merged)
+          unless result[:ok]
+            json_response(res, 422, { ok: false, error: result[:error] || "Credential validation failed" })
+            return
+          end
+        end
+
         config.set_platform(platform, **fields)
         config.save
 
