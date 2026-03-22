@@ -3,6 +3,9 @@
 require "faraday"
 require "faraday/multipart"
 require "json"
+require "net/http"
+require "openssl"
+require "securerandom"
 
 module Clacky
   module Channel
@@ -80,9 +83,83 @@ module Clacky
             false
           end
 
+          # Upload an image to Feishu IM storage.
+          # @param image_data [String] Raw binary image data
+          # @param filename [String] Image filename (used for MIME detection)
+          # @param image_type [String] "message" (default) or "avatar"
+          # @return [String] image_key assigned by Feishu
+          def upload_image(image_data, filename, image_type: "message")
+            response = post_multipart("/open-apis/im/v1/images", {
+              "image_type" => image_type,
+              "image"      => [image_data, filename]
+            })
+            image_key = response.dig("data", "image_key")
+            raise "Image upload failed: no image_key in response (#{response.inspect})" unless image_key
+            image_key
+          end
+
+          # Upload a file to Feishu IM storage.
+          # @param file_data [String] Raw binary file data
+          # @param filename [String] Display filename
+          # @param file_type [String] Feishu file type: "opus"|"mp4"|"pdf"|"doc"|"xls"|"ppt"|"stream"
+          # @param duration [Integer, nil] Duration in milliseconds (for audio/video)
+          # @return [String] file_key assigned by Feishu
+          def upload_file(file_data, filename, file_type, duration: nil)
+            fields = {
+              "file_type" => file_type,
+              "file_name" => filename,
+              "file"      => [file_data, filename]
+            }
+            fields["duration"] = duration.to_s if duration
+            response = post_multipart("/open-apis/im/v1/files", fields)
+            file_key = response.dig("data", "file_key")
+            raise "File upload failed: no file_key in response (#{response.inspect})" unless file_key
+            file_key
+          end
+
+          # Send an image message to a chat.
+          # @param chat_id [String] Chat ID
+          # @param image_key [String] image_key from upload_image
+          # @param reply_to [String, nil] Message ID to reply to
+          # @return [Hash] { message_id: String }
+          def send_image(chat_id, image_key, reply_to: nil)
+            content = JSON.generate({ image_key: image_key })
+            send_media_message(chat_id, "image", content, reply_to: reply_to)
+          end
+
+          # Send a file message to a chat.
+          # @param chat_id [String] Chat ID
+          # @param file_key [String] file_key from upload_file
+          # @param reply_to [String, nil] Message ID to reply to
+          # @return [Hash] { message_id: String }
+          def send_file_message(chat_id, file_key, reply_to: nil)
+            content = JSON.generate({ file_key: file_key })
+            send_media_message(chat_id, "file", content, reply_to: reply_to)
+          end
+
+          # Send an audio message to a chat (renders as playable voice bubble).
+          # @param chat_id [String] Chat ID
+          # @param file_key [String] file_key from upload_file (opus type)
+          # @param reply_to [String, nil] Message ID to reply to
+          # @return [Hash] { message_id: String }
+          def send_audio(chat_id, file_key, reply_to: nil)
+            content = JSON.generate({ file_key: file_key })
+            send_media_message(chat_id, "audio", content, reply_to: reply_to)
+          end
+
+          # Send a video message to a chat (renders as playable video).
+          # @param chat_id [String] Chat ID
+          # @param file_key [String] file_key from upload_file (mp4 type)
+          # @param reply_to [String, nil] Message ID to reply to
+          # @return [Hash] { message_id: String }
+          def send_video(chat_id, file_key, reply_to: nil)
+            content = JSON.generate({ file_key: file_key })
+            send_media_message(chat_id, "media", content, reply_to: reply_to)
+          end
+
           # Upload a local file to Feishu and send it to a chat.
-          # Images use /im/v1/images + msg_type "image".
-          # All other files use /im/v1/files + msg_type "file".
+          # Deprecated: use Adapter#send_file for full type detection (audio/video/image/file).
+          # Kept for backward compatibility. Images use /im/v1/images, others use /im/v1/files.
           # @param chat_id [String] Chat ID
           # @param path [String] Local file path
           # @param name [String, nil] Display filename
@@ -97,19 +174,11 @@ module Clacky
 
             if %w[.jpg .jpeg .png .gif .webp].include?(ext)
               image_key = upload_image(file_data, filename)
-              content   = JSON.generate({ image_key: image_key })
-              msg_type  = "image"
+              send_image(chat_id, image_key, reply_to: reply_to)
             else
-              file_key = upload_file(file_data, filename)
-              content  = JSON.generate({ file_key: file_key })
-              msg_type = "file"
+              file_key = upload_file(file_data, filename, "stream")
+              send_file_message(chat_id, file_key, reply_to: reply_to)
             end
-
-            payload = { receive_id: chat_id, msg_type: msg_type, content: content }
-            payload[:reply_to_message_id] = reply_to if reply_to
-
-            response = post("/open-apis/im/v1/messages", payload, params: { receive_id_type: "chat_id" })
-            { message_id: response.dig("data", "message_id") }
           end
 
           # Download a message resource (image or file) from Feishu.
@@ -161,6 +230,85 @@ module Clacky
           end
 
           private
+
+          # Send a media message (image/file/audio/video) to a chat.
+          # @param chat_id [String] Chat ID
+          # @param msg_type [String] "image"|"file"|"audio"|"media"
+          # @param content [String] JSON-encoded content string
+          # @param reply_to [String, nil] Message ID to reply to
+          # @return [Hash] { message_id: String }
+          def send_media_message(chat_id, msg_type, content, reply_to: nil)
+            payload = {
+              receive_id: chat_id,
+              msg_type:   msg_type,
+              content:    content
+            }
+            payload[:reply_to_message_id] = reply_to if reply_to
+            response = post("/open-apis/im/v1/messages", payload, params: { receive_id_type: "chat_id" })
+            { message_id: response.dig("data", "message_id") }
+          end
+
+          # Post a multipart/form-data request to the Feishu API.
+          # Used for file/image upload endpoints.
+          # @param path [String] API path
+          # @param fields [Hash] Form fields. Values are either String (plain) or
+          #   Array [binary_data, filename] for file parts.
+          # @return [Hash] Parsed JSON response
+          def post_multipart(path, fields)
+            require "net/http"
+            require "uri"
+
+            uri = URI.parse("#{@domain}#{path}")
+            boundary = "----FeishuRubyBoundary#{SecureRandom.hex(16)}"
+
+            body_parts = []
+            fields.each do |name, value|
+              if value.is_a?(Array)
+                # File part: [binary_data, filename]
+                binary_data, filename = value
+                body_parts << "--#{boundary}\r\n"
+                body_parts << "Content-Disposition: form-data; name=\"#{name}\"; filename=\"#{filename}\"\r\n"
+                body_parts << "Content-Type: application/octet-stream\r\n"
+                body_parts << "\r\n"
+                body_parts << binary_data
+                body_parts << "\r\n"
+              else
+                # Plain text field
+                body_parts << "--#{boundary}\r\n"
+                body_parts << "Content-Disposition: form-data; name=\"#{name}\"\r\n"
+                body_parts << "\r\n"
+                body_parts << value.to_s
+                body_parts << "\r\n"
+              end
+            end
+            body_parts << "--#{boundary}--\r\n"
+
+            # Build body string preserving binary encoding
+            body = "".b
+            body_parts.each do |part|
+              body << part.b
+            end
+
+            http = Net::HTTP.new(uri.host, uri.port)
+            http.use_ssl = (uri.scheme == "https")
+            http.verify_mode = OpenSSL::SSL::VERIFY_NONE
+            http.read_timeout = DOWNLOAD_TIMEOUT
+            http.open_timeout = API_TIMEOUT
+
+            request = Net::HTTP::Post.new(uri.request_uri)
+            request["Authorization"] = "Bearer #{tenant_access_token}"
+            request["Content-Type"]  = "multipart/form-data; boundary=#{boundary}"
+            request.body = body
+
+            response = http.request(request)
+            unless response.is_a?(Net::HTTPSuccess)
+              raise "Multipart upload failed: HTTP #{response.code} — #{response.body}"
+            end
+
+            JSON.parse(response.body)
+          rescue JSON::ParserError => e
+            raise "Failed to parse multipart upload response: #{e.message}"
+          end
 
           # Build message content and type based on text content.
           # Uses interactive card (schema 2.0) for code blocks and tables,
