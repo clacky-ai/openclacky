@@ -295,7 +295,7 @@ body {
   flex-direction: column;
   min-height: 0;
 }
-#session-list { padding: 0 8px 8px; }
+#session-list { padding: 4px 8px 8px; min-height: 108px; }
 
 /* ── Sidebar divider (Section Labels) ───────────────────────────────────── */
 .sidebar-divider {
@@ -303,13 +303,13 @@ body {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 12px 16px 6px 16px;
+  padding: 8px 14px 4px 14px;
   font-size: 10px;
   font-weight: 600;
   color: var(--color-text-tertiary);
   text-transform: uppercase;
   letter-spacing: 1px;
-  margin-top: 8px;
+  margin-top: 4px;
 }
 .sidebar-divider:first-child {
   margin-top: 0;
@@ -393,7 +393,7 @@ body {
 .session-tabs {
   display: flex;
   gap: 0;
-  padding: 2px 8px 4px;
+  padding: 4px 8px 3px;
 }
 .session-tab {
   flex: 1;
@@ -418,36 +418,46 @@ body {
 }
 
 /* ── Coding agent fixed section ──────────────────────────────────────────── */
+#coding-section {
+  max-height: 160px;
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+}
 .coding-section-divider {
-  padding: 10px 16px 5px;
+  padding: 8px 16px 4px;
   font-size: 10px;
   font-weight: 600;
   color: var(--color-text-tertiary);
   text-transform: uppercase;
   letter-spacing: 1px;
   border-top: 1px solid var(--color-border-primary);
-  margin-top: 4px;
+  margin-top: 2px;
+  flex-shrink: 0;
 }
-#coding-session-list { padding: 0 8px 8px; }
+#coding-session-list {
+  padding: 0 8px 6px;
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+}
 
-/* ── Load-more button ─────────────────────────────────────────────────────── */
+/* ── Load-more link ───────────────────────────────────────────────────────── */
 .btn-load-more-sessions {
   display: block;
-  width: calc(100% - 16px);
-  margin: 4px 8px 8px;
-  padding: 5px 0;
+  width: 100%;
+  margin: 6px 0 4px;
+  padding: 3px 0;
   background: transparent;
-  border: 1px dashed var(--color-border-primary);
-  border-radius: 6px;
-  color: var(--color-text-tertiary);
+  border: none;
+  color: var(--color-text-muted);
   font-size: 11px;
   cursor: pointer;
   text-align: center;
-  transition: background 0.15s, color 0.15s;
+  transition: color 0.15s;
 }
 .btn-load-more-sessions:hover {
-  background: var(--color-surface-hover);
-  color: var(--color-text-secondary);
+  color: var(--color-accent-primary);
 }
 .btn-load-more-sessions:disabled {
   cursor: default;
@@ -461,10 +471,8 @@ body {
 
 /* ── Session empty placeholder ───────────────────────────────────────────── */
 .session-empty {
-  margin: 4px 8px;
-  padding: 10px 12px;
-  border-radius: 6px;
-  border: 1px dashed var(--color-border-primary);
+  margin: 0;
+  padding: 32px 12px;
   font-size: 12px;
   color: var(--color-text-muted);
   text-align: center;
@@ -473,15 +481,29 @@ body {
 /* ── Session List ────────────────────────────────────────────────────────── */
 .session-item {
   position: relative;
-  padding: 10px 12px 10px 15px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 10px 4px 13px;
   border-radius: 6px;
   cursor: pointer;
-  margin-bottom: 4px;
+  margin-bottom: 1px;
   border: 1px solid transparent;
   transition: background .2s ease, border-color .2s ease;
 }
+/* Two-row text block next to dot */
+.session-body {
+  flex: 1;
+  min-width: 0;
+}
+
 /* Default: secondary text color for icons/text */
 .session-item .session-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   color: var(--color-text-secondary);
   font-weight: 500;
   transition: color .2s ease, font-weight .2s ease;
@@ -499,7 +521,7 @@ body {
 }
 .session-item.active .session-name {
   color: var(--color-accent-primary);
-  font-weight: 700;
+  font-weight: 600;
 }
 /* Left indicator bar (3px) for active state */
 .session-item.active::before {
@@ -516,23 +538,21 @@ body {
 
 /* Delete button on session list items — visible only on hover */
 .session-delete-btn {
-  position: absolute;
-  top: 50%;
-  right: 8px;
-  transform: translateY(-50%);
+  flex-shrink: 0;
   display: none;
   align-items: center;
   justify-content: center;
-  width: 18px;
-  height: 18px;
+  width: 16px;
+  height: 16px;
   background: transparent;
   border: none;
-  border-radius: 4px;
-  color: var(--color-text-secondary);
-  font-size: 16px;
+  border-radius: 3px;
+  color: var(--color-text-muted);
+  font-size: 14px;
   line-height: 1;
   cursor: pointer;
   padding: 0;
+  margin-top: -3px;
   transition: background .15s, color .15s;
 }
 .session-item:hover .session-delete-btn { display: flex; }
@@ -549,28 +569,37 @@ body {
   box-sizing: border-box;
 }
 .session-name {
-  font-size: 13px;
+  font-size: 12px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 /* While renaming, lift overflow so the input is fully visible */
-.session-name:has(input),
 .session-name.renaming {
   overflow: visible;
   white-space: normal;
+  flex: 1;
 }
-.session-meta { font-size: 11px; color: var(--color-text-secondary); margin-top: 3px; }
+/* Meta: second row — tasks + cost */
+.session-meta {
+  display: block;
+  font-size: 10px;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+  opacity: 0.7;
+  margin-top: 1px;
+}
 .session-dot {
-  display: inline-block;
-  width: 7px;
-  height: 7px;
+  flex-shrink: 0;
+  display: block;
+  width: 5px;
+  height: 5px;
   border-radius: 50%;
-  margin-right: 5px;
+  margin-top: -7px;
 }
-.dot-idle    { background: var(--color-text-secondary); }
-.dot-running { background: var(--color-success); animation: pulse 1s infinite; }
-.dot-error   { background: var(--color-error); }
+.dot-idle    { background: var(--color-text-secondary); opacity: 0.4; }
+.dot-running { background: var(--color-success); opacity: 1; animation: pulse 1s infinite; }
+.dot-error   { background: var(--color-error); opacity: 1; }
 
 @keyframes pulse {
   0%, 100% { opacity: 1; }
