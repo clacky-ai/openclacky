@@ -61,7 +61,7 @@ module Clacky
             }
             payload[:reply_to_message_id] = reply_to if reply_to
 
-            response = post("/open-apis/im/v1/messages", payload, params: { receive_id_type: "chat_id" })
+            response = post("/open-apis/im/v1/messages", payload, params: { receive_id_type: infer_receive_id_type(chat_id) })
             { message_id: response.dig("data", "message_id") }
           end
 
@@ -244,8 +244,22 @@ module Clacky
               content:    content
             }
             payload[:reply_to_message_id] = reply_to if reply_to
-            response = post("/open-apis/im/v1/messages", payload, params: { receive_id_type: "chat_id" })
+            response = post("/open-apis/im/v1/messages", payload, params: { receive_id_type: infer_receive_id_type(chat_id) })
             { message_id: response.dig("data", "message_id") }
+          end
+
+          # Infer the Feishu receive_id_type from the ID prefix.
+          # Feishu uses different ID formats:
+          #   oc_xxx  → chat_id  (group or P2P chat)
+          #   ou_xxx  → open_id  (user's open ID within the app)
+          #   on_xxx  → union_id (user's union ID across apps)
+          # Defaults to "chat_id" for unknown prefixes (backward compatible).
+          def infer_receive_id_type(id)
+            case id.to_s
+            when /\Aou_/ then "open_id"
+            when /\Aon_/ then "union_id"
+            else              "chat_id"
+            end
           end
 
           # Post a multipart/form-data request to the Feishu API.
@@ -283,10 +297,22 @@ module Clacky
             end
             body_parts << "--#{boundary}--\r\n"
 
-            # Build body string preserving binary encoding
+            # Build body string preserving binary encoding.
+            # Text header parts (boundary lines, Content-Disposition, etc.) are UTF-8
+            # strings that may contain multi-byte characters (e.g. Chinese filenames).
+            # We must encode them to their UTF-8 byte representation and then
+            # force_encoding("BINARY") so they can be appended to the binary body
+            # without raising an "incompatible encoding" error.
+            # Binary file parts are already ASCII-8BIT (read with "rb") — call .b on
+            # them (a no-op re-tag) so the << operator sees a uniform BINARY encoding.
             body = "".b
             body_parts.each do |part|
-              body << part.b
+              chunk = if part.encoding == Encoding::ASCII_8BIT || part.encoding == Encoding::BINARY
+                        part # already binary, append as-is
+                      else
+                        part.encode("UTF-8").force_encoding("BINARY")
+                      end
+              body << chunk
             end
 
             http = Net::HTTP.new(uri.host, uri.port)
@@ -302,7 +328,10 @@ module Clacky
 
             response = http.request(request)
             unless response.is_a?(Net::HTTPSuccess)
-              raise "Multipart upload failed: HTTP #{response.code} — #{response.body}"
+              # Force UTF-8 on response body (it's ASCII-8BIT from Net::HTTP) to
+              # avoid "incompatible character encodings" when interpolating into message.
+              body_text = response.body.to_s.encode("UTF-8", invalid: :replace, undef: :replace, replace: "?")
+              raise "Multipart upload failed: HTTP #{response.code} — #{body_text}"
             end
 
             JSON.parse(response.body)

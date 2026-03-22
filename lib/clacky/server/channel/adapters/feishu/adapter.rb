@@ -110,15 +110,6 @@ module Clacky
             @bot.send_text(chat_id, text, reply_to: reply_to)
           end
 
-          # Send a file (or image) to a chat.
-          # @param chat_id [String] Chat ID
-          # @param path [String] Local file path
-          # @param name [String, nil] Display filename
-          # @param reply_to [String, nil] Message ID to reply to
-          def send_file(chat_id, path, name: nil, reply_to: nil)
-            @bot.send_file(chat_id, path, name: name, reply_to: reply_to)
-          end
-
           # Update existing message
           # @param chat_id [String] Chat ID (unused for Feishu)
           # @param message_id [String] Message ID to update
