@@ -339,9 +339,12 @@ module Clacky
         }
       end
 
-      # Truncate output to max_lines, adding a truncation notice if needed
+      # Truncate output to max_lines and max line length, adding a truncation notice if needed
       def truncate_output(output, max_lines)
         return output if output.nil? || output.empty?
+
+        # First truncate individual long lines (e.g. minified JS/CSS, expanded JSON)
+        output = truncate_long_lines(output, MAX_LINE_CHARS)
 
         lines = output.lines
         return output if lines.length <= max_lines
@@ -438,8 +441,9 @@ module Clacky
       def truncate_and_save(output, max_chars, label, command_name)
         return { content: "", temp_file: nil } if output.empty?
 
-        # Truncate individual long lines first (e.g., minified CSS/JS files)
-        # This prevents a single huge line from consuming all token budget
+        # Truncate individual long lines (e.g., minified CSS/JS files)
+        # truncate_output already does this, but truncate_and_save may be called
+        # with raw output that hasn't gone through truncate_output
         output = truncate_long_lines(output, MAX_LINE_CHARS)
 
         return { content: output, temp_file: nil } if output.length <= max_chars

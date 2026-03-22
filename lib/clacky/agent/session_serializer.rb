@@ -85,7 +85,7 @@ module Clacky
           created_at: @created_at,
           updated_at: Time.now.iso8601,
           working_dir: @working_dir,
-          source: @source.to_s,                      # "manual" | "cron" | "channel"
+          source: @source.to_s,                      # "manual" | "cron" | "channel" | "setup"
           agent_profile: @agent_profile&.name || "", # "general" | "coding" | custom
           todos: @todos,  # Include todos in session data
           time_machine: {  # Include Time Machine state

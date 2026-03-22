@@ -382,7 +382,7 @@ module Clacky
         # Optional source; defaults to :manual. Accept "system" for skill-launched sessions
         # (e.g. /onboard, /browser-setup, /channel-setup).
         raw_source = body["source"].to_s.strip
-        source = %w[manual cron channel system].include?(raw_source) ? raw_source.to_sym : :manual
+        source = %w[manual cron channel setup].include?(raw_source) ? raw_source.to_sym : :manual
 
         working_dir = default_working_dir
         FileUtils.mkdir_p(working_dir)
@@ -1562,21 +1562,21 @@ module Clacky
 
         when "list_sessions"
           # Initial load: 5 per bucket so all tabs/sections get their first page.
-          # General area tabs: manual / cron / channel / system — filtered by source, profile=general (default).
+          # General area tabs: manual / cron / channel / setup — filtered by source.
           # Coding section: profile=coding — source is irrelevant (no source filter).
           # has_more_by_source drives independent load-more buttons on the frontend.
           buckets = {
-            "manual"  => { source: "manual" },
-            "cron"    => { source: "cron" },
-            "channel" => { source: "channel" },
-            "system"  => { source: "system" },
+            "manual"  => { source: "manual",  profile: "general" },
+            "cron"    => { source: "cron",    profile: "general" },
+            "channel" => { source: "channel", profile: "general" },
+            "setup"   => { source: "setup",   profile: "general" },
             "coding"  => { profile: "coding" },
           }
           by_bucket = buckets.each_with_object({}) do |(key, params), h|
             page = @registry.list(limit: 6, **params)  # +1 to detect has_more
             h[key] = { sessions: page.first(5), has_more: page.size > 5 }
           end
-          all_sessions = by_bucket.values.flat_map { |v| v[:sessions] }
+          all_sessions = by_bucket.values.flat_map { |v| v[:sessions] }.uniq { |s| s[:id] }
           has_more_map = by_bucket.transform_values { |v| v[:has_more] }
           conn.send_json(type: "session_list", sessions: all_sessions, has_more_by_source: has_more_map)
 

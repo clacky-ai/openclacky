@@ -153,10 +153,10 @@ RSpec.describe Clacky::Server::HttpServer do
       end
     end
 
-    it "excludes system sessions when no source filter given" do
+    it "returns all sessions when no source filter given" do
       with_server(agent_config: agent_config) do |server|
         dispatch(server, fake_req(method: "POST", path: "/api/sessions",
-                                  body: { name: "onboard", source: "system" }), fake_res)
+                                  body: { name: "onboard", source: "setup" }), fake_res)
         dispatch(server, fake_req(method: "POST", path: "/api/sessions",
                                   body: { name: "normal" }), fake_res)
 
@@ -166,21 +166,24 @@ RSpec.describe Clacky::Server::HttpServer do
 
         names = parsed_body(res)["sessions"].map { |s| s["name"] }
         expect(names).to include("normal")
-        expect(names).not_to include("onboard")
+        expect(names).to include("onboard")
       end
     end
 
-    it "returns system sessions when source=system" do
+    it "returns setup sessions when source=setup" do
       with_server(agent_config: agent_config) do |server|
         dispatch(server, fake_req(method: "POST", path: "/api/sessions",
-                                  body: { name: "setup-s", source: "system" }), fake_res)
+                                  body: { name: "setup-s", source: "setup" }), fake_res)
+        dispatch(server, fake_req(method: "POST", path: "/api/sessions",
+                                  body: { name: "manual-s" }), fake_res)
 
-        req = fake_req(method: "GET", path: "/api/sessions", query_string: "source=system")
+        req = fake_req(method: "GET", path: "/api/sessions", query_string: "source=setup")
         res = fake_res
         dispatch(server, req, res)
 
         names = parsed_body(res)["sessions"].map { |s| s["name"] }
         expect(names).to include("setup-s")
+        expect(names).not_to include("manual-s")
       end
     end
 
@@ -244,15 +247,15 @@ RSpec.describe Clacky::Server::HttpServer do
       end
     end
 
-    it "accepts source: system and sets it on the session" do
+    it "accepts source: setup and sets it on the session" do
       with_server(agent_config: agent_config) do |server|
         req = fake_req(method: "POST", path: "/api/sessions",
-                       body: { name: "onboard", source: "system" })
+                       body: { name: "onboard", source: "setup" })
         res = fake_res
         dispatch(server, req, res)
 
         expect(res.status).to eq(201)
-        expect(parsed_body(res)["session"]["source"]).to eq("system")
+        expect(parsed_body(res)["session"]["source"]).to eq("setup")
       end
     end
 

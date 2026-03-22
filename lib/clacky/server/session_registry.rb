@@ -16,8 +16,7 @@ module Clacky
     #
     # Thread safety: all public methods are protected by a Mutex.
     class SessionRegistry
-      SESSION_TIMEOUT    = 24 * 60 * 60 # 24 hours of inactivity before cleanup
-      SYSTEM_SESSION_TTL = 24 * 60 * 60 # system sessions visible for 1 day only
+      SESSION_TIMEOUT = 24 * 60 * 60 # 24 hours of inactivity before cleanup
 
       # session_manager: Clacky::SessionManager instance
       # session_restorer: callable(session_data) → session_id — builds agent + wires into registry
@@ -104,9 +103,8 @@ module Clacky
       # Sorted by created_at descending (newest first).
       #
       # Parameters (all optional, independent):
-      #   source:  "manual"|"cron"|"channel"|"system"|nil
-      #            nil = all sources except "system" (system is excluded by default)
-      #            "system" = only system sessions created within the last 24h
+      #   source:  "manual"|"cron"|"channel"|"setup"|nil
+      #            nil = no source filter (all sessions)
       #   profile: "general"|"coding"|nil
       #            nil = no agent_profile filter
       #   limit:   max sessions to return
@@ -123,15 +121,8 @@ module Clacky
         all = @session_manager.all_sessions  # already sorted newest-first
 
         # ── source filter ────────────────────────────────────────────────────
-        if source == "system"
-          cutoff = (Time.now - SYSTEM_SESSION_TTL).iso8601
-          all = all.select { |s| s_source(s) == "system" && (s[:created_at] || "") >= cutoff }
-        elsif source
-          all = all.select { |s| s_source(s) == source }
-        else
-          # default: exclude system sessions
-          all = all.reject { |s| s_source(s) == "system" }
-        end
+        all = all.select { |s| s_source(s) == source } if source
+        # source == nil → no filter, return all
 
         # ── profile filter ───────────────────────────────────────────────────
         all = all.select { |s| (s[:agent_profile] || "general").to_s == profile } if profile
@@ -161,8 +152,10 @@ module Clacky
       private
 
       # Normalize source field from a disk session hash.
+      # "system" is a legacy value renamed to "setup" — treat them as equivalent.
       def s_source(s)
-        (s[:source] || "manual").to_s
+        src = (s[:source] || "manual").to_s
+        src == "system" ? "setup" : src
       end
 
       public

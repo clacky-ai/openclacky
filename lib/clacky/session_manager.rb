@@ -63,11 +63,21 @@ module Clacky
     end
 
     # All sessions from disk, newest-first (sorted by created_at).
-    # This is the canonical list; callers (SessionRegistry#list) sort/filter on top.
-    def all_sessions
-      Dir.glob(File.join(@sessions_dir, "*.json")).filter_map do |filepath|
+    # Optional filters:
+    #   current_dir: (String) if given, sessions matching working_dir come first
+    #   limit:       (Integer) max number of sessions to return
+    def all_sessions(current_dir: nil, limit: nil)
+      sessions = Dir.glob(File.join(@sessions_dir, "*.json")).filter_map do |filepath|
         load_session_file(filepath)
       end.sort_by { |s| s[:created_at] || "" }.reverse
+
+      if current_dir
+        current_sessions = sessions.select { |s| s[:working_dir] == current_dir }
+        other_sessions   = sessions.reject { |s| s[:working_dir] == current_dir }
+        sessions = current_sessions + other_sessions
+      end
+
+      limit ? sessions.first(limit) : sessions
     end
 
     # Delete sessions not accessed within the given number of days (default: 90).
