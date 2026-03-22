@@ -31,7 +31,12 @@ module Clacky
       def show_user_message(content, created_at: nil, files: [])
         ev = { type: "history_user_message", session_id: @session_id, content: content }
         ev[:created_at] = created_at if created_at
-        ev[:files] = files if files && !files.empty?
+        rendered = Array(files).filter_map do |f|
+          url  = f[:data_url] || f["data_url"]
+          name = f[:name]     || f["name"]
+          url || (name ? "pdf:#{name}" : nil)
+        end
+        ev[:images] = rendered unless rendered.empty?
         @events << ev
       end
 

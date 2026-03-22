@@ -390,13 +390,18 @@ module Clacky
         # Return error info as-is if command failed or timed out
         return result if result[:error] || result[:state] == 'TIMEOUT' || result[:state] == 'WAITING_INPUT'
 
-        stdout = result[:stdout] || ""
-        stderr = result[:stderr] || ""
+        # Ensure all string fields are valid UTF-8 before JSON serialization.
+        # stdout/stderr are already scrubbed by EncodingSafeBuffer, but :command
+        # (and any other string field) may still carry ASCII-8BIT encoding when
+        # the caller built the command from binary paths or ENV values.
+        enc = Clacky::Utils::Encoding
+        stdout = enc.to_utf8(result[:stdout] || "")
+        stderr = enc.to_utf8(result[:stderr] || "")
         exit_code = result[:exit_code] || 0
 
         # Build compact result with truncated output
         compact = {
-          command: result[:command],
+          command: enc.to_utf8(result[:command].to_s),
           exit_code: exit_code,
           success: result[:success]
         }
@@ -405,7 +410,7 @@ module Clacky
         compact[:elapsed] = result[:elapsed] if result[:elapsed]
 
         # Extract command name for temp file naming
-        command_name = extract_command_name(result[:command])
+        command_name = extract_command_name(compact[:command])
 
         # Process stdout: truncate and optionally save to temp file
         stdout_info = truncate_and_save(stdout, MAX_LLM_OUTPUT_CHARS, "stdout", command_name)

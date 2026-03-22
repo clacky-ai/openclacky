@@ -68,7 +68,7 @@ The Agent calls these methods directly:
 ```ruby
 # Show messages
 @ui.show_assistant_message("Hello!")
-@ui.show_user_message("Hi there", images: [])
+@ui.show_user_message("Hi there", files: [])
 
 # Show tool operations
 @ui.show_tool_call("file_reader", { path: "test.rb" })

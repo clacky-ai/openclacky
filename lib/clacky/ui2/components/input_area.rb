@@ -292,7 +292,9 @@ module Clacky
           @files.each_with_index do |f, idx|
             move_cursor(current_row, 0)
             filename = f[:name] || f["name"] || "file"
-            content = @pastel.dim("[File #{idx + 1}] #{filename} (Ctrl+D to delete)")
+            size     = f[:size] || f["size"]
+            size_str = size ? " #{format_filesize(size)}" : ""
+            content = @pastel.dim("[File #{idx + 1}] #{filename}#{size_str} (Ctrl+D to delete)")
             print_with_padding(content)
             current_row += 1
           end
@@ -881,7 +883,8 @@ module Clacky
           if pasted[:type] == :image
             path = pasted[:path]
             mime_type = pasted[:mime_type] || "image/png"
-            @files << { name: File.basename(path), mime_type: mime_type, path: path }
+            size = File.exist?(path) ? File.size(path) : 0
+            @files << { name: File.basename(path), mime_type: mime_type, path: path, size: size }
             clear_tips
           else
             insert_text(pasted[:text])

@@ -182,27 +182,48 @@ module Clacky
 
       # Split files into vision images and disk files; downgrade oversized images to disk
       image_files, disk_files = partition_files(Array(files))
-      vision_urls, downgraded  = resolve_vision_images(image_files)
+      vision_images, downgraded = resolve_vision_images(image_files)
       all_disk_files = disk_files + downgraded
 
       # Format user message — text + inline vision images
-      user_content = format_user_content(user_input, vision_urls)
-      @history.append({ role: "user", content: user_content, task_id: task_id, created_at: Time.now.to_f })
+      user_content = format_user_content(user_input, vision_images.map { |v| v[:url] })
+
+      # Build display_files for replay: lightweight metadata so the UI can reconstruct
+      # file badges (PDF, doc, etc.) on page refresh. Images are NOT stored here — they
+      # are recovered from the image_url blocks in user_content by extract_image_files_from_content.
+      display_files = all_disk_files.filter_map do |f|
+        name = f[:name] || f["name"]
+        next unless name
+        { name: name, type: f[:type] || f["type"] || "file",
+          preview_path: f[:preview_path] || f["preview_path"] }
+      end
+
+      @history.append({ role: "user", content: user_content, task_id: task_id, created_at: Time.now.to_f,
+                        display_files: display_files.empty? ? nil : display_files })
       @total_tasks += 1
 
       # Inject disk file references as a system_injected message so:
       #   - LLM sees the file info (system_injected is NOT stripped from to_api)
       #   - replay_history skips it (next if ev[:system_injected]), keeping the user bubble clean
-      unless all_disk_files.empty?
-        file_prompt = all_disk_files.filter_map do |f|
-          path         = f[:path]         || f["path"]
+      #
+      # Images: also injected here (alongside vision inline) so LLM knows filename + size.
+      all_meta_files = vision_images.map { |v|
+        { name: v[:name], type: "image", size_bytes: v[:size_bytes], path: v[:path] }
+      } + all_disk_files
+
+      unless all_meta_files.empty?
+        file_prompt = all_meta_files.filter_map do |f|
           name         = f[:name]         || f["name"]
           type         = f[:type]         || f["type"]
+          path         = f[:path]         || f["path"]
           preview_path = f[:preview_path] || f["preview_path"]
-          next unless path && name
+          size_bytes   = f[:size_bytes]   || f["size_bytes"]
+
+          next unless name
 
           lines = ["[File: #{name}]", "Type: #{type || "file"}"]
-          lines << "Original: #{path}"
+          lines << "Size: #{format_size(size_bytes)}" if size_bytes
+          lines << "Original: #{path}" if path
           lines << "Preview (Markdown): #{preview_path}" if preview_path
           lines.join("\n")
         end.join("\n\n")
@@ -943,8 +964,8 @@ module Clacky
     private def resolve_vision_images(image_files)
       require "base64"
       max_bytes = Utils::FileProcessor::MAX_IMAGE_BYTES
-      vision_urls = []
-      downgraded  = []
+      vision_images = []  # Array of { url:, name:, size_bytes: }
+      downgraded    = []
 
       image_files.each do |f|
         name     = f[:name]     || f["name"]     || "image.jpg"
@@ -953,28 +974,24 @@ module Clacky
         path     = f[:path]      || f["path"]
 
         if data_url
-          # Strip header to check byte size: "data:image/jpeg;base64,<data>"
-          b64_data = data_url.split(",", 2).last.to_s
+          b64_data  = data_url.split(",", 2).last.to_s
           byte_size = (b64_data.bytesize * 3) / 4
+          raw       = Base64.decode64(b64_data)
+          file_ref  = Utils::FileProcessor.save_image_to_disk(body: raw, mime_type: mime, filename: name)
           if byte_size > max_bytes
-            # Downgrade: save to disk
-            raw      = Base64.decode64(b64_data)
-            file_ref = Utils::FileProcessor.save_image_to_disk(body: raw, mime_type: mime, filename: name)
-            downgraded << { name: name, path: file_ref.original_path, type: "image", mime_type: mime }
+            downgraded << { name: name, path: file_ref.original_path, type: "image", mime_type: mime, size_bytes: byte_size }
           else
-            vision_urls << data_url
+            vision_images << { url: data_url, name: name, size_bytes: byte_size, path: file_ref.original_path }
           end
         elsif path
           begin
             data_url_from_path = Utils::FileProcessor.image_path_to_data_url(path)
-            b64_data = data_url_from_path.split(",", 2).last.to_s
+            b64_data  = data_url_from_path.split(",", 2).last.to_s
             byte_size = (b64_data.bytesize * 3) / 4
             if byte_size > max_bytes
-              raw      = Base64.decode64(b64_data)
-              file_ref = Utils::FileProcessor.save_image_to_disk(body: raw, mime_type: mime, filename: name)
-              downgraded << { name: name, path: file_ref.original_path, type: "image", mime_type: mime }
+              downgraded << { name: name, path: path, type: "image", mime_type: mime, size_bytes: byte_size }
             else
-              vision_urls << data_url_from_path
+              vision_images << { url: data_url_from_path, name: name, size_bytes: byte_size, path: path }
             end
           rescue => e
             @ui&.log("Failed to load image #{name}: #{e.message}", level: :warn)
@@ -982,7 +999,7 @@ module Clacky
         end
       end
 
-      [vision_urls, downgraded]
+      [vision_images, downgraded]
     end
 
     # Build user message content for LLM.
@@ -998,6 +1015,18 @@ module Clacky
         content << { type: "image_url", image_url: { url: url } }
       end
       content
+    end
+
+    # Format byte size as human-readable string.
+    private def format_size(bytes)
+      return "0B" unless bytes
+      if bytes >= 1024 * 1024
+        "#{(bytes / 1024.0 / 1024.0).round(1)}MB"
+      elsif bytes >= 1024
+        "#{(bytes / 1024.0).round(0).to_i}KB"
+      else
+        "#{bytes}B"
+      end
     end
 
     # Inject a session context message (date + model) into the conversation.

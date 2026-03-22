@@ -171,9 +171,16 @@ module Clacky
 
         page.each do |round|
           msg = round[:user_msg]
-          raw_text = extract_text_from_content(msg[:content])
-          # Files are stored as system_injected messages (skipped below), not embedded in user text.
-          ui.show_user_message(raw_text, created_at: msg[:created_at])
+          raw_text    = extract_text_from_content(msg[:content])
+          # Images: recovered from inline image_url blocks in content (carry data_url for <img> rendering)
+          image_files = extract_image_files_from_content(msg[:content])
+          # Disk files (PDF, doc, etc.): stored in display_files on the user message at send time
+          disk_files  = Array(msg[:display_files]).map { |f|
+            { name: f[:name] || f["name"], type: f[:type] || f["type"] || "file",
+              preview_path: f[:preview_path] || f["preview_path"] }
+          }
+          all_files = image_files + disk_files
+          ui.show_user_message(raw_text, created_at: msg[:created_at], files: all_files)
 
           round[:events].each do |ev|
             # Skip system-injected messages (e.g. synthetic skill content, memory prompts)
@@ -307,6 +314,28 @@ module Clacky
           text_parts.map { |c| c[:text] }.join("\n")
         else
           content.to_s
+        end
+      end
+
+      # Extract images from a multipart content array and return them as file entries.
+      # Returns an array of { name:, mime_type:, data_url: } hashes — the same structure
+      # that the frontend sends via `files` in a message, and that show_user_message(files:) expects.
+      # Only includes inline data_url images (not remote URLs).
+      def extract_image_files_from_content(content)
+        return [] unless content.is_a?(Array)
+
+        content.each_with_index.filter_map do |block, idx|
+          next unless block.is_a?(Hash)
+          # OpenAI-style: { type: "image_url", image_url: { url: "data:image/png;base64,..." } }
+          next unless block[:type] == "image_url"
+
+          url = block.dig(:image_url, :url)
+          next unless url && url.start_with?("data:")
+
+          # Derive mime_type from the data URL prefix (e.g. "data:image/jpeg;base64,...")
+          mime_type = url[/\Adata:([^;]+);/, 1] || "image/jpeg"
+          ext       = mime_type.split("/").last
+          { name: "image_#{idx + 1}.#{ext}", mime_type: mime_type, data_url: url }
         end
       end
     end

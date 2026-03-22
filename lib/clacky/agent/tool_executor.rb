@@ -181,15 +181,7 @@ module Clacky
                     # Multipart content (e.g. screenshot image blocks) — keep as Array
                     formatted_result
                   else
-                    begin
-                      JSON.generate(formatted_result)
-                    rescue Encoding::UndefinedConversionError, Encoding::InvalidByteSequenceError, JSON::GeneratorError => e
-                      # Tool output contained non-UTF-8 bytes (e.g. GBK-encoded filenames from shell).
-                      # Scrub all strings recursively and retry — this keeps the AI running normally
-                      # instead of surfacing a red "Tool error" to the user.
-                      Clacky::Logger.warn("build_success_result encoding fallback", tool: call[:name], error: e.message)
-                      JSON.generate(scrub_utf8_deep(formatted_result))
-                    end
+                    JSON.generate(formatted_result)
                   end
 
         {
