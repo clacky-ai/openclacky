@@ -21,7 +21,7 @@ module Clacky
       ensure_sessions_dir
     end
 
-    # Save a session
+    # Save a session. Returns the file path.
     def save(session_data)
       filename = generate_filename(session_data[:session_id], session_data[:created_at])
       filepath = File.join(@sessions_dir, filename)
@@ -36,108 +36,66 @@ module Clacky
         cleanup_by_count(keep: 200)
       rescue Exception # rubocop:disable Lint/RescueException
         # Cleanup is non-critical; swallow all errors (including AgentInterrupted)
-        # so that the session file is always saved successfully
       end
 
       filepath
     end
 
-    # Get the path of the last saved session
+    # Path of the last saved session file.
     def last_saved_path
       @last_saved_path
     end
 
-    # Delete a session by ID (physical delete — removes disk file + chunks).
-    # Returns true if a file was found and deleted, false if not found.
+    # Load a specific session by ID. Returns nil if not found.
+    def load(session_id)
+      all_sessions.find { |s| s[:session_id].to_s.start_with?(session_id.to_s) }
+    end
+
+    # Physical delete — removes disk file + associated chunk files.
+    # Returns true if found and deleted, false if not found.
     def delete(session_id)
-      sessions = all_sessions
-      session  = sessions.find { |s| s[:session_id].to_s.start_with?(session_id.to_s) }
+      session = all_sessions.find { |s| s[:session_id].to_s.start_with?(session_id.to_s) }
       return false unless session
 
-      filename = generate_filename(session[:session_id], session[:created_at])
-      filepath = File.join(@sessions_dir, filename)
+      filepath = File.join(@sessions_dir, generate_filename(session[:session_id], session[:created_at]))
       delete_session_with_chunks(filepath)
       true
     end
 
-    # Load a specific session by ID
-    def load(session_id)
-      sessions = all_sessions
-      session = sessions.find { |s| s[:session_id].start_with?(session_id) }
-      session
+    # All sessions from disk, newest-first (sorted by created_at).
+    # This is the canonical list; callers (SessionRegistry#list) sort/filter on top.
+    def all_sessions
+      Dir.glob(File.join(@sessions_dir, "*.json")).filter_map do |filepath|
+        load_session_file(filepath)
+      end.sort_by { |s| s[:created_at] || "" }.reverse
     end
 
-    # Get the most recent session for a specific working directory
-    def latest_for_directory(working_dir)
-      sessions = all_sessions
-      sessions
-        .select { |s| s[:working_dir] == working_dir }
-        .max_by { |s| Time.parse(s[:updated_at]) }
-    end
-
-    # Get the most recent N sessions for a specific working directory
-    def latest_n_for_directory(working_dir, n = 5)
-      all_sessions
-        .select { |s| s[:working_dir] == working_dir }
-        .sort_by { |s| Time.parse(s[:updated_at]) }
-        .reverse
-        .first(n)
-    end
-
-    # List recent sessions, prioritizing those from current directory
-    def list(current_dir: nil, limit: 5)
-      sessions = all_sessions.sort_by { |s| Time.parse(s[:updated_at]) }.reverse
-
-      if current_dir
-        current_sessions = sessions.select { |s| s[:working_dir] == current_dir }
-        other_sessions = sessions.reject { |s| s[:working_dir] == current_dir }
-        (current_sessions + other_sessions).first(limit)
-      else
-        sessions.first(limit)
-      end
-    end
-
-    # Delete sessions not accessed within the given number of days.
-    # Defaults to 90 days — sessions older than this are considered stale.
-    # Returns the number of sessions deleted.
+    # Delete sessions not accessed within the given number of days (default: 90).
+    # Returns count of deleted sessions.
     def cleanup(days: 90)
-      cutoff_time = Time.now - (days * 24 * 60 * 60)
-      deleted_count = 0
-
+      cutoff = Time.now - (days * 24 * 60 * 60)
+      deleted = 0
       Dir.glob(File.join(@sessions_dir, "*.json")).each do |filepath|
         session = load_session_file(filepath)
         next unless session
-
-        updated_at = Time.parse(session[:updated_at])
-        if updated_at < cutoff_time
+        if Time.parse(session[:updated_at]) < cutoff
           delete_session_with_chunks(filepath)
-          deleted_count += 1
+          deleted += 1
         end
       end
-
-      deleted_count
+      deleted
     end
 
-    # Keep only the most recent N sessions, delete older ones
+    # Keep only the most recent N sessions by created_at; delete the rest.
+    # Returns count of deleted sessions.
     def cleanup_by_count(keep:)
-      sessions = all_sessions.sort_by { |s| Time.parse(s[:updated_at]) }.reverse
-
+      sessions = all_sessions # already sorted newest-first
       return 0 if sessions.size <= keep
 
-      sessions_to_delete = sessions[keep..]
-      deleted_count = 0
-
-      sessions_to_delete.each do |session|
-        filename = generate_filename(session[:session_id], session[:created_at])
-        filepath = File.join(@sessions_dir, filename)
-
-        if File.exist?(filepath)
-          delete_session_with_chunks(filepath)
-          deleted_count += 1
-        end
-      end
-
-      deleted_count
+      sessions[keep..].each do |session|
+        filepath = File.join(@sessions_dir, generate_filename(session[:session_id], session[:created_at]))
+        delete_session_with_chunks(filepath) if File.exist?(filepath)
+      end.size
     end
 
     private
@@ -152,24 +110,11 @@ module Clacky
       "#{datetime}-#{short_id}.json"
     end
 
-    # Delete a session JSON file and all its associated chunk MD files
-    # Chunk files follow the pattern: {base}-chunk-{n}.md
+    # Delete a session JSON file and all its associated chunk MD files.
     def delete_session_with_chunks(json_filepath)
-      # Delete the main session JSON
       File.delete(json_filepath) if File.exist?(json_filepath)
-
-      # Find and delete associated chunk MD files
       base = File.basename(json_filepath, ".json")
-      chunk_pattern = File.join(@sessions_dir, "#{base}-chunk-*.md")
-      Dir.glob(chunk_pattern).each do |chunk_file|
-        File.delete(chunk_file)
-      end
-    end
-
-    def all_sessions
-      Dir.glob(File.join(@sessions_dir, "*.json")).map do |filepath|
-        load_session_file(filepath)
-      end.compact
+      Dir.glob(File.join(@sessions_dir, "#{base}-chunk-*.md")).each { |f| File.delete(f) }
     end
 
     def load_session_file(filepath)

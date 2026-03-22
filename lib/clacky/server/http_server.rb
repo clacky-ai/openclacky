@@ -132,7 +132,7 @@ module Clacky
         - 将大目标拆解为可执行的小步骤
       MD
 
-      def initialize(host: "127.0.0.1", port: 7070, agent_config:, client_factory:, brand_test: false)
+      def initialize(host: "127.0.0.1", port: 7070, agent_config:, client_factory:, brand_test: false, sessions_dir: nil)
         @host           = host
         @port           = port
         @agent_config   = agent_config
@@ -142,8 +142,11 @@ module Clacky
         # so api_restart can re-exec the correct binary even if cwd changes later.
         @restart_script = File.expand_path($0)
         @restart_argv   = ARGV.dup
-        @registry        = SessionRegistry.new
-        @session_manager = Clacky::SessionManager.new
+        @session_manager = Clacky::SessionManager.new(sessions_dir: sessions_dir)
+        @registry        = SessionRegistry.new(
+          session_manager:  @session_manager,
+          session_restorer: method(:build_session_from_data)
+        )
         @ws_clients      = {}  # session_id => [WebSocketConnection, ...]
         @ws_mutex        = Mutex.new
         # Version cache: { latest: "x.y.z", checked_at: Time }
@@ -275,7 +278,7 @@ module Clacky
         end
 
         case [method, path]
-        when ["GET",    "/api/sessions"]      then api_list_sessions(res)
+        when ["GET",    "/api/sessions"]      then api_list_sessions(req, res)
         when ["POST",   "/api/sessions"]      then api_create_session(req, res)
         when ["GET",    "/api/schedules"]     then api_list_schedules(res)
         when ["POST",   "/api/schedules"]     then api_create_schedule(req, res)
@@ -354,8 +357,16 @@ module Clacky
 
       # ── REST API ──────────────────────────────────────────────────────────────
 
-      def api_list_sessions(res)
-        json_response(res, 200, { sessions: @registry.list })
+      def api_list_sessions(req, res)
+        query    = URI.decode_www_form(req.query_string.to_s).to_h
+        limit    = [query["limit"].to_i.then { |n| n > 0 ? n : 10 }, 50].min
+        before   = query["before"].to_s.strip.then { |v| v.empty? ? nil : v }
+        source   = query["source"].to_s.strip.then { |v| v.empty? ? nil : v }
+        # Fetch one extra to detect has_more without a separate count query
+        sessions  = @registry.list(limit: limit + 1, before: before, source: source)
+        has_more  = sessions.size > limit
+        sessions  = sessions.first(limit)
+        json_response(res, 200, { sessions: sessions, has_more: has_more })
       end
 
       def api_create_session(req, res)
@@ -371,7 +382,7 @@ module Clacky
         FileUtils.mkdir_p(working_dir)
 
         session_id = build_session(name: name, working_dir: working_dir, profile: profile, source: :manual)
-        json_response(res, 201, { session: @registry.list.find { |s| s[:id] == session_id } })
+        json_response(res, 201, { session: @registry.session_summary(session_id) })
       end
 
       # Auto-restore persisted sessions (or create a fresh default) when the server starts.
@@ -384,15 +395,13 @@ module Clacky
       def create_default_session
         return unless @agent_config.models_configured?
 
-        working_dir = default_working_dir
-        FileUtils.mkdir_p(working_dir) unless Dir.exist?(working_dir)
+        # Restore up to 5 sessions per source type from disk into the registry.
+        @registry.restore_from_disk(n: 5)
 
-        # Restore the most recent 20 sessions for this working directory
-        sessions_data = @session_manager.latest_n_for_directory(working_dir, 20)
-
-        if sessions_data.any?
-          sessions_data.each { |session_data| build_session_from_data(session_data) }
-        else
+        # If nothing was restored (no persisted sessions), create a fresh default.
+        unless @registry.list(limit: 1).any?
+          working_dir = default_working_dir
+          FileUtils.mkdir_p(working_dir) unless Dir.exist?(working_dir)
           build_session(name: "Session 1", working_dir: working_dir)
         end
       end
@@ -431,8 +440,8 @@ module Clacky
       # Called after key setup is done (soul_setup is optional/skipped).
       # Creates the default session if none exists yet, returns it.
       def api_onboard_complete(req, res)
-        create_default_session if @registry.list.empty?
-        first_session = @registry.list.first
+        create_default_session if @registry.list(limit: 1).empty?
+        first_session = @registry.list(limit: 1).first
         json_response(res, 200, { ok: true, session: first_session })
       end
 
@@ -1113,8 +1122,7 @@ module Clacky
           # after the client has subscribed and is ready to receive broadcasts.
           @registry.update(session_id, pending_task: prompt, pending_working_dir: working_dir)
 
-          session = @registry.list.find { |s| s[:id] == session_id }
-          json_response(res, 202, { ok: true, session: session })
+          json_response(res, 202, { ok: true, session: @registry.session_summary(session_id) })
         rescue => e
           json_response(res, 422, { error: e.message })
         end
@@ -1145,6 +1153,10 @@ module Clacky
       # filtered by the session's agent profile. Used by the frontend slash-command
       # autocomplete so only skills valid for the current profile are suggested.
       def api_session_skills(session_id, res)
+        unless @registry.ensure(session_id)
+          json_response(res, 404, { error: "Session not found" })
+          return
+        end
         session = @registry.get(session_id)
         unless session
           json_response(res, 404, { error: "Session not found" })
@@ -1400,7 +1412,7 @@ module Clacky
       # Replays conversation history for a session via the agent's replay_history method.
       # Returns a list of UI events (same format as WS events) for the frontend to render.
       def api_session_messages(session_id, req, res)
-        unless @registry.exist?(session_id)
+        unless @registry.ensure(session_id)
           return json_response(res, 404, { error: "Session not found" })
         end
 
@@ -1429,7 +1441,7 @@ module Clacky
         new_name = body["name"].to_s.strip
 
         return json_response(res, 400, { error: "name is required" }) if new_name.empty?
-        return json_response(res, 404, { error: "Session not found" }) unless @registry.exist?(session_id)
+        return json_response(res, 404, { error: "Session not found" }) unless @registry.ensure(session_id)
 
         agent = nil
         @registry.with_session(session_id) { |s| agent = s[:agent] }
@@ -1518,7 +1530,7 @@ module Clacky
         case type
         when "subscribe"
           session_id = msg["session_id"]
-          if @registry.exist?(session_id)
+          if @registry.ensure(session_id)
             conn.session_id = session_id
             subscribe(session_id, conn)
             conn.send_json(type: "subscribed", session_id: session_id)
@@ -1543,7 +1555,16 @@ module Clacky
           interrupt_session(session_id)
 
         when "list_sessions"
-          conn.send_json(type: "session_list", sessions: @registry.list)
+          # Initial load: 5 per source so all tabs get their first page.
+          # has_more is sent per-source so the frontend can show independent load-more buttons.
+          sources   = %w[manual cron channel coding]
+          by_source = sources.each_with_object({}) do |src, h|
+            page = @registry.list(limit: 6, source: src)  # +1 to detect has_more
+            h[src] = { sessions: page.first(5), has_more: page.size > 5 }
+          end
+          all_sessions = by_source.values.flat_map { |v| v[:sessions] }
+          has_more_map = by_source.transform_values { |v| v[:has_more] }
+          conn.send_json(type: "session_list", sessions: all_sessions, has_more_by_source: has_more_map)
 
         when "run_task"
           # Client sends this after subscribing to guarantee it's ready to receive
@@ -1707,7 +1728,7 @@ module Clacky
       # Broadcast a session_update event to all clients so they can patch their
       # local session list without needing a full session_list refresh.
       def broadcast_session_update(session_id)
-        session = @registry.list.find { |s| s[:id] == session_id }
+        session = @registry.list(limit: 200).find { |s| s[:id] == session_id }
         return unless session
 
         broadcast_all(type: "session_update", session: session)
@@ -1715,7 +1736,6 @@ module Clacky
 
       # ── Helpers ───────────────────────────────────────────────────────────────
 
-      # Default working directory for new sessions.
       def default_working_dir
         File.expand_path("~/clacky_workspace")
       end

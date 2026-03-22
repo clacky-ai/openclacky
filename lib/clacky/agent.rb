@@ -2,6 +2,7 @@
 
 require "securerandom"
 require "json"
+require "cgi"
 require "tty-prompt"
 require "set"
 require_relative "utils/arguments_parser"
@@ -1108,8 +1109,10 @@ module Clacky
       files = []
       text = content.gsub(/(!?)\[([^\]]*)\]\(file:\/\/([^)]+)\)/) do
         inline = $1 == "!"
-        name   = $2.empty? ? File.basename($3) : $2
-        path   = File.expand_path($3)
+        # URL-decode percent-encoded characters (e.g. Chinese filenames encoded by AI)
+        raw_path = CGI.unescape($3)
+        name   = $2.empty? ? File.basename(raw_path) : $2
+        path   = File.expand_path(raw_path)
         Clacky::Logger.info("[parse_file_links] raw=#{$3.inspect} expanded=#{path.inspect} exist=#{File.exist?(path)}")
         files << { name: name, path: path, inline: inline }
         ""

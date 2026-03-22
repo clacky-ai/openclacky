@@ -30,11 +30,12 @@ module HttpServerSpecHelpers
   end
 
   # Build a minimal fake WEBrick request object.
-  def fake_req(method:, path:, body: nil, headers: {})
+  def fake_req(method:, path:, body: nil, headers: {}, query_string: "")
     req = double("req",
       request_method: method,
       path:           path,
       body:           body ? body.to_json : nil,
+      query_string:   query_string,
       "[]":           nil
     )
     allow(req).to receive(:instance_variable_get).and_return(nil)
@@ -105,9 +106,9 @@ RSpec.describe Clacky::Server::HttpServer do
       expect(server.instance_variable_get(:@client_factory)).to eq(factory)
     end
 
-    it "creates an empty session registry" do
+    it "creates an empty session registry when sessions_dir is empty" do
       server = described_class.new(
-        agent_config: agent_config, client_factory: -> {}
+        agent_config: agent_config, client_factory: -> {}, sessions_dir: tmpdir
       )
       expect(server.instance_variable_get(:@registry).list).to eq([])
     end

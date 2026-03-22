@@ -430,6 +430,30 @@ body {
 }
 #coding-session-list { padding: 0 8px 8px; }
 
+/* ── Load-more button ─────────────────────────────────────────────────────── */
+.btn-load-more-sessions {
+  display: block;
+  width: calc(100% - 16px);
+  margin: 4px 8px 8px;
+  padding: 5px 0;
+  background: transparent;
+  border: 1px dashed var(--color-border-primary);
+  border-radius: 6px;
+  color: var(--color-text-tertiary);
+  font-size: 11px;
+  cursor: pointer;
+  text-align: center;
+  transition: background 0.15s, color 0.15s;
+}
+.btn-load-more-sessions:hover {
+  background: var(--color-surface-hover);
+  color: var(--color-text-secondary);
+}
+.btn-load-more-sessions:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
 /* Legacy .btn-new-inline — kept for compat, can be removed after cleanup */
 .btn-new-inline {
   display: none;

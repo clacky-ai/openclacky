@@ -107,6 +107,7 @@ module Clacky
                 context_token: context_token
               }
             }
+            Clacky::Logger.debug("[WeixinApiClient] send_file item: #{item.to_json}")
             post("sendmessage", body)
           end
 
@@ -182,14 +183,13 @@ module Clacky
             # filekey: arbitrary unique string (use hex of random bytes).
             filekey = SecureRandom.hex(16)
 
-            # aeskey encoding differs by media type:
-            #   image  → base64(raw 16 bytes)
-            #   others → base64(hex string of raw 16 bytes, i.e. 32 chars)
-            aeskey_param = if media_type == MEDIA_TYPE_IMAGE
-                             Base64.strict_encode64(aes_key_raw)
-                           else
-                             Base64.strict_encode64(aes_key_raw.unpack1("H*"))
-                           end
+            # aeskey for getuploadurl: hex string of raw 16 bytes (32 hex chars), NOT base64.
+            # Confirmed from @tencent-weixin/openclaw-weixin source: aeskey.toString("hex")
+            aeskey_hex = aes_key_raw.unpack1("H*")
+
+            # aes_key for CDNMedia: base64 of the hex string as UTF-8 bytes.
+            # Confirmed: Buffer.from(aeskey_hex).toString("base64") in Node.js = base64 of hex string bytes
+            aeskey_b64 = Base64.strict_encode64(aeskey_hex)
 
             raw_md5 = Digest::MD5.hexdigest(raw_bytes)
 
@@ -201,11 +201,12 @@ module Clacky
               rawsize:        raw_bytes.bytesize,
               rawfilemd5:     raw_md5,
               filesize:       encrypted_bytes.bytesize,
-              aeskey:         aeskey_param,
+              aeskey:         aeskey_hex,
               no_need_thumb:  true
             })
 
             upload_param = upload_resp["upload_param"]
+            Clacky::Logger.debug("[WeixinApiClient] getuploadurl resp: #{upload_resp.to_json}")
             raise ApiError.new(0, "getuploadurl: missing upload_param") unless upload_param
 
             # Step 2: upload encrypted bytes to CDN.
@@ -216,9 +217,11 @@ module Clacky
             )
 
             # Return CDNMedia structure for use in sendmessage item_list.
+            # encrypt_type: 1 confirmed from @tencent-weixin/openclaw-weixin source.
             {
               encrypt_query_param: download_param,
-              aes_key:             aeskey_param
+              aes_key:             aeskey_b64,
+              encrypt_type:        1
             }
           end
 
