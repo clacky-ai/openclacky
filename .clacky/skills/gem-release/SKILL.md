@@ -217,6 +217,8 @@ Present a clear, user-facing release summary after all steps complete:
 ```
 🎉 v{version} released successfully!
 
+✨ Highlight: [One sentence summarizing the biggest user-visible change in this release — use "verb + value" phrasing]
+
 📦 What's new for users:
 
 **New Features**
@@ -228,19 +230,32 @@ Present a clear, user-facing release summary after all steps complete:
 **Bug Fixes**
 - [translate each "Fixed" item into plain user-facing language]
 
+🧪 Testing suggestions:
+| Feature | How to verify |
+|---------|--------------|
+| [key new feature] | [concrete steps to test] |
+...
+
 🔗 Links:
 - RubyGems: https://rubygems.org/gems/openclacky/versions/{version}
 - GitHub Release: https://github.com/clacky-ai/open-clacky/releases/tag/v{version}
 
-Install/upgrade: gem install openclacky
+⬆️ Upgrade:
+- In the Clacky UI, click "Upgrade" in the bottom-left → detect new version → click upgrade → done
+- Manual upgrade (CLI): `gem update openclacky`
+
+🆕 Fresh install:
+/bin/bash -c "$(curl -sSL https://raw.githubusercontent.com/clacky-ai/open-clacky/main/scripts/install.sh)"
 ```
 
 **Rules for writing the summary:**
+- Highlight: pick the single most impactful user-visible change, use "verb + value" phrasing, e.g. "Real browser control + WeChat channel support — agents can now navigate pages and chat via WeChat"
 - Write from the user's perspective — what can they now do, or what problem is now fixed
 - Avoid technical jargon (no "cursor-paginated", "frontmatter", "REST API" — explain what it means instead)
 - Skip "More" / chore items unless they directly affect users
 - Keep each bullet to one sentence, action-oriented
 - Example translation: `fix: expand ~ in file system tools path arguments` → "File paths starting with `~` (home directory) now work correctly in all file tools"
+- Testing suggestions: list only significant new features (3–8 items), each with concrete, actionable verification steps
 
 ## Commands Used
 
