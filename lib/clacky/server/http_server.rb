@@ -1843,7 +1843,7 @@ module Clacky
       # Restore a persisted session from saved session_data (from SessionManager).
       # The agent keeps its original session_id so the frontend URL hash stays valid
       # across server restarts.
-      def build_session_from_data(session_data, permission_mode: :confirm_all)
+      def build_session_from_data(session_data, permission_mode: :confirm_all, profile: nil)
         original_id = session_data[:session_id]
 
         # Skip if this session is already registered (e.g., restored by a previous call)
@@ -1857,11 +1857,11 @@ module Clacky
         config.permission_mode = permission_mode
         broadcaster = method(:broadcast)
         ui = WebUIController.new(original_id, broadcaster)
-        # Restore the agent profile from the persisted session; fall back to "general"
-        # for sessions saved before the agent_profile field was introduced.
-        profile = session_data[:agent_profile].to_s
-        profile = "general" if profile.empty?
-        agent = Clacky::Agent.from_session(client, config, session_data, ui: ui, profile: profile)
+        # Use explicit profile if given; otherwise restore from persisted session data;
+        # fall back to "general" for sessions saved before the agent_profile field was introduced.
+        resolved_profile = profile || session_data[:agent_profile].to_s
+        resolved_profile = "general" if resolved_profile.empty?
+        agent = Clacky::Agent.from_session(client, config, session_data, ui: ui, profile: resolved_profile)
         idle_timer = build_idle_timer(original_id, agent)
 
         @registry.with_session(original_id) do |s|
