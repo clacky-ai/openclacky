@@ -3680,6 +3680,32 @@ body.setup-mode[data-theme="dark"] {
 .badge-inactive  { color: var(--color-text-secondary); }
 
 /* Support QR code */
+.brand-support-contact {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--color-bg-tertiary);
+  border: 1px solid var(--color-border-primary);
+  border-radius: 8px;
+  font-size: 13px;
+}
+
+.brand-support-contact-label {
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+}
+
+.brand-support-contact-value {
+  color: var(--color-accent-primary);
+  text-decoration: none;
+  word-break: break-all;
+}
+
+.brand-support-contact-value:hover {
+  text-decoration: underline;
+}
+
 .brand-support-qr {
   display: flex;
   flex-direction: column;
