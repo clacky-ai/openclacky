@@ -149,35 +149,6 @@ module Clacky
         end
       end
 
-      # Return a summary hash for a single session by id.
-      # Used by broadcast_session_update and Skill UI plugins to fetch session metadata
-      # directly by id without going through the public list.
-      # Returns nil if the session does not exist in memory.
-      def session_summary(session_id)
-        session = @mutex.synchronize { @sessions[session_id] }
-        return nil unless session
-
-        agent = session[:agent]
-        return nil unless agent
-
-        model_info = agent.current_model_info
-        {
-          id:              session[:id],
-          name:            agent.name,
-          working_dir:     agent.working_dir,
-          status:          session[:status],
-          created_at:      agent.created_at,
-          updated_at:      session[:updated_at].iso8601,
-          total_tasks:     agent.total_tasks || 0,
-          total_cost:      agent.total_cost  || 0.0,
-          error:           session[:error],
-          model:           model_info&.dig(:model),
-          permission_mode: agent.permission_mode,
-          source:          agent.source.to_s,
-          agent_profile:   agent.agent_profile.name,
-        }
-      end
-
       private
 
       # Normalize source field from a disk session hash.
