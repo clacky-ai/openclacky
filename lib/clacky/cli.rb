@@ -793,40 +793,71 @@ module Clacky
     option :brand_test, type: :boolean, default: false,
            desc: "Enable brand test mode: mock license activation without calling remote API"
     def server
-      require_relative "server/http_server"
+      if ENV["CLACKY_WORKER"] == "1"
+        # ── Worker mode ───────────────────────────────────────────────────────
+        # Spawned by Master. Inherit the listen socket from the file descriptor
+        # passed via CLACKY_INHERIT_FD, and report back to master via CLACKY_MASTER_PID.
+        require_relative "server/http_server"
 
-      agent_config = Clacky::AgentConfig.load
-      agent_config.permission_mode = :confirm_all
+        fd         = ENV["CLACKY_INHERIT_FD"].to_i
+        master_pid = ENV["CLACKY_MASTER_PID"].to_i
+        # Must use TCPServer.for_fd (not Socket.for_fd) so that accept_nonblock
+        # returns a single Socket, not [Socket, Addrinfo] — WEBrick expects the former.
+        socket     = TCPServer.for_fd(fd)
 
-      if options[:brand_test]
-        say "⚡ Brand test mode — license activation uses mock data (no remote API calls).", :yellow
-        say ""
-        say "  Test license keys (paste any into Settings → Brand & License):", :cyan
-        say ""
-        say "    00000001-FFFFFFFF-DEADBEEF-CAFEBABE-00000001  →  Brand1"
-        say "    00000002-FFFFFFFF-DEADBEEF-CAFEBABE-00000002  →  Brand2"
-        say "    00000003-FFFFFFFF-DEADBEEF-CAFEBABE-00000003  →  Brand3"
-        say ""
-        say "  To reset: rm ~/.clacky/brand.yml", :cyan
-        say ""
+        Clacky::Logger.console = true
+        Clacky::Logger.info("[cli worker PID=#{Process.pid}] CLACKY_INHERIT_FD=#{fd} CLACKY_MASTER_PID=#{master_pid} socket=#{socket.class} fd=#{socket.fileno}")
+
+        agent_config = Clacky::AgentConfig.load
+        agent_config.permission_mode = :confirm_all
+
+        client_factory = lambda do
+          Clacky::Client.new(
+            agent_config.api_key,
+            base_url: agent_config.base_url,
+            anthropic_format: agent_config.anthropic_format?
+          )
+        end
+
+        Clacky::Server::HttpServer.new(
+          host:           options[:host],
+          port:           options[:port],
+          agent_config:   agent_config,
+          client_factory: client_factory,
+          brand_test:     options[:brand_test],
+          socket:         socket,
+          master_pid:     master_pid
+        ).start
+      else
+        # ── Master mode ───────────────────────────────────────────────────────
+        # First invocation by the user. Start the Master process which holds the
+        # socket and supervises worker processes.
+        require_relative "server/server_master"
+
+        if options[:brand_test]
+          say "⚡ Brand test mode — license activation uses mock data (no remote API calls).", :yellow
+          say ""
+          say "  Test license keys (paste any into Settings → Brand & License):", :cyan
+          say ""
+          say "    00000001-FFFFFFFF-DEADBEEF-CAFEBABE-00000001  →  Brand1"
+          say "    00000002-FFFFFFFF-DEADBEEF-CAFEBABE-00000002  →  Brand2"
+          say "    00000003-FFFFFFFF-DEADBEEF-CAFEBABE-00000003  →  Brand3"
+          say ""
+          say "  To reset: rm ~/.clacky/brand.yml", :cyan
+          say ""
+        end
+
+        extra_flags = []
+        extra_flags << "--brand-test" if options[:brand_test]
+
+        Clacky::Logger.console = true
+
+        Clacky::Server::Master.new(
+          host:        options[:host],
+          port:        options[:port],
+          extra_flags: extra_flags
+        ).run
       end
-
-      # Factory so each new session gets a fresh Client instance
-      client_factory = lambda do
-        Clacky::Client.new(
-          agent_config.api_key,
-          base_url: agent_config.base_url,
-          anthropic_format: agent_config.anthropic_format?
-        )
-      end
-
-      Clacky::Server::HttpServer.new(
-        host:           options[:host],
-        port:           options[:port],
-        agent_config:   agent_config,
-        client_factory: client_factory,
-        brand_test:     options[:brand_test]
-      ).start
     end
   end
 end
