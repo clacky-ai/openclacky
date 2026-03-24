@@ -180,6 +180,7 @@ detect_network_region() {
     local tuna_result cdn_result mise_result rubygems_result github_result
     local tuna_good=false
     local cdn_good=false
+    local upstream_good=false
 
     tuna_result=$(_probe_url "$TUNA_MIRROR_BASE_URL")
     cdn_result=$(_probe_url "$CN_CDN_BASE_URL")
@@ -201,6 +202,14 @@ detect_network_region() {
         cdn_good=true
     fi
 
+    # "global" here means strategy fallback, not guaranteed global reachability.
+    # Treat upstream as healthy if at least one core endpoint is reachable and fast enough.
+    if ! _is_slow_or_unreachable "$mise_result" || \
+       ! _is_slow_or_unreachable "$rubygems_result" || \
+       ! _is_slow_or_unreachable "$github_result"; then
+        upstream_good=true
+    fi
+
     if [ "$tuna_good" = true ] && [ "$cdn_good" = true ]; then
         NETWORK_REGION="china"
         USE_CN_MIRRORS=true
@@ -217,6 +226,10 @@ detect_network_region() {
 
     if [ "$tuna_good" = false ] || [ "$cdn_good" = false ]; then
         print_warning "Domestic mirrors are unavailable or too slow. Falling back to default upstream sources."
+    fi
+
+    if [ "$upstream_good" = false ]; then
+        print_warning "Default upstream sources are also unreachable or too slow. Installation may fail; check your network, proxy, or VPN settings."
     fi
 
     echo ""
