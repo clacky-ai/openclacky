@@ -107,7 +107,7 @@ GITHUB_RAW_BASE_URL="https://raw.githubusercontent.com"
 HOMEBREW_INSTALL_SCRIPT_URL="${GITHUB_RAW_BASE_URL}/Homebrew/install/HEAD/install.sh"
 OPENCLACKY_INSTALL_SCRIPT_URL="${GITHUB_RAW_BASE_URL}/clacky-ai/open-clacky/main/scripts/install.sh"
 TUNA_MIRROR_BASE_URL="https://mirrors.tuna.tsinghua.edu.cn"
-CN_CDN_BASE_URL="https://clackyai-1258723534.cos.ap-guangzhou.myqcloud.com"
+CN_CDN_BASE_URL="https://oss.1024code.com"
 DEFAULT_MISE_INSTALL_URL="https://mise.run"
 CN_MISE_INSTALL_URL="${CN_CDN_BASE_URL}/mise.sh"
 CN_RUBY_PRECOMPILED_URL="${CN_CDN_BASE_URL}/ruby/ruby-{version}.{platform}.tar.gz"
@@ -475,7 +475,7 @@ suggest_ruby_installation() {
         echo ""
         echo "  # Install mise"
         echo "  curl https://mise.run | sh"
-        echo "  echo 'eval \"\$(~/.local/bin/mise activate zsh)\"' >> ~/.zshrc"
+        echo "  echo 'eval \"\$(~/.local/bin/mise activate bash)\"' >> ~/.zshrc"
         echo ""
         echo "  # Install Ruby 3"
         echo "  mise use -g ruby@3"
@@ -622,11 +622,7 @@ main() {
     parse_args "$@"
 
     echo ""
-    echo "╔═══════════════════════════════════════════════════════════╗"
-    echo "║                                                           ║"
-    printf "║   %-55s ║\n" "${DISPLAY_NAME} Installation"
-    echo "║                                                           ║"
-    echo "╚═══════════════════════════════════════════════════════════╝"
+    echo "${DISPLAY_NAME} Installation"
     echo ""
 
     detect_os
@@ -714,8 +710,6 @@ show_post_install_info() {
     local cmd="${BRAND_COMMAND:-openclacky}"
 
     echo ""
-    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    echo ""
     echo -e "  ${GREEN}${DISPLAY_NAME} installed successfully!${NC}"
     echo ""
     echo "  First, reload your shell environment:"
@@ -730,8 +724,6 @@ show_post_install_info() {
     echo ""
     echo -e "  ${GREEN}Terminal mode${NC}:"
     echo "    $cmd"
-    echo ""
-    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo ""
 }
 
