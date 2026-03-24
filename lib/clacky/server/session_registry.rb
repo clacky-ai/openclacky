@@ -149,18 +149,6 @@ module Clacky
         end
       end
 
-      # Return all session ids whose raw session hash satisfies the given block.
-      # Used internally by ChannelManager to locate channel-bound sessions.
-      # @yieldparam session [Hash] raw session hash (read only inside block)
-      # @return [Array<String>] matching session ids
-      def find_ids(&block)
-        @mutex.synchronize do
-          @sessions.each_with_object([]) do |(id, session), ids|
-            ids << id if block.call(session)
-          end
-        end
-      end
-
       # Return a summary hash for a single session by id.
       # Used by broadcast_session_update and Skill UI plugins to fetch session metadata
       # directly by id without going through the public list.
