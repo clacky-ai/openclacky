@@ -29,7 +29,13 @@ module Clacky
 
       # Create a new (empty) session entry and return its id.
       # agent/ui/thread are set later via with_session once they are constructed.
-      def create(session_id:)
+      #
+      # Pass hidden: true for Skill UI plugin sessions that should not appear in
+      # the user-facing session list (e.g. a background session used internally by
+      # a skill to run sub-tasks without polluting the conversation list).
+      # IM channel sessions (Feishu, WeCom) are NOT hidden — they should be visible
+      # in the UI so users can view history and continue the conversation in the browser.
+      def create(session_id:, hidden: false)
         raise ArgumentError, "session_id is required" if session_id.nil? || session_id.empty?
 
         session = {
@@ -37,6 +43,7 @@ module Clacky
           status:               :idle,
           error:                nil,
           updated_at:           Time.now,
+          hidden:               hidden,  # true = exclude from UI session list (Skill UI plugin use only)
           agent:                nil,
           ui:                   nil,
           thread:               nil,
@@ -115,10 +122,13 @@ module Clacky
         return [] unless @session_manager
 
         live = @mutex.synchronize do
-          @sessions.transform_values { |s| { status: s[:status], error: s[:error] } }
+          @sessions.transform_values { |s| { status: s[:status], error: s[:error], hidden: s[:hidden] } }
         end
 
         all = @session_manager.all_sessions  # already sorted newest-first
+
+        # Exclude hidden sessions (Skill UI plugin background sessions)
+        all = all.reject { |s| live[s[:session_id]]&.dig(:hidden) }
 
         # ── source filter ────────────────────────────────────────────────────
         all = all.select { |s| s_source(s) == source } if source
@@ -147,6 +157,48 @@ module Clacky
             total_cost:    s.dig(:stats, :total_cost_usd) || 0.0,
           }
         end
+      end
+
+      # Return all session ids (including hidden ones) whose raw session hash
+      # satisfies the given block. Used internally by ChannelManager to locate
+      # channel-bound sessions that are hidden from the UI list.
+      # @yieldparam session [Hash] raw session hash (read only inside block)
+      # @return [Array<String>] matching session ids
+      def find_ids(&block)
+        @mutex.synchronize do
+          @sessions.each_with_object([]) do |(id, session), ids|
+            ids << id if block.call(session)
+          end
+        end
+      end
+
+      # Return a summary hash for a single session by id (includes hidden sessions).
+      # Used by broadcast_session_update and Skill UI plugins to fetch session metadata
+      # directly by id without going through the public list.
+      # Returns nil if the session does not exist in memory.
+      def session_summary(session_id)
+        session = @mutex.synchronize { @sessions[session_id] }
+        return nil unless session
+
+        agent = session[:agent]
+        return nil unless agent
+
+        model_info = agent.current_model_info
+        {
+          id:              session[:id],
+          name:            agent.name,
+          working_dir:     agent.working_dir,
+          status:          session[:status],
+          created_at:      agent.created_at,
+          updated_at:      session[:updated_at].iso8601,
+          total_tasks:     agent.total_tasks || 0,
+          total_cost:      agent.total_cost  || 0.0,
+          error:           session[:error],
+          model:           model_info&.dig(:model),
+          permission_mode: agent.permission_mode,
+          source:          agent.source.to_s,
+          agent_profile:   agent.agent_profile.name,
+        }
       end
 
       private
