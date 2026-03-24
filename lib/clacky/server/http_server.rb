@@ -1813,9 +1813,9 @@ module Clacky
       # @param working_dir [String] working directory for the agent
       # @param permission_mode [Symbol] :confirm_all (default, human present) or
       #   :auto_approve (unattended — suppresses request_user_feedback waits)
-      def build_session(name:, working_dir:, permission_mode: :confirm_all, profile: "general", source: :manual, hidden: false)
+      def build_session(name:, working_dir:, permission_mode: :confirm_all, profile: "general", source: :manual)
         session_id = Clacky::SessionManager.generate_id
-        @registry.create(session_id: session_id, hidden: hidden)
+        @registry.create(session_id: session_id)
 
         client = @client_factory.call
         config = @agent_config.deep_copy

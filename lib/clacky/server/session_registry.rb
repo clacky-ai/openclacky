@@ -29,13 +29,7 @@ module Clacky
 
       # Create a new (empty) session entry and return its id.
       # agent/ui/thread are set later via with_session once they are constructed.
-      #
-      # Pass hidden: true for Skill UI plugin sessions that should not appear in
-      # the user-facing session list (e.g. a background session used internally by
-      # a skill to run sub-tasks without polluting the conversation list).
-      # IM channel sessions (Feishu, WeCom) are NOT hidden — they should be visible
-      # in the UI so users can view history and continue the conversation in the browser.
-      def create(session_id:, hidden: false)
+      def create(session_id:)
         raise ArgumentError, "session_id is required" if session_id.nil? || session_id.empty?
 
         session = {
@@ -43,7 +37,6 @@ module Clacky
           status:               :idle,
           error:                nil,
           updated_at:           Time.now,
-          hidden:               hidden,  # true = exclude from UI session list (Skill UI plugin use only)
           agent:                nil,
           ui:                   nil,
           thread:               nil,
@@ -122,13 +115,10 @@ module Clacky
         return [] unless @session_manager
 
         live = @mutex.synchronize do
-          @sessions.transform_values { |s| { status: s[:status], error: s[:error], hidden: s[:hidden] } }
+          @sessions.transform_values { |s| { status: s[:status], error: s[:error] } }
         end
 
         all = @session_manager.all_sessions  # already sorted newest-first
-
-        # Exclude hidden sessions (Skill UI plugin background sessions)
-        all = all.reject { |s| live[s[:session_id]]&.dig(:hidden) }
 
         # ── source filter ────────────────────────────────────────────────────
         all = all.select { |s| s_source(s) == source } if source
@@ -159,9 +149,8 @@ module Clacky
         end
       end
 
-      # Return all session ids (including hidden ones) whose raw session hash
-      # satisfies the given block. Used internally by ChannelManager to locate
-      # channel-bound sessions that are hidden from the UI list.
+      # Return all session ids whose raw session hash satisfies the given block.
+      # Used internally by ChannelManager to locate channel-bound sessions.
       # @yieldparam session [Hash] raw session hash (read only inside block)
       # @return [Array<String>] matching session ids
       def find_ids(&block)
@@ -172,7 +161,7 @@ module Clacky
         end
       end
 
-      # Return a summary hash for a single session by id (includes hidden sessions).
+      # Return a summary hash for a single session by id.
       # Used by broadcast_session_update and Skill UI plugins to fetch session metadata
       # directly by id without going through the public list.
       # Returns nil if the session does not exist in memory.
