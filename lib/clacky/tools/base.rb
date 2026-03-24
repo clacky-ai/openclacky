@@ -29,12 +29,14 @@ module Clacky
       end
 
       # Expand ~ to home directory only if path starts with ~
-      # Relative paths are kept as-is to avoid expanding to long absolute paths
+      # Relative paths are resolved against working_dir if provided
       # @param path [String, nil] The path to expand
+      # @param working_dir [String, nil] The working directory to resolve relative paths against
       # @return [String, nil] The expanded path, or original if no ~ present
-      private def expand_path(path)
+      private def expand_path(path, working_dir: nil)
         return path if path.nil? || path.strip.empty?
         return File.expand_path(path) if path.start_with?("~")
+        return File.expand_path(path, working_dir) if working_dir && !path.start_with?("/")
 
         path
       end

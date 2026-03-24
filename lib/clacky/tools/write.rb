@@ -28,8 +28,8 @@ module Clacky
         end
 
         begin
-          # Expand ~ to home directory
-          path = expand_path(path)
+          # Expand ~ to home directory, resolve relative paths against working_dir
+          path = expand_path(path, working_dir: working_dir)
 
           # Ensure parent directory exists
           dir = File.dirname(path)
