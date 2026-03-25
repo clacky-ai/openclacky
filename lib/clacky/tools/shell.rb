@@ -92,7 +92,7 @@ module Clacky
         stderr_buffer = EncodingSafeBuffer.new
         soft_timeout_triggered = false
         process_pid = nil
-        
+
         # Store output buffer reference for real-time access (use LimitStack for memory efficiency)
         @output_buffer = output_buffer
         if @output_buffer
@@ -143,8 +143,12 @@ module Clacky
                 if elapsed > soft_timeout && !soft_timeout_triggered
                   soft_timeout_triggered = true
 
-                  # L1: Check for interaction patterns
-                  interaction = detect_interaction(stdout_buffer.string)
+                  # L1: Check for interaction patterns in stdout then stderr
+                  # (sudo password prompt goes to /dev/tty and bypasses both pipes,
+                  #  so we also heuristically detect sudo commands still running)
+                  interaction = detect_interaction(stdout_buffer.string) ||
+                                detect_interaction(stderr_buffer.string) ||
+                                detect_sudo_waiting(command, wait_thr)
                   if interaction
                     Process.kill('TERM', wait_thr.pid) rescue nil
                     stdout.close rescue nil
@@ -255,7 +259,7 @@ module Clacky
       def wrap_with_shell(command)
         shell = ENV['SHELL'].to_s
         shell = '/bin/bash' if shell.empty?
-        "#{shell} -l -c #{Shellwords.escape(command)}"
+        "#{shell} -i -l -c #{Shellwords.escape(command)}"
       end
 
       def determine_timeouts(command, soft_timeout, hard_timeout)
@@ -293,6 +297,16 @@ module Clacky
         nil
       end
 
+      # Heuristic: sudo writes its password prompt to /dev/tty, bypassing stdout/stderr pipes.
+      # If the command contains sudo and the process is still alive after soft_timeout,
+      # it's almost certainly waiting for a password.
+      def detect_sudo_waiting(command, wait_thr)
+        return nil unless wait_thr.alive?
+        return nil unless command.match?(/\bsudo\b/)
+
+        { type: "password", line: "[sudo] password:" }
+      end
+
       def format_waiting_input_result(command, stdout, stderr, interaction, max_output_lines)
         {
           command: command,
@@ -308,6 +322,18 @@ module Clacky
       end
 
       def format_waiting_message(output, interaction)
+        password_hint = if interaction[:type] == "password"
+          <<~HINT
+
+            Password prompt detected.
+            sudo reads the password from /dev/tty, not stdin, so it cannot be piped in directly.
+            Action required:
+            1. Ask the user: "Please enter your sudo password:"
+            2. Once provided, retry the command using: echo 'PASSWORD' | sudo -S original_command
+               (replace PASSWORD with what the user provides)
+          HINT
+        end
+
         <<~MSG
           #{output}
 
@@ -319,10 +345,10 @@ module Clacky
 
           Detected pattern: #{interaction[:type]}
           Last line: #{interaction[:line]}
-
+          #{password_hint}
           Suggested actions:
           • Provide answer: run shell with your response
-          • Cancel: send Ctrl+C (\\x03)
+          • Cancel: send Ctrl+C (\x03)
         MSG
       end
 
@@ -521,13 +547,13 @@ module Clacky
         # Push new lines to LimitStack (automatically handles size limit)
         stdout_lines = @stdout_buffer.string.lines
         stderr_lines = @stderr_buffer.string.lines
-        
+
         @output_buffer[:stdout_lines].clear
         @output_buffer[:stdout_lines].push_lines(stdout_lines)
-        
+
         @output_buffer[:stderr_lines].clear
         @output_buffer[:stderr_lines].push_lines(stderr_lines)
-        
+
         @output_buffer[:timestamp] = Time.now
       end
     end

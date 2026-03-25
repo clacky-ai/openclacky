@@ -214,6 +214,28 @@ RSpec.describe Clacky::Tools::SafeShell do
       # Should execute in spec directory
     end
 
+  describe "#format_waiting_input_result (via Shell)" do
+    let(:shell) { Clacky::Tools::Shell.new }
+
+    it "includes sudo hint when interaction type is password" do
+      interaction = { type: "password", line: "[sudo] password for user:" }
+      result = shell.send(:format_waiting_input_result, "sudo apt-get install vim", "", "", interaction, 1000)
+
+      expect(result[:state]).to eq("WAITING_INPUT")
+      expect(result[:interaction_type]).to eq("password")
+      expect(result[:message]).to include("sudo -S")
+      expect(result[:message]).to include("Ask the user")
+    end
+
+    it "does not include sudo hint for non-password interactions" do
+      interaction = { type: "confirmation", line: "Do you want to continue? [Y/n]" }
+      result = shell.send(:format_waiting_input_result, "apt-get install vim", "", "", interaction, 1000)
+
+      expect(result[:state]).to eq("WAITING_INPUT")
+      expect(result[:message]).not_to include("sudo -S")
+    end
+  end
+
   describe "#format_result_for_llm" do
     it "truncates long stdout output to save tokens" do
       # Create a result with very long output (over 2000 chars)
