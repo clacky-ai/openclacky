@@ -24,8 +24,8 @@ module Clacky
         "name" => "Minimax",
         "base_url" => "https://api.minimaxi.com/v1",
         "api" => "openai-completions",
-        "default_model" => "MiniMax-M2.5",
-        "models" => ["MiniMax-M2.1", "MiniMax-M2.5"]
+        "default_model" => "MiniMax-M2.7",
+        "models" => ["MiniMax-M2.5", "MiniMax-M2.7"]
       }.freeze,
 
       "kimi" => {
