@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.16] - 2026-03-27
+
+### Fixed
+- **Skill templates now expand `${ENV_VAR}` placeholders**: skill SKILL.md files can reference environment variables like `${CLACKY_SERVER_HOST}` and `${CLACKY_SERVER_PORT}` — they are now automatically substituted at load time (unknown variables are left as-is)
+- **gemrc restored to default when switching from CN to global network**: the install script now correctly restores the system gemrc when the user switches from China mirror mode to the global network, preventing stale mirror configuration from persisting
+
 ## [0.9.15] - 2026-03-27
 
 ### Improved
