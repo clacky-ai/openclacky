@@ -108,6 +108,8 @@ CN_CDN_BASE_URL="https://oss.1024code.com"
 CN_MISE_INSTALL_URL="${CN_CDN_BASE_URL}/mise.sh"
 CN_RUBY_PRECOMPILED_URL="${CN_CDN_BASE_URL}/ruby/ruby-{version}.{platform}.tar.gz"
 CN_RUBYGEMS_URL="https://mirrors.aliyun.com/rubygems/"
+CN_GEM_BASE_URL="${CN_CDN_BASE_URL}/openclacky"
+CN_GEM_LATEST_URL="${CN_GEM_BASE_URL}/latest.txt"
 
 # Active values (overridden by detect_network_region)
 MISE_INSTALL_URL="$DEFAULT_MISE_INSTALL_URL"
@@ -445,7 +447,23 @@ install_via_gem() {
     configure_gem_source
     setup_gem_home
 
-    gem install openclacky --no-document
+    if [ "$USE_CN_MIRRORS" = true ]; then
+        # CN: download .gem from OSS, install dependencies from Aliyun mirror
+        print_info "Fetching latest version from OSS..."
+        local cn_version
+        cn_version=$(curl -fsSL "$CN_GEM_LATEST_URL" | tr -d '[:space:]')
+        print_info "Latest version: ${cn_version}"
+
+        local gem_url="${CN_GEM_BASE_URL}/openclacky-${cn_version}.gem"
+        local gem_file="/tmp/openclacky-${cn_version}.gem"
+        print_info "Downloading openclacky-${cn_version}.gem from OSS..."
+        curl -fsSL "$gem_url" -o "$gem_file"
+        print_info "Installing gem and dependencies from Aliyun mirror..."
+        gem install "$gem_file" --no-document --source "$CN_RUBYGEMS_URL"
+    else
+        print_info "Installing gem and dependencies from RubyGems..."
+        gem install openclacky --no-document
+    fi
 
     if [ $? -eq 0 ]; then
         print_success "${DISPLAY_NAME} installed successfully!"
