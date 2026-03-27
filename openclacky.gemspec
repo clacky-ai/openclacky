@@ -56,7 +56,8 @@ Gem::Specification.new do |spec|
   spec.require_paths = ["lib"]
 
   # Runtime dependencies
-  spec.add_dependency "faraday", "~> 2.0"
+  # faraday >= 2.9 requires Ruby >= 3.0; cap at < 2.9 so Ruby 2.6 gets 2.8.x
+  spec.add_dependency "faraday", ">= 2.0", "< 2.9"
   spec.add_dependency "faraday-multipart", "~> 1.0"
   spec.add_dependency "thor", "~> 1.3"
   spec.add_dependency "tty-prompt", "~> 0.23"
@@ -75,6 +76,9 @@ Gem::Specification.new do |spec|
   else
     spec.add_dependency "rubyzip", "~> 2.4.1"
   end
+
+  # rouge >= 4.0 requires Ruby >= 2.7; cap at < 4.0 so Ruby 2.6 gets 3.30.0
+  spec.add_dependency "rouge", ">= 3.14", "< 4.0"
   spec.add_dependency "chunky_png", "~> 1.4"
 
   # For more information and examples about making a new gem, check out our
