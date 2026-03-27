@@ -67,10 +67,14 @@ Gem::Specification.new do |spec|
   spec.add_dependency "tty-markdown", "~> 0.7"
   # base64 is part of Ruby stdlib up to Ruby 3.3; only needed as explicit dep on Ruby 3.4+
   spec.add_dependency "base64", ">= 0.1.0"
-  spec.add_dependency "websocket-driver", "~> 0.7"
+  spec.add_dependency "websocket", "~> 1.2"
   spec.add_dependency "webrick", "~> 1.8"
   spec.add_dependency "artii", "~> 2.1"
-  spec.add_dependency "rubyzip", ">= 2.4", "< 4"
+  if RUBY_VERSION >= "3.0"
+    spec.add_dependency "rubyzip", ">= 2.4", "< 4"
+  else
+    spec.add_dependency "rubyzip", "~> 2.4.1"
+  end
   spec.add_dependency "chunky_png", "~> 1.4"
 
   # For more information and examples about making a new gem, check out our

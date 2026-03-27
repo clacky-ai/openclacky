@@ -102,16 +102,28 @@ module Clacky
 
     # Returns true when a heartbeat should be sent (interval elapsed).
     def heartbeat_due?
-      return true if @license_last_heartbeat.nil?
+      if @license_last_heartbeat.nil?
+        Clacky::Logger.debug("[Brand] heartbeat_due? => true (never sent)")
+        return true
+      end
 
-      (Time.now.utc - @license_last_heartbeat) >= HEARTBEAT_INTERVAL
+      elapsed = Time.now.utc - @license_last_heartbeat
+      due = elapsed >= HEARTBEAT_INTERVAL
+      Clacky::Logger.debug("[Brand] heartbeat_due? elapsed=#{elapsed.to_i}s interval=#{HEARTBEAT_INTERVAL}s => #{due}")
+      due
     end
 
     # Returns true when the grace period for missed heartbeats has expired.
     def grace_period_exceeded?
-      return false if @license_last_heartbeat.nil?
+      if @license_last_heartbeat.nil?
+        Clacky::Logger.debug("[Brand] grace_period_exceeded? => false (no heartbeat recorded)")
+        return false
+      end
 
-      (Time.now.utc - @license_last_heartbeat) >= HEARTBEAT_GRACE_PERIOD
+      elapsed = Time.now.utc - @license_last_heartbeat
+      exceeded = elapsed >= HEARTBEAT_GRACE_PERIOD
+      Clacky::Logger.debug("[Brand] grace_period_exceeded? elapsed=#{elapsed.to_i}s grace=#{HEARTBEAT_GRACE_PERIOD}s => #{exceeded}")
+      exceeded
     end
 
     # Returns true when the license is bound to a specific user (user_id present).
@@ -221,7 +233,12 @@ module Clacky
     # Send a heartbeat to the API and update last_heartbeat timestamp.
     # Returns a result hash: { success: bool, message: String }
     def heartbeat!
-      return { success: false, message: "License not activated" } unless activated?
+      unless activated?
+        Clacky::Logger.debug("[Brand] heartbeat! skipped — license not activated")
+        return { success: false, message: "License not activated" }
+      end
+
+      Clacky::Logger.info("[Brand] heartbeat! sending — last_heartbeat=#{@license_last_heartbeat&.iso8601 || "nil"} expires_at=#{@license_expires_at&.iso8601 || "nil"}")
 
       user_id   = parse_user_id_from_key(@license_key)
       key_hash  = Digest::SHA256.hexdigest(@license_key)
@@ -246,8 +263,10 @@ module Clacky
         @license_expires_at = parse_time(response[:data]["expires_at"]) if response[:data]["expires_at"]
         apply_distribution(response[:data]["distribution"])
         save
+        Clacky::Logger.info("[Brand] heartbeat! success — expires_at=#{@license_expires_at&.iso8601} last_heartbeat=#{@license_last_heartbeat.iso8601}")
         { success: true, message: "Heartbeat OK" }
       else
+        Clacky::Logger.warn("[Brand] heartbeat! failed — #{response[:error]}")
         { success: false, message: response[:error] || "Heartbeat failed" }
       end
     end

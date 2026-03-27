@@ -252,12 +252,16 @@ module Clacky
         brand = Clacky::BrandConfig.load
         return unless brand.branded?
 
+        Clacky::Logger.info("[Brand] check_brand_license_cli: activated=#{brand.activated?} expired=#{brand.expired?} expires_at=#{brand.license_expires_at&.iso8601 || "nil"} last_heartbeat=#{brand.license_last_heartbeat&.iso8601 || "nil"}")
+
         unless brand.activated?
+          Clacky::Logger.info("[Brand] check_brand_license_cli: not activated, prompting user")
           cli_prompt_license_activation(brand)
           return
         end
 
         if brand.expired?
+          Clacky::Logger.warn("[Brand] check_brand_license_cli: license expired at #{brand.license_expires_at&.iso8601}")
           say ""
           say "WARNING: Your #{brand.product_name} license has expired. Please renew to continue.", :yellow
           say ""
@@ -265,17 +269,25 @@ module Clacky
         end
 
         if brand.heartbeat_due?
+          Clacky::Logger.info("[Brand] check_brand_license_cli: heartbeat due, sending...")
           result = brand.heartbeat!
-          unless result[:success]
-            if brand.grace_period_exceeded?
-              say ""
-              say "WARNING: Could not reach the #{brand.product_name} license server.", :yellow
-              say "License has been offline for more than 3 days. Please check your connection.", :yellow
-              say ""
-            else
-              say "(License heartbeat failed - will retry tomorrow.)", :cyan
+          if result[:success]
+            Clacky::Logger.info("[Brand] check_brand_license_cli: heartbeat OK")
+          else
+            Clacky::Logger.warn("[Brand] check_brand_license_cli: heartbeat failed — #{result[:message]} grace_exceeded=#{brand.grace_period_exceeded?}")
+            unless result[:success]
+              if brand.grace_period_exceeded?
+                say ""
+                say "WARNING: Could not reach the #{brand.product_name} license server.", :yellow
+                say "License has been offline for more than 3 days. Please check your connection.", :yellow
+                say ""
+              else
+                say "(License heartbeat failed - will retry tomorrow.)", :cyan
+              end
             end
           end
+        else
+          Clacky::Logger.debug("[Brand] check_brand_license_cli: heartbeat not due yet")
         end
       end
 

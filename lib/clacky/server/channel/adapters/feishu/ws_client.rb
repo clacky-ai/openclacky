@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-require "websocket/driver"
+require "websocket"
 require "json"
 require "net/http"
 require "uri"
@@ -47,7 +47,8 @@ module Clacky
           def stop
             @running = false
             @ping_thread&.kill
-            @ws&.close
+            send_raw_frame(:close, "") rescue nil
+            @ws_socket&.close rescue nil
           end
 
           private
@@ -73,37 +74,48 @@ module Clacky
               tcp
             end
 
-            wrapper = SocketWrapper.new(socket, endpoint)
-            @ws = WebSocket::Driver.client(wrapper)
+            # WebSocket handshake
+            handshake = WebSocket::Handshake::Client.new(url: endpoint)
+            socket.write(handshake.to_s)
 
-            @ws.on :open do
-              Clacky::Logger.info("[feishu-ws] WebSocket connected")
+            # Read until handshake complete
+            until handshake.finished?
+              handshake << socket.readpartial(4096)
             end
+            raise "WebSocket handshake failed" unless handshake.valid?
 
-            @ws.on :message do |event|
-              data = event.data
-              handle_frame(data.respond_to?(:b) ? data.b : data)
-            end
+            Clacky::Logger.info("[feishu-ws] WebSocket connected")
+            @ws_version = handshake.version
+            @ws_socket  = socket
+            @ws_open    = true
+            @incoming   = WebSocket::Frame::Incoming::Client.new(version: @ws_version)
 
-            @ws.on :error do |event|
-              Clacky::Logger.warn("[feishu-ws] WebSocket error: #{event.message}")
-            end
-
-            @ws.on :close do |event|
-              Clacky::Logger.info("[feishu-ws] WebSocket closed (code=#{event.code}), will reconnect")
-            end
-
-            @ws.start
             start_ping_thread
 
             loop do
               break unless @running
               data = socket.readpartial(4096)
-              @ws.parse(data)
+              @incoming << data
+              while (frame = @incoming.next)
+                case frame.type
+                when :binary
+                  raw = frame.data
+                  handle_frame(raw.respond_to?(:b) ? raw.b : raw)
+                when :text
+                  handle_frame(frame.data)
+                when :ping
+                  send_raw_frame(:pong, frame.data)
+                when :close
+                  Clacky::Logger.info("[feishu-ws] WebSocket closed, will reconnect")
+                  return
+                end
+              end
             end
           rescue EOFError, Errno::ECONNRESET
             Clacky::Logger.warn("[feishu-ws] Connection lost, reconnecting in #{RECONNECT_DELAY}s...")
           ensure
+            @ws_open = false
+            @ws_socket = nil
             socket&.close rescue nil
             @ping_thread&.kill
           end
@@ -211,9 +223,19 @@ module Clacky
               payload: payload
             }
             encoded = ProtoFrame.encode(frame)
-            @ws.binary(encoded)
+            send_raw_frame(:binary, encoded)
           rescue => e
             warn "[feishu-ws] failed to send frame: #{e.message}"
+          end
+
+          def send_raw_frame(type, data)
+            return unless @ws_socket && @ws_open
+            outgoing = WebSocket::Frame::Outgoing::Client.new(
+              version: @ws_version || 13,
+              data: data,
+              type: type
+            )
+            @ws_socket.write(outgoing.to_s)
           end
 
           def start_ping_thread
@@ -365,19 +387,7 @@ module Clacky
             end
           end
 
-          # Wraps a raw socket for websocket-driver client mode.
-          class SocketWrapper
-            attr_reader :url
 
-            def initialize(socket, url)
-              @socket = socket
-              @url = url
-            end
-
-            def write(data)
-              @socket.write(data)
-            end
-          end
         end
       end
     end

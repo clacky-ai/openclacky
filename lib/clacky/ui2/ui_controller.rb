@@ -945,6 +945,9 @@ module Clacky
 
           handle_key(key)
         end
+      rescue Clacky::AgentInterrupted
+        # Ctrl+C raised AgentInterrupted on main thread — stop silently
+        stop
       rescue => e
         stop
         raise e

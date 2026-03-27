@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 require "webrick"
-require "websocket/driver"
+require "websocket"
 require "json"
 require "thread"
 require "fileutils"
@@ -559,6 +559,23 @@ module Clacky
           return
         end
 
+        # Send heartbeat if interval has elapsed (once per day)
+        if brand.heartbeat_due?
+          Clacky::Logger.info("[Brand] api_brand_status: heartbeat due, sending...")
+          result = brand.heartbeat!
+          if result[:success]
+            Clacky::Logger.info("[Brand] api_brand_status: heartbeat OK")
+          else
+            Clacky::Logger.warn("[Brand] api_brand_status: heartbeat failed — #{result[:message]}")
+          end
+          # Reload after heartbeat to pick up updated expires_at / last_heartbeat
+          brand = Clacky::BrandConfig.load
+        else
+          Clacky::Logger.debug("[Brand] api_brand_status: heartbeat not due yet")
+        end
+
+        Clacky::Logger.debug("[Brand] api_brand_status: expired=#{brand.expired?} grace_exceeded=#{brand.grace_period_exceeded?} expires_at=#{brand.license_expires_at&.iso8601 || "nil"}")
+
         warning = nil
         if brand.expired?
           warning = "Your #{brand.product_name} license has expired. Please renew to continue."
@@ -570,6 +587,8 @@ module Clacky
             warning = "Your #{brand.product_name} license expires in #{days_remaining} day#{"s" if days_remaining != 1}. Please renew soon."
           end
         end
+
+        Clacky::Logger.debug("[Brand] api_brand_status: warning=#{warning.inspect}")
 
         json_response(res, 200, {
           branded:          true,
@@ -1579,26 +1598,27 @@ module Clacky
         req["Upgrade"]&.downcase == "websocket"
       end
 
-      # Hijacks the TCP socket from WEBrick and hands it to websocket-driver.
+      # Hijacks the TCP socket from WEBrick and upgrades it to WebSocket.
       def handle_websocket(req, res)
-        # Prevent WEBrick from closing the socket after this handler returns
         socket = req.instance_variable_get(:@socket)
 
-        driver = WebSocket::Driver.rack(
-          RackEnvAdapter.new(req, socket),
-          max_length: 10 * 1024 * 1024
-        )
+        # Server handshake — parse the upgrade request
+        handshake = WebSocket::Handshake::Server.new
+        handshake << build_handshake_request(req)
+        unless handshake.finished? && handshake.valid?
+          $stderr.puts "WebSocket handshake invalid"
+          return
+        end
 
-        conn = WebSocketConnection.new(socket, driver)
+        # Send the 101 Switching Protocols response
+        socket.write(handshake.to_s)
 
-        driver.on(:open)    { on_ws_open(conn) }
-        driver.on(:message) { |event| on_ws_message(conn, event.data) }
-        driver.on(:close)   { on_ws_close(conn) }
-        driver.on(:error)   { |event| $stderr.puts "WS error: #{event.message}" }
+        version  = handshake.version
+        incoming = WebSocket::Frame::Incoming::Server.new(version: version)
+        conn     = WebSocketConnection.new(socket, version)
 
-        driver.start
+        on_ws_open(conn)
 
-        # Read loop — blocks this thread until the socket closes
         begin
           buf = String.new("", encoding: "BINARY")
           loop do
@@ -1609,14 +1629,27 @@ module Clacky
             when nil
               break  # EOF
             else
-              driver.parse(chunk)
+              incoming << chunk.dup
+              while (frame = incoming.next)
+                case frame.type
+                when :text
+                  on_ws_message(conn, frame.data)
+                when :binary
+                  on_ws_message(conn, frame.data)
+                when :ping
+                  conn.send_raw(:pong, frame.data)
+                when :close
+                  conn.send_raw(:close, "")
+                  break
+                end
+              end
             end
           end
         rescue IOError, Errno::ECONNRESET, Errno::EPIPE
           # Client disconnected
         ensure
           on_ws_close(conn)
-          driver.close rescue nil
+          socket.close rescue nil
         end
 
         # Tell WEBrick not to send any response (we handled everything)
@@ -1624,6 +1657,14 @@ module Clacky
         res.status = -1
       rescue => e
         $stderr.puts "WebSocket handler error: #{e.class}: #{e.message}"
+      end
+
+      # Build a raw HTTP request string from WEBrick request for WebSocket::Handshake::Server
+      private def build_handshake_request(req)
+        lines = ["#{req.request_method} #{req.request_uri.request_uri} HTTP/1.1\r\n"]
+        req.each { |k, v| lines << "#{k}: #{v}\r\n" }
+        lines << "\r\n"
+        lines.join
       end
 
       def on_ws_open(conn)
@@ -2040,46 +2081,33 @@ module Clacky
 
       # ── Inner classes ─────────────────────────────────────────────────────────
 
-      # Thin adapter so websocket-driver (which expects a Rack env) can work with WEBrick.
-      class RackEnvAdapter
-        def initialize(req, socket)
-          @req    = req
-          @socket = socket
-        end
-
-        def env
-          {
-            "REQUEST_METHOD" => @req.request_method,
-            "HTTP_HOST"      => @req["Host"],
-            "REQUEST_URI"    => @req.request_uri.to_s,
-            "HTTP_UPGRADE"   => @req["Upgrade"],
-            "HTTP_CONNECTION"          => @req["Connection"],
-            "HTTP_SEC_WEBSOCKET_KEY"   => @req["Sec-WebSocket-Key"],
-            "HTTP_SEC_WEBSOCKET_VERSION" => @req["Sec-WebSocket-Version"],
-            "rack.hijack"    => proc {},
-            "rack.input"     => StringIO.new
-          }
-        end
-
-        def write(data)
-          @socket.write(data)
-        end
-      end
-
-      # Wraps a raw TCP socket + WebSocket driver, providing a thread-safe send method.
+      # Wraps a raw TCP socket, providing thread-safe WebSocket frame sending.
       class WebSocketConnection
         attr_accessor :session_id
 
-        def initialize(socket, driver)
+        def initialize(socket, version)
           @socket     = socket
-          @driver     = driver
+          @version    = version
           @send_mutex = Mutex.new
         end
 
         def send_json(data)
-          @send_mutex.synchronize { @driver.text(JSON.generate(data)) }
+          send_raw(:text, JSON.generate(data))
         rescue => e
           $stderr.puts "WS send error: #{e.message}"
+        end
+
+        def send_raw(type, data)
+          @send_mutex.synchronize do
+            outgoing = WebSocket::Frame::Outgoing::Server.new(
+              version: @version,
+              data: data,
+              type: type
+            )
+            @socket.write(outgoing.to_s)
+          end
+        rescue => e
+          $stderr.puts "WS send_raw error: #{e.message}"
         end
       end
     end

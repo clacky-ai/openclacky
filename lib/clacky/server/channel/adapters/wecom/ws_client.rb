@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-require "websocket/driver"
+require "websocket"
 require "json"
 require "uri"
 require "securerandom"
@@ -58,7 +58,8 @@ module Clacky
           def stop
             @running = false
             @ping_thread&.kill
-            @ws&.close
+            send_raw_frame(:close, "") rescue nil
+            @ws_socket&.close rescue nil
           end
 
           # Proactively send a text message
@@ -130,37 +131,45 @@ module Clacky
             ssl.sync_close = true
             ssl.connect
 
-            wrapper = SocketWrapper.new(ssl, @ws_url)
-            @ws = WebSocket::Driver.client(wrapper)
+            # WebSocket handshake
+            handshake = WebSocket::Handshake::Client.new(url: @ws_url)
+            ssl.write(handshake.to_s)
 
-            @ws.on :open do
-              Clacky::Logger.info("[WecomWSClient] connected, authenticating")
-              authenticate
-              start_ping_thread
+            until handshake.finished?
+              handshake << ssl.readpartial(4096)
             end
+            raise "WebSocket handshake failed" unless handshake.valid?
 
-            @ws.on :message do |event|
-              handle_message(event.data)
-            end
+            Clacky::Logger.info("[WecomWSClient] connected, authenticating")
+            @ws_version = handshake.version
+            @ws_socket  = ssl
+            @ws_open    = true
+            @incoming   = WebSocket::Frame::Incoming::Client.new(version: @ws_version)
 
-            @ws.on :error do |event|
-              Clacky::Logger.error("[WecomWSClient] WS error: #{event.message}")
-            end
-
-            @ws.on :close do
-              Clacky::Logger.info("[WecomWSClient] connection closed")
-            end
-
-            @ws.start
+            authenticate
+            start_ping_thread
 
             loop do
               break unless @running
               data = ssl.readpartial(4096)
-              @ws.parse(data)
+              @incoming << data
+              while (frame = @incoming.next)
+                case frame.type
+                when :text
+                  handle_message(frame.data)
+                when :ping
+                  send_raw_frame(:pong, frame.data)
+                when :close
+                  Clacky::Logger.info("[WecomWSClient] connection closed")
+                  return
+                end
+              end
             end
           rescue EOFError, Errno::ECONNRESET
             Clacky::Logger.info("[WecomWSClient] connection lost, reconnecting...")
           ensure
+            @ws_open = false
+            @ws_socket = nil
             ssl&.close rescue nil
             @ping_thread&.kill
           end
@@ -227,9 +236,19 @@ module Clacky
             else
               Clacky::Logger.info("[WecomWSClient] >> cmd=#{cmd} req_id=#{req_id}")
             end
-            @ws.text(JSON.generate(frame))
+            send_raw_frame(:text, JSON.generate(frame))
           rescue => e
             Clacky::Logger.error("[WecomWSClient] failed to send frame cmd=#{cmd}: #{e.message}")
+          end
+
+          def send_raw_frame(type, data)
+            return unless @ws_socket && @ws_open
+            outgoing = WebSocket::Frame::Outgoing::Client.new(
+              version: @ws_version || 13,
+              data: data,
+              type: type
+            )
+            @ws_socket.write(outgoing.to_s)
           end
 
           def start_ping_thread
@@ -341,19 +360,7 @@ module Clacky
             end
           end
 
-          # Wraps a raw socket for websocket-driver client mode.
-          class SocketWrapper
-            attr_reader :url
 
-            def initialize(socket, url)
-              @socket = socket
-              @url = url
-            end
-
-            def write(data)
-              @socket.write(data)
-            end
-          end
         end
       end
     end
