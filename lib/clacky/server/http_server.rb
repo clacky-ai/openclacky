@@ -762,46 +762,146 @@ module Clacky
       end
 
       # POST /api/version/upgrade
-      # Runs `gem update openclacky --no-document` via Clacky::Tools::Shell (login shell)
-      # in a background thread, streaming output via WebSocket broadcast.
-      # On success, re-execs the process so the new gem version is loaded.
+      # Upgrades openclacky in a background thread, streaming output via WebSocket broadcast.
+      # If the user's gem source is the official RubyGems, use `gem update`.
+      # Otherwise (e.g. Aliyun mirror) download the .gem from OSS CDN to bypass mirror lag.
       def api_upgrade_version(req, res)
         json_response(res, 202, { ok: true, message: "Upgrade started" })
 
         Thread.new do
           begin
-            Clacky::Logger.info("[Upgrade] Starting: gem update openclacky --no-document")
-            broadcast_all(type: "upgrade_log", line: "Starting upgrade: gem update openclacky --no-document\n")
-
-            shell  = Clacky::Tools::Shell.new
-            Clacky::Logger.info("[Upgrade] Calling shell.execute...")
-            result = shell.execute(command: "gem update openclacky --no-document",
-                                   soft_timeout: 30, hard_timeout: 300)
-            Clacky::Logger.info("[Upgrade] shell.execute returned: exit_code=#{result[:exit_code]}")
-            Clacky::Logger.info("[Upgrade] stdout=#{result[:stdout].to_s.slice(0, 500)}")
-            Clacky::Logger.info("[Upgrade] stderr=#{result[:stderr].to_s.slice(0, 500)}")
-
-            output  = [result[:stdout], result[:stderr]].join
-            success = result[:exit_code] == 0
-
-            clients_count = @ws_mutex.synchronize { @all_ws_conns.size }
-            Clacky::Logger.info("[Upgrade] Broadcasting output to #{clients_count} WS client(s)")
-            broadcast_all(type: "upgrade_log", line: output)
-
-            if success
-              Clacky::Logger.info("[Upgrade] Success!")
-              broadcast_all(type: "upgrade_log", line: "\n✓ Upgrade successful! Please restart the server to apply the new version.\n")
-              broadcast_all(type: "upgrade_complete", success: true)
+            if official_gem_source?
+              upgrade_via_gem_update
             else
-              Clacky::Logger.warn("[Upgrade] Failed. exit_code=#{result[:exit_code]}")
-              broadcast_all(type: "upgrade_log", line: "\n✗ Upgrade failed. Please try manually: gem update openclacky\n")
-              broadcast_all(type: "upgrade_complete", success: false)
+              upgrade_via_oss_cdn
             end
           rescue StandardError => e
             Clacky::Logger.error("[Upgrade] Exception: #{e.class}: #{e.message}\n#{e.backtrace.first(5).join("\n")}")
             broadcast_all(type: "upgrade_log", line: "\n✗ Error during upgrade: #{e.message}\n")
             broadcast_all(type: "upgrade_complete", success: false)
           end
+        end
+      end
+
+      # Returns true when the configured gem source is the official RubyGems.org.
+      # Raises on error — caller's rescue will handle it.
+      private def official_gem_source?
+        shell  = Clacky::Tools::Shell.new
+        result = shell.execute(command: "gem sources -l", soft_timeout: 10, hard_timeout: 15)
+        raise "gem sources -l failed (exit #{result[:exit_code]}): #{result[:stderr]}" unless result[:exit_code] == 0
+
+        sources = result[:stdout].to_s
+        Clacky::Logger.info("[Upgrade] gem sources: #{sources.strip}")
+        sources.include?("https://rubygems.org") &&
+          !sources.match?(%r{mirrors\.|aliyun|tuna|ustc|ruby-china})
+      end
+
+      # Upgrade via `gem update openclacky --no-document` (official RubyGems source).
+      private def upgrade_via_gem_update
+        cmd = "gem update openclacky --no-document"
+        Clacky::Logger.info("[Upgrade] Official source — running: #{cmd}")
+        broadcast_all(type: "upgrade_log", line: "Starting upgrade: #{cmd}\n")
+
+        shell  = Clacky::Tools::Shell.new
+        result = shell.execute(command: cmd, soft_timeout: 30, hard_timeout: 300)
+
+        Clacky::Logger.info("[Upgrade] exit_code=#{result[:exit_code]}")
+        Clacky::Logger.info("[Upgrade] stdout=#{result[:stdout].to_s.slice(0, 500)}")
+        Clacky::Logger.info("[Upgrade] stderr=#{result[:stderr].to_s.slice(0, 500)}")
+
+        output  = [result[:stdout], result[:stderr]].join
+        success = result[:exit_code] == 0
+
+        broadcast_all(type: "upgrade_log", line: output)
+        finish_upgrade(success, fallback_hint: "gem update openclacky")
+      end
+
+      # Upgrade via OSS CDN: fetch latest.txt → download .gem → gem install (bypasses mirror lag).
+      private def upgrade_via_oss_cdn
+        require "net/http"
+        require "uri"
+
+        oss_base   = "https://oss.1024code.com/openclacky"
+        latest_url = "#{oss_base}/latest.txt"
+
+        Clacky::Logger.info("[Upgrade] Non-official source — fetching latest version from OSS CDN")
+        broadcast_all(type: "upgrade_log", line: "Non-official gem source detected — fetching latest version from OSS CDN...\n")
+
+        # Step 1: fetch latest version from OSS
+        latest_version = fetch_oss_latest_version(latest_url)
+        unless latest_version
+          broadcast_all(type: "upgrade_log", line: "✗ Failed to fetch latest version from OSS CDN\n")
+          broadcast_all(type: "upgrade_complete", success: false)
+          return
+        end
+
+        broadcast_all(type: "upgrade_log", line: "Latest version: #{latest_version}\n")
+
+        # Already up to date?
+        unless version_older?(Clacky::VERSION, latest_version)
+          broadcast_all(type: "upgrade_log", line: "✓ Already at latest version (#{Clacky::VERSION})\n")
+          broadcast_all(type: "upgrade_complete", success: true)
+          return
+        end
+
+        # Step 2: download .gem file from OSS
+        gem_url  = "#{oss_base}/openclacky-#{latest_version}.gem"
+        gem_file = "/tmp/openclacky-#{latest_version}.gem"
+        broadcast_all(type: "upgrade_log", line: "Downloading openclacky-#{latest_version}.gem from OSS...\n")
+        Clacky::Logger.info("[Upgrade] Downloading #{gem_url}")
+
+        shell = Clacky::Tools::Shell.new
+        dl    = shell.execute(command: "curl -fsSL '#{gem_url}' -o '#{gem_file}'",
+                              soft_timeout: 60, hard_timeout: 120)
+        unless dl[:exit_code] == 0
+          broadcast_all(type: "upgrade_log", line: "✗ Download failed: #{dl[:stderr]}\n")
+          broadcast_all(type: "upgrade_complete", success: false)
+          return
+        end
+
+        # Step 3: install the downloaded .gem (dependencies resolved via configured gem source)
+        cmd    = "gem install '#{gem_file}' --no-document"
+        broadcast_all(type: "upgrade_log", line: "Installing...\n")
+        Clacky::Logger.info("[Upgrade] Running: #{cmd}")
+
+        result  = shell.execute(command: cmd, soft_timeout: 30, hard_timeout: 300)
+        output  = [result[:stdout], result[:stderr]].join
+        success = result[:exit_code] == 0
+
+        broadcast_all(type: "upgrade_log", line: output)
+        finish_upgrade(success, fallback_hint: "gem install #{gem_url}")
+      ensure
+        File.delete(gem_file) if gem_file && File.exist?(gem_file) rescue nil
+      end
+
+      # Fetch the latest version string from OSS latest.txt.
+      private def fetch_oss_latest_version(url)
+        require "net/http"
+        uri  = URI(url)
+        http = Net::HTTP.new(uri.host, uri.port)
+        http.use_ssl      = uri.scheme == "https"
+        http.open_timeout = 10
+        http.read_timeout = 10
+        res = http.get(uri.request_uri)
+        return nil unless res.is_a?(Net::HTTPSuccess)
+
+        version = res.body.to_s.strip
+        version.empty? ? nil : version
+      rescue StandardError => e
+        Clacky::Logger.warn("[Upgrade] fetch_oss_latest_version error: #{e.message}")
+        nil
+      end
+
+      # Broadcast final upgrade result with appropriate log message.
+      private def finish_upgrade(success, fallback_hint: "gem update openclacky")
+        if success
+          Clacky::Logger.info("[Upgrade] Success!")
+          broadcast_all(type: "upgrade_log", line: "\n✓ Upgrade successful! Please restart the server to apply the new version.\n")
+          broadcast_all(type: "upgrade_complete", success: true)
+        else
+          Clacky::Logger.warn("[Upgrade] Failed.")
+          broadcast_all(type: "upgrade_log", line: "\n✗ Upgrade failed. Please try manually: #{fallback_hint}\n")
+          broadcast_all(type: "upgrade_complete", success: false)
         end
       end
 
