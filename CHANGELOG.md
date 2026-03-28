@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.18] - 2026-03-28
+
+### Fixed
+- **Brand skill config now reloads from disk on every `load_all`**: brand skills installed or activated after the initial startup were previously invisible until restart — the skill loader now refreshes `BrandConfig` each time it loads skills, so newly installed brand skills take effect immediately
+
+### More
+- Remove `private` keyword from all internal classes to improve Ruby 2.6 compatibility
+- Rename `install.sh` → `install_full.sh`; promote `install_simple.sh` → `install.sh` as the default entry point
+
 ## [0.9.17] - 2026-03-27
 
 ### Added
