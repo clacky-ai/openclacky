@@ -26,17 +26,19 @@ RSpec.describe "Brand Skill system" do
   end
 
   # Returns an activated BrandConfig backed by the given config dir.
+  # Also writes brand.yml so BrandConfig.load returns an activated config.
   def activated_brand_config(config_dir)
-    config = Clacky::BrandConfig.new(
-      "brand_name"          => "TestBrand",
-      "license_key"         => "0000002A-00000007-DEADBEEF-CAFEBABE-A1B2C3D4",
-      "license_activated_at" => Time.now.utc.iso8601,
-      "license_expires_at"  => (Time.now.utc + 86_400).iso8601,
-      "device_id"           => "testdevice"
-    )
     stub_const("Clacky::BrandConfig::CONFIG_DIR", config_dir)
     stub_const("Clacky::BrandConfig::BRAND_FILE",  File.join(config_dir, "brand.yml"))
-    config
+    data = {
+      "brand_name"           => "TestBrand",
+      "license_key"          => "0000002A-00000007-DEADBEEF-CAFEBABE-A1B2C3D4",
+      "license_activated_at" => Time.now.utc.iso8601,
+      "license_expires_at"   => (Time.now.utc + 86_400).iso8601,
+      "device_id"            => "testdevice"
+    }
+    File.write(File.join(config_dir, "brand.yml"), data.to_yaml)
+    Clacky::BrandConfig.new(data)
   end
 
   # ── BrandConfig#decrypt_skill_content ───────────────────────────────────────
