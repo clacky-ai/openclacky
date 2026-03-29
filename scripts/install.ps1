@@ -24,8 +24,9 @@ $UBUNTU_WSL_AMD64_URL        = "$CLACKY_CDN_BASE_URL/ubuntu-jammy-wsl-amd64-ubun
 $UBUNTU_WSL_AMD64_SHA256_URL = "$CLACKY_CDN_BASE_URL/ubuntu-jammy-wsl-amd64-ubuntu22.04lts.rootfs.tar.gz.sha256"
 $UBUNTU_WSL_ARM64_URL        = "$CLACKY_CDN_BASE_URL/ubuntu-jammy-wsl-arm64-ubuntu22.04lts.rootfs.tar.gz"
 $UBUNTU_WSL_ARM64_SHA256_URL = "$CLACKY_CDN_BASE_URL/ubuntu-jammy-wsl-arm64-ubuntu22.04lts.rootfs.tar.gz.sha256"
-$WSL_UPDATE_URL        = "$CLACKY_CDN_BASE_URL/wsl_update_x64.msi"      # Windows 10
-$WSL_UPDATE_URL_WIN11  = "$CLACKY_CDN_BASE_URL/wsl.2.6.3.0.x64.msi"    # Windows 11
+$WSL_UPDATE_URL        = "$CLACKY_CDN_BASE_URL/wsl_update_x64.msi"      # Windows 10 x64
+$WSL_UPDATE_URL_WIN11  = "$CLACKY_CDN_BASE_URL/wsl.2.6.3.0.x64.msi"    # Windows 11 x64
+$WSL_UPDATE_URL_ARM64  = "$CLACKY_CDN_BASE_URL/wsl.2.6.3.0.arm64.msi"  # Windows 11 ARM64
 $UBUNTU_WSL_DIR        = "$env:SystemDrive\WSL\Ubuntu"
 
 # ===========================================================================
@@ -333,25 +334,34 @@ function Test-VirtualisationSupported {
 
 # Download and install the WSL2 kernel MSI from our CDN.
 function Install-WslKernel {
-    $build = [System.Environment]::OSVersion.Version.Build
+    $build   = [System.Environment]::OSVersion.Version.Build
+    $cpuArch = Get-CpuArch
+
     if ($build -lt 19041) {
         Write-Fail "Windows 10 build 19041 or later is required for WSL2."
         Write-Fail "Please upgrade to Windows 10 (May 2020 Update) or Windows 11."
         exit 1
     }
 
-    # Win11 (build >= 22000) needs the new full WSL2 package; legacy MSI fails on Win11.
-    $url     = if ($build -ge 22000) { $WSL_UPDATE_URL_WIN11 } else { $WSL_UPDATE_URL }
-    $msiPath = "$env:TEMP\wsl_update.msi"
+    # Select the correct MSI for this CPU architecture and Windows version.
+    if ($cpuArch -eq "arm64") {
+        $url = $WSL_UPDATE_URL_ARM64
+    } elseif ($build -ge 22000) {
+        # Win11 x64 needs the new full WSL2 package; legacy MSI fails on Win11.
+        $url = $WSL_UPDATE_URL_WIN11
+    } else {
+        $url = $WSL_UPDATE_URL
+    }
 
-    Write-Step "Downloading WSL2 kernel update..."
+    $msiPath = "$env:TEMP\wsl_update.msi"
+    Write-Step "Downloading WSL kernel update ($cpuArch)..."
     if (-not (Invoke-Download -Url $url -OutFile $msiPath)) {
-        Write-Fail "Failed to download WSL2 kernel update. Check your network and try again."
+        Write-Fail "Failed to download WSL kernel update. Check your network and try again."
         exit 1
     }
-    Write-Info "Installing WSL2 kernel..."
+    Write-Info "Installing WSL kernel..."
     Start-Process msiexec -Wait -ArgumentList "/i", $msiPath, "/quiet", "/norestart"
-    Write-Success "WSL2 kernel installed."
+    Write-Success "WSL kernel installed."
     Remove-Item -Force -ErrorAction SilentlyContinue $msiPath
 }
 
