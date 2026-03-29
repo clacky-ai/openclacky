@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.19] - 2026-03-29
+
+### Added
+- **Bing search engine support**: the web search tool now supports Bing in addition to DuckDuckGo and Baidu — improves search coverage and fallback reliability
+- **WSL1 fallback for Windows installer**: the PowerShell installer now automatically falls back to WSL1 when WSL2/Hyper-V is unavailable, ensuring installation succeeds on older or constrained Windows machines
+- **Upgrade via OSS (CN mirror)**: the upgrade flow now downloads new gem versions from Tencent OSS, making upgrades faster and more reliable for users in China
+
+### Fixed
+- **WeChat (Weixin) context token refresh**: the WeChat channel adapter now correctly refreshes the access token when it expires, preventing message delivery failures
+- **DOCX parser UTF-8 encoding bug**: parsing `.docx` files with non-ASCII content no longer causes encoding errors
+- **WSL version detection broadened**: installer now correctly handles old inbox `wsl.exe` (exit code -1) in addition to "feature not enabled" (exit code 1)
+- **Ctrl+C handling in UI**: Ctrl+C now correctly interrupts the current operation without leaving the UI in a broken state
+- **Layout scrollback double-render**: fixed a UI rendering issue that caused the scrollback buffer to render twice
+
+### More
+- Support custom brand name in Windows PowerShell installer
+- Redesigned Windows registration flow; removed Win10 MSI dependency
+
 ## [0.9.18] - 2026-03-28
 
 ### Fixed
