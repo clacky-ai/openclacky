@@ -11,11 +11,16 @@
 #   Uses install_simple.sh from the same directory as this script instead of CDN.
 
 param(
-    [switch]$Local
+    [switch]$Local,
+    [string]$BrandName   = "",
+    [string]$CommandName = ""
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
+
+$DisplayName = if ($BrandName)   { $BrandName }   else { "OpenClacky" }
+$DisplayCmd  = if ($CommandName) { $CommandName } else { "openclacky" }
 
 $CLACKY_CDN_BASE_URL   = "https://oss.1024code.com"
 $INSTALL_PS1_COMMAND   = "powershell -c `"irm $CLACKY_CDN_BASE_URL/clacky-ai/openclacky/main/scripts/install.ps1 | iex`""
@@ -226,7 +231,7 @@ function Install-UbuntuRootfs {
 
 # Install OpenClacky inside the Ubuntu WSL distro.
 function Run-InstallInWsl {
-    Write-Step "Installing OpenClacky inside WSL..."
+    Write-Step "Installing $DisplayName inside WSL..."
 
     if ($Local) {
         # Convert Windows path to WSL path (e.g. C:\foo\bar -> /mnt/c/foo/bar)
@@ -238,9 +243,9 @@ function Run-InstallInWsl {
         }
         $wslPath = ($localScript -replace '\', '/') -replace '^([A-Za-z]):', { '/mnt/' + $args[0].Groups[1].Value.ToLower() }
         Write-Info "Local mode: using $wslPath"
-        wsl.exe -d Ubuntu -u root -- bash $wslPath
+        wsl.exe -d Ubuntu -u root -- bash $wslPath --brand-name=$BrandName --command=$CommandName
     } else {
-        wsl.exe -d Ubuntu -u root -- bash -c "cd ~ && curl -fsSL $INSTALL_SCRIPT_URL | bash"
+        wsl.exe -d Ubuntu -u root -- bash -c "cd ~ && curl -fsSL $INSTALL_SCRIPT_URL | bash -s -- --brand-name=$BrandName --command=$CommandName"
     }
 
     if ($LASTEXITCODE -ne 0) {
@@ -254,16 +259,16 @@ function Run-InstallInWsl {
 function Show-PostInstall {
     param([int]$WslVersion)
     Write-Host ""
-    Write-Success "OpenClacky installed successfully (WSL$WslVersion)."
+    Write-Success "$DisplayName installed successfully (WSL$WslVersion)."
     Write-Host ""
-    Write-Info "To use OpenClacky, first enter WSL:"
+    Write-Info "To use $DisplayName, first enter WSL:"
     Write-Host "   wsl" -ForegroundColor Green
     Write-Host ""
-    Write-Info "Then run OpenClacky:"
-    Write-Host "   openclacky" -ForegroundColor Green
+    Write-Info "Then run $DisplayName:"
+    Write-Host "   $DisplayCmd" -ForegroundColor Green
     Write-Host ""
     Write-Info "Or start the Web UI:"
-    Write-Host "   openclacky server" -ForegroundColor Green
+    Write-Host "   $DisplayCmd server" -ForegroundColor Green
     Write-Host "   Then open http://localhost:7070 in your browser"
     Write-Host ""
 }
@@ -409,7 +414,7 @@ function Install-WithWsl1 {
 # Main
 # ===========================================================================
 Write-Host ""
-Write-Host "OpenClacky Installation Script (Windows)" -ForegroundColor Cyan
+Write-Host "$DisplayName Installation Script (Windows)" -ForegroundColor Cyan
 Write-Host ""
 
 if (-not (Test-IsAdmin)) {

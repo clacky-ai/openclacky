@@ -300,8 +300,9 @@ module Clacky
               start_row = 0 if start_row < 0
               @output_row = [start_row + old_line_count, max_output_row].min
 
-              # Re-render fixed areas after scroll to prevent corruption
-              render_fixed_areas
+              # Re-render fixed areas after scroll to prevent corruption.
+              # Skip buffer re-render to avoid duplicating content in scrollback.
+              render_fixed_areas(skip_buffer_rerender: true)
             end
           end
 
@@ -341,8 +342,10 @@ module Clacky
             end
           end
 
-          # Re-render fixed areas to restore cursor position in input area
-          render_fixed_areas
+          # Re-render fixed areas to restore cursor position in input area.
+          # Skip buffer re-render: the content was written directly above, so
+          # re-rendering from buffer would duplicate it in the terminal scrollback.
+          render_fixed_areas(skip_buffer_rerender: true)
           screen.flush
         end
       end
@@ -374,8 +377,10 @@ module Clacky
           # Update output_row
           @output_row = start_row
 
-          # Re-render fixed areas to ensure consistency
-          render_fixed_areas
+          # Re-render fixed areas to ensure consistency.
+          # Skip buffer re-render: lines were removed both from screen and buffer above,
+          # re-rendering would push stale content back into the terminal scrollback.
+          render_fixed_areas(skip_buffer_rerender: true)
           screen.flush
         end
       end
@@ -451,8 +456,11 @@ module Clacky
           # After scroll, position to write at the last row of output area
           @output_row = max_output_row - 1
 
-          # Important: Re-render fixed areas after scroll to prevent corruption
-          render_fixed_areas
+          # Re-render fixed areas after scroll to prevent corruption.
+          # Skip buffer re-render: new line hasn't been drawn yet; re-rendering from
+          # buffer would put a duplicate into the scrollback (the \n above already
+          # pushed previous content up, so a full buffer repaint here would repeat it).
+          render_fixed_areas(skip_buffer_rerender: true)
         end
 
         # Now write the line at current position
@@ -569,7 +577,11 @@ module Clacky
       end
 
       # Render fixed areas (gap, todo, input) at screen bottom
-      def render_fixed_areas
+      # @param skip_buffer_rerender [Boolean] When true, skip the render_output_from_buffer
+      #   even if fixed_area_height changed. Use this when the caller has already written
+      #   the correct content directly (update_last_line, remove_last_line) to avoid
+      #   re-rendering buffer content that would duplicate entries in the terminal scrollback.
+      def render_fixed_areas(skip_buffer_rerender: false)
         # When input is paused (InlineInput active), don't render fixed areas
         # The InlineInput is rendered inline with output
         return if input_area.paused?
@@ -583,8 +595,11 @@ module Clacky
         todo_row = gap_row + 1
         input_row = todo_row + (@todo_area&.height || 0)
 
-        # Detect height changes and re-render output area if needed
-        if @last_fixed_area_height > 0 && @last_fixed_area_height != current_fixed_height
+        # Detect height changes and re-render output area if needed.
+        # Skip when the caller (update_last_line / remove_last_line) has already
+        # written the correct content directly — re-rendering would push duplicate
+        # content into the terminal scrollback, causing repeated lines on scroll-up.
+        if !skip_buffer_rerender && @last_fixed_area_height > 0 && @last_fixed_area_height != current_fixed_height
           # Fixed area height changed - re-render output area from buffer
           # This prevents output content from being hidden when fixed area grows
           # (e.g., multi-line input, command suggestions appearing)
