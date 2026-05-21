@@ -116,7 +116,6 @@ module Clacky
       last = @messages.last
       return false unless last[:role] == "assistant" && last[:tool_calls]&.any?
 
-      # Check that there is no tool result message after this assistant message
       last_assistant_idx = @messages.rindex { |m| m == last }
       @messages[(last_assistant_idx + 1)..].none? { |m| m[:role] == "tool" || m[:tool_results] }
     end

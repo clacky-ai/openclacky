@@ -1008,8 +1008,8 @@ module Clacky
         $stdout = Clacky::Server::EPIPESafeIO.new($stdout)
         $stderr = Clacky::Server::EPIPESafeIO.new($stderr)
 
-        fd         = ENV["CLACKY_INHERIT_FD"].to_i
-        master_pid = ENV["CLACKY_MASTER_PID"].to_i
+        fd              = ENV["CLACKY_INHERIT_FD"].to_i
+        master_pid      = ENV["CLACKY_MASTER_PID"].to_i
         # Must use TCPServer.for_fd (not Socket.for_fd) so that accept_nonblock
         # returns a single Socket, not [Socket, Addrinfo] — WEBrick expects the former.
         socket     = TCPServer.for_fd(fd)

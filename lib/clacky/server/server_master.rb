@@ -26,9 +26,6 @@ module Clacky
       RESTART_EXIT_CODE        = 75
       MAX_CONSECUTIVE_FAILURES = 5
 
-      # How long (seconds) to wait for a new worker to become ready before killing the old one.
-      NEW_WORKER_BOOT_WAIT = 3
-
       def initialize(host:, port:, argv: nil, extra_flags: [])
         @host   = host
         @port   = port
@@ -158,22 +155,16 @@ module Clacky
         pid
       end
 
-      # Spawn a new worker, wait for it to boot, then gracefully stop the old one.
+      # Gracefully stop the old worker (so it can persist in-memory sessions),
+      # wait for it to exit, then spawn a new one.
       def hot_restart
         old_pid = @worker_pid
-        Clacky::Logger.info("[Master] Hot restart: spawning new worker (old PID=#{old_pid})...")
+        Clacky::Logger.info("[Master] Hot restart: stopping old worker PID=#{old_pid}...")
 
-        new_pid = spawn_worker
-        @worker_pid = new_pid
-
-        # Give the new worker time to bind and start serving
-        sleep NEW_WORKER_BOOT_WAIT
-
-        # Gracefully stop old worker — TERM the whole process group first so
-        # grandchildren (node MCP, etc.) also get a chance to shut down cleanly.
+        # TERM the old worker's process group so grandchildren (node MCP, etc.)
+        # also get a chance to shut down cleanly (triggering interrupt_all_agents).
         begin
           Process.kill("TERM", -old_pid)
-          # Reap it (non-blocking loop so we don't block the monitor)
           deadline = Time.now + 5
           loop do
             pid, = Process.waitpid2(old_pid, Process::WNOHANG)
@@ -186,6 +177,9 @@ module Clacky
           # already gone — fine
         end
 
+        # Old worker is gone; now spawn the replacement.
+        new_pid = spawn_worker
+        @worker_pid = new_pid
         Clacky::Logger.info("[Master] Hot restart complete. New worker PID=#{new_pid}")
       end
 

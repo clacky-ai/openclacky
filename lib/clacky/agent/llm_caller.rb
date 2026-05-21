@@ -756,7 +756,6 @@ module Clacky
       # progress handle on fast streams.
       private def build_progress_on_chunk
         return nil unless @ui
-
         last_emit_at = 0.0
         min_interval = 0.25
         ->(input_tokens:, output_tokens:) {

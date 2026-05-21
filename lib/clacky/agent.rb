@@ -1064,6 +1064,9 @@ module Clacky
       !@start_time.nil?
     end
 
+    # Cooperative cancellation signal.
+    #
+    # Set by interrupt_all_agents (worker shutdown) BEFORE Thread#raise, so that
     private def build_result(status = :success, error: nil)
       task_iterations = @iterations - (@task_start_iterations || 0)
       task_cost = @total_cost - (@task_start_cost || 0)

@@ -154,8 +154,8 @@ module Clacky
         @agent_config   = agent_config
         @client_factory = client_factory  # callable: -> { Clacky::Client.new(...) }
         @brand_test     = brand_test      # when true, skip remote API calls for license activation
-        @inherited_socket = socket        # TCPServer socket passed from Master (nil = standalone mode)
-        @master_pid       = master_pid    # Master PID so we can send USR1 on upgrade/restart
+        @inherited_socket  = socket        # TCPServer socket passed from Master (nil = standalone mode)
+        @master_pid        = master_pid    # Master PID so we can send USR1 on upgrade/restart
         # Capture the absolute path of the entry script and original ARGV at startup,
         # so api_restart can re-exec the correct binary even if cwd changes later.
         @restart_script = File.expand_path($0)
@@ -240,13 +240,13 @@ module Clacky
         shutdown_proc = proc do
           next if shutdown_once
           shutdown_once = true
-          Thread.new do
-            sleep 2
-            Clacky::Logger.warn("[HttpServer] Forced exit after graceful shutdown timeout.")
-            exit!(0)
-          end
-          # Detach the inherited (shared) listen socket BEFORE shutdown so that
-          # WEBrick's cleanup_listener does not call shutdown(SHUT_RDWR)+close on
+          # Persist in-flight agent sessions BEFORE starting the forced-exit
+          # timer, so any new messages added to @history since the last save
+          # are on disk before the new worker reads them after a hot restart.
+          interrupt_all_agents
+
+          # Detach the inherited (shared) listen socket BEFORE WEBrick.shutdown
+          # so that cleanup_listener does not call shutdown(SHUT_RDWR)+close on
           # it — that would propagate to every process sharing the underlying
           # kernel socket (Master + new worker), breaking subsequent accept()
           # on Linux. macOS's BSD stack tolerates this; Linux does not.
@@ -3549,6 +3549,23 @@ module Clacky
         return unless agent
 
         run_agent_task(session_id, agent) { agent.run(prompt) }
+      end
+
+      # Interrupt every running agent thread and persist its session state.
+      private def interrupt_all_agents
+        return unless @registry && @session_manager
+
+        @registry.each_live_agent do |id, agent, thread|
+          next unless thread&.alive?
+          begin
+            thread.raise(Clacky::AgentInterrupted, "Worker shutting down")
+            Clacky::Logger.info("[shutdown] interrupted session=#{id}")
+          rescue => e
+            Clacky::Logger.error("[shutdown] interrupt failed for session=#{id}: #{e.message}")
+          end
+          thread.join(2)
+          @session_manager.save(agent.to_session_data(status: :interrupted))
+        end
       end
 
       # Run an agent task in a background thread, handling status updates,
