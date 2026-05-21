@@ -362,6 +362,24 @@ module Clacky
       #     surprising users with the explicit 25% surcharge).
       #   - We bill reads at 20% (implicit rate) — the conservative side; users on
       #     explicit caching will see real bills slightly *lower* than displayed.
+      "qwen3.7-max" => {
+        input:  { default: 1.20, over_200k: 1.20 },
+        output: { default: 6.00, over_200k: 6.00 },
+        cache:  { write: 1.20, read: 0.24 }
+      },
+
+      "qwen3.7-plus" => {
+        input:  { default: 0.40, over_200k: 0.40 },
+        output: { default: 2.40, over_200k: 2.40 },
+        cache:  { write: 0.40, read: 0.08 }
+      },
+
+      "qwen3.7-flash" => {
+        input:  { default: 0.15, over_200k: 0.15 },
+        output: { default: 0.90, over_200k: 0.90 },
+        cache:  { write: 0.15, read: 0.03 }
+      },
+
       "qwen3.6-plus" => {
         input:  { default: 0.40, over_200k: 0.40 },
         output: { default: 2.40, over_200k: 2.40 },
@@ -567,9 +585,16 @@ module Clacky
           "minimax-m2.7"
 
         # Qwen (Alibaba DashScope) — strict anchored match per registered
-        # model id in providers.rb. qwen3.6-* are the new flagship line;
-        # qwen-plus-latest is the rolling alias for the latest Qwen-Plus
-        # release; qwen-vl-* are the multimodal SKUs.
+        # model id in providers.rb. qwen3.7-* is the latest flagship line;
+        # qwen3.6-* are the previous generation; qwen-plus-latest is the
+        # rolling alias for the latest Qwen-Plus release; qwen-vl-* are
+        # the multimodal SKUs.
+        when /^qwen3\.7-max$/i
+          "qwen3.7-max"
+        when /^qwen3\.7-plus$/i
+          "qwen3.7-plus"
+        when /^qwen3\.7-flash$/i
+          "qwen3.7-flash"
         when /^qwen3\.6-plus$/i
           "qwen3.6-plus"
         when /^qwen3\.6-max$/i

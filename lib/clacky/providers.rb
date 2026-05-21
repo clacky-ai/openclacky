@@ -335,28 +335,23 @@ module Clacky
         "name" => "Qwen (Alibaba)",
         "base_url" => "https://dashscope.aliyuncs.com/compatible-mode/v1",
         "api" => "openai-completions",
-        "default_model" => "qwen3.6-plus",
+        "default_model" => "qwen3.7-max",
         "models" => [
+          "qwen3.7-max",
           "qwen3.6-plus",
           "qwen3.6-max",
           "qwen3.6-27b",
           "qwen3.6-flash",
           "qwen-plus-latest",
-          "qwen-vl-plus",
-          "qwen-vl-max"
         ],
         "endpoint_variants" => [
           { "label" => "Mainland China",  "label_key" => "settings.models.baseurl.variant.mainland_cn",   "base_url" => "https://dashscope.aliyuncs.com/compatible-mode/v1",     "region" => "cn"   }.freeze,
           { "label" => "Singapore",       "label_key" => "settings.models.baseurl.variant.international", "base_url" => "https://dashscope-intl.aliyuncs.com/compatible-mode/v1", "region" => "intl" }.freeze,
           { "label" => "US (Virginia)",   "label_key" => "settings.models.baseurl.variant.us",            "base_url" => "https://dashscope-us.aliyuncs.com/compatible-mode/v1",   "region" => "us"   }.freeze
         ].freeze,
-        "capabilities" => { "vision" => false }.freeze,
-        "model_capabilities" => {
-          "qwen3.6-27b"  => { "vision" => true }.freeze,
-          "qwen-vl-plus" => { "vision" => true }.freeze,
-          "qwen-vl-max"  => { "vision" => true }.freeze
-        }.freeze,
+        "capabilities" => { "vision" => true }.freeze,
         "lite_models" => {
+          "qwen3.7-max"      => "qwen3.6-flash",
           "qwen3.6-plus"     => "qwen3.6-flash",
           "qwen3.6-max"      => "qwen3.6-flash",
           "qwen3.6-27b"      => "qwen3.6-flash",
