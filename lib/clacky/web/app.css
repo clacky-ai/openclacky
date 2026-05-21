@@ -72,29 +72,28 @@ body {
 .session-item:hover { background: #1f2937; }
 .session-item.active { background: #1f2937; border-color: #30363d; }
 
-/* Delete button on session list items — visible only on hover */
-.session-delete-btn {
-  position: absolute;
-  top: 50%;
-  right: 8px;
-  transform: translateY(-50%);
+/* Actions button (⋯) on session list items — visible only on hover */
+.session-actions-btn {
+  flex-shrink: 0;
   display: none;
   align-items: center;
   justify-content: center;
-  width: 18px;
-  height: 18px;
+  width: 24px;
+  height: 24px;
   background: transparent;
   border: none;
   border-radius: 4px;
   color: #8b949e;
-  font-size: 16px;
-  line-height: 1;
   cursor: pointer;
   padding: 0;
   transition: background .15s, color .15s;
+  align-self: center;
 }
-.session-item:hover .session-delete-btn { display: flex; }
-.session-delete-btn:hover { background: #3d1a1a; color: #f85149; }
+.session-item:hover .session-actions-btn { display: flex; }
+.session-actions-btn:hover {
+  background: #21262d;
+  color: #e6edf3;
+}
 .session-name {
   font-size: 13px;
   font-weight: 600;
@@ -602,8 +601,16 @@ body {
 #btn-send           { background: #238636; color: #fff; }
 #btn-send:hover     { background: #2ea043; }
 #btn-send:disabled  { background: #30363d; color: #8b949e; cursor: not-allowed; }
+#btn-send:active:not(:disabled) {
+  transform: scale(0.94);
+  transition: transform 100ms var(--apple-spring-press);
+}
 #btn-interrupt      { background: #da3633; color: #fff; }
 #btn-interrupt:hover{ background: #f85149; }
+#btn-interrupt:active:not(:disabled) {
+  transform: scale(0.94);
+  transition: transform 100ms var(--apple-spring-press);
+}
 
 /* ── Sidebar footer ──────────────────────────────────────────────────────── */
 #sidebar-footer {
@@ -1614,3 +1621,294 @@ body {
 ::-webkit-scrollbar       { width: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: #30363d; border-radius: 3px; }
+
+/* ==========================================================================
+   Apple-style Motion Package — 2026-05-22
+   Replaces lost PR #156 motion system with a cleaner, non-overshooting design.
+   Principles:
+     - Causality: reveal sequences (shell first, content second, decoration last)
+     - Soft start / soft finish: ease-out curves, no spring overshoot for hover
+     - Continuity: no flicker, no jump
+     - Restraint: motion serves function
+   ========================================================================== */
+
+/* ----- Easing tokens ----- */
+:root {
+  /* Primary curves — all ease-out family, no overshoot */
+  --apple-ease-out:  cubic-bezier(0.22, 0.61, 0.36, 1);   /* default reveal */
+  --apple-ease-in:   cubic-bezier(0.55, 0, 0.55, 0.2);     /* exit / retract */
+  --apple-ease-in-out: cubic-bezier(0.42, 0, 0.58, 1);      /* re-orient */
+  --apple-ease-fast: cubic-bezier(0.32, 0.72, 0.24, 1);     /* hover micro */
+  /* Press feedback — only place we allow tiny overshoot, simulating "force" */
+  --apple-spring-press: cubic-bezier(0.34, 1.34, 0.64, 1);
+}
+
+/* ----- Panel switching (root cause flicker fix) ----- */
+/* Problem: display:none → flex + keyframe in same compositor frame = double flash.
+   Solution: keyframe ONLY runs when .panel-anim-in class is added AFTER reflow. */
+@keyframes panel-pull-in {
+  0%   { opacity: 0; transform: translate3d(0, 8px, 0) scale(0.992); }
+  60%  { opacity: 1; }
+  100% { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
+}
+
+#chat-panel.panel-anim-in,
+#task-detail-panel.panel-anim-in,
+#skills-panel.panel-anim-in,
+#settings-panel.panel-anim-in,
+#welcome.panel-anim-in,
+#onboard-panel.panel-anim-in {
+  animation: panel-pull-in 380ms var(--apple-ease-out) both;
+  will-change: transform, opacity;
+}
+
+/* ----- Sidebar hover ───────────────────────────────────────────────── */
+/* Apple-style micro-interaction: items lift slightly (translateY + scale)
+   under the cursor so the sidebar feels tactile and alive. The eased
+   transition means items "flow" under the cursor rather than snapping. */
+.task-item,
+.task-item .task-row,
+.task-item .task-icon,
+.task-item .task-name,
+.session-item {
+  transition:
+    background-color 200ms var(--apple-ease-fast),
+    border-color     200ms var(--apple-ease-fast),
+    color            200ms var(--apple-ease-fast),
+    transform        200ms var(--apple-ease-fast),
+    box-shadow       200ms var(--apple-ease-fast);
+}
+
+/* ── Hover lift ───────────────────────────────────────────────────── */
+/* Apple sidebar rhythm: items rise to meet the cursor with a subtle
+   vertical lift + gentle scale. The translateY direction matches the
+   physical metaphor — the item "lifts off the surface" toward the user.
+   240ms gives enough time for the eye to track the motion. */
+.session-item:hover {
+  transform: translateY(-2px) scale(1.015);
+}
+.task-item:hover .task-row {
+  transform: translateY(-2px) scale(1.015);
+}
+
+/* ── Press feedback (:active) ──────────────────────────────────────── */
+/* Physical key-press metaphor: on mousedown the item depresses (scale
+   down), then on release the spring-press curve bounces past 1.0
+   briefly before settling — exactly like a mechanical key. */
+.session-item:active {
+  transform: scale(0.96) !important;
+  transition: transform 100ms var(--apple-spring-press);
+}
+.task-item:active .task-row {
+  transform: scale(0.96) !important;
+  transition: transform 100ms var(--apple-spring-press);
+}
+/* Buttons use the same press feel */
+.btn-load-more-sessions:active,
+#btn-session-search-toggle:active {
+  transform: scale(0.94);
+  transition: transform 100ms var(--apple-spring-press);
+}
+
+/* Active (selected) item stays firmly anchored — no hover lift.
+   The "pressed in place" visual reinforces selection. */
+.session-item.active,
+.task-item.active .task-row {
+  transform: none !important;
+}
+
+/* ── Session actions menu ──────────────────────────────────────────── */
+/* Accordion popover that appears next to the sidebar when the ⋯ button
+   is clicked. Uses the Apple Motion easing variables for a
+   search-panel-style reveal. */
+.session-actions-menu {
+  background: #161b22;
+  border: 1px solid #30363d;
+  border-radius: 8px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.08), 0 2px 6px rgba(0, 0, 0, 0.04);
+  padding: 4px;
+  min-width: 160px;
+  z-index: 1000;
+  opacity: 0;
+  transform: translateY(-6px) scale(0.94);
+  transform-origin: top left;
+  transition:
+    opacity    200ms var(--apple-ease-out),
+    transform  220ms var(--apple-ease-out);
+  pointer-events: none;
+}
+.session-actions-menu.is-open {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  pointer-events: auto;
+}
+.session-actions-menu.is-closing {
+  transition:
+    opacity    140ms var(--apple-ease-in),
+    transform  160ms var(--apple-ease-in);
+  opacity: 0;
+  transform: translateY(-4px) scale(0.94);
+  pointer-events: none;
+}
+.session-actions-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 5px;
+  cursor: pointer;
+  color: var(--color-text-primary, #e6edf3);
+  font-size: 13px;
+  line-height: 1.4;
+  transition: background .12s ease, color .12s ease;
+  user-select: none;
+}
+.session-actions-menu-label {
+  flex: 1;
+  min-width: 0;
+}
+.session-actions-menu-item:hover {
+  background: #1f2937;
+}
+.session-actions-menu-item--danger {
+  margin-top: 5px;
+  position: relative;
+}
+.session-actions-menu-item--danger::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: -3px;
+  height: 1px;
+  background: #30363d;
+  pointer-events: none;
+}
+.session-actions-menu-item--danger:hover {
+  background: #3d1a1a;
+  color: #f85149;
+}
+.session-actions-menu-item--danger:hover svg {
+  color: #f85149;
+}
+
+/* ----- Soft emergence — reveal sequence helpers ----- */
+/* For elements that should "fade up from a soft blur" after their container appears. */
+@keyframes apple-emerge-soft {
+  0%   { opacity: 0; transform: translate3d(0, 6px, 0) scale(0.94); filter: blur(2px); }
+  60%  { opacity: 1; filter: blur(0); }
+  100% { opacity: 1; transform: translate3d(0, 0, 0) scale(1); filter: blur(0); }
+}
+
+/* ── The three-dot search/load-more buttons — use is-new staggered ── */
+#btn-session-search-toggle {
+  animation: apple-emerge-soft 520ms var(--apple-ease-out) both;
+  animation-delay: 80ms;
+}
+.btn-load-more-sessions {
+  animation: apple-emerge-soft 560ms var(--apple-ease-out) both;
+  animation-delay: 120ms;
+}
+
+/* ----- Running dot — heartbeat with halo ----- */
+@keyframes apple-dot-running-breath {
+  0% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-success, #34c759) 55%, transparent);
+  }
+  50% {
+    transform: scale(1.18);
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--color-success, #34c759) 0%, transparent);
+  }
+  100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-success, #34c759) 0%, transparent);
+  }
+}
+.dot-running,
+.session-status-dot.is-running,
+.status-dot.is-running {
+  animation: apple-dot-running-breath 1.4s ease-in-out infinite !important;
+}
+
+/* ----- Search panel — Apple accordion ----- */
+/* Overrides any prior simple display toggle. Uses 4 dimensions in unison:
+     max-height + opacity + translateY + scaleY
+   plus DUAL curves: ease-out for open (fast→soft), ease-in for close (soft→fast). */
+.search-panel,
+#session-search-panel,
+#session-search-bar,
+.session-search-panel {
+  overflow: hidden;
+  max-height: 0;
+  opacity: 0;
+  transform: translateY(-6px) scaleY(0.96);
+  transform-origin: top center;
+  transition:
+    max-height 460ms var(--apple-ease-out),
+    transform  460ms var(--apple-ease-out),
+    opacity    400ms var(--apple-ease-out) 60ms;
+  /* Deliberately NO will-change here — max-height transitions are CPU-driven;
+     promoting them to a GPU layer causes layout↔composite thrash (stutter). */
+}
+.search-panel.is-open,
+#session-search-panel.is-open,
+.session-search-panel.is-open,
+#session-search-bar.search-panel--open,
+.search-panel--open {
+  max-height: 140px;
+  opacity: 1;
+  transform: translateY(0) scaleY(1);
+}
+/* Closing: only animate the visual properties (opacity + transform).
+   max-height snaps instantly at the end via hidden=true — no layout
+   thrash because we never transition max-height on the way out. */
+.search-panel.is-closing,
+#session-search-panel.is-closing,
+#session-search-bar.is-closing,
+.session-search-panel.is-closing {
+  transition:
+    transform 160ms var(--apple-ease-in),
+    opacity   140ms var(--apple-ease-in);
+}
+
+/* ----- Load-more staggered entrance (NEW items only) ----- */
+@keyframes apple-session-item-rise {
+  0%   { opacity: 0; transform: translate3d(0, 10px, 0) scale(0.96); filter: blur(2px); }
+  60%  { opacity: 1; filter: blur(0); }
+  100% { opacity: 1; transform: translate3d(0, 0, 0) scale(1); filter: blur(0); }
+}
+.session-item.is-new {
+  animation: apple-session-item-rise 520ms var(--apple-ease-out) both;
+  animation-delay: calc(var(--enter-i, 0) * 32ms);
+  will-change: transform, opacity, filter;
+}
+
+/* ----- Reduced-motion accessibility ----- */
+@media (prefers-reduced-motion: reduce) {
+  #chat-panel.panel-anim-in,
+  #task-detail-panel.panel-anim-in,
+  #skills-panel.panel-anim-in,
+  #settings-panel.panel-anim-in,
+  #welcome.panel-anim-in,
+  #onboard-panel.panel-anim-in,
+  #btn-session-search-toggle,
+  .btn-load-more-sessions,
+  .session-item.is-new {
+    animation: none !important;
+  }
+  .dot-running,
+  .session-status-dot.is-running,
+  .status-dot.is-running {
+    animation: none !important;
+  }
+  .search-panel,
+  #session-search-panel,
+  #session-search-bar,
+  .session-search-panel {
+    transition: opacity 120ms linear !important;
+  }
+}
+/* ==========================================================================
+   End Apple-style Motion Package
+   ========================================================================== */
