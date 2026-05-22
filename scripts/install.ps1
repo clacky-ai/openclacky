@@ -143,15 +143,8 @@ function Invoke-WslStatusExitCode {
 }
 
 # Returns $true if a distro named exactly "Ubuntu" is registered.
-# wsl --list outputs UTF-16LE; switch OutputEncoding to decode correctly.
 function Test-UbuntuInstalled {
-    $prev = [Console]::OutputEncoding
-    [Console]::OutputEncoding = [System.Text.Encoding]::Unicode
-    try {
-        $out = (wsl.exe --list --quiet 2>$null) -join "`n"
-    } finally {
-        [Console]::OutputEncoding = $prev
-    }
+    $out = (wsl.exe --list --quiet 2>$null) -join "`n"
     # Whole-line match to avoid false positives from Ubuntu-22.04, Ubuntu-24.04, etc.
     return ($out -match '(?im)^Ubuntu\s*$')
 }
