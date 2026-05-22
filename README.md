@@ -184,6 +184,14 @@ bin/clacky
 - **16 core tools** — minimal by design
 - **Backed by** MiraclePlus · ZhenFund · Sequoia China · Hillhouse Capital
 
+## Contributors
+
+Every line of code, bug report, and thoughtful review matters. Thank you for making OpenClacky better.
+
+<a href="https://github.com/clacky-ai/openclacky/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=clacky-ai/openclacky" />
+</a>
+
 ## Contributing
 
 Bug reports and pull requests are welcome on GitHub at https://github.com/clacky-ai/openclacky. Contributors are expected to adhere to the [code of conduct](https://github.com/clacky-ai/openclacky/blob/main/CODE_OF_CONDUCT.md).

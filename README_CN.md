@@ -189,6 +189,14 @@ bin/clacky
 - [我把 AI 账单从 30 美金打到 5 美金](https://mp.weixin.qq.com/s/BDhE0y8xbX0ea3vLlV37Ig)
 - [100% Cache 命中的 Harness 怎么设计：一个开源 AI Agent 的 7 个工程决策](https://mp.weixin.qq.com/s/Rc1xk0Qw168D4Y07kkBiGQ)
 
+## 贡献者
+
+每一行代码、每一个 Bug 报告、每一次认真的 Review，都让 OpenClacky 变得更好。感谢你们！
+
+<a href="https://github.com/clacky-ai/openclacky/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=clacky-ai/openclacky" />
+</a>
+
 ## 参与贡献
 
 欢迎在 GitHub 提交 Bug 报告和 Pull Request：https://github.com/clacky-ai/openclacky 。参与贡献者须遵守[行为准则](https://github.com/clacky-ai/openclacky/blob/main/CODE_OF_CONDUCT.md)。
