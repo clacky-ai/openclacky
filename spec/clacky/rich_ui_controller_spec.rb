@@ -5,15 +5,78 @@ require_relative "../../lib/clacky/rich_ui_controller"
 
 RSpec.describe Clacky::RichUIController do
   describe "layout" do
-    it "uses the full body width for the transcript without a plan/tasks sidebar" do
+    it "shows a right-side todos panel next to the transcript" do
       ui = described_class.new(working_dir: Dir.pwd, mode: "confirm_safes", model: "test-model")
 
       ui.shell.layout.calculate_dimensions(100, 30)
 
       expect(ui.shell.layout[:sidebar]).to be_nil
-      expect(ui.shell.layout[:transcript].width).to eq(100)
+      expect(ui.shell.layout[:todos]).not_to be_nil
+      expect(ui.shell.layout[:todos].width).to eq(36)
+      expect(ui.shell.layout[:transcript].width).to eq(64)
+      expect(ui.shell.layout.render).to include("Todos")
       expect(ui.shell.layout.render).not_to include("Plan")
-      expect(ui.shell.layout.render).not_to include("Tasks")
+    end
+
+    it "renders todo_manager tasks in the right-side todos panel" do
+      ui = described_class.new(working_dir: Dir.pwd, mode: "confirm_safes", model: "test-model")
+
+      ui.update_todos([
+        { content: "Research DeepSeek v4", status: "pending" },
+        { content: "Write weather scraper", status: "in_progress" },
+        { content: "Optimize SQL query", status: "completed" }
+      ])
+      ui.shell.layout.calculate_dimensions(100, 30)
+
+      rendered = ui.shell.layout.render
+      expect(rendered).to include("Todos")
+      expect(rendered).to include("Research DeepSeek v4")
+      expect(rendered).to include("Write weather scraper")
+      expect(rendered).to include("Optimize SQL query")
+      expect(rendered).not_to match(/\b1\s+✓/)
+      expect(rendered).not_to match(/\b1\s+●/)
+      expect(rendered).not_to match(/\b1\s+○/)
+    end
+
+    it "shows tool activity in the todos panel when todo_manager has not created todos" do
+      ui = described_class.new(working_dir: Dir.pwd, mode: "confirm_safes", model: "test-model")
+
+      ui.show_tool_call("web_search", { query: "普京访华 2025最新消息" })
+      ui.show_tool_call("web_fetch", { url: "https://www.chinadaily.com.cn/a/202505/01/example.html" })
+      ui.shell.layout.calculate_dimensions(100, 30)
+
+      rendered = ui.shell.layout.render
+      expect(rendered).to include("Todos")
+      expect(ui.shell.sidebar.tasks.map { |task| task[:label] }).to include(
+        'web_search("普京访华 2025最新消息")',
+        "web_fetch(www.chinadaily.com.cn)"
+      )
+      expect(rendered).not_to include("No active todos")
+    end
+
+    it "keeps explicit todo_manager tasks ahead of tool activity" do
+      ui = described_class.new(working_dir: Dir.pwd, mode: "confirm_safes", model: "test-model")
+
+      ui.show_tool_call("web_fetch", { url: "https://example.com" })
+      ui.update_todos([{ content: "Collect release notes", status: "in_progress" }])
+      ui.shell.layout.calculate_dimensions(100, 30)
+
+      rendered = ui.shell.layout.render
+      expect(rendered).to include("Collect release notes")
+      expect(ui.shell.sidebar.tasks.map { |task| task[:label] }).to eq(["Collect release notes"])
+    end
+
+    it "clears the todos panel after explicit todo_manager tasks are completed" do
+      ui = described_class.new(working_dir: Dir.pwd, mode: "confirm_safes", model: "test-model")
+
+      ui.show_tool_call("web_fetch", { url: "https://example.com" })
+      ui.update_todos([{ content: "Collect release notes", status: "in_progress" }])
+      ui.update_todos([])
+      ui.shell.layout.calculate_dimensions(100, 30)
+
+      rendered = ui.shell.layout.render
+      expect(ui.shell.sidebar.tasks).to eq([])
+      expect(rendered).to include("No active todos")
     end
   end
 
@@ -75,6 +138,20 @@ RSpec.describe Clacky::RichUIController do
       expect(entries.last.content).to eq("**Files**\n\n- `README.md`\n- `notes.txt`")
     end
 
+    it "streams long assistant markdown into a single transcript entry" do
+      ui = described_class.new(working_dir: Dir.pwd, mode: "confirm_safes", model: "test-model")
+      allow(ui).to receive(:sleep)
+      content = "这是一个很长的故事。" * 40
+
+      ui.show_assistant_message(content, files: [])
+      ui.instance_variable_get(:@stream_threads).each(&:join)
+
+      entries = ui.shell.transcript.store.entries
+      expect(entries.size).to eq(1)
+      expect(entries.last.type).to eq(:markdown)
+      expect(entries.last.content).to eq(content)
+    end
+
     it "wraps markdown table cells to fit the transcript content width" do
       ui = described_class.new(working_dir: Dir.pwd, mode: "confirm_safes", model: "test-model")
       ui.show_assistant_message(<<~MARKDOWN, files: [])
@@ -89,6 +166,30 @@ RSpec.describe Clacky::RichUIController do
 
       expect(table_lines).not_to be_empty
       expect(table_lines.map { |line| visible_width(line) }.max).to be <= 39
+    end
+
+    it "wraps long unbroken English transcript lines" do
+      ui = described_class.new(working_dir: Dir.pwd, mode: "confirm_safes", model: "test-model")
+      ui.show_assistant_message("a" * 80, files: [])
+
+      ui.shell.viewport.width = 20
+      ui.shell.viewport.height = 10
+      lines = ui.shell.viewport.render.reject { |line| line.strip.empty? }
+
+      expect(lines.length).to be > 1
+      expect(lines.map { |line| visible_width(line.rstrip) }.max).to be <= 20
+    end
+
+    it "wraps long unbroken Chinese transcript lines" do
+      ui = described_class.new(working_dir: Dir.pwd, mode: "confirm_safes", model: "test-model")
+      ui.show_assistant_message("中文" * 30, files: [])
+
+      ui.shell.viewport.width = 20
+      ui.shell.viewport.height = 10
+      lines = ui.shell.viewport.render.reject { |line| line.strip.empty? }
+
+      expect(lines.length).to be > 1
+      expect(lines.map { |line| visible_width(line.rstrip) }.max).to be <= 20
     end
 
     it "does not stretch inline-code background across markdown table cell padding" do

@@ -30,6 +30,7 @@ module Clacky
       @timer_thread    = nil
       @compress_thread = nil
       @mutex           = Mutex.new
+      @shutdown        = false
     end
 
     # Start (or restart) the idle timer.
@@ -37,24 +38,35 @@ module Clacky
     def start
       cancel # reset any existing timer
 
-      @timer_thread = Thread.new do
-        Thread.current.name = "idle-compression-timer"
-        sleep IDLE_DELAY
+      @mutex.synchronize do
+        return false if @shutdown
 
-        # Register @compress_thread inside the mutex BEFORE the thread starts running,
-        # so cancel() can always find and interrupt it even if it fires immediately.
-        compress_thread = nil
-        @mutex.synchronize do
-          compress_thread = Thread.new do
-            Thread.current.name = "idle-compression-work"
-            run_compression
+        @timer_thread = Thread.new do
+          Thread.current.name = "idle-compression-timer"
+          sleep IDLE_DELAY
+          next if shutdown?
+
+          # Register @compress_thread inside the mutex BEFORE the thread starts running,
+          # so cancel() can always find and interrupt it even if it fires immediately.
+          compress_thread = nil
+          @mutex.synchronize do
+            unless @shutdown
+              compress_thread = Thread.new do
+                Thread.current.name = "idle-compression-work"
+                run_compression
+              end
+              @compress_thread = compress_thread
+            end
           end
-          @compress_thread = compress_thread
-        end
 
-        compress_thread.join
-        @mutex.synchronize { @compress_thread = nil; @timer_thread = nil }
+          compress_thread&.join
+          @mutex.synchronize { @compress_thread = nil; @timer_thread = nil }
+        end
       end
+      true
+    rescue ThreadError => e
+      log("Idle compression timer could not start: #{e.message}", level: :debug)
+      false
     end
 
     # Cancel the timer and any in-progress compression.
@@ -79,6 +91,13 @@ module Clacky
       compress_thread_to_join&.join(5)
     end
 
+    # Permanently stop this timer. Used during application shutdown so
+    # background agent-thread ensure blocks cannot create new timer threads.
+    def shutdown
+      @mutex.synchronize { @shutdown = true }
+      cancel
+    end
+
     # True if the timer or compression is currently active.
     def active?
       @mutex.synchronize { @timer_thread&.alive? || @compress_thread&.alive? }
@@ -90,6 +109,10 @@ module Clacky
     # "exit the program".
     def compressing?
       @mutex.synchronize { @compress_thread&.alive? || false }
+    end
+
+    def shutdown?
+      @mutex.synchronize { @shutdown }
     end
 
     private def run_compression

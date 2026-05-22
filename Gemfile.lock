@@ -110,7 +110,7 @@ GEM
       prism (~> 1.7)
     ruby-progressbar (1.13.0)
     ruby2_keywords (0.0.5)
-    ruby_rich (0.4.3)
+    ruby_rich (0.4.4)
       redcarpet (~> 3.6.1)
       rouge (>= 3.14, < 4.0)
       tty-cursor (~> 0.7.1)
@@ -163,7 +163,7 @@ DEPENDENCIES
   redcarpet (~> 3.6)
   rspec (~> 3.0)
   rubocop (~> 1.21)
-  ruby_rich (~> 0.4.3)
+  ruby_rich (~> 0.4.4)
 
 CHECKSUMS
   artii (2.1.2) sha256=15410369690634fccf801fd95ae9762c3b2b7254e17a07e77a069e5cd292bc49
@@ -213,7 +213,7 @@ CHECKSUMS
   rubocop-ast (1.49.1) sha256=4412f3ee70f6fe4546cc489548e0f6fcf76cafcfa80fa03af67098ffed755035
   ruby-progressbar (1.13.0) sha256=80fc9c47a9b640d6834e0dc7b3c94c9df37f08cb072b7761e4a71e22cff29b33
   ruby2_keywords (0.0.5) sha256=ffd13740c573b7301cf7a2e61fc857b2a8e3d3aff32545d6f8300d8bae10e3ef
-  ruby_rich (0.4.3) sha256=ab5b42b76742188b897aca21c76b336f78c0477b84ac76b68751d57220046e55
+  ruby_rich (0.4.4) sha256=c91fa92d699c8e763d3e6dee0ba4982ec8df9409f62fbc5e1d618fcb614e3993
   rubyzip (2.4.1) sha256=8577c88edc1fde8935eb91064c5cb1aef9ad5494b940cf19c775ee833e075615
   stringio (3.2.0) sha256=c37cb2e58b4ffbd33fe5cd948c05934af997b36e0b6ca6fdf43afa234cf222e1
   strings (0.2.1) sha256=933293b3c95cf85b81eb44b3cf673e3087661ba739bbadfeadf442083158d6fb

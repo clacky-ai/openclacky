@@ -14,6 +14,6 @@ gem "rspec", "~> 3.0"
 gem "rubocop", "~> 1.21"
 gem "climate_control"
 
-gem "ruby_rich", "~> 0.4.3"
+gem "ruby_rich", "~> 0.4.4"
 
 gem "redcarpet", "~> 3.6"

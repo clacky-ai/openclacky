@@ -772,6 +772,7 @@ module Clacky
 
         # Track current working thread (agent or idle compression that can be interrupted)
         current_task_thread = nil
+        shutting_down = false
 
         # Idle compression timer - triggers compression after 180s of inactivity
         idle_timer = Clacky::IdleCompressionTimer.new(
@@ -830,6 +831,8 @@ module Clacky
             end
 
             # Stop UI and exit
+            shutting_down = true
+            idle_timer.shutdown
             ui_controller.stop(clear_screen: true)
             exit(0)
           end
@@ -881,6 +884,8 @@ module Clacky
             ui_controller.update_todos([])
             next
           when "/exit", "/quit"
+            shutting_down = true
+            idle_timer.shutdown
             ui_controller.stop(clear_screen: true)
             exit(0)
           when "/help"
@@ -923,7 +928,7 @@ module Clacky
             ensure
               current_task_thread = nil
               # Start idle timer after agent completes
-              idle_timer.start
+              idle_timer.start unless shutting_down
             end
           end
         end
@@ -942,7 +947,8 @@ module Clacky
         ui_controller.start_input_loop
 
         # Cleanup: kill any running threads
-        idle_timer.cancel
+        shutting_down = true
+        idle_timer.shutdown
         current_task_thread&.kill
 
         # Save final session state

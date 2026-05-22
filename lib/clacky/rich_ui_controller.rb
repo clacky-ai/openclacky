@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "json"
+require "uri"
 require_relative "ui_interface"
 require_relative "providers"
 require_relative "ui2/components/welcome_banner"
@@ -160,10 +161,98 @@ module RubyRich
 end
 
 module Clacky
+  class RichTodoSidebar
+    attr_accessor :width, :height
+    attr_reader :tasks
+
+    def initialize(tasks: [])
+      @tasks = tasks
+      @width = 0
+      @height = 0
+    end
+
+    def update_plan(_text)
+      self
+    end
+
+    def set_tasks(tasks)
+      @tasks = Array(tasks)
+      self
+    end
+
+    def add_task(label, status: :pending)
+      @tasks << { label: label, status: status }
+      self
+    end
+
+    def render
+      panel = RubyRich::Panel.new(render_tasks, title: "Todos", border_style: :blue, title_align: :left)
+      panel.width = @width
+      panel.height = @height
+      panel.render
+    end
+
+    private
+
+    def render_tasks
+      return muted("No active todos") if @tasks.empty?
+
+      @tasks.map do |task|
+        label = task_label(task)
+        status = task_status(task)
+        "#{status_marker(status)} #{label}"
+      end.join("\n")
+    end
+
+    def task_label(task)
+      case task
+      when Hash
+        (task[:label] ||
+          task["label"] ||
+          task[:title] ||
+          task["title"] ||
+          task[:content] ||
+          task["content"] ||
+          task[:task] ||
+          task["task"]).to_s
+      else
+        task.to_s
+      end
+    end
+
+    def task_status(task)
+      case task
+      when Hash
+        (task[:status] || task["status"] || :pending).to_sym
+      else
+        :pending
+      end
+    end
+
+    def status_marker(status)
+      case status
+      when :done, :completed
+        "#{RubyRich::AnsiCode.color(:green, true)}✓#{RubyRich::AnsiCode.reset}"
+      when :running, :in_progress, :active, :executing
+        "#{RubyRich::AnsiCode.color(:blue, true)}●#{RubyRich::AnsiCode.reset}"
+      when :failed, :error
+        "#{RubyRich::AnsiCode.color(:red, true)}!#{RubyRich::AnsiCode.reset}"
+      else
+        "#{RubyRich::AnsiCode.color(:black, true)}○#{RubyRich::AnsiCode.reset}"
+      end
+    end
+
+    def muted(text)
+      "#{RubyRich::AnsiCode.color(:black, true)}#{text}#{RubyRich::AnsiCode.reset}"
+    end
+  end
+
   class RichAgentShell < RubyRich::AgentShell
     private
 
     def build_layout
+      @sidebar = RichTodoSidebar.new
+      @viewport.instance_variable_set(:@scrollbar, false)
       root = RubyRich::Layout.new(name: :root)
       root.split_column(
         RubyRich::Layout.new(name: :header, size: 1),
@@ -173,11 +262,13 @@ module Clacky
       )
 
       root[:body].split_row(
-        RubyRich::Layout.new(name: :transcript, ratio: 1)
+        RubyRich::Layout.new(name: :transcript, ratio: 1),
+        RubyRich::Layout.new(name: :todos, size: 36)
       )
 
       root[:header].content = RubyRich::AppShell::HeaderView.new(self)
       root[:transcript].content = @viewport
+      root[:todos].content = @sidebar
       root[:composer].content = RubyRich::AppShell::FramedView.new(@composer, title: "Composer", theme: @theme) { @composer.focused? }
       root[:status].content = RubyRich::AppShell::StatusView.new(self)
       root
@@ -208,6 +299,10 @@ module Clacky
   # underneath. It is not the default UI yet.
   class RichUIController
     include Clacky::UIInterface
+
+    STREAMING_MARKDOWN_THRESHOLD = 240
+    STREAMING_MARKDOWN_CHUNK_SIZE = 6
+    STREAMING_MARKDOWN_DELAY = 0.03
 
     COMMANDS = [
       { label: "/clear", value: "/clear", description: "Clear output and restart session" },
@@ -243,9 +338,14 @@ module Clacky
       @total_cost = 0.0
       @running = false
       @tool_ids = []
+      @todo_items = []
+      @explicit_todo_cycle = false
+      @tool_activities = []
+      @tool_activity_by_id = {}
       @legacy_progress = {}
       @stdout_lines = []
       @callback_threads = []
+      @stream_threads = []
 
       wire_shell_callbacks
     end
@@ -315,18 +415,27 @@ module Clacky
 
     def show_assistant_message(content, files:)
       text = filter_thinking_tags(content)
-      add_conversation_markdown(text) unless text.nil? || text.strip.empty?
-      add_file_summary(files)
+      stream_thread = nil
+      stream_thread = add_conversation_markdown(text) unless text.nil? || text.strip.empty?
+      if stream_thread.is_a?(Thread)
+        add_file_summary_after(stream_thread, files)
+      else
+        add_file_summary(files)
+      end
     end
 
     def show_tool_call(name, args)
       id = @shell.start_tool_call(name: name.to_s, input: format_args(args), status: :running)
-      @tool_ids << id if id
+      if id
+        @tool_ids << id
+        track_tool_activity(id, tool_activity_label(name, args), :running)
+      end
     end
 
     def show_tool_result(result)
       if (id = @tool_ids.pop)
         @shell.finish_tool_call(id, status: :done, output: result.to_s)
+        update_tool_activity(id, :done)
       else
         @shell.add_markdown(result.to_s)
       end
@@ -340,6 +449,7 @@ module Clacky
       message = error.is_a?(Exception) ? error.message : error.to_s
       if (id = @tool_ids.pop)
         @shell.finish_tool_call(id, status: :error, output: message)
+        update_tool_activity(id, :error)
       else
         @shell.add_error_message(message)
       end
@@ -452,7 +562,9 @@ module Clacky
     end
 
     def update_todos(todos)
-      @shell.update_tasks(Array(todos).map { |todo| normalize_todo(todo) })
+      @todo_items = Array(todos).map { |todo| normalize_todo(todo) }
+      @explicit_todo_cycle = true
+      refresh_sidebar_tasks
     end
 
     def set_working_status
@@ -554,8 +666,130 @@ module Clacky
 
     private
 
+    def track_tool_activity(id, label, status)
+      activity = { id: id, label: label.to_s, status: status }
+      @tool_activities << activity
+      @tool_activities.shift while @tool_activities.length > 12
+      @tool_activity_by_id[id] = activity
+      refresh_sidebar_tasks
+    end
+
+    def update_tool_activity(id, status)
+      activity = @tool_activity_by_id[id]
+      return unless activity
+
+      activity[:status] = status
+      refresh_sidebar_tasks
+    end
+
+    def refresh_sidebar_tasks
+      tasks = if @todo_items.empty?
+        @explicit_todo_cycle ? [] : @tool_activities
+      else
+        @todo_items
+      end
+      @shell.update_tasks(tasks)
+    end
+
+    def reset_task_sidebar_tracking
+      @todo_items = []
+      @explicit_todo_cycle = false
+      @tool_activities = []
+      @tool_activity_by_id = {}
+      refresh_sidebar_tasks
+    end
+
+    def tool_activity_label(name, args)
+      tool_name = name.to_s
+      data = normalize_tool_args(args)
+
+      case tool_name
+      when "web_search"
+        query = data["query"].to_s
+        return tool_name if query.empty?
+
+        %(web_search("#{escape_tool_label(truncate_tool_label(query))}"))
+      when "web_fetch"
+        url = data["url"].to_s
+        return tool_name if url.empty?
+
+        "web_fetch(#{truncate_tool_label(tool_url_host(url))})"
+      else
+        compact = compact_tool_arg(data)
+        compact ? "#{tool_name}(#{compact})" : tool_name
+      end
+    end
+
+    def normalize_tool_args(args)
+      parsed = if args.is_a?(String)
+        JSON.parse(args)
+      else
+        args
+      end
+      return {} unless parsed.is_a?(Hash)
+
+      parsed.each_with_object({}) { |(key, value), hash| hash[key.to_s] = value }
+    rescue JSON::ParserError
+      {}
+    end
+
+    def compact_tool_arg(data)
+      key = %w[query url path file command pattern task].find { |candidate| data.key?(candidate) && !data[candidate].to_s.empty? }
+      return nil unless key
+
+      value = key == "url" ? tool_url_host(data[key].to_s) : data[key].to_s
+      escaped = escape_tool_label(truncate_tool_label(value))
+      value.match?(/\A[\w.-]+\z/) ? escaped : %("#{escaped}")
+    end
+
+    def tool_url_host(url)
+      URI.parse(url).host || url
+    rescue URI::InvalidURIError
+      url
+    end
+
+    def truncate_tool_label(text, limit = 40)
+      chars = text.to_s.each_char.to_a
+      return text.to_s if chars.length <= limit
+
+      "#{chars.first(limit - 3).join}..."
+    end
+
+    def escape_tool_label(text)
+      text.to_s.gsub("\\", "\\\\\\").gsub('"', '\"')
+    end
+
     def add_conversation_markdown(text)
-      @shell.add_markdown(normalize_markdown_for_terminal(text))
+      markdown = normalize_markdown_for_terminal(text)
+      return @shell.add_markdown(markdown) unless stream_markdown?(markdown)
+
+      id = @shell.add_markdown("", streaming: true)
+      return @shell.add_markdown(markdown) unless id
+
+      thread = Thread.new do
+        markdown.each_char.each_slice(STREAMING_MARKDOWN_CHUNK_SIZE) do |chars|
+          @shell.append_to_message(id, chars.join)
+          sleep(STREAMING_MARKDOWN_DELAY)
+        end
+      end
+      @stream_threads << thread
+      @stream_threads.reject! { |item| !item.alive? }
+      thread
+    end
+
+    def stream_markdown?(text)
+      text.length >= STREAMING_MARKDOWN_THRESHOLD
+    end
+
+    def add_file_summary_after(stream_thread, files)
+      return if Array(files).empty?
+
+      thread = Thread.new do
+        stream_thread.join
+        add_file_summary(files)
+      end
+      @stream_threads << thread
+      @stream_threads.reject! { |item| !item.alive? }
     end
 
     def add_plain_block(text)
@@ -597,6 +831,7 @@ module Clacky
 
     def wire_shell_callbacks
       @shell.on_submit do |text, attachments|
+        reset_task_sidebar_tracking
         files = Array(attachments).map { |attachment| attachment.respond_to?(:to_h) ? attachment.to_h : attachment }
         @shell.add_user_message(text)
         run_callback_async { @input_callback&.call(text, files, display: text) }
@@ -825,9 +1060,9 @@ module Clacky
       when Hash
         title = todo[:content] || todo["content"] || todo[:title] || todo["title"] || todo[:task] || todo["task"]
         status = todo[:status] || todo["status"] || :pending
-        { title: title.to_s, status: status.to_sym }
+        { label: title.to_s, title: title.to_s, status: status.to_sym }
       else
-        { title: todo.to_s, status: :pending }
+        { label: todo.to_s, title: todo.to_s, status: :pending }
       end
     end
 
