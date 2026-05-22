@@ -119,6 +119,17 @@
           </div>
         </div>
 
+        <!-- Cron view header (hidden by default, shown when viewing cron sessions) -->
+        <div id="cron-view-header" class="sidebar-divider" style="display:none">
+          <button id="btn-cron-back" class="btn-icon-sm" title="Back" aria-label="Back to session list">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M10 3L5 8l5 5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </button>
+          <span data-i18n="sessions.cronGroup">Scheduled Tasks</span>
+          <span></span><!-- spacer -->
+        </div>
+
         <!-- Unified session list (all sources + profiles, newest first) -->
         <div id="session-list"></div>
         <!-- Load more button rendered dynamically by Sessions.renderList() -->

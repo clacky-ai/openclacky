@@ -285,6 +285,12 @@ module Clacky
 
       public
 
+      # Count all cron sessions on disk (not filtered by pagination).
+      def cron_count
+        return 0 unless @session_manager
+        @session_manager.all_sessions.count { |s| s_source(s) == "cron" }
+      end
+
       # Delete a session from registry (and interrupt its thread).
       def delete(session_id)
         @mutex.synchronize do
