@@ -386,7 +386,7 @@ module Clacky
         json_path = File.join(sessions_dir, filename)
         return false unless File.exist?(json_path)
 
-        trash_dir = Clacky::TrashDirectory::SESSIONS_TRASH_DIR
+        trash_dir = Clacky::TrashDirectory.sessions_trash_dir
         FileUtils.mkdir_p(trash_dir)
 
         # Stamp deleted_at before moving so the API can show when it was trashed
@@ -406,7 +406,7 @@ module Clacky
 
       # Restore a soft-deleted session back to the active sessions directory.
       def self.restore_session(session_id, sessions_dir:)
-        trash_dir = Clacky::TrashDirectory::SESSIONS_TRASH_DIR
+        trash_dir = Clacky::TrashDirectory.sessions_trash_dir
         return false unless Dir.exist?(trash_dir)
 
         sm      = Clacky::SessionManager.new(sessions_dir: sessions_dir)
@@ -432,7 +432,7 @@ module Clacky
 
       # List all soft-deleted sessions (newest-first), each enriched with file_size.
       def self.list_trash_sessions(sessions_dir:)
-        trash_dir = Clacky::TrashDirectory::SESSIONS_TRASH_DIR
+        trash_dir = Clacky::TrashDirectory.sessions_trash_dir
         return [] unless Dir.exist?(trash_dir)
 
         sm = Clacky::SessionManager.new(sessions_dir: sessions_dir)
@@ -441,7 +441,7 @@ module Clacky
 
       # Permanently delete one session from the trash — cannot be undone.
       def self.permanent_delete_trash_session(session_id, sessions_dir:)
-        trash_dir = Clacky::TrashDirectory::SESSIONS_TRASH_DIR
+        trash_dir = Clacky::TrashDirectory.sessions_trash_dir
         return false unless Dir.exist?(trash_dir)
 
         sm      = Clacky::SessionManager.new(sessions_dir: sessions_dir)
@@ -459,7 +459,7 @@ module Clacky
       # Permanently delete all sessions in the trash, or only those older than
       # :days days. Returns the count of permanently deleted sessions.
       def self.empty_trash_sessions(sessions_dir:, days: nil)
-        trash_dir = Clacky::TrashDirectory::SESSIONS_TRASH_DIR
+        trash_dir = Clacky::TrashDirectory.sessions_trash_dir
         return 0 unless Dir.exist?(trash_dir)
 
         sm      = Clacky::SessionManager.new(sessions_dir: sessions_dir)
@@ -485,7 +485,7 @@ module Clacky
       # ── private class helper ──────────────────────────────────────────
 
       def self._trash_sessions(sm)
-        trash_dir = Clacky::TrashDirectory::SESSIONS_TRASH_DIR
+        trash_dir = Clacky::TrashDirectory.sessions_trash_dir
         Dir.glob(File.join(trash_dir, "*.json")).filter_map do |filepath|
           session = sm.send(:load_session_file, filepath)
           next nil unless session
