@@ -545,6 +545,13 @@
           <p class="channels-page-subtitle" data-i18n="trash.subtitle">Files the agent moved to trash across all projects. Recall them back to where they were, or clear the ones you don't need.</p>
         </div>
 
+        <div id="trash-tabs">
+          <div class="trash-tabs-left">
+            <button class="trash-tab active" data-tab="file-trash" id="tab-file-trash" data-i18n="trash.tabFile">文件回收</button>
+            <button class="trash-tab" data-tab="session-trash" id="tab-session-trash" data-i18n="trash.tabSession">会话回收</button>
+          </div>
+        </div>
+
         <div class="trash-toolbar">
           <span class="trash-summary" id="trash-summary"></span>
           <div class="trash-actions">
@@ -580,7 +587,13 @@
           </div>
         </div>
 
-        <div id="trash-list"></div>
+        <div id="trash-tab-file" class="trash-tab-content">
+          <div id="trash-list"></div>
+        </div>
+
+        <div id="trash-tab-session" class="trash-tab-content" style="display:none">
+          <div id="trash-session-list"></div>
+        </div>
       </div>
     </div>
 

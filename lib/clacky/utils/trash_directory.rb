@@ -7,7 +7,7 @@ module Clacky
   # Manages global trash directory at ~/.clacky/trash
   # Organizes trash by project directory using path hash
   class TrashDirectory
-    GLOBAL_TRASH_ROOT = File.join(Dir.home, ".clacky", "trash")
+    GLOBAL_TRASH_ROOT = File.join(Dir.home, ".clacky", "trash", "file-trash")
 
     attr_reader :project_root, :trash_dir, :backup_dir
 
@@ -61,6 +61,26 @@ module Clacky
     rescue StandardError => e
       # Log warning but don't block operation
       warn "Warning: Could not create project metadata: #{e.message}"
+    end
+
+    # ── Legacy migration ──────────────────────────────────────────────
+
+    OLD_TRASH_ROOT = File.join(Dir.home, ".clacky", "trash")
+
+    # One-time: move pre-file-trash project hash dirs from ~/.clacky/trash/
+    # into the new file-trash/ subdirectory. Safe to call on every boot.
+    def self.migrate_legacy_if_needed
+      return unless Dir.exist?(OLD_TRASH_ROOT)
+
+      FileUtils.mkdir_p(GLOBAL_TRASH_ROOT)
+
+      Dir.glob(File.join(OLD_TRASH_ROOT, "*")).each do |entry|
+        basename = File.basename(entry)
+        next if %w[file-trash sessions-trash].include?(basename)
+        next if File.directory?(File.join(GLOBAL_TRASH_ROOT, basename))
+
+        FileUtils.mv(entry, GLOBAL_TRASH_ROOT)
+      end
     end
 
     # Get all project directories that have trash

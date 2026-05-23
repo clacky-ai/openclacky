@@ -201,6 +201,9 @@ module Clacky
       end
 
       def start
+        # One-time migration: move legacy trash contents into file-trash/ subdirectory.
+        Clacky::TrashDirectory.migrate_legacy_if_needed
+
         # Enable console logging for the server process so log lines are visible in the terminal.
         Clacky::Logger.console = true
 
@@ -400,6 +403,9 @@ module Clacky
         when ["GET",    "/api/trash"]     then api_trash(req, res)
         when ["POST",   "/api/trash/restore"] then api_trash_restore(req, res)
         when ["DELETE", "/api/trash"]     then api_trash_delete(req, res)
+        when ["GET",    "/api/trash/sessions"]     then api_trash_sessions(req, res)
+        when ["POST",   "/api/trash/sessions/restore"] then api_trash_session_restore(req, res)
+        when ["DELETE", "/api/trash/sessions"]     then api_trash_sessions_delete(req, res)
         when ["GET",    "/api/profile"]   then api_profile_get(res)
         when ["PUT",    "/api/profile"]   then api_profile_put(req, res)
         when ["GET",    "/api/memories"]  then api_memories_list(res)
@@ -460,6 +466,9 @@ module Clacky
           elsif method == "DELETE" && path.start_with?("/api/sessions/")
             session_id = path.sub("/api/sessions/", "")
             api_delete_session(session_id, res)
+          elsif method == "DELETE" && path.match?(%r{^/api/trash/sessions/[^/]+$})
+            session_id = path.sub("/api/trash/sessions/", "")
+            api_trash_session_delete_one(session_id, res)
           elsif method == "POST" && path.match?(%r{^/api/config/models/[^/]+/default$})
             id = path.sub("/api/config/models/", "").sub("/default", "")
             api_set_default_model(id, res)
@@ -2306,6 +2315,87 @@ module Clacky
         })
       end
 
+      # ── Session trash endpoints ──────────────────────────────────────
+
+      # GET /api/trash/sessions
+      # Lists all soft-deleted sessions in the session trash directory.
+      private def api_trash_sessions(_req, res)
+        sessions = @session_manager.list_trash_sessions
+
+        result = sessions.map do |s|
+          {
+            session_id:  s[:session_id],
+            name:        s[:name] || s[:title] || s[:session_id],
+            created_at:  s[:created_at],
+            updated_at:  s[:updated_at],
+            deleted_at:  s[:deleted_at],
+            total_tasks: s.dig(:stats, :total_tasks) || 0,
+            file_size:   s[:file_size] || 0,
+            model:       s[:model],
+            working_dir: s[:working_dir]
+          }
+        end
+
+        total_size = result.sum { |s| s[:file_size] }
+
+        json_response(res, 200, {
+          ok:         true,
+          sessions:   result,
+          count:      result.size,
+          total_size: total_size
+        })
+      end
+
+      # POST /api/trash/sessions/restore
+      # Body: { session_id: "..." }
+      # Restores a soft-deleted session back to the active sessions list.
+      private def api_trash_session_restore(req, res)
+        data       = parse_json_body(req)
+        session_id = data["session_id"].to_s.strip
+
+        if session_id.empty?
+          json_response(res, 400, { ok: false, error: "session_id is required" })
+          return
+        end
+
+        unless @session_manager.restore_session(session_id)
+          json_response(res, 404, { ok: false, error: "Session not found in trash: #{session_id}" })
+          return
+        end
+
+        # Broadcast restored event so the sidebar refreshes
+        broadcast(session_id, { type: "session_restored", session_id: session_id })
+
+        json_response(res, 200, { ok: true, session_id: session_id })
+      end
+
+      # DELETE /api/trash/sessions/:id
+      # Permanently delete a single session from the trash.
+      private def api_trash_session_delete_one(session_id, res)
+        unless @session_manager.permanent_delete_trash_session(session_id)
+          json_response(res, 404, { ok: false, error: "Session not found in trash: #{session_id}" })
+          return
+        end
+
+        json_response(res, 200, { ok: true, session_id: session_id })
+      end
+
+      # DELETE /api/trash/sessions?days_old=N
+      # Bulk: permanently delete sessions older than N days (default: 7).
+      private def api_trash_sessions_delete(req, res)
+        query    = URI.decode_www_form(req.query_string.to_s).to_h
+        days_old = query["days_old"].to_s.strip
+        days_i   = days_old.empty? ? 7 : days_old.to_i
+
+        deleted = @session_manager.cleanup_trash(days: days_i)
+
+        json_response(res, 200, {
+          ok:            true,
+          deleted_count: deleted,
+          days_old:      days_i
+        })
+      end
+
       # ── Trash helpers (private) ─────────────────────────────────────
       # Reads all metadata sidecars in `trash_dir` and returns enriched
       # file records. Silently skips sidecars whose payload file has
@@ -3239,8 +3329,8 @@ module Clacky
         # fine and no longer blocks the disk cleanup below.
         @registry.delete(session_id) if in_registry
 
-        # Always physically remove the persisted session file (+ chunks).
-        @session_manager.delete(session_id) if on_disk
+        # Soft-delete: move session to trash instead of permanently destroying it.
+        @session_manager.soft_delete(session_id) if on_disk
 
         # Notify any still-connected clients (mainly matters when the
         # session was live, but harmless otherwise).
