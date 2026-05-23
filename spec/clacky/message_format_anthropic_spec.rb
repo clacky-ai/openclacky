@@ -3,6 +3,65 @@
 require "spec_helper"
 
 RSpec.describe Clacky::MessageFormat::Anthropic do
+  describe ".parse_response" do
+    it "extracts text content from response blocks" do
+      data = {
+        "content" => [
+          { "type" => "text", "text" => "Hello world" }
+        ],
+        "usage" => { "input_tokens" => 10, "output_tokens" => 5 },
+        "stop_reason" => "end_turn"
+      }
+
+      result = described_class.parse_response(data)
+      expect(result[:content]).to eq("Hello world")
+      expect(result[:reasoning_content]).to be_nil
+    end
+
+    it "extracts thinking blocks as reasoning_content" do
+      data = {
+        "content" => [
+          { "type" => "thinking", "thinking" => "Let me analyze this..." },
+          { "type" => "text", "text" => "The answer is 42." }
+        ],
+        "usage" => { "input_tokens" => 10, "output_tokens" => 15 },
+        "stop_reason" => "end_turn"
+      }
+
+      result = described_class.parse_response(data)
+      expect(result[:content]).to eq("The answer is 42.")
+      expect(result[:reasoning_content]).to eq("Let me analyze this...")
+    end
+
+    it "joins multiple thinking blocks" do
+      data = {
+        "content" => [
+          { "type" => "thinking", "thinking" => "First thought." },
+          { "type" => "thinking", "thinking" => "Second thought." },
+          { "type" => "text", "text" => "Done." }
+        ],
+        "usage" => { "input_tokens" => 5, "output_tokens" => 10 },
+        "stop_reason" => "end_turn"
+      }
+
+      result = described_class.parse_response(data)
+      expect(result[:reasoning_content]).to eq("First thought.Second thought.")
+    end
+
+    it "omits reasoning_content when no thinking blocks present" do
+      data = {
+        "content" => [
+          { "type" => "text", "text" => "Just text." }
+        ],
+        "usage" => { "input_tokens" => 5, "output_tokens" => 3 },
+        "stop_reason" => "end_turn"
+      }
+
+      result = described_class.parse_response(data)
+      expect(result).not_to have_key(:reasoning_content)
+    end
+  end
+
   describe ".build_request_body" do
     let(:model) { "claude-sonnet-4" }
     let(:tools) { [] }

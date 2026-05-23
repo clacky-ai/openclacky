@@ -89,6 +89,8 @@ module Clacky
               JSON.parse(b[:input_str]) rescue b[:input_str]
             end
           { "type" => "tool_use", "id" => b[:id], "name" => b[:name], "input" => input_value }
+        when :thinking
+          { "type" => "thinking", "thinking" => b[:thinking].to_s }
         else
           { "type" => "text", "text" => b[:text].to_s }
         end

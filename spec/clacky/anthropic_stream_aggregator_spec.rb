@@ -76,6 +76,38 @@ RSpec.describe Clacky::AnthropicStreamAggregator do
     expect(parsed[:usage][:cache_read_input_tokens]).to eq(50)
   end
 
+  it "assembles thinking blocks into the response" do
+    agg = described_class.new
+
+    agg.handle("content_block_start", {
+      index: 0, content_block: { type: "thinking", thinking: "" }
+    }.to_json)
+    agg.handle("content_block_delta", {
+      index: 0, delta: { type: "thinking_delta", thinking: "Let me think" }
+    }.to_json)
+    agg.handle("content_block_delta", {
+      index: 0, delta: { type: "thinking_delta", thinking: " about this..." }
+    }.to_json)
+    agg.handle("content_block_stop", { index: 0 }.to_json)
+    agg.handle("content_block_start", {
+      index: 1, content_block: { type: "text", text: "" }
+    }.to_json)
+    agg.handle("content_block_delta", {
+      index: 1, delta: { type: "text_delta", text: "Hello!" }
+    }.to_json)
+    agg.handle("content_block_stop", { index: 1 }.to_json)
+
+    result = agg.to_h
+    expect(result["content"]).to eq([
+      { "type" => "thinking", "thinking" => "Let me think about this..." },
+      { "type" => "text", "text" => "Hello!" }
+    ])
+
+    parsed = Clacky::MessageFormat::Anthropic.parse_response(result)
+    expect(parsed[:reasoning_content]).to eq("Let me think about this...")
+    expect(parsed[:content]).to eq("Hello!")
+  end
+
   it "ignores ping events and unparseable payloads" do
     agg = described_class.new
     expect { agg.handle("ping", {}.to_json) }.not_to raise_error

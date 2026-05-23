@@ -90,6 +90,8 @@ module Clacky
 
         content = blocks.select { |b| b["type"] == "text" }.map { |b| b["text"] }.join("")
 
+        reasoning_content = blocks.select { |b| b["type"] == "thinking" }.map { |b| b["thinking"] }.join("")
+
         # tool_calls use canonical format (id, function: {name, arguments})
         tool_calls = blocks.select { |b| b["type"] == "tool_use" }.map do |tc|
           args = tc["input"].is_a?(String) ? tc["input"] : tc["input"].to_json
@@ -151,8 +153,12 @@ module Clacky
         usage_data[:cache_read_input_tokens]     = cache_read     if cache_read     > 0
         usage_data[:cache_creation_input_tokens] = cache_creation if cache_creation > 0
 
-        { content: content, tool_calls: tool_calls, finish_reason: finish_reason,
-          usage: usage_data, raw_api_usage: usage }
+        result = {
+          content: content, tool_calls: tool_calls, finish_reason: finish_reason,
+          usage: usage_data, raw_api_usage: usage
+        }
+        result[:reasoning_content] = reasoning_content unless reasoning_content.empty?
+        result
       end
 
       # ── Tool result formatting ────────────────────────────────────────────────
