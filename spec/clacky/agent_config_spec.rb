@@ -1075,6 +1075,53 @@ RSpec.describe Clacky::AgentConfig do
     end
   end
 
+  # ─────────────────────────────────────────────────────────────────────────
+  # default_working_dir
+  # ─────────────────────────────────────────────────────────────────────────
+  describe "#default_working_dir" do
+    it "returns nil by default (no config, no env)" do
+      with_env("CLACKY_WORKSPACE_DIR" => nil) do
+        config = described_class.new
+        expect(config.default_working_dir).to be_nil
+      end
+    end
+
+    it "reads from CLACKY_WORKSPACE_DIR env var" do
+      with_env("CLACKY_WORKSPACE_DIR" => "/tmp/custom-workspace") do
+        config = described_class.new
+        expect(config.default_working_dir).to eq("/tmp/custom-workspace")
+      end
+    end
+
+    it "reads from options hash" do
+      config = described_class.new(default_working_dir: "/opt/workspace")
+      expect(config.default_working_dir).to eq("/opt/workspace")
+    end
+
+    it "loads from config.yml settings" do
+      with_env("CLACKY_WORKSPACE_DIR" => nil) do
+        with_temp_config({
+          "settings" => {
+            "default_working_dir" => "/home/user/projects"
+          }
+        }) do |config_file|
+          config = described_class.load(config_file)
+          expect(config.default_working_dir).to eq("/home/user/projects")
+        end
+      end
+    end
+
+    it "persists via save/load roundtrip" do
+      with_temp_config do |config_file|
+        config = described_class.new(default_working_dir: "/persist/test")
+        config.save(config_file)
+
+        reloaded = described_class.load(config_file)
+        expect(reloaded.default_working_dir).to eq("/persist/test")
+      end
+    end
+  end
+
   # Helper to set environment variables temporarily
   def with_env(vars)
     old_values = {}
