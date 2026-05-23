@@ -214,10 +214,17 @@ module Clacky
 
         old_files.each do |file|
           begin
-            File.delete(file[:trash_file]) if File.exist?(file[:trash_file])
+            if File.exist?(file[:trash_file])
+              if File.directory?(file[:trash_file])
+                freed_size += _dir_size(file[:trash_file])
+                FileUtils.rm_rf(file[:trash_file])
+              else
+                freed_size += File.size(file[:trash_file])
+                File.delete(file[:trash_file])
+              end
+              deleted_count += 1
+            end
             File.delete("#{file[:trash_file]}.metadata.json") if File.exist?("#{file[:trash_file]}.metadata.json")
-            deleted_count += 1
-            freed_size += file[:file_size] || 0
           rescue StandardError => e
             # Continue processing other files, but log the error
           end
@@ -295,6 +302,16 @@ module Clacky
         end
 
         deleted_files.sort_by { |f| f[:deleted_at] }.reverse
+      end
+
+      private def _dir_size(dir)
+        total = 0
+        Find.find(dir) do |path|
+          total += File.size(path) if File.file?(path)
+        end
+        total
+      rescue StandardError
+        0
       end
 
       def format_bytes(bytes)
