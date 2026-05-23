@@ -125,6 +125,16 @@ module Clacky
     def set_working_status; end
     def set_idle_status; end
 
+    # Broadcast the count of user messages currently sitting in @inbox waiting
+    # for the next iteration-boundary drain. Web renders a small "{{n}} messages
+    # waiting" hint above the input. Emitted by Agent on two occasions:
+    #   - enqueue_user_message returned :running (msg will wait behind an in-flight run)
+    #   - drain_inbox_into_history! consumed items (count typically drops to 0)
+    # CLI / JSON / channel UIs no-op by default.
+    #
+    # @param pending [Integer] number of user_msg items still queued
+    def update_user_message_queue_status(pending: 0); end
+
     # === Blocking interaction ===
     def request_confirmation(message, default: true); end
 

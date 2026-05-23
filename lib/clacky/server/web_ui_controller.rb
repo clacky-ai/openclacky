@@ -344,6 +344,10 @@ module Clacky
         forward_to_subscribers { |sub| sub.set_idle_status }
       end
 
+      def update_user_message_queue_status(pending: 0)
+        emit("user_message_queue_status", pending: pending.to_i)
+      end
+
       # === Blocking interaction ===
       # Emits a request_confirmation event and blocks until the browser responds.
       # Timeout after 5 minutes to avoid hanging threads forever.

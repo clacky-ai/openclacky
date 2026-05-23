@@ -367,6 +367,10 @@
         </div>
         <!-- Image preview strip (hidden when empty) -->
         <div id="image-preview-strip" style="display:none"></div>
+        <!-- "N messages waiting" hint — only visible when the agent has
+             pending user messages it'll drain at the next iteration boundary -->
+        <div id="input-queue-hint" class="input-queue-hint" style="display:none"
+             role="status" aria-live="polite"></div>
         <div id="input-bar">
           <!-- Hidden file picker -->
           <input type="file" id="image-file-input" accept="image/png,image/jpeg,image/gif,image/webp,application/pdf,application/zip,application/x-zip-compressed,application/gzip,application/x-gzip,application/x-tar,application/x-compressed-tar,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/msword,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.presentationml.presentation,application/vnd.ms-powerpoint,text/csv,application/csv,text/markdown,text/plain,.csv,.md,.markdown,.txt,.log,.tar,.gz,.tgz,.tar.gz" multiple style="display:none">

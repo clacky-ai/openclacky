@@ -1666,6 +1666,26 @@ body {
 [data-theme="dark"] .msg-user { background: var(--color-accent-hover); }
 .msg-assistant { background: var(--color-bg-tertiary); border: 1px solid var(--color-border-primary); align-self: flex-start; }
 
+/* Pending user message — ghost state shown while agent is busy */
+.msg-pending {
+  opacity: 0.55;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+}
+.msg-pending-spinner {
+  display: inline-block;
+  width: 12px; height: 12px;
+  margin-left: 8px;
+  border: 2px solid var(--color-button-primary-text);
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: pending-spin 0.6s linear infinite;
+  vertical-align: middle;
+}
+@keyframes pending-spin {
+  to { transform: rotate(360deg); }
+}
+
 /* ── Copy button on assistant messages ────────────────────────────────────
    Hidden by default, revealed on bubble hover (same pattern as .msg-time).
    On touch devices (hover: none) we keep the button visible at low opacity
@@ -3001,6 +3021,28 @@ body {
 }
 
 /* ── Input bar ───────────────────────────────────────────────────────────── */
+
+/* "N messages waiting" hint shown above input bar while agent is running.
+   Rendered on demand (inbox); hidden when count hits zero. */
+.input-queue-hint {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 6px 0;
+  padding: 6px 12px;
+  background: var(--color-bg-secondary, rgba(120, 120, 120, 0.06));
+  border-left: 3px solid #f59e0b;
+  border-radius: 4px;
+  font-size: 12.5px;
+  color: var(--color-text-secondary);
+  user-select: none;
+}
+.input-queue-hint::before {
+  content: "⏳";
+  font-size: 13px;
+  opacity: 0.8;
+}
+
 #input-bar {
   margin-top: auto;
   margin-bottom: auto;

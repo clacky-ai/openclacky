@@ -3435,6 +3435,10 @@ module Clacky
 
       def on_ws_message(conn, raw)
         msg = JSON.parse(raw)
+        unless msg.is_a?(Hash)
+          Clacky::Logger.warn("[on_ws_message] Ignoring non-Hash message: #{raw[0,200].inspect}")
+          return
+        end
         type = msg["type"]
 
         case type
@@ -3509,9 +3513,12 @@ module Clacky
       def handle_user_message(session_id, content, files = [])
         return unless @registry.exist?(session_id)
 
-        session = @registry.get(session_id)
-        
+        agent = nil
+        @registry.with_session(session_id) { |s| agent = s[:agent] }
+        return unless agent
+
         # If session is running, interrupt it first (mimics CLI behavior)
+        session = @registry.get(session_id)
         if session[:status] == :running
           interrupt_session(session_id)
 
@@ -3526,10 +3533,6 @@ module Clacky
           old_thread&.join(2)
         end
 
-        agent = nil
-        @registry.with_session(session_id) { |s| agent = s[:agent] }
-        return unless agent
-
         # Auto-name the session from the first user message (before agent starts running).
         # Skip if the name looks like it was set by the user (not a system-generated "Session N").
         if agent.history.empty? && agent.name.match?(/\ASession \d+\z/)
@@ -3539,14 +3542,26 @@ module Clacky
           broadcast(session_id, { type: "session_renamed", session_id: session_id, name: auto_name })
         end
 
-        # Broadcast user message through web_ui so channel subscribers (飞书/企微) receive it.
-        web_ui = nil
-        @registry.with_session(session_id) { |s| web_ui = s[:ui] }
-        web_ui&.show_user_message(content, source: :web)
+        # The frontend always renders a ghost bubble on send. The real
+        # bubble is rendered by the agent when it drains the inbox —
+        # this avoids duplicate bubbles for idle agents.
 
-        # File references are now handled inside agent.run — injected as a system_injected
-        # message after the user message, so replay_history skips them automatically.
-        run_agent_task(session_id, agent) { agent.run(content, files: files) }
+        # Enqueue — files (if any) are processed eagerly on this HTTP thread
+        # inside enqueue_user_message, so the inbox carries a fully-formed
+        # payload by the time it lands. The agent decides whether to drain
+        # in an in-flight run or spawn a fresh drain-only one.
+        decision = agent.enqueue_user_message(content, files: files)
+        case decision
+        when :running, :spawn_pending
+          # Existing or imminent run will drain the inbox at its next
+          # iteration. Nothing more to do here.
+          return
+        when :spawn
+          # Agent was idle and we won the right to spawn. Kick off a
+          # drain-only run; it will pick up our queued message (and any
+          # other items queued concurrently) at iteration top.
+          run_agent_task(session_id, agent) { agent.run }
+        end
       end
 
       def deliver_confirmation(session_id, conf_id, result)
@@ -3580,19 +3595,25 @@ module Clacky
       # fire — that's our signal to dig deeper on the underlying block.
       def interrupt_session(session_id)
         thread = nil
+        agent  = nil
         @registry.with_session(session_id) do |s|
           s[:idle_timer]&.cancel
           thread = s[:thread]
+          agent  = s[:agent]
 
-          next unless thread&.alive?
-
-          Clacky::Logger.info("[interrupt] session=#{session_id} tier=1 raise")
-          begin
-            thread.raise(Clacky::AgentInterrupted, "Interrupted by user")
-          rescue ThreadError => e
-            Clacky::Logger.warn("[interrupt] tier=1 raise failed: #{e.message}")
+          if thread&.alive?
+            Clacky::Logger.info("[interrupt] session=#{session_id} tier=1 raise")
+            begin
+              thread.raise(Clacky::AgentInterrupted, "Interrupted by user")
+            rescue ThreadError => e
+              Clacky::Logger.warn("[interrupt] tier=1 raise failed: #{e.message}")
+            end
           end
         end
+
+        # Also set @discard_threshold + raise into Agent's tracked run thread.
+        # This covers drain-only inbox runs that may bypass session[:thread].
+        agent&.interrupt_current_run!
 
         return unless thread&.alive?
 
@@ -3722,10 +3743,18 @@ module Clacky
         broadcast_session_update(session_id)
 
         thread = Thread.new do
-          task.call
+          result = task.call
           @registry.update(session_id, status: :idle, error: nil)
           broadcast_session_update(session_id)
           @session_manager.save(agent.to_session_data(status: :success))
+
+          # If the agent run left user messages in the inbox, spawn a
+          # registered drain-only run so they are processed under the same
+          # interrupt / idle-timer lifecycle as any other task.
+          if result.is_a?(Clacky::RunResult) && result.inbox_needs_follow_up
+            run_agent_task(session_id, agent) { agent.run }
+          end
+
           # Start idle compression timer now that the agent is idle
           idle_timer&.start
         rescue Clacky::AgentInterrupted

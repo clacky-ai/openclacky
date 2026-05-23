@@ -66,8 +66,8 @@ RSpec.describe Clacky::Agent do
     it "executes Think-Act-Observe loop" do
       result = agent.run("Calculate 1+1")
 
-      expect(result[:status]).to eq(:success)
-      expect(result[:iterations]).to be > 0
+      expect(result.status).to eq(:success)
+      expect(result.iterations).to be > 0
       expect(client).to have_received(:send_messages_with_tools).at_least(:once)
     end
 
@@ -81,7 +81,132 @@ RSpec.describe Clacky::Agent do
       expect(agent.total_cost).to be > 0
     end
 
+    it "returns a RunResult with inbox_needs_follow_up false when no pending messages" do
+      allow(client).to receive(:send_messages_with_tools)
+        .and_return(mock_api_response(content: "done"))
 
+      result = agent.run("test")
+      expect(result).to be_a(Clacky::RunResult)
+      expect(result.status).to eq(:success)
+      expect(result.inbox_needs_follow_up).to be false
+    end
+
+    it "returns a RunResult with inbox_needs_follow_up false when inbox was drained during run" do
+      # Enqueueing during a run triggers a next iteration that drains + processes it.
+      # When the LLM responds "done" after that, inbox_needs_follow_up should be false
+      # because the follow-up was fully consumed.
+      call_count = 0
+      allow(client).to receive(:send_messages_with_tools) do
+        call_count += 1
+        if call_count == 1
+          agent.enqueue_user_message("follow up")
+        end
+        mock_api_response(content: "done")
+      end
+
+      result = agent.run("test")
+      expect(result.status).to eq(:success)
+      expect(result.inbox_needs_follow_up).to be false
+    end
+  end
+
+  describe "#enqueue_user_message" do
+    before do
+      allow(client).to receive(:send_messages_with_tools)
+        .and_return(mock_api_response(content: "done"))
+    end
+
+    it "adds message to inbox and returns :spawn when agent is idle" do
+      result = agent.enqueue_user_message("hello")
+      expect(result).to eq(:spawn)
+      inbox = agent.instance_variable_get(:@inbox)
+      expect(inbox.size).to eq(1)
+      expect(inbox.first[:content]).to eq("hello")
+    end
+
+    it "returns :running when agent is in run loop" do
+      # Use a mutex/condition variable to synchronize with the running thread
+      mutex = Mutex.new
+      cv = ConditionVariable.new
+      in_run_loop = false
+
+      allow(client).to receive(:send_messages_with_tools) do
+        mutex.synchronize do
+          in_run_loop = true
+          cv.broadcast
+        end
+        # Block until test signals us to continue
+        mutex.synchronize do
+          cv.wait(mutex, 5) unless in_run_loop == :continue
+        end
+        mock_api_response(content: "done")
+      end
+
+      thread = Thread.new { agent.run("block") }
+
+      # Wait for run to enter the loop
+      mutex.synchronize do
+        cv.wait(mutex, 5) until in_run_loop
+      end
+
+      result = agent.enqueue_user_message("queued")
+      expect(result).to eq(:running)
+
+      # Signal the run thread to continue
+      mutex.synchronize do
+        in_run_loop = :continue
+        cv.broadcast
+      end
+      thread.join(5)
+    end
+
+    it "returns :spawn_pending when another enqueue already triggered spawn" do
+      agent.enqueue_user_message("first")
+      result = agent.enqueue_user_message("second")
+      expect(result).to eq(:spawn_pending)
+    end
+
+    it "drains inbox into history during run" do
+      agent.enqueue_user_message("queued message")
+      result = agent.run("direct message")
+
+      history = agent.history.to_a
+      user_msgs = history.select { |m| m[:role] == "user" }
+      contents = user_msgs.map { |m| m[:content] }
+
+      expect(contents).to include("queued message")
+      expect(contents).to include("direct message")
+      expect(agent.instance_variable_get(:@inbox)).to be_empty
+    end
+
+    it "recovers inbox items when drain_inbox_into_history! raises" do
+      agent.enqueue_user_message("msg1")
+      agent.enqueue_user_message("msg2")
+
+      # Force an error during drain by making @ui.show_user_message raise on first call
+      call_count = 0
+      allow(agent).to receive(:broadcast_user_message_queue_status)
+      bad_ui = double("ui").as_null_object
+      allow(bad_ui).to receive(:show_user_message) do
+        call_count += 1
+        raise "boom" if call_count == 1
+      end
+      agent.instance_variable_set(:@ui, bad_ui)
+
+      allow(client).to receive(:send_messages_with_tools)
+        .and_return(mock_api_response(content: "done"))
+
+      result = agent.run("test")
+      expect(result.status).to eq(:success)
+
+      # Both messages survived the exception and were processed on retry
+      history = agent.history.to_a
+      user_msgs = history.select { |m| m[:role] == "user" }
+      contents = user_msgs.map { |m| m[:content] }
+      expect(contents).to include("msg1")
+      expect(contents).to include("msg2")
+      expect(agent.instance_variable_get(:@inbox)).to be_empty
+    end
   end
 
   describe "#add_hook" do
@@ -784,7 +909,7 @@ RSpec.describe Clacky::Agent do
       result = agent.run("Create a very complex document")
 
       # Should have given up and returned a helpful message
-      expect(result[:status]).to eq(:success)
+      expect(result.status).to eq(:success)
       
       # Find the assistant message that gave up
       assistant_messages = agent.history.to_a.select { |m| 
@@ -868,7 +993,7 @@ RSpec.describe Clacky::Agent do
 
       result = agent.run("keep going")
 
-      expect(result[:status]).to eq(:success)
+      expect(result.status).to eq(:success)
       # Exactly two attempts: the original failing one + the padded retry.
       expect(call_count).to eq(2)
 

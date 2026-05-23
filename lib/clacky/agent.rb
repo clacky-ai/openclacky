@@ -25,6 +25,45 @@ require_relative "agent/skill_reflector"
 require_relative "agent/skill_auto_creator"
 
 module Clacky
+  # Result object returned by Agent#run.  Carries enough metadata for the
+  # caller (http_server, CLI, etc.) to decide what to do next without
+  # reaching back into the agent's internal state.
+  class RunResult
+    attr_reader :status, :session_id, :iterations, :duration_seconds,
+                :total_cost_usd, :cost_source, :cache_stats, :history,
+                :error, :inbox_needs_follow_up
+
+    def initialize(attrs = {})
+      @status                = attrs[:status]                || :success
+      @session_id            = attrs[:session_id]
+      @iterations            = attrs[:iterations]            || 0
+      @duration_seconds      = attrs[:duration_seconds]      || 0.0
+      @total_cost_usd        = attrs[:total_cost_usd]        || 0.0
+      @cost_source           = attrs[:cost_source]           || :estimated
+      @cache_stats           = attrs[:cache_stats]           || {}
+      @history               = attrs[:history]
+      @error                 = attrs[:error]
+      @inbox_needs_follow_up = attrs[:inbox_needs_follow_up] || false
+    end
+
+    def success?     = @status == :success
+    def error?       = @status == :error
+    def interrupted? = @status == :interrupted
+
+    # Backward-compatible Hash-style access so existing callers
+    # (specs, CLI, etc.) don't break during the transition.
+    # Whitelist prevents accidental exposure of Object methods.
+    HASH_KEYS = %i[
+      status session_id iterations duration_seconds
+      total_cost_usd cost_source cache_stats history
+      error inbox_needs_follow_up
+    ].freeze
+
+    def [](key)
+      public_send(key) if HASH_KEYS.include?(key)
+    end
+  end
+
   class Agent
     # Include all functionality modules
     include MessageCompressorHelper
@@ -102,6 +141,17 @@ module Clacky
       @pending_injections = []     # Pending inline skill injections to flush after observe()
       @pending_script_tmpdirs = [] # Decrypted-script tmpdirs to shred when agent.run completes
       @pending_error_rollback = false  # Deferred rollback flag set by restore_session on error
+      @in_run_loop = false         # True while agent.run() is active (set under @state_mutex)
+      # Unified inbox for user messages that should land in @history at the
+      # next iteration boundary inside the run loop. Items structure:
+      #   {kind: :user_msg, content:, files:, enqueued_at:}
+      # Drained chronologically by drain_inbox_into_history! (run loop top).
+      @inbox = []
+      @inbox_run_pending = false   # Set true after enqueue_user_message decides to spawn a run; cleared at run() entry. Dedupes concurrent spawns.
+      @state_mutex = Mutex.new     # Protects @in_run_loop, @inbox, @inbox_run_pending, @current_run_thread, @discard_threshold
+      @run_mutex = Mutex.new       # Serializes every Agent#run invocation regardless of caller
+      @current_run_thread = nil    # Thread currently inside run()'s body — set under @state_mutex; used by interrupt_current_run!
+      @discard_threshold = nil     # Time. Stale run attempts whose enqueue time predates this are dropped.
 
       # Compression tracking
       @compression_level = 0  # Tracks how many times we've compressed (for progressive summarization)
@@ -217,7 +267,40 @@ module Clacky
       @name = new_name.to_s.strip
     end
 
-    def run(user_input, files: [])
+    # Entry point for an agent turn. Two modes:
+    #
+    #   run("user typed this")  — user message mode
+    #   run                     — drain-only mode: nothing to append directly;
+    #                              the inbox drain at iteration top is expected
+    #                              to find something. If the inbox is also empty,
+    #                              the loop exits immediately (no wasted LLM call).
+    def run(user_input = nil, files: [])
+      # Serialize every Agent#run invocation so concurrent callers cannot
+      # mutate @history, @iterations, etc. simultaneously.
+      @run_mutex.synchronize do
+        @state_mutex.synchronize do
+          @in_run_loop = true
+          @current_run_thread = Thread.current
+          # We're entering run() — any concurrent caller that observed
+          # @inbox_run_pending == true and decided NOT to spawn can rely
+          # on this run absorbing their inbox items. Clear the flag.
+          @inbox_run_pending = false
+        end
+
+        # Drain-only mode: no direct input, and nothing queued either. Don't
+        # bother the LLM with an empty turn.
+        if user_input.nil?
+          empty_inbox = @state_mutex.synchronize { @inbox.empty? }
+          if empty_inbox
+            @state_mutex.synchronize do
+              @in_run_loop = false
+              @current_run_thread = nil
+            end
+            Clacky::Logger.info("agent.drain_only_run_empty_inbox", session_id: @session_id)
+            return RunResult.new(session_id: @session_id, status: :empty_inbox)
+          end
+        end
+
       # Show the "thinking" indicator as early as possible so the user gets
       # immediate feedback after sending a message. Without this the UI stays
       # silent during synchronous setup work (system prompt assembly, file
@@ -274,104 +357,23 @@ module Clacky
       # Inject chunk index card if archived chunks exist and index is stale
       inject_chunk_index_if_needed
 
-      # Split files into vision images and disk files; downgrade oversized images to disk
-      image_files, disk_files = partition_files(Array(files))
-      vision_images, downgraded = resolve_vision_images(image_files)
-      all_disk_files = disk_files + downgraded
+      if user_input.nil? || user_input.empty?
+        # Drain-only mode: nothing to append now. The iteration drain at the
+        # top of the loop will pick up whatever's in @inbox (which is why we
+        # were started — see http_server's follow-up run spawn).
+      else
+        # Normal user message mode — files may or may not be attached.
+        # Both branches end with the same append shape; the only difference
+        # is whether file processing is needed.
+        processed = process_files_for_user_message(user_input, files)
+        append_processed_user_message_to_history!(processed, task_id)
 
-      # Format user message — text + inline vision images
-      # Store the tmp path alongside the data_url so the history replay can
-      # reconstruct the image if the base64 was stripped (e.g. after compression).
-      user_content = format_user_content(user_input, vision_images.map { |v| { url: v[:url], path: v[:path] } })
-
-      # Parse disk files — agent's responsibility, not the upload layer.
-      # process_path runs the parser script and returns a FileRef with preview_path or parse_error.
-      all_disk_files = all_disk_files.map do |f|
-        path = f[:path] || f["path"]
-        name = f[:name] || f["name"]
-        next f unless path && File.exist?(path.to_s)
-        # Preserve the downgrade_reason tag across the remap (process_path
-        # returns a fresh FileRef that doesn't know about it). Without this,
-        # the file_prompt builder can't emit the "not supported by model" /
-        # "too large" note for downgraded images.
-        downgrade_reason = f[:downgrade_reason] || f["downgrade_reason"]
-        ref = Utils::FileProcessor.process_path(path, name: name)
-        { name: ref.name, type: ref.type.to_s, path: ref.original_path,
-          preview_path: ref.preview_path, parse_error: ref.parse_error, parser_path: ref.parser_path,
-          downgrade_reason: downgrade_reason }
+        # If the user typed a slash command targeting a skill with disable-model-invocation: true,
+        # inject the skill content as a synthetic assistant message so the LLM can act on it.
+        # Skills already in the system prompt (model_invocation_allowed?) are skipped.
+        # Only relevant when there's actual user input — drain-only mode has nothing to inject.
+        inject_skill_command_as_assistant_message(user_input, task_id)
       end
-
-      # Build display_files for replay: lightweight metadata so the UI can reconstruct
-      # file badges (PDF, doc, etc.) on page refresh. Images are NOT stored here — they
-      # are recovered from the image_url blocks in user_content by extract_image_files_from_content.
-      display_files = all_disk_files.filter_map do |f|
-        name = f[:name] || f["name"]
-        next unless name
-        { name: name, type: f[:type] || f["type"] || "file",
-          preview_path: f[:preview_path] || f["preview_path"] }
-      end
-
-      @history.append({ role: "user", content: user_content, task_id: task_id, created_at: Time.now.to_f,
-                        display_files: display_files.empty? ? nil : display_files })
-      @total_tasks += 1
-
-      # Inject disk file references as a system_injected message so:
-      #   - LLM sees the file info (system_injected is NOT stripped from to_api)
-      #   - replay_history skips it (next if ev[:system_injected]), keeping the user bubble clean
-      #
-      # Images: also injected here (alongside vision inline) so LLM knows filename + size.
-      all_meta_files = vision_images.map { |v|
-        { name: v[:name], type: "image", size_bytes: v[:size_bytes], path: v[:path] }
-      } + all_disk_files
-
-      unless all_meta_files.empty?
-        file_prompt = all_meta_files.filter_map do |f|
-          name             = f[:name]             || f["name"]
-          type             = f[:type]             || f["type"]
-          path             = f[:path]             || f["path"]
-          preview_path     = f[:preview_path]     || f["preview_path"]
-          size_bytes       = f[:size_bytes]       || f["size_bytes"]
-          parse_error      = f[:parse_error]      || f["parse_error"]
-          parser_path      = f[:parser_path]      || f["parser_path"]
-          downgrade_reason = f[:downgrade_reason] || f["downgrade_reason"]
-
-          next unless name
-
-          lines = ["[File: #{name}]", "Type: #{type || "file"}"]
-          lines << "Size: #{format_size(size_bytes)}" if size_bytes
-          lines << "Original: #{path}" if path
-          lines << "Preview (Markdown): #{preview_path}" if preview_path
-
-          # Inline note explaining why an image was *not* sent as vision
-          # content. Colocated with the file info (not in system prompt) so
-          # it reflects the exact reason for *this* upload under *this*
-          # model — switching models later won't leave stale warnings.
-          note = downgrade_note_for(downgrade_reason)
-          lines << "Note: #{note}" if note
-
-          # Parser failed — instruct LLM to fix and re-run
-          if preview_path.nil? && parse_error
-            lines << "Parse failed: #{parse_error}"
-            if parser_path
-              expected_preview = "#{path}.preview.md"
-              lines << "Action required: fix the parser at #{parser_path}, then run:"
-              lines << "  ruby #{parser_path} #{path} > #{expected_preview}"
-              lines << "Once done, read #{expected_preview} to continue helping the user."
-            end
-          end
-
-          lines.join("\n")
-        end.join("\n\n")
-
-        unless file_prompt.empty?
-          @history.append({ role: "user", content: file_prompt, system_injected: true, task_id: task_id })
-        end
-      end
-
-      # If the user typed a slash command targeting a skill with disable-model-invocation: true,
-      # inject the skill content as a synthetic assistant message so the LLM can act on it.
-      # Skills already in the system prompt (model_invocation_allowed?) are skipped.
-      inject_skill_command_as_assistant_message(user_input, task_id)
 
       @hooks.trigger(:on_start, user_input)
 
@@ -384,6 +386,11 @@ module Clacky
         loop do
           @iterations += 1
           @hooks.trigger(:on_iteration, @iterations)
+
+          # Drain any inbox items (queued user messages) since the last
+          # iteration. Without this, items sit in the queue until the WHOLE
+          # run completes — latency drops from "minutes" to "one LLM turn".
+          drain_inbox_into_history!(task_id)
 
           # Think: LLM reasoning with tool support
           response = think
@@ -463,6 +470,18 @@ module Clacky
                 preview = response[:content].length > 200 ? response[:content][0...200] + "..." : response[:content]
                 @ui&.log("Response content: #{preview}", level: :debug)
               end
+            end
+
+            # A queued user message may have landed between this think() and
+            # now. Don't break — loop back so the next iteration's drain
+            # injects it and the LLM addresses it within the same warm-cache
+            # run. Saves the full-context replay of a fresh run().
+            if inbox_pending?
+              Clacky::Logger.info("agent.loop_continue_for_pending_inbox",
+                session_id: @session_id,
+                iteration: @iterations
+              )
+              next
             end
 
             break
@@ -556,7 +575,7 @@ module Clacky
           )
         end
         @hooks.trigger(:on_complete, result)
-        result
+        RunResult.new(result.merge(inbox_needs_follow_up: inbox_pending?))
       rescue Clacky::AgentInterrupted
         # Let CLI handle the interrupt message
         raise
@@ -580,6 +599,11 @@ module Clacky
         result = build_result(:error, error: e.message)  # rubocop:disable Lint/UselessAssignment
         raise
       ensure
+        @state_mutex.synchronize do
+          @in_run_loop = false
+          @current_run_thread = nil
+        end
+
         # Safety net: ensure any lingering progress spinner is stopped.
         # Normal paths close their own spinners; this guards against exceptions
         # raised between a progress slot's active/done pair.
@@ -594,6 +618,189 @@ module Clacky
         # Tracks daily active users (distinct devices per day) and task volume.
         Clacky::Telemetry.task!
       end
+      end  # @run_mutex.synchronize
+    end
+
+    # Drain ALL pending inbox items into @history. Called at the top of every
+    # iteration inside the run loop so messages land within one LLM turn of
+    # arrival — never deferred until the whole run completes.
+    #
+    # Returns true if anything was drained, false if the inbox was empty.
+    private def drain_inbox_into_history!(task_id)
+      items = nil
+      @state_mutex.synchronize do
+        return false if @inbox.empty?
+        items = @inbox.dup
+        @inbox.clear
+      end
+
+      items.each do |item|
+        case item[:kind]
+        when :user_msg
+          created_at = item[:enqueued_at] || Time.now
+
+          if item[:processed]
+            append_processed_user_message_to_history!(item[:processed], task_id)
+            @ui&.show_user_message(
+              item[:processed][:user_content],
+              files: item[:processed][:display_files] || [],
+              created_at: created_at.to_f,
+              source: :web
+            )
+          else
+            @history.append({
+              role:       "user",
+              content:    item[:content],
+              task_id:    task_id,
+              created_at: created_at.to_f
+            })
+            @total_tasks += 1
+            @ui&.show_user_message(item[:content], created_at: created_at.to_f, source: :web)
+          end
+        else
+          Clacky::Logger.warn("agent.unknown_inbox_kind", kind: item[:kind])
+        end
+      end
+
+      remaining = @state_mutex.synchronize { @inbox.count { |i| i[:kind] == :user_msg } }
+      broadcast_user_message_queue_status(remaining)
+
+      Clacky::Logger.info("agent.inbox_drained",
+        session_id: @session_id,
+        count:      items.size,
+        kinds:      items.group_by { |i| i[:kind] }.transform_values(&:size)
+      )
+      true
+    rescue => e
+      # Drain failed partway through: unprocessed items are lost from @inbox
+      # because we cleared it before the loop. Re-queue the survivors so the
+      # next run (or a fresh spawn) can retry them.
+      processed_count = items.size - items.compact.size
+      survivors = items.compact
+      unless survivors.empty?
+        @state_mutex.synchronize do
+          @inbox.unshift(*survivors)
+        end
+        Clacky::Logger.warn("agent.drain_inbox_recovered",
+          session_id: @session_id,
+          recovered:  survivors.size,
+          error:      e.message
+        )
+      end
+      Clacky::Logger.error("agent.drain_inbox_error",
+        session_id:    @session_id,
+        error:         e,
+        processed:     processed_count,
+        survivors:     survivors.size
+      )
+      false
+    end
+
+    # True if at least one item is currently queued in the inbox. Used by the
+    # run loop's "LLM said done — but should we really break?" check.
+    private def inbox_pending?
+      @state_mutex.synchronize { !@inbox.empty? }
+    end
+
+    # Set @discard_threshold to now and (best-effort) raise AgentInterrupted
+    # into the thread currently inside Agent#run. Called by http_server's
+    # interrupt_session in addition to the existing session[:thread].raise —
+    # the existing path only catches user-msg runs (whose thread is tracked
+    # in session[:thread]).
+    #
+    # Idempotent: harmless to call multiple times. Best-effort: Thread#raise
+    # against a thread blocked deep in a syscall may not fire immediately;
+    # the watchdog in http_server escalates if needed.
+    def interrupt_current_run!
+      target = nil
+      @state_mutex.synchronize do
+        @discard_threshold = Time.now
+        target = @current_run_thread
+      end
+      return false unless target
+      begin
+        target.raise(Clacky::AgentInterrupted, "Interrupted by user")
+      rescue StandardError
+        # Thread may have just exited; nothing to do.
+      end
+      true
+    end
+
+    # True iff a thread is currently inside Agent#run (between acquiring
+    # @run_mutex and releasing it). Server-layer callers use this to decide
+    # whether a new user message can be enqueued (run in flight will drain
+    # it) or needs a fresh run() to be spawned (agent is idle).
+    def in_run_loop?
+      @state_mutex.synchronize { @in_run_loop }
+    end
+
+    # Queue a user message (text and/or files) into the inbox. Returns a
+    # tristate describing what the caller should do next:
+    #   :running       — a run is currently in flight; the in-loop drain at
+    #                    the next iteration boundary will pick this up.
+    #                    Caller does NOT spawn a new run.
+    #   :spawn         — agent is idle AND no other caller has been told to
+    #                    spawn yet. Caller IS responsible for spawning a
+    #                    drain-only run (typically via run_agent_task so the
+    #                    thread is registered for interrupt_session).
+    #   :spawn_pending — agent is idle BUT another concurrent caller has
+    #                    already been told to spawn. Caller does NOT spawn —
+    #                    the other run will absorb this message too.
+    #
+    # Files are processed eagerly **on the caller's thread** (typically the
+    # HTTP-handler thread) so the processed payload is fully formed by the
+    # time it sits in the inbox. The agent thread's drain then just appends
+    # to @history — no @history mutation off-thread.
+    def enqueue_user_message(content, files: [])
+      processed = nil
+      if files && !files.empty?
+        processed = process_files_for_user_message(content, files)
+      end
+
+      result = nil
+      pending_user_msgs = 0
+      @state_mutex.synchronize do
+        @inbox << {
+          kind:        :user_msg,
+          content:     content.to_s,
+          processed:   processed,
+          enqueued_at: Time.now
+        }
+        pending_user_msgs = @inbox.count { |i| i[:kind] == :user_msg }
+        if @in_run_loop
+          result = :running
+        elsif @inbox_run_pending
+          result = :spawn_pending
+        else
+          @inbox_run_pending = true
+          result = :spawn
+        end
+      end
+
+      # Only broadcast the "N waiting" hint when the message will actually
+      # WAIT behind an in-flight run. For :spawn / :spawn_pending the agent
+      # will drain it within milliseconds, so flashing a count then
+      # immediately clearing it would just be visual noise.
+      if result == :running
+        broadcast_user_message_queue_status(pending_user_msgs)
+      end
+
+      Clacky::Logger.info("agent.user_message_enqueued",
+        session_id: @session_id,
+        decision: result,
+        has_files: !processed.nil?,
+        pending_user_msgs: pending_user_msgs
+      )
+      result
+    end
+
+    private def broadcast_user_message_queue_status(count)
+      @ui&.update_user_message_queue_status(pending: count)
+    rescue => e
+      Clacky::Logger.error("agent.user_queue_status_error",
+        session_id: @session_id,
+        error: e
+      )
     end
 
     private def think
@@ -1342,6 +1549,126 @@ module Clacky
     # @param images [Array<String>] Array of image file paths or data: URLs
     # @param files [Array] Unused — kept for signature compatibility
     # @return [String|Array] String if no images, Array with content blocks otherwise
+    # Pure: process a user message's text + file attachments into the data
+    # structures needed for @history append, WITHOUT touching @history itself.
+    # Safe to call from any thread (HTTP-handler thread or agent thread) —
+    # only mutates argument-local state and runs the FileProcessor subprocess.
+    #
+    # Returns a Hash:
+    #   {
+    #     user_content:  String or content-block Array (text + vision blocks),
+    #     display_files: Array<{name, type, preview_path}> for replay bubbles,
+    #     file_prompt:   String (system_injected file references for LLM, "" if none)
+    #   }
+    #
+    # The companion +append_processed_user_message_to_history!+ takes this
+    # hash and does the actual append — that part MUST run on the
+    # @run_mutex-holding thread.
+    private def process_files_for_user_message(content, files)
+      image_files, disk_files = partition_files(Array(files))
+      vision_images, downgraded = resolve_vision_images(image_files)
+      all_disk_files = disk_files + downgraded
+
+      # Format user message — text + inline vision images
+      user_content = format_user_content(content, vision_images.map { |v| { url: v[:url], path: v[:path] } })
+
+      # Parse disk files — process_path runs the parser script and returns a FileRef.
+      all_disk_files = all_disk_files.map do |f|
+        path = f[:path] || f["path"]
+        name = f[:name] || f["name"]
+        next f unless path && File.exist?(path.to_s)
+        downgrade_reason = f[:downgrade_reason] || f["downgrade_reason"]
+        ref = Utils::FileProcessor.process_path(path, name: name)
+        { name: ref.name, type: ref.type.to_s, path: ref.original_path,
+          preview_path: ref.preview_path, parse_error: ref.parse_error, parser_path: ref.parser_path,
+          downgrade_reason: downgrade_reason }
+      end
+
+      display_files = all_disk_files.filter_map do |f|
+        name = f[:name] || f["name"]
+        next unless name
+        { name: name, type: f[:type] || f["type"] || "file",
+          preview_path: f[:preview_path] || f["preview_path"] }
+      end
+
+      all_meta_files = vision_images.map { |v|
+        { name: v[:name], type: "image", size_bytes: v[:size_bytes], path: v[:path] }
+      } + all_disk_files
+
+      file_prompt = build_file_prompt(all_meta_files)
+
+      {
+        user_content:  user_content,
+        display_files: display_files,
+        file_prompt:   file_prompt
+      }
+    end
+
+    # Mutates @history. Caller MUST hold @run_mutex (i.e. this is called
+    # from inside Agent#run, either from the user-message-mode branch
+    # directly or from drain_inbox_into_history! processing a user_msg
+    # item whose files were pre-processed at HTTP-entry time).
+    private def append_processed_user_message_to_history!(processed, task_id)
+      @history.append({
+        role:          "user",
+        content:       processed[:user_content],
+        task_id:       task_id,
+        created_at:    Time.now.to_f,
+        display_files: processed[:display_files].empty? ? nil : processed[:display_files]
+      })
+      @total_tasks += 1
+
+      file_prompt = processed[:file_prompt]
+      unless file_prompt.nil? || file_prompt.empty?
+        @history.append({
+          role:            "user",
+          content:         file_prompt,
+          system_injected: true,
+          task_id:         task_id
+        })
+      end
+    end
+
+    # Build the system_injected file-prompt string from an Array of file
+    # metadata hashes. Returns "" if there are no files. Extracted so both
+    # process_files_for_user_message and any future caller share one shape.
+    private def build_file_prompt(all_meta_files)
+      return "" if all_meta_files.empty?
+
+      all_meta_files.filter_map do |f|
+        name             = f[:name]             || f["name"]
+        type             = f[:type]             || f["type"]
+        path             = f[:path]             || f["path"]
+        preview_path     = f[:preview_path]     || f["preview_path"]
+        size_bytes       = f[:size_bytes]       || f["size_bytes"]
+        parse_error      = f[:parse_error]      || f["parse_error"]
+        parser_path      = f[:parser_path]      || f["parser_path"]
+        downgrade_reason = f[:downgrade_reason] || f["downgrade_reason"]
+
+        next unless name
+
+        lines = ["[File: #{name}]", "Type: #{type || "file"}"]
+        lines << "Size: #{format_size(size_bytes)}" if size_bytes
+        lines << "Original: #{path}" if path
+        lines << "Preview (Markdown): #{preview_path}" if preview_path
+
+        note = downgrade_note_for(downgrade_reason)
+        lines << "Note: #{note}" if note
+
+        if preview_path.nil? && parse_error
+          lines << "Parse failed: #{parse_error}"
+          if parser_path
+            expected_preview = "#{path}.preview.md"
+            lines << "Action required: fix the parser at #{parser_path}, then run:"
+            lines << "  ruby #{parser_path} #{path} > #{expected_preview}"
+            lines << "Once done, read #{expected_preview} to continue helping the user."
+          end
+        end
+
+        lines.join("\n")
+      end.join("\n\n")
+    end
+
     # Partition files array into [image_files, non_image_files].
     # Image files: have mime_type starting with "image/" OR have data_url present.
     private def partition_files(files)
