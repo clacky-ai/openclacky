@@ -3767,7 +3767,7 @@ module Clacky
           # If the agent run left user messages in the inbox, spawn a
           # registered drain-only run so they are processed under the same
           # interrupt / idle-timer lifecycle as any other task.
-          if result.is_a?(Clacky::RunResult) && result.inbox_needs_follow_up
+          if agent.inbox_user_message_count > 0
             run_agent_task(session_id, agent) { agent.run }
           end
 

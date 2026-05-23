@@ -66,8 +66,8 @@ RSpec.describe Clacky::Agent do
     it "executes Think-Act-Observe loop" do
       result = agent.run("Calculate 1+1")
 
-      expect(result.status).to eq(:success)
-      expect(result.iterations).to be > 0
+      expect(result[:status]).to eq(:success)
+      expect(result[:iterations]).to be > 0
       expect(client).to have_received(:send_messages_with_tools).at_least(:once)
     end
 
@@ -81,19 +81,18 @@ RSpec.describe Clacky::Agent do
       expect(agent.total_cost).to be > 0
     end
 
-    it "returns a RunResult with inbox_needs_follow_up false when no pending messages" do
+    it "returns a Hash with success status when no pending messages" do
       allow(client).to receive(:send_messages_with_tools)
         .and_return(mock_api_response(content: "done"))
 
       result = agent.run("test")
-      expect(result).to be_a(Clacky::RunResult)
-      expect(result.status).to eq(:success)
-      expect(result.inbox_needs_follow_up).to be false
+      expect(result).to be_a(Hash)
+      expect(result[:status]).to eq(:success)
     end
 
-    it "returns a RunResult with inbox_needs_follow_up false when inbox was drained during run" do
+    it "returns a Hash with success status when inbox was drained during run" do
       # Enqueueing during a run triggers a next iteration that drains + processes it.
-      # When the LLM responds "done" after that, inbox_needs_follow_up should be false
+      # When the LLM responds "done" after that, the result should be success
       # because the follow-up was fully consumed.
       call_count = 0
       allow(client).to receive(:send_messages_with_tools) do
@@ -105,8 +104,7 @@ RSpec.describe Clacky::Agent do
       end
 
       result = agent.run("test")
-      expect(result.status).to eq(:success)
-      expect(result.inbox_needs_follow_up).to be false
+      expect(result[:status]).to eq(:success)
     end
   end
 
@@ -197,7 +195,7 @@ RSpec.describe Clacky::Agent do
         .and_return(mock_api_response(content: "done"))
 
       result = agent.run("test")
-      expect(result.status).to eq(:success)
+      expect(result[:status]).to eq(:success)
 
       # Both messages survived the exception and were processed on retry
       history = agent.history.to_a
@@ -975,7 +973,7 @@ RSpec.describe Clacky::Agent do
       result = agent.run("Create a very complex document")
 
       # Should have given up and returned a helpful message
-      expect(result.status).to eq(:success)
+      expect(result[:status]).to eq(:success)
       
       # Find the assistant message that gave up
       assistant_messages = agent.history.to_a.select { |m| 
@@ -1059,7 +1057,7 @@ RSpec.describe Clacky::Agent do
 
       result = agent.run("keep going")
 
-      expect(result.status).to eq(:success)
+      expect(result[:status]).to eq(:success)
       # Exactly two attempts: the original failing one + the padded retry.
       expect(call_count).to eq(2)
 

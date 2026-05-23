@@ -25,53 +25,6 @@ require_relative "agent/skill_reflector"
 require_relative "agent/skill_auto_creator"
 
 module Clacky
-  # Result object returned by Agent#run.  Carries enough metadata for the
-  # caller (http_server, CLI, etc.) to decide what to do next without
-  # reaching back into the agent's internal state.
-  class RunResult
-    attr_reader :status, :session_id, :iterations, :duration_seconds,
-                :total_cost_usd, :cost_source, :cache_stats, :history,
-                :error, :inbox_needs_follow_up
-
-    def initialize(attrs = {})
-      @status                = attrs[:status]                || :success
-      @session_id            = attrs[:session_id]
-      @iterations            = attrs[:iterations]            || 0
-      @duration_seconds      = attrs[:duration_seconds]      || 0.0
-      @total_cost_usd        = attrs[:total_cost_usd]        || 0.0
-      @cost_source           = attrs[:cost_source]           || :estimated
-      @cache_stats           = attrs[:cache_stats]           || {}
-      @history               = attrs[:history]
-      @error                 = attrs[:error]
-      @inbox_needs_follow_up = attrs[:inbox_needs_follow_up] || false
-    end
-
-    def success?
-      @status == :success
-    end
-
-    def error?
-      @status == :error
-    end
-
-    def interrupted?
-      @status == :interrupted
-    end
-
-    # Backward-compatible Hash-style access so existing callers
-    # (specs, CLI, etc.) don't break during the transition.
-    # Whitelist prevents accidental exposure of Object methods.
-    HASH_KEYS = %i[
-      status session_id iterations duration_seconds
-      total_cost_usd cost_source cache_stats history
-      error inbox_needs_follow_up
-    ].freeze
-
-    def [](key)
-      public_send(key) if HASH_KEYS.include?(key)
-    end
-  end
-
   class Agent
     # Include all functionality modules
     include MessageCompressorHelper
@@ -305,7 +258,7 @@ module Clacky
               @current_run_thread = nil
             end
             Clacky::Logger.info("agent.drain_only_run_empty_inbox", session_id: @session_id)
-            return RunResult.new(session_id: @session_id, status: :empty_inbox)
+            return
           end
         end
 
@@ -583,7 +536,7 @@ module Clacky
           )
         end
         @hooks.trigger(:on_complete, result)
-        RunResult.new(result.merge(inbox_needs_follow_up: inbox_pending?))
+        result
       rescue Clacky::AgentInterrupted
         # Let CLI handle the interrupt message
         raise
