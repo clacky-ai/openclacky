@@ -155,7 +155,8 @@ module Clacky
                   :enable_compression, :enable_prompt_caching,
                   :models, :current_model_index, :current_model_id,
                   :memory_update_enabled, :skill_evolution,
-                  :max_running_agents, :max_idle_agents
+                  :max_running_agents, :max_idle_agents,
+                  :default_working_dir
 
     def initialize(options = {})
       @permission_mode = validate_permission_mode(options[:permission_mode])
@@ -198,6 +199,8 @@ module Clacky
 
       @max_running_agents = options[:max_running_agents] || 10
       @max_idle_agents = options[:max_idle_agents] || 10
+
+      @default_working_dir = options[:default_working_dir] || ENV["CLACKY_WORKSPACE_DIR"]
 
       # Per-session virtual model overlay.
       # When set, #current_model returns a *merged* hash (the resolved @models
@@ -373,6 +376,7 @@ module Clacky
     CONFIG_SETTINGS_KEYS = %w[
       enable_compression enable_prompt_caching memory_update_enabled
       skill_evolution max_running_agents max_idle_agents
+      default_working_dir
     ].freeze
 
     # Serialize the current agent configuration to YAML.
@@ -388,7 +392,8 @@ module Clacky
         "memory_update_enabled" => @memory_update_enabled,
         "skill_evolution" => @skill_evolution,
         "max_running_agents" => @max_running_agents,
-        "max_idle_agents" => @max_idle_agents
+        "max_idle_agents" => @max_idle_agents,
+        "default_working_dir" => @default_working_dir
       }
       YAML.dump("settings" => settings, "models" => persistable_models)
     end

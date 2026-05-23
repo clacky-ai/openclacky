@@ -101,7 +101,7 @@ module Clacky
       end
 
       # Validate and get working directory
-      working_dir = validate_working_directory(options[:path])
+      working_dir = validate_working_directory(options[:path], agent_config)
 
       # Update agent config with CLI options
       agent_config.permission_mode = options[:mode].to_sym if options[:mode]
@@ -403,12 +403,14 @@ module Clacky
         agent.rename(auto_name)
       end
 
-      def validate_working_directory(path)
+      def validate_working_directory(path, config = nil)
         working_dir = path || Dir.pwd
 
-        # If no path specified and currently in home directory, use ~/clacky_workspace
+        # If no path specified and currently in home directory, use configured
+        # default_working_dir (or ~/clacky_workspace as fallback)
         if path.nil? && File.expand_path(working_dir) == File.expand_path(Dir.home)
-          working_dir = File.expand_path("~/clacky_workspace")
+          default = config&.default_working_dir || File.expand_path("~/clacky_workspace")
+          working_dir = File.expand_path(default)
 
           # Create directory if it doesn't exist
           unless Dir.exist?(working_dir)
