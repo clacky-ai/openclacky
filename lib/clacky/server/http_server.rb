@@ -2363,10 +2363,17 @@ module Clacky
           return
         end
 
-        # Broadcast restored event so the sidebar refreshes
-        broadcast(session_id, { type: "session_restored", session_id: session_id })
+        # Load the restored session into the registry so it behaves like any
+        # other live session (status, agent, snapshot all available).
+        @registry.ensure(session_id)
+        session = @registry.session_summary(session_id)
 
-        json_response(res, 200, { ok: true, session_id: session_id })
+        # Use broadcast_all because no client is subscribed to a session that
+        # was just sitting in the trash — broadcast(session_id, …) would reach
+        # zero recipients.
+        broadcast_all(type: "session_restored", session: session)
+
+        json_response(res, 200, { ok: true, session: session })
       end
 
       # DELETE /api/trash/sessions/:id
