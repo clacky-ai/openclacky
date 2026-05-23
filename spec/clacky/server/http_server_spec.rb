@@ -981,6 +981,159 @@ RSpec.describe Clacky::Server::HttpServer do
     end
   end
 
+  # ── WebSocket subscribe replay ───────────────────────────────────────────
+  #
+  # When a tab reconnects, the subscribe handler must re-push inbox queue
+  # status so the frontend can render the spinner + pending count. Without
+  # this, a page refresh clears the inbox UI even though messages are queued.
+
+  describe "WebSocket subscribe replays inbox state" do
+    let(:sessions_dir) { Dir.mktmpdir("clacky_ws_sub_spec") }
+
+    after { FileUtils.rm_rf(sessions_dir) }
+
+    it "pushes user_message_queue_status AND pending_user_messages for inbox messages" do
+      server = described_class.new(
+        agent_config:   agent_config,
+        client_factory: -> { double("client") },
+        sessions_dir:   sessions_dir
+      )
+      registry = server.instance_variable_get(:@registry)
+
+      session_id = "ws-test-session"
+      registry.create(session_id: session_id)
+
+      # Build a mock agent with queued inbox messages.
+      inbox_snapshot = [
+        { content: "msg1", files: [], created_at: 1001.0 },
+        { content: "msg2", files: [{ name: "a.png", data_url: "data:img", mime_type: "image/png" }], created_at: 1002.0 }
+      ]
+      mock_agent = double("Agent")
+      allow(mock_agent).to receive(:inbox_user_message_count).and_return(2)
+      allow(mock_agent).to receive(:inbox_user_messages_snapshot).and_return(inbox_snapshot)
+
+      # Mock UI that captures sent queue status updates.
+      captured_status = nil
+      mock_ui = double("UI")
+      allow(mock_ui).to receive(:replay_live_state)
+      allow(mock_ui).to receive(:update_user_message_queue_status) { |pending:|
+        captured_status = pending
+      }
+
+      registry.with_session(session_id) do |s|
+        s[:agent]  = mock_agent
+        s[:ui]     = mock_ui
+        s[:status] = :running
+      end
+
+      # Mock WebSocket connection.
+      sent = []
+      mock_conn = double("WebSocketConnection")
+      allow(mock_conn).to receive(:session_id=)
+      allow(mock_conn).to receive(:send_json) { |data| sent << data }
+
+      # Simulate a WebSocket subscribe message.
+      subscribe_msg = { type: "subscribe", session_id: session_id }
+      server.send(:on_ws_message, mock_conn, subscribe_msg.to_json)
+
+      # Should receive the standard subscribed event.
+      expect(sent.map { |m| m[:type] }).to include("subscribed")
+
+      # UI got the count update.
+      expect(captured_status).to eq(2)
+
+      # A single pending_user_messages event carries the full snapshot.
+      pending_ev = sent.find { |m| m[:type] == "pending_user_messages" }
+      expect(pending_ev).not_to be_nil
+      expect(pending_ev[:messages].size).to eq(2)
+      expect(pending_ev[:messages][0][:content]).to eq("msg1")
+      expect(pending_ev[:messages][1][:content]).to eq("msg2")
+    end
+
+    it "does NOT push user_message_queue_status when inbox is empty" do
+      server = described_class.new(
+        agent_config:   agent_config,
+        client_factory: -> { double("client") },
+        sessions_dir:   sessions_dir
+      )
+      registry = server.instance_variable_get(:@registry)
+
+      session_id = "ws-empty-inbox"
+      registry.create(session_id: session_id)
+
+      mock_agent = double("Agent")
+      allow(mock_agent).to receive(:inbox_user_message_count).and_return(0)
+
+      mock_ui = double("UI")
+      allow(mock_ui).to receive(:replay_live_state)
+      allow(mock_ui).to receive(:update_user_message_queue_status)
+
+      registry.with_session(session_id) do |s|
+        s[:agent] = mock_agent
+        s[:ui]    = mock_ui
+        s[:status] = :running
+      end
+
+      sent = []
+      mock_conn = double("WebSocketConnection")
+      allow(mock_conn).to receive(:session_id=)
+      allow(mock_conn).to receive(:send_json)
+
+      subscribe_msg = { type: "subscribe", session_id: session_id }
+      server.send(:on_ws_message, mock_conn, subscribe_msg.to_json)
+
+      expect(mock_ui).not_to have_received(:update_user_message_queue_status)
+    end
+  end
+
+  describe "interrupt re-broadcasts inbox queue status" do
+    let(:sessions_dir) { Dir.mktmpdir("clacky_interrupt_inbox_spec") }
+
+    after { FileUtils.rm_rf(sessions_dir) }
+
+    it "re-broadcasts user_message_queue_status with current pending count after AgentInterrupted" do
+      server = described_class.new(
+        agent_config:   agent_config,
+        client_factory: -> { double("client") },
+        sessions_dir:   sessions_dir
+      )
+      registry = server.instance_variable_get(:@registry)
+
+      session_id = "interrupt-inbox-test"
+      registry.create(session_id: session_id)
+
+      # Agent that raises AgentInterrupted when run() is called,
+      # simulating a user interrupt mid-run.
+      pending_calls = [2, 0]  # 2 on first check, 0 on recursive check (stops loop)
+      mock_agent = double("Agent")
+      allow(mock_agent).to receive(:run).and_raise(Clacky::AgentInterrupted, "Interrupted")
+      allow(mock_agent).to receive(:inbox_user_message_count) { pending_calls.shift || 0 }
+      allow(mock_agent).to receive(:to_session_data).and_return({})
+
+      captured_queue_status = nil
+      mock_ui = double("UI")
+      allow(mock_ui).to receive(:update_user_message_queue_status) { |pending:|
+        captured_queue_status = pending
+      }
+      allow(mock_ui).to receive(:replay_live_state)
+
+      registry.with_session(session_id) do |s|
+        s[:agent]  = mock_agent
+        s[:ui]     = mock_ui
+        s[:thread] = Thread.new { sleep 1 } # To pass alive? check
+      end
+
+      # Trigger a run that will be interrupted.
+      server.send(:run_agent_task, session_id, mock_agent) { mock_agent.run }
+
+      # Wait for the rescue block to execute.
+      sleep 0.2
+
+      # The rescue block should have re-broadcast the current inbox count.
+      expect(captured_queue_status).to eq(2)
+    end
+  end
+
   # ── interrupt_all_agents (private) ───────────────────────────────────────
   #
   # Worker shutdown path. The `:interrupted` rescue branch in run_agent_task

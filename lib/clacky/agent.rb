@@ -46,9 +46,17 @@ module Clacky
       @inbox_needs_follow_up = attrs[:inbox_needs_follow_up] || false
     end
 
-    def success?     = @status == :success
-    def error?       = @status == :error
-    def interrupted? = @status == :interrupted
+    def success?
+      @status == :success
+    end
+
+    def error?
+      @status == :error
+    end
+
+    def interrupted?
+      @status == :interrupted
+    end
 
     # Backward-compatible Hash-style access so existing callers
     # (specs, CLI, etc.) don't break during the transition.
@@ -700,6 +708,37 @@ module Clacky
     # run loop's "LLM said done — but should we really break?" check.
     private def inbox_pending?
       @state_mutex.synchronize { !@inbox.empty? }
+    end
+
+    # Public: count of pending :user_msg items in the inbox.
+    # Used by WebSocket reconnect to replay queue status to newly subscribed tabs.
+    def inbox_user_message_count
+      @state_mutex.synchronize { @inbox.count { |i| i[:kind] == :user_msg } }
+    end
+
+    # Public: snapshot of pending :user_msg items in the inbox, in a format
+    # ready for replay via UI#show_user_message on WebSocket reconnect.
+    # Each entry: { content:, files:, created_at: } — files is an array of
+    # display-file hashes (name, data_url, mime_type).
+    def inbox_user_messages_snapshot
+      @state_mutex.synchronize do
+        @inbox.select { |i| i[:kind] == :user_msg }.map do |item|
+          created_at = item[:enqueued_at] || Time.now
+          if item[:processed]
+            {
+              content:    item[:processed][:user_content],
+              files:      item[:processed][:display_files] || [],
+              created_at: created_at.to_f
+            }
+          else
+            {
+              content:    item[:content],
+              files:      [],
+              created_at: created_at.to_f
+            }
+          end
+        end
+      end
     end
 
     # Set @discard_threshold to now and (best-effort) raise AgentInterrupted

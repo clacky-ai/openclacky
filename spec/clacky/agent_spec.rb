@@ -209,6 +209,72 @@ RSpec.describe Clacky::Agent do
     end
   end
 
+  describe "#inbox_user_message_count" do
+    it "returns 0 when inbox is empty" do
+      expect(agent.inbox_user_message_count).to eq(0)
+    end
+
+    it "returns count of queued :user_msg items" do
+      agent.enqueue_user_message("first")
+      agent.enqueue_user_message("second")
+      expect(agent.inbox_user_message_count).to eq(2)
+    end
+
+    it "returns 0 after inbox is drained" do
+      agent.enqueue_user_message("hello")
+      expect(agent.inbox_user_message_count).to eq(1)
+
+      allow(client).to receive(:send_messages_with_tools)
+        .and_return(mock_api_response(content: "done"))
+      agent.run("test")
+      expect(agent.inbox_user_message_count).to eq(0)
+    end
+
+    it "is thread-safe under concurrent enqueues" do
+      threads = 10.times.map do |i|
+        Thread.new { agent.enqueue_user_message("msg #{i}") }
+      end
+      threads.each(&:join)
+      expect(agent.inbox_user_message_count).to eq(10)
+    end
+  end
+
+  describe "#inbox_user_messages_snapshot" do
+    it "returns empty array when inbox is empty" do
+      expect(agent.inbox_user_messages_snapshot).to eq([])
+    end
+
+    it "returns queued :user_msg items with content and files" do
+      agent.enqueue_user_message("hello")
+      agent.enqueue_user_message("world")
+      snap = agent.inbox_user_messages_snapshot
+      expect(snap.size).to eq(2)
+      expect(snap[0][:content]).to eq("hello")
+      expect(snap[0][:files]).to eq([])
+      expect(snap[0][:created_at]).to be_a(Float)
+      expect(snap[1][:content]).to eq("world")
+    end
+
+    it "excludes non-user_msg items" do
+      agent.enqueue_user_message("hi")
+      # Inject a non-user_msg item directly (internal queue manipulation)
+      agent.instance_variable_get(:@state_mutex).synchronize do
+        agent.instance_variable_get(:@inbox) << { kind: :other }
+      end
+      snap = agent.inbox_user_messages_snapshot
+      expect(snap.size).to eq(1)
+      expect(snap[0][:content]).to eq("hi")
+    end
+
+    it "is thread-safe" do
+      5.times.map { |i|
+        Thread.new { agent.enqueue_user_message("msg #{i}") }
+      }.each(&:join)
+      snap = agent.inbox_user_messages_snapshot
+      expect(snap.size).to eq(5)
+    end
+  end
+
   describe "#add_hook" do
     it "allows adding hooks" do
       hook_called = false

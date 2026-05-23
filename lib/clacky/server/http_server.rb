@@ -3456,6 +3456,22 @@ module Clacky
             # If a shell command is still running, replay progress + buffered stdout
             # to the newly subscribed tab so it sees the live state it may have missed.
             @registry.with_session(session_id) { |s| s[:ui]&.replay_live_state }
+            # Replay inbox queue status AND pending message content so the
+            # reconnected tab sees both the count hint AND the pending
+            # ghost bubbles for messages still waiting to be drained.
+            @registry.with_session(session_id) do |s|
+              if (agent = s[:agent])
+                pending = agent.inbox_user_message_count
+                if pending > 0
+                  s[:ui]&.update_user_message_queue_status(pending: pending)
+                  conn.send_json({
+                    type:       "pending_user_messages",
+                    session_id: session_id,
+                    messages:   agent.inbox_user_messages_snapshot
+                  })
+                end
+              end
+            end
           else
             conn.send_json(type: "error", message: "Session not found: #{session_id}")
           end
@@ -3761,7 +3777,20 @@ module Clacky
           @registry.update(session_id, status: :idle)
           broadcast_session_update(session_id)
           broadcast(session_id, { type: "interrupted", session_id: session_id })
+          # Re-broadcast inbox queue status so the frontend shows the
+          # accurate pending count after interruption (messages queued
+          # during the run are preserved, not discarded).
+          pending = agent.inbox_user_message_count
+          s = nil
+          @registry.with_session(session_id) { |sess| s = sess }
+          s[:ui]&.update_user_message_queue_status(pending: pending)
           @session_manager.save(agent.to_session_data(status: :interrupted))
+
+          # If the inbox still has queued messages after interruption,
+          # immediately resume draining them — don't go idle.
+          if pending > 0
+            run_agent_task(session_id, agent) { agent.run }
+          end
         rescue => e
           @registry.update(session_id, status: :error, error: e.message)
           broadcast_session_update(session_id)
