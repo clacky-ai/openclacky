@@ -3533,22 +3533,6 @@ module Clacky
         @registry.with_session(session_id) { |s| agent = s[:agent] }
         return unless agent
 
-        # If session is running, interrupt it first (mimics CLI behavior)
-        session = @registry.get(session_id)
-        if session[:status] == :running
-          interrupt_session(session_id)
-
-          # Give the old thread a short window to exit cleanly.
-          # In the common case it returns within milliseconds (Thread#raise
-          # lands on a tight loop or LLM read). If it can't be reached in
-          # time (e.g. blocked in a slow subagent syscall), we proceed anyway:
-          # the agent's check_stale! checkpoints will refuse to mutate
-          # history once the new thread takes over.
-          old_thread = nil
-          @registry.with_session(session_id) { |s| old_thread = s[:thread] }
-          old_thread&.join(2)
-        end
-
         # Auto-name the session from the first user message (before agent starts running).
         # Skip if the name looks like it was set by the user (not a system-generated "Session N").
         if agent.history.empty? && agent.name.match?(/\ASession \d+\z/)
