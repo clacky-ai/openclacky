@@ -300,10 +300,9 @@ module Clacky
               return { message_id: nil }
             end
 
-            plain = markdown_to_plain(text)
-            return { message_id: nil } if plain.empty?
+            return { message_id: nil } if text.strip.empty?
 
-            @send_queue.enqueue(chat_id, plain, ctoken)
+            @send_queue.enqueue(chat_id, text, ctoken)
             { message_id: nil }
           end
 
@@ -563,39 +562,7 @@ module Clacky
             @ctx_mutex.synchronize { @context_tokens.keys.dup }
           end
 
-          # Split text into ≤2000 Unicode character chunks per iLink protocol recommendation.
-          # Priority: split at \n\n, then \n, then space, then hard cut.
-          def split_message(text, limit: 2000)
-            return [text] if text.chars.length <= limit
-            chunks = []
-            while text.chars.length > limit
-              window = text.chars.first(limit).join
-              # Prefer double-newline boundary
-              cut = window.rindex("\n\n")
-              cut = window.rindex("\n")   if cut.nil?
-              cut = window.rindex(" ")    if cut.nil?
-              cut = limit                 if cut.nil? || cut.zero?
-              chunks << text.chars.first(cut).join.rstrip
-              text = text.chars.drop(cut).join.lstrip
-            end
-            chunks << text unless text.empty?
-            chunks
-          end
 
-          # Strip markdown syntax for WeChat (no markdown rendering).
-          def markdown_to_plain(text)
-            r = text.dup
-            r.gsub!(/```[^\n]*\n?([\s\S]*?)```/) { Regexp.last_match(1).strip }
-            r.gsub!(/!\[[^\]]*\]\([^)]*\)/, "")
-            r.gsub!(/\[([^\]]+)\]\([^)]*\)/, '\\1')
-            r.gsub!(/\*\*([^*]+)\*\*/, '\\1')
-            r.gsub!(/\*([^*]+)\*/, '\\1')
-            r.gsub!(/__([^_]+)__/, '\\1')
-            r.gsub!(/_([^_]+)_/, '\\1')
-            r.gsub!(/^#+\s+/, "")
-            r.gsub!(/^[-*_]{3,}\s*$/, "")
-            r.strip
-          end
 
           # ── Typing keepalive ─────────────────────────────────────────────────
           # sendtyping(status=1) serves dual purpose: maintains typing indicator AND
