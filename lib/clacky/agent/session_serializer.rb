@@ -497,18 +497,9 @@ module Clacky
               question = args.is_a?(Hash) ? (args[:question] || args["question"]).to_s : ""
               context  = args.is_a?(Hash) ? (args[:context]  || args["context"]).to_s  : ""
               options  = args.is_a?(Hash) ? (args[:options]  || args["options"])        : nil
+              options  = Array(options) if options && !options.is_a?(Array)
 
-              unless question.empty?
-                parts = []
-                parts << "**Context:** #{context.strip}" << "" unless context.strip.empty?
-                parts << "**Question:** #{question.strip}"
-                # Guard: options must be an Array to iterate with each_with_index
-                if options.is_a?(Array) && !options.empty?
-                  parts << "" << "**Options:**"
-                  options.each_with_index { |opt, i| parts << "  #{i + 1}. #{opt}" }
-                end
-                ui.show_assistant_message(parts.join("\n"), files: [])
-              end
+              ui.show_feedback_request(question, context, options || []) unless question.empty?
             else
               ui.show_tool_call(name, args)
             end

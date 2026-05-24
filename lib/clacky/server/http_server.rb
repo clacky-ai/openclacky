@@ -89,6 +89,11 @@ module Clacky
         @events << { type: "token_usage", session_id: @session_id }.merge(token_data)
       end
 
+      def show_feedback_request(question, context, options)
+        @events << { type: "request_feedback", session_id: @session_id,
+                     question: question, context: context, options: options }
+      end
+
       # Ignore all other UI methods (progress, errors, etc.) during history replay
       def method_missing(name, *args, **kwargs); end
       def respond_to_missing?(name, include_private = false); true; end

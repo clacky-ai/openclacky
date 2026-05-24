@@ -97,6 +97,10 @@ module Clacky
         forward_to_subscribers { |sub| sub.show_assistant_message(content, files: files) }
       end
 
+      def show_feedback_request(question, context, options)
+        emit("request_feedback", question: question, context: context, options: options)
+      end
+
       def show_tool_call(name, args)
         args_data = args.is_a?(String) ? (JSON.parse(args) rescue args) : args
 
