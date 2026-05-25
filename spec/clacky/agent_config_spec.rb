@@ -499,6 +499,20 @@ RSpec.describe Clacky::AgentConfig do
         expect(config.find_model_by_type("lite")["model"]).to eq("haiku")
         expect(config.find_model_by_type("other")).to be_nil
       end
+
+      it "supports media types (image, video, audio) alongside chat types" do
+        models = [
+          { "model" => "sonnet", "type" => "default" },
+          { "model" => "gpt-image-1", "type" => "image" },
+          { "model" => "fal-ai/kling-v2", "type" => "video" },
+          { "model" => "tts-1", "type" => "audio" }
+        ]
+        config = described_class.new(models: models)
+
+        expect(config.find_model_by_type("image")["model"]).to eq("gpt-image-1")
+        expect(config.find_model_by_type("video")["model"]).to eq("fal-ai/kling-v2")
+        expect(config.find_model_by_type("audio")["model"]).to eq("tts-1")
+      end
     end
 
     describe "#lite_model" do

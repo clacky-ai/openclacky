@@ -41,6 +41,16 @@ module Clacky
           "dsk-deepseek-v4-flash",
           "or-gemini-3-1-pro"
         ],
+        # Image generation models served by the openclacky platform
+        # gateway. The gateway exposes a standard OpenAI-compatible
+        # /v1/images/generations endpoint, so the same OpenAICompat
+        # provider class handles them. `or-` prefix mirrors the chat
+        # model naming — these are routed through the OpenRouter
+        # backend by the platform.
+        "image_models" => [
+          "or-gemini-3-pro-image",
+          "or-gpt-image-1"
+        ],
         # Provider-level default: the Claude family served here is vision-capable.
         "capabilities" => { "vision" => true }.freeze,
         # Model-level overrides: DeepSeek models routed through this provider
@@ -123,6 +133,12 @@ module Clacky
           /\Aanthropic\// => "anthropic-messages",
           /\Aclaude[-.]/  => "anthropic-messages"
         }.freeze,
+        # Image generation models available via OpenRouter's standard
+        # OpenAI-compatible /v1/images/generations endpoint.
+        "image_models" => [
+          "google/gemini-3-pro-image-preview",
+          "openai/gpt-image-1"
+        ],
         "website_url" => "https://openrouter.ai/keys"
       }.freeze,
 
@@ -305,6 +321,11 @@ module Clacky
           "gpt-5.5" => "gpt-5.4-mini",
           "gpt-5.4" => "gpt-5.4-mini"
         },
+        # OpenAI's image generation model — same /v1/images/generations
+        # endpoint, so the OpenAICompat image provider handles it.
+        "image_models" => [
+          "gpt-image-1"
+        ],
         "website_url" => "https://platform.openai.com/api-keys"
       }.freeze,
 
@@ -444,6 +465,16 @@ module Clacky
       def models(provider_id)
         preset = PRESETS[provider_id]
         preset&.dig("models") || []
+      end
+
+      # Get available image generation models for a provider.
+      # Returns an empty array when the provider doesn't declare any —
+      # callers should treat that as "image generation not supported by this provider".
+      # @param provider_id [String] The provider identifier
+      # @return [Array<String>] List of image model names
+      def image_models(provider_id)
+        preset = PRESETS[provider_id]
+        preset&.dig("image_models") || []
       end
 
       # Get the lite model for a provider.

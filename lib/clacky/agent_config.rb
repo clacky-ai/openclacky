@@ -896,14 +896,14 @@ module Clacky
       Clacky::Providers.supports?(provider_id, capability, model_name: m["model"])
     end
 
-    # Set a model's type (default or lite)
-    # Ensures only one model has each type
+    # Set a model's type (default, lite, image, video, or audio).
+    # At most one model carries each type at a time.
     # @param index [Integer] the model index
-    # @param type [String, nil] "default", "lite", or nil to remove type
+    # @param type [String, nil] type tag, or nil to clear
     # Returns true if successful
     def set_model_type(index, type)
       return false if index < 0 || index >= @models.length
-      return false unless ["default", "lite", nil].include?(type)
+      return false unless ["default", "lite", "image", "video", "audio", nil].include?(type)
 
       if type
         # Remove type from any other model that has it

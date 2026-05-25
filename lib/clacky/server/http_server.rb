@@ -430,6 +430,8 @@ module Clacky
         when ["POST",   "/api/upload"]            then api_upload_file(req, res)
         when ["POST",   "/api/file-action"]       then api_file_action(req, res)
         when ["GET",    "/api/local-image"]       then api_serve_local_image(req, res)
+        when ["POST",   "/api/media/image"]       then api_media_image(req, res)
+        when ["GET",    "/api/media/types"]       then api_media_types(res)
         when ["GET",    "/api/version"]           then api_get_version(res)
         when ["POST",   "/api/version/upgrade"]   then api_upgrade_version(req, res)
         when ["POST",   "/api/restart"]           then api_restart(req, res)
@@ -695,6 +697,53 @@ module Clacky
         json_response(res, 200, { ok: true, enabled: enabled })
       rescue StandardError => e
         json_response(res, 500, { ok: false, error: e.message })
+      end
+
+      # POST /api/media/image
+      # Body: { "prompt": "...", "aspect_ratio": "landscape|square|portrait",
+      #         "output_dir": "<absolute path, optional>" }
+      # Routes to the model configured with type=image in agent_config.
+      def api_media_image(req, res)
+        body = parse_json_body(req)
+        return json_response(res, 400, { error: "Invalid JSON" }) unless body
+
+        prompt = body["prompt"].to_s
+        if prompt.strip.empty?
+          return json_response(res, 422, { error: "prompt is required" })
+        end
+
+        aspect_ratio = body["aspect_ratio"].to_s
+        aspect_ratio = "landscape" if aspect_ratio.empty?
+        output_dir   = body["output_dir"].to_s
+        output_dir   = @agent_config.default_working_dir || Dir.pwd if output_dir.empty?
+
+        result = Clacky::Media::Generator.new(@agent_config).generate_image(
+          prompt: prompt,
+          aspect_ratio: aspect_ratio,
+          output_dir: output_dir
+        )
+        status = result["success"] ? 200 : 422
+        json_response(res, status, result)
+      rescue StandardError => e
+        json_response(res, 500, { error: e.message })
+      end
+
+      # GET /api/media/types
+      # Returns which media types are configured in agent_config.models.
+      # Used by the media-gen skill to decide whether to surface generation
+      # capabilities to the user.
+      def api_media_types(res)
+        out = {}
+        %w[image video audio].each do |t|
+          entry = @agent_config.find_model_by_type(t)
+          out[t] =
+            if entry
+              { configured: true, model: entry["model"], base_url: entry["base_url"] }
+            else
+              { configured: false }
+            end
+        end
+        json_response(res, 200, out)
       end
 
       # POST /api/onboard/complete

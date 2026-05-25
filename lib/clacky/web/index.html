@@ -1051,9 +1051,16 @@
 
           <div id="model-modal-test-result" class="model-test-result"></div>
 
-          <label class="model-field model-field-checkbox" id="model-modal-default-field">
-            <input type="checkbox" id="model-modal-set-default">
-            <span data-i18n="settings.models.field.setDefault">Set as default model</span>
+          <label class="model-field" id="model-modal-default-field">
+            <span class="field-label" data-i18n="settings.models.field.role">Model role</span>
+            <select id="model-modal-role" class="field-input">
+              <option value="" data-i18n="settings.models.role.none">None (additional model)</option>
+              <option value="default" data-i18n="settings.models.role.default">Default chat model</option>
+              <option value="lite" data-i18n="settings.models.role.lite">Lite chat model</option>
+              <option value="image" data-i18n="settings.models.role.image">Image generation</option>
+              <option value="video" data-i18n="settings.models.role.video">Video generation</option>
+              <option value="audio" data-i18n="settings.models.role.audio">Audio (TTS)</option>
+            </select>
           </label>
         </div>
         <div class="modal-footer">
