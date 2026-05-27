@@ -10,7 +10,7 @@ module Clacky
 
     attr_reader :provider_id
 
-    def initialize(api_key, base_url:, model:, anthropic_format: false)
+    def initialize(api_key, base_url:, model:, anthropic_format: false, read_timeout: nil)
       @api_key = api_key
       @base_url = base_url
       @model = model
@@ -38,6 +38,10 @@ module Clacky
       # Non-vision models (DeepSeek, Kimi, MiniMax, etc.) reject image_url
       # content blocks; the conversion layer strips them when this is false.
       @vision_supported = Providers.supports?(provider_id, :vision, model_name: @model)
+
+      # Optional override for Faraday read_timeout (e.g. benchmark calls).
+      # nil means use the default (300s for streaming).
+      @read_timeout = read_timeout
     end
 
     # Returns true when the client is using the AWS Bedrock Converse API.
@@ -447,7 +451,7 @@ module Clacky
       @bedrock_connection ||= Faraday.new(url: @base_url) do |conn|
         conn.headers["Content-Type"]  = "application/json"
         conn.headers["Authorization"] = "Bearer #{@api_key}"
-        conn.options.timeout      = 300
+        conn.options.timeout      = @read_timeout || 300
         conn.options.open_timeout = 10
         conn.ssl.verify           = false
         conn.adapter Faraday.default_adapter
@@ -458,7 +462,7 @@ module Clacky
       @openai_connection ||= Faraday.new(url: @base_url) do |conn|
         conn.headers["Content-Type"]  = "application/json"
         conn.headers["Authorization"] = "Bearer #{@api_key}"
-        conn.options.timeout      = 300
+        conn.options.timeout      = @read_timeout || 300
         conn.options.open_timeout = 10
         conn.ssl.verify           = false
         conn.adapter Faraday.default_adapter
@@ -494,7 +498,7 @@ module Clacky
         if @provider_id == "kimi-coding"
           conn.headers["User-Agent"] = "claude-cli/1.0.51 (external, cli)"
         end
-        conn.options.timeout      = 300
+        conn.options.timeout      = @read_timeout || 300
         conn.options.open_timeout = 10
         conn.ssl.verify           = false
         conn.adapter Faraday.default_adapter

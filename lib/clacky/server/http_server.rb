@@ -368,6 +368,8 @@ module Clacky
           90
         elsif path == "/api/tool/browser"
           30
+        elsif path.end_with?("/benchmark")
+          20
         else
           10
         end
@@ -3619,8 +3621,12 @@ module Clacky
         end
 
         results = threads.map do |t|
-          t.join(per_model_timeout + 3)
-          t.value rescue { ok: false, error: "thread failed" }
+          if t.join(per_model_timeout + 3)
+            t.value rescue { ok: false, error: "thread failed" }
+          else
+            t.kill
+            { ok: false, error: "Request timed out" }
+          end
         end
 
         json_response(res, 200, { ok: true, results: results })
@@ -3641,7 +3647,8 @@ module Clacky
           model_cfg["api_key"].to_s,
           base_url:         model_cfg["base_url"].to_s,
           model:            model_name,
-          anthropic_format: model_cfg["anthropic_format"] || false
+          anthropic_format: model_cfg["anthropic_format"] || false,
+          read_timeout:     timeout_sec
         )
 
         # Override Faraday timeouts via a short-lived env var isn't ideal;
