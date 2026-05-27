@@ -1798,6 +1798,7 @@ module Clacky
 
         data["mcpServers"][name] = spec
         mcp_write_raw_config(data)
+        @mcp_registry_mutex.synchronize { @mcp_registry&.reload }
         json_response(res, 200, { ok: true, name: name, config_path: mcp_config_path })
       end
 
@@ -1821,6 +1822,7 @@ module Clacky
 
         data["mcpServers"][name] = spec
         mcp_write_raw_config(data)
+        @mcp_registry_mutex.synchronize { @mcp_registry&.reload }
         json_response(res, 200, { ok: true, name: name })
       end
 
@@ -1836,6 +1838,7 @@ module Clacky
 
         data["mcpServers"].delete(name)
         mcp_write_raw_config(data)
+        @mcp_registry_mutex.synchronize { @mcp_registry&.reload }
         json_response(res, 200, { ok: true, name: name })
       end
 
