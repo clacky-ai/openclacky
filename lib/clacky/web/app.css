@@ -3649,6 +3649,7 @@ body {
 .model-card-grid-actions {
   display: flex;
   flex-direction: row;
+  flex-wrap: wrap;
   gap: 0.5rem;
   padding-top: 0.625rem;
   border-top: 1px solid var(--color-border-primary);
