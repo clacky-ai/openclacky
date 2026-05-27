@@ -81,6 +81,16 @@ module Clacky
       #
       # For Weixin (iLink protocol) a context_token is required for every outbound
       # message.  This method looks up the most-recently cached token for user_id.
+
+      # Return the currently-live adapter for a given platform, or nil if none running.
+      # Thread-safe — acquires @mutex to read from @adapters.
+      # @param platform [Symbol, String]
+      # @return [Object, nil]
+      def adapter_for(platform)
+        platform = platform.to_sym
+        @mutex.synchronize { @adapters.find { |a| a.platform_id == platform } }
+      end
+
       # If no token is found the message cannot be delivered and nil is returned.
       #
       # For Feishu and WeCom the chat_id / user_id is sufficient — no token needed.
@@ -91,7 +101,7 @@ module Clacky
       # @return [Hash, nil]  adapter result hash, or nil on failure
       def send_to_user(platform, user_id, message)
         platform = platform.to_sym
-        adapter  = @mutex.synchronize { @adapters.find { |a| a.platform_id == platform } }
+        adapter  = adapter_for(platform)
 
         unless adapter
           Clacky::Logger.warn("[ChannelManager] send_to_user: no running adapter for :#{platform}")
@@ -114,7 +124,7 @@ module Clacky
       # @return [Array<String>]
       def known_users(platform)
         platform = platform.to_sym
-        adapter  = @mutex.synchronize { @adapters.find { |a| a.platform_id == platform } }
+        adapter  = adapter_for(platform)
         return [] unless adapter
 
         # Weixin adapter exposes @context_tokens whose keys are user_ids
@@ -307,7 +317,7 @@ module Clacky
           if channel_ui
             @registry.with_session(old_session_id) { |s| s[:ui]&.unsubscribe_channel(channel_ui); s.delete(:channel_ui) }
           else
-            channel_ui = ChannelUIController.new(event, adapter)
+            channel_ui = ChannelUIController.new(event, -> { adapter_for(event[:platform]) })
           end
 
           bind_key_to_session(key, session_id)
@@ -384,7 +394,7 @@ module Clacky
         # Create a long-lived ChannelUIController for this session and subscribe it
         # to the session's WebUIController. It stays for the session's full lifetime
         # so all events (agent output, errors, status) flow through web_ui → channel_ui.
-        channel_ui = ChannelUIController.new(event, adapter)
+        channel_ui = ChannelUIController.new(event, -> { adapter_for(event[:platform]) })
         @registry.with_session(session_id) do |s|
           s[:ui]&.subscribe_channel(channel_ui)
           s[:channel_ui] = channel_ui
