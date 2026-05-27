@@ -1407,7 +1407,15 @@ module Clacky
       private def redirect_exe_stdin(command)
         return command unless command =~ /\.exe\b/i
         return command if command =~ /<\s*[^\s|&;]/
-        "#{command} </dev/null"
+
+        # If the command has a shell-level pipe, insert </dev/null before
+        # the first pipe so only the .exe segment gets its stdin redirected,
+        # rather than starving a downstream pipe reader (e.g. `tr`, `grep`).
+        if command =~ /\|/
+          command.sub(/\s*\|/, ' </dev/null |')
+        else
+          "#{command} </dev/null"
+        end
       end
 
       # PowerShell 5 on Chinese Windows defaults [Console]::OutputEncoding
