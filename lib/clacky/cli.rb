@@ -403,6 +403,23 @@ module Clacky
         agent.rename(auto_name)
       end
 
+      # Format error message and backtrace (first 3 lines) for session saving
+      private def format_error(e)
+        "#{e.message}\n#{e.backtrace&.first(3)&.join("\n")}"
+      end
+
+      # Validates non-interactive file paths and maps them to hashes with detected MIME types
+      private def prepare_non_interactive_files(file_paths)
+        file_paths.each do |path|
+          raise ArgumentError, "File not found: #{path}" unless File.exist?(path)
+        end
+        # Convert file paths to file hashes — agent.run decides how to handle each
+        file_paths.map do |path|
+          mime = Utils::FileProcessor.detect_mime_type(path) rescue "application/octet-stream"
+          { name: File.basename(path), mime_type: mime, path: path }
+        end
+      end
+
       def validate_working_directory(path, config = nil)
         working_dir = path || Dir.pwd
 
@@ -540,7 +557,7 @@ module Clacky
           session_manager&.save(agent.to_session_data(status: :interrupted))
           ui_controller.show_warning("Task interrupted by user")
         else
-          error_message = "#{exception.message}\n#{exception.backtrace&.first(3)&.join("\n")}"
+          error_message = format_error(exception)
           session_manager&.save(agent.to_session_data(status: :error, error_message: error_message))
           ui_controller.show_error("Error: #{exception.message}")
         end
@@ -553,31 +570,61 @@ module Clacky
         # Force auto-approve — no one is around to confirm anything
         agent_config.permission_mode = :auto_approve
 
-        # Validate paths up-front so we fail fast with a clear message
-        file_paths.each do |path|
-          raise ArgumentError, "File not found: #{path}" unless File.exist?(path)
+        is_json = !!options[:json]
+
+        # Validate and prepare files up-front (DRY)
+        begin
+          files = prepare_non_interactive_files(file_paths)
+        rescue => e
+          session_manager&.save(agent.to_session_data(status: :error, error_message: format_error(e)))
+
+          if is_json
+            ui = Clacky::JsonUIController.new
+            ui.emit("error", message: e.message)
+            ui.set_idle_status
+          else
+            $stderr.puts "Error: #{e.message}"
+          end
+          exit(1)
         end
 
-        # Convert file paths to file hashes — agent.run decides how to handle each
-        files = file_paths.map do |path|
-          mime = Utils::FileProcessor.detect_mime_type(path) rescue "application/octet-stream"
-          { name: File.basename(path), mime_type: mime, path: path }
+
+        # Wire up the appropriate UI controller and execute
+        if is_json
+          ui = Clacky::JsonUIController.new
+          agent.instance_variable_set(:@ui, ui)
+          ui.emit("system", message: "Agent started", model: agent_config.model_name, working_dir: agent.working_dir)
+
+          status = run_json_task(agent, ui, session_manager) do
+            auto_name_session(agent, message)
+            agent.run(message, files: files)
+          end
+
+          if status == :success
+            ui.emit("done", total_cost: agent.total_cost, total_tasks: agent.total_tasks)
+            exit(0)
+          else
+            exit(1)
+          end
+        else
+          ui = Clacky::PlainUIController.new
+          agent.instance_variable_set(:@ui, ui)
+
+          begin
+            auto_name_session(agent, message)
+            agent.run(message, files: files)
+            session_manager&.save(agent.to_session_data(status: :success))
+            exit(0)
+          rescue Clacky::AgentInterrupted
+            session_manager&.save(agent.to_session_data(status: :interrupted))
+            $stderr.puts "\nInterrupted."
+            exit(1)
+          rescue => e
+            session_manager&.save(agent.to_session_data(status: :error, error_message: format_error(e)))
+            $stderr.puts "Error: #{e.message}"
+            exit(1)
+          end
         end
-
-        # Wire up plain-text stdout UI so all agent output is visible
-        plain_ui = Clacky::PlainUIController.new
-        agent.instance_variable_set(:@ui, plain_ui)
-
-        auto_name_session(agent, message)
-        agent.run(message, files: files)
-        session_manager&.save(agent.to_session_data(status: :success))
-        exit(0)
-      rescue Clacky::AgentInterrupted
-        $stderr.puts "\nInterrupted."
-        exit(1)
-      rescue => e
-        $stderr.puts "Error: #{e.message}"
-        exit(1)
       end
 
       # Run agent with JSON (NDJSON) output mode — persistent process.
@@ -620,6 +667,7 @@ module Clacky
               next
             end
 
+
             # Handle built-in commands
             case content.downcase
             when "/exit", "/quit"
@@ -658,12 +706,15 @@ module Clacky
         yield
         session_manager&.save(agent.to_session_data(status: :success))
         json_ui.update_sessionbar(tasks: agent.total_tasks, cost: agent.total_cost)
+        :success
       rescue Clacky::AgentInterrupted
         session_manager&.save(agent.to_session_data(status: :interrupted))
         json_ui.emit("interrupted")
+        :interrupted
       rescue => e
-        session_manager&.save(agent.to_session_data(status: :error, error_message: e.message))
+        session_manager&.save(agent.to_session_data(status: :error, error_message: format_error(e)))
         json_ui.emit("error", message: e.message)
+        :error
       ensure
         json_ui.set_idle_status
       end
