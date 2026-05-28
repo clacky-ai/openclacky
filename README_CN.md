@@ -104,6 +104,40 @@ gem install openclacky
 
 详见：https://www.openclacky.com/docs/installation
 
+### Docker
+
+构建：
+
+```bash
+git clone https://github.com/clacky-ai/openclacky.git
+cd openclacky
+docker build -t openclacky .
+```
+
+**Linux:**
+
+```bash
+docker run -d --network=host -e CLACKY_ACCESS_KEY="" openclacky
+```
+
+`--network=host` 使容器与宿主机共享网络栈，Agent 可直接访问宿主机上运行的 Chrome 远程调试端口。
+
+**macOS / Windows:**
+
+```bash
+docker run -d -p 7070:7070 -e CLACKY_ACCESS_KEY="" openclacky
+```
+
+> **注意：** macOS/Windows 不支持 `--network=host`，浏览器自动化功能可能受限。
+
+启动后访问 **http://localhost:7070**。
+
+环境变量：
+
+| 变量 | 说明 |
+|---|---|
+| `CLACKY_ACCESS_KEY` | 设置访问密钥保护 Web UI（留空 = 公开模式） |
+
 ## 快速开始
 
 ### 终端（CLI）
