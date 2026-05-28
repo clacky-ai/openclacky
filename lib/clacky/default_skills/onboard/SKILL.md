@@ -216,8 +216,8 @@ Silently run `ruby "SKILL_DIR/scripts/install_builtin_skills.rb"`,
 then parse the last stdout line as JSON and read `installed` as N.
 
 - If N > 0, show one line:
-  - zh: `✅ 已为你内置 N 个技能，输入 /skills 随时查看。`
-  - en: `✅ Installed N builtin skills. Type /skills anytime to view them.`
+  - zh: `✅ 已为你内置 N 个技能。`
+  - en: `✅ Installed N builtin skills.`
 
 ### A.10. Import external skills (optional)
 
