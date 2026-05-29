@@ -80,6 +80,176 @@ RSpec.describe Clacky::RichUIController do
     end
   end
 
+  describe "RubyRich IME cursor integration" do
+    it "keeps RubyRich input rendering free of fake inverse cursor cells" do
+      editor = RubyRich::LineEditor.new
+      editor.insert("hi")
+
+      rendered = editor.render_lines(width: 20, focused: true).join
+
+      expect(rendered).to eq("hi")
+      expect(rendered).not_to include("\e[7m")
+    end
+
+    it "reports the composer cursor position for native terminal cursor placement" do
+      ui = described_class.new(working_dir: Dir.pwd, mode: "confirm_safes", model: "test-model")
+      ui.shell.layout.calculate_dimensions(100, 30)
+      ui.shell.layout.render
+
+      ui.shell.composer.editor.insert("hi")
+
+      expect(ui.shell.composer.native_cursor_position).to eq([0, 4])
+    end
+
+    it "leaves RubyRich terminal cursor visible by default" do
+      source = File.read(RubyRich::Terminal.method(:setup).source_location.first)
+      expect(source).to include("def setup(mouse: false, hide_cursor: false")
+    end
+
+    it "starts RubyRich agent shells in the alternate screen by default" do
+      source = File.read(RubyRich::AgentShell.instance_method(:start).source_location.first)
+      expect(source).to include("def start(refresh_rate: 24, mouse: true, alt_screen: true)")
+    end
+
+    it "keeps empty escape from desynchronizing composer focus" do
+      ui = described_class.new(working_dir: Dir.pwd, mode: "confirm_safes", model: "test-model")
+
+      ui.shell.layout.notify_listeners(type: :key, name: :escape)
+      ui.shell.layout.notify_listeners(type: :key, name: :string, value: "x")
+
+      expect(ui.shell.focus_manager.focused_name).to eq(:composer)
+      expect(ui.shell.composer).to be_focused
+      expect(ui.shell.composer.value).to eq("x")
+    end
+
+    it "switches focus through the focus manager when clicking transcript and composer" do
+      ui = described_class.new(working_dir: Dir.pwd, mode: "confirm_safes", model: "test-model")
+      ui.shell.layout.calculate_dimensions(100, 30)
+
+      ui.shell.layout.notify_listeners(type: :mouse, name: :mouse_down, x: 2, y: 2, button: :left)
+
+      expect(ui.shell.focus_manager.focused_name).to eq(:transcript)
+      expect(ui.shell.composer).not_to be_focused
+
+      ui.shell.layout.notify_listeners(type: :mouse, name: :mouse_down, x: 2, y: 24, button: :left)
+
+      expect(ui.shell.focus_manager.focused_name).to eq(:composer)
+      expect(ui.shell.composer).to be_focused
+    end
+
+    it "keeps composer focus when clicking non-focusable chrome" do
+      ui = described_class.new(working_dir: Dir.pwd, mode: "confirm_safes", model: "test-model")
+      ui.shell.layout.calculate_dimensions(100, 30)
+
+      ui.shell.layout.notify_listeners(type: :mouse, name: :mouse_down, x: 70, y: 2, button: :left)
+
+      expect(ui.shell.focus_manager.focused_name).to eq(:composer)
+      expect(ui.shell.composer).to be_focused
+    end
+
+    it "restores composer focus from any visible composer row" do
+      ui = described_class.new(working_dir: Dir.pwd, mode: "confirm_safes", model: "test-model")
+      ui.shell.layout.calculate_dimensions(100, 30)
+
+      (24..28).each do |y|
+        ui.shell.focus_manager.focus(:transcript)
+        ui.shell.layout.notify_listeners(type: :mouse, name: :mouse_down, x: 2, y: y, button: :left)
+
+        expect(ui.shell.focus_manager.focused_name).to eq(:composer)
+        expect(ui.shell.composer).to be_focused
+      end
+    end
+
+    it "emits a generic mouse target event before component mouse handlers consume the click" do
+      root = RubyRich::Layout.new(name: :root)
+      root.split_column(
+        RubyRich::Layout.new(name: :top, size: 3),
+        RubyRich::Layout.new(name: :bottom, size: 3)
+      )
+      root.calculate_dimensions(20, 6)
+      targets = []
+
+      root.key(:mouse_target, 100) do |event, _live|
+        targets << event[:target_layout].name
+        false
+      end
+      root[:bottom].key(:mouse_down, 100) { true }
+
+      root.notify_listeners(type: :mouse, name: :mouse_down, x: 2, y: 4, button: :left)
+
+      expect(targets).to eq([:bottom])
+    end
+
+    it "scrolls the transcript with the mouse wheel even when composer has focus" do
+      ui = described_class.new(working_dir: Dir.pwd, mode: "confirm_safes", model: "test-model")
+      80.times { |index| ui.shell.add_markdown("line #{index}") }
+      ui.shell.layout.calculate_dimensions(100, 30)
+      ui.shell.focus_manager.focus(:composer)
+      ui.shell.viewport.scroll_to(20)
+
+      ui.shell.layout.notify_listeners(type: :mouse, name: :mouse_wheel, x: 2, y: 2, direction: :down, button: :wheel)
+
+      expect(ui.shell.viewport.scroll_top).to be > 20
+      expect(ui.shell.focus_manager.focused_name).to eq(:composer)
+    end
+
+    it "selects transcript text by dragging the viewport content and copies it on right click" do
+      ui = described_class.new(working_dir: Dir.pwd, mode: "confirm_safes", model: "test-model")
+      ui.shell.transcript.add_block(:markdown, (0...80).map { |index| "line #{index}" }.join("\n"), metadata: { plain: true })
+      ui.shell.layout.calculate_dimensions(100, 30)
+      ui.shell.focus_manager.focus(:composer)
+      ui.shell.viewport.scroll_to(20)
+
+      expect(ui.shell.viewport).to receive(:copy_to_clipboard).with("line 29").once.and_return(true)
+
+      ui.shell.layout.notify_listeners(type: :mouse, name: :mouse_down, x: 0, y: 10, button: :left)
+      ui.shell.layout.notify_listeners(type: :mouse, name: :mouse_drag, x: 7, y: 10, button: :left)
+      ui.shell.layout.notify_listeners(type: :mouse, name: :mouse_up, x: 7, y: 10, button: :left)
+      expect(ui.shell.viewport.selected_text).to eq("line 29")
+
+      ui.shell.layout.notify_listeners(type: :mouse, name: :mouse_down, x: 7, y: 10, button: :right)
+
+      expect(ui.shell.viewport.selected_text).to eq("")
+      expect(ui.shell.viewport.scroll_top).to eq(20)
+      expect(ui.shell.focus_manager.focused_name).to eq(:transcript)
+    end
+
+    it "falls back to OSC 52 terminal clipboard when platform clipboard commands are unavailable" do
+      ui = described_class.new(working_dir: Dir.pwd, mode: "confirm_safes", model: "test-model")
+      allow(RubyRich::Terminal).to receive(:windows?).and_return(false)
+      allow($stdout).to receive(:print)
+      allow($stdout).to receive(:flush)
+
+      ClimateControl.modify("WAYLAND_DISPLAY" => nil, "DISPLAY" => nil) do
+        expect(ui.shell.viewport.send(:copy_to_clipboard, "line 29")).to be true
+      end
+
+      expect($stdout).to have_received(:print).with("\e]52;c;bGluZSAyOQ==\a")
+      expect($stdout).to have_received(:flush)
+    end
+
+    it "does not highlight padded viewport whitespace after selected text" do
+      viewport = RubyRich::Viewport.new
+      viewport.instance_variable_set(:@selection_start, { line: 0, col: 0 })
+      viewport.instance_variable_set(:@selection_end, { line: 0, col: 20 })
+
+      highlighted = viewport.send(:apply_selection, "hello     ", 0)
+
+      expect(highlighted).to include("#{RubyRich::AnsiCode.inverse}hello#{RubyRich::AnsiCode.reset}")
+      expect(highlighted).to end_with("     ")
+    end
+
+    it "keeps selection highlighting across ANSI style resets" do
+      viewport = RubyRich::Viewport.new
+      viewport.instance_variable_set(:@selection_start, { line: 0, col: 0 })
+      viewport.instance_variable_set(:@selection_end, { line: 0, col: 9 })
+
+      highlighted = viewport.send(:apply_selection, "ab#{RubyRich::AnsiCode.reset}cd", 0)
+
+      expect(highlighted).to include("#{RubyRich::AnsiCode.reset}#{RubyRich::AnsiCode.inverse}cd")
+    end
+  end
+
   describe "#stop" do
     it "clears the terminal when requested" do
       ui = described_class.new(working_dir: Dir.pwd, mode: "confirm_safes", model: "test-model")
