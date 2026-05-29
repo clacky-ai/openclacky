@@ -261,6 +261,32 @@ RSpec.describe Clacky::RichUIController do
     end
   end
 
+  describe "Ctrl+C handling" do
+    it "consumes one keypress so non-empty input clears before the next Ctrl+C exits" do
+      ui = described_class.new(working_dir: Dir.pwd, mode: "confirm_safes", model: "test-model")
+      live = instance_double("RubyRich::Live")
+      interrupts = []
+
+      expect(live).not_to receive(:stop)
+      allow(ui.shell.layout.root).to receive(:live).and_return(live)
+
+      ui.on_interrupt do |input_was_empty:|
+        interrupts << input_was_empty
+        ui.clear_input unless input_was_empty
+      end
+
+      ui.shell.composer.editor.insert("draft")
+      ui.shell.layout.notify_listeners(type: :key, name: :ctrl_c)
+
+      expect(interrupts).to eq([false])
+      expect(ui.shell.composer.value).to eq("")
+
+      ui.shell.layout.notify_listeners(type: :key, name: :ctrl_c)
+
+      expect(interrupts).to eq([false, true])
+    end
+  end
+
   describe "#initialize_and_show_banner" do
     it "shows the full startup welcome banner" do
       ui = described_class.new(working_dir: Dir.pwd, mode: "confirm_safes", model: "test-model")

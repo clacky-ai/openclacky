@@ -440,6 +440,26 @@ module Clacky
         false
       end
     end
+
+    def attach_agent_controls
+      @composer.instance_variable_set(:@on_interrupt, nil)
+
+      @layout.key(:ctrl_c, 2_000) do |_event, live|
+        handle_interrupt(live, self)
+        false
+      end
+
+      @layout.key(:ctrl_m, 2_000) do |_event, _live|
+        toggle_mode
+        false
+      end
+    end
+
+    def handle_interrupt(_live = nil, _source = nil)
+      input_was_empty = @composer.value.to_s.empty?
+      @callbacks[:interrupt]&.call(input_was_empty: input_was_empty)
+      false
+    end
   end
 
   # Experimental RubyRich-backed TUI controller.
