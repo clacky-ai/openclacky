@@ -340,12 +340,6 @@ module Clacky
           project_root: cwd || Dir.pwd
         )
 
-        # WSL interop fix: Windows .exe processes inherit the PTY's stdin fd
-        # and attempt to use it as a Windows Console, causing them to hang
-        # indefinitely. Redirect stdin from /dev/null for any .exe invocation
-        # that doesn't already have an explicit stdin redirect.
-        safe_command = redirect_exe_stdin(safe_command)
-
         # PowerShell 5 on Chinese Windows emits CP936/GBK by default; force
         # UTF-8 so our PTY (which decodes as UTF-8) doesn't see ??? bytes.
         safe_command = force_powershell_utf8(safe_command)
@@ -988,8 +982,29 @@ module Clacky
         # exit codes are also swallowed so the *user* command's $? is what
         # lands in `__clacky_ec`.
         hooks_line = with_hooks ? hooks_prefix_for(session) : ""
-        line   = %Q|#{hooks_line}{ #{command}\n}; __clacky_ec=$?; printf "\n__CLACKY_DONE_#{token}_%s__\n" "$__clacky_ec"\n|
+        # WSL interop fix: Windows .exe processes inherit the PTY slave fd
+        # as their stdin and treat it like a Windows Console — they sit
+        # there waiting for input nobody will ever send, hanging the whole
+        # session. Wrapping the user command's group with `</dev/null` gives
+        # every process inside it (including .exe interop children) an
+        # immediate EOF on stdin, so they exit cleanly.
+        #
+        # We only do this on WSL when the command actually mentions `.exe`,
+        # so Linux interactive commands like `read -p` / `python` REPL on
+        # non-WSL hosts (and on WSL when not invoking Windows binaries)
+        # keep their PTY stdin and continue to behave as before.
+        stdin_redirect = exe_needs_stdin_isolation?(command) ? " </dev/null" : ""
+        line   = %Q|#{hooks_line}{ #{command}\n}#{stdin_redirect}; __clacky_ec=$?; printf "\n__CLACKY_DONE_#{token}_%s__\n" "$__clacky_ec"\n|
         session.mutex.synchronize { session.writer.write(line) }
+      end
+
+      # True when the command should run with stdin redirected from
+      # /dev/null. Currently only triggers on WSL when the command string
+      # mentions a Windows `.exe` binary — see write_user_command for the
+      # full rationale.
+      private def exe_needs_stdin_isolation?(command)
+        return false unless Clacky::Utils::EnvironmentDetector.wsl?
+        command.to_s =~ /\.exe\b/i ? true : false
       end
 
       # Build the "run hooks" prefix line. Empty string for shells where
@@ -1506,25 +1521,6 @@ module Clacky
         lines = text.split(/\r?\n/).reject { |l| l.strip.empty? }
         return "" if lines.empty?
         lines.last(DISPLAY_TAIL_LINES).join("\n")
-      end
-
-      # WSL interop fix: Windows .exe processes inherit the PTY stdin fd
-      # and try to use it as a Windows Console, which hangs indefinitely.
-      # Detect .exe invocations and redirect stdin from /dev/null unless
-      # the command already has an explicit stdin redirect.
-      private def redirect_exe_stdin(command)
-        return command unless Clacky::Utils::EnvironmentDetector.wsl?
-        return command unless command =~ /\.exe\b/i
-        return command if command =~ /<\s*[^\s|&;]/
-
-        # If the command has a shell-level pipe, insert </dev/null before
-        # the first pipe so only the .exe segment gets its stdin redirected,
-        # rather than starving a downstream pipe reader (e.g. `tr`, `grep`).
-        if command =~ /\|/
-          command.sub(/\s*\|/, ' </dev/null |')
-        else
-          "#{command} </dev/null"
-        end
       end
 
       # PowerShell 5 on Chinese Windows defaults [Console]::OutputEncoding

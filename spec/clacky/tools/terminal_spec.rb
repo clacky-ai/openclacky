@@ -961,6 +961,79 @@ RSpec.describe Clacky::Tools::Terminal do
   end
 
   # ---------------------------------------------------------------------------
+  # #exe_needs_stdin_isolation? — decides whether the user-command wrapper
+  # should append `</dev/null` so Windows .exe interop children don't inherit
+  # the PTY slave fd as their Console (and hang forever waiting for input).
+  # ---------------------------------------------------------------------------
+  describe "#exe_needs_stdin_isolation?" do
+    let(:terminal) { described_class.new }
+    def call(cmd)
+      terminal.send(:exe_needs_stdin_isolation?, cmd)
+    end
+
+    context "when running on WSL" do
+      before do
+        allow(Clacky::Utils::EnvironmentDetector).to receive(:wsl?).and_return(true)
+      end
+
+      it "returns true for plain .exe invocations" do
+        expect(call("whoami.exe")).to be true
+        expect(call("ipconfig.exe")).to be true
+        expect(call("powershell.exe -Command Get-Date")).to be true
+      end
+
+      it "returns true even when .exe is in the middle of a pipeline" do
+        expect(call("ipconfig.exe | grep IPv4")).to be true
+        expect(call("ls | findstr.exe foo")).to be true
+      end
+
+      it "returns true for .exe inside a quoted PowerShell -Command body" do
+        # The whole user command still mentions powershell.exe, so we wrap
+        # the entire group with </dev/null. The pipe inside the quoted
+        # string is PS-internal, but that's irrelevant — we no longer
+        # splice into the command body, only around it.
+        cmd = %q{powershell.exe -Command "Get-NetIPAddress | Select-Object InterfaceAlias"}
+        expect(call(cmd)).to be true
+      end
+
+      it "returns true for case-insensitive .EXE matches" do
+        expect(call("WHOAMI.EXE")).to be true
+        expect(call("Notepad.Exe")).to be true
+      end
+
+      it "returns false for plain Linux commands" do
+        expect(call("ls /tmp")).to be false
+        expect(call("echo hi")).to be false
+        expect(call("cat foo | grep bar")).to be false
+        expect(call("read -p 'Name: ' name && echo $name")).to be false
+      end
+
+      it "treats .exe as a word boundary, not a substring match" do
+        # `.exec` / `.execute` shouldn't trigger — only a literal `.exe`
+        # followed by a non-word char (or end of string).
+        expect(call("ruby foo.execute")).to be false
+        expect(call("./foo.exec")).to be false
+      end
+    end
+
+    context "when not running on WSL" do
+      before do
+        allow(Clacky::Utils::EnvironmentDetector).to receive(:wsl?).and_return(false)
+      end
+
+      it "returns false even for commands that mention .exe" do
+        # On non-WSL hosts there is no Windows interop layer, so we must
+        # never silently swallow stdin — a Linux user might genuinely
+        # have a file called `foo.exe`, or pipe into a cross-compile
+        # tool that happens to include `.exe` in its args.
+        expect(call("whoami.exe")).to be false
+        expect(call("powershell.exe -Command Get-Date")).to be false
+        expect(call("ls /tmp")).to be false
+      end
+    end
+  end
+
+  # ---------------------------------------------------------------------------
   # .run_sync — internal Ruby synchronous-capture API
   # ---------------------------------------------------------------------------
   describe ".run_sync" do
