@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 RSpec.describe Clacky::AgentConfig, "fallback state machine" do
-  # Minimal config with a clackyai-style base_url so fallback_model_for works
+  # Minimal config with an openclacky-style base_url so fallback_model_for works
   let(:config) do
     Clacky::AgentConfig.new(
       models: [
@@ -9,7 +9,7 @@ RSpec.describe Clacky::AgentConfig, "fallback state machine" do
           "type"             => "default",
           "model"            => "abs-claude-sonnet-4-6",
           "api_key"          => "absk-test",
-          "base_url"         => "https://api.clacky.ai/v1",
+          "base_url"         => "https://api.openclacky.com/v1",
           "anthropic_format" => true
         }
       ]

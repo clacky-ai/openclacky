@@ -827,13 +827,13 @@ RSpec.describe Clacky::AgentConfig do
   # Lite model resolution (virtual, on-demand; no longer materialized into @models)
   # ─────────────────────────────────────────────────────────────────────────
   describe "#lite_model_config_for_current (virtual lite derivation)" do
-    context "when clackyai-sea is the configured provider (base_url matches)" do
+    context "when openclacky is the configured provider (base_url matches)" do
       it "does NOT materialize lite into @models at load time" do
         with_temp_config([
           {
             "model"            => "abs-claude-sonnet-4-6",
             "api_key"          => "absk-test-key",
-            "base_url"         => "https://api.clacky.ai",
+            "base_url"         => "https://api.openclacky.com",
             "anthropic_format" => false,
             "type"             => "default"
           }
@@ -852,7 +852,7 @@ RSpec.describe Clacky::AgentConfig do
           {
             "model"            => "abs-claude-sonnet-4-6",
             "api_key"          => "absk-test-key",
-            "base_url"         => "https://api.clacky.ai",
+            "base_url"         => "https://api.openclacky.com",
             "anthropic_format" => false,
             "type"             => "default"
           }
@@ -863,7 +863,7 @@ RSpec.describe Clacky::AgentConfig do
           expect(lite).not_to be_nil
           expect(lite["model"]).to eq("abs-claude-haiku-4-5")
           expect(lite["api_key"]).to eq("absk-test-key")
-          expect(lite["base_url"]).to eq("https://api.clacky.ai")
+          expect(lite["base_url"]).to eq("https://api.openclacky.com")
           expect(lite["type"]).to eq("lite")
           expect(lite["virtual"]).to be true
         end
@@ -874,7 +874,7 @@ RSpec.describe Clacky::AgentConfig do
           {
             "model"            => "abs-claude-haiku-4-5",
             "api_key"          => "absk-test-key",
-            "base_url"         => "https://api.clacky.ai",
+            "base_url"         => "https://api.openclacky.com",
             "anthropic_format" => false,
             "type"             => "default"
           }
@@ -889,14 +889,14 @@ RSpec.describe Clacky::AgentConfig do
           {
             "model"            => "abs-claude-sonnet-4-6",
             "api_key"          => "absk-test-key",
-            "base_url"         => "https://api.clacky.ai",
+            "base_url"         => "https://api.openclacky.com",
             "anthropic_format" => false,
             "type"             => "default"
           },
           {
             "model"            => "my-custom-lite",
             "api_key"          => "absk-test-key",
-            "base_url"         => "https://api.clacky.ai",
+            "base_url"         => "https://api.openclacky.com",
             "anthropic_format" => false,
             "type"             => "lite"
           }
@@ -969,7 +969,7 @@ RSpec.describe Clacky::AgentConfig do
           {
             "model"            => "abs-claude-sonnet-4-6",
             "api_key"          => "absk-test-key",
-            "base_url"         => "https://api.clacky.ai",
+            "base_url"         => "https://api.openclacky.com",
             "anthropic_format" => false,
             "type"             => "default"
           }
@@ -994,20 +994,20 @@ RSpec.describe Clacky::AgentConfig do
   # Providers.find_by_base_url
   # ─────────────────────────────────────────────────────────────────────────
   describe "Clacky::Providers.find_by_base_url" do
-    it "returns clackyai-sea for https://api.clacky.ai" do
-      expect(Clacky::Providers.find_by_base_url("https://api.clacky.ai")).to eq("clackyai-sea")
+    it "returns openclacky for https://api.openclacky.com" do
+      expect(Clacky::Providers.find_by_base_url("https://api.openclacky.com")).to eq("openclacky")
     end
 
     it "is tolerant of trailing slashes" do
-      expect(Clacky::Providers.find_by_base_url("https://api.clacky.ai/")).to eq("clackyai-sea")
+      expect(Clacky::Providers.find_by_base_url("https://api.openclacky.com/")).to eq("openclacky")
     end
 
     it "matches sub-path variants like /v1" do
-      expect(Clacky::Providers.find_by_base_url("https://api.clacky.ai/v1")).to eq("clackyai-sea")
+      expect(Clacky::Providers.find_by_base_url("https://api.openclacky.com/v1")).to eq("openclacky")
     end
 
     it "matches sub-path variants like /v1/" do
-      expect(Clacky::Providers.find_by_base_url("https://api.clacky.ai/v1/")).to eq("clackyai-sea")
+      expect(Clacky::Providers.find_by_base_url("https://api.openclacky.com/v1/")).to eq("openclacky")
     end
 
     it "returns nil for unknown base URLs" do
@@ -1023,26 +1023,25 @@ RSpec.describe Clacky::AgentConfig do
   # Providers.lite_model (per-family lookup)
   # ─────────────────────────────────────────────────────────────────────────
   describe "Clacky::Providers.lite_model" do
-    context "clackyai-sea (Claude-only lite_models table)" do
+    context "openclacky (Claude-only lite_models table)" do
       it "returns Haiku for Claude-family primaries" do
-        expect(Clacky::Providers.lite_model("clackyai-sea", "abs-claude-sonnet-4-6"))
+        expect(Clacky::Providers.lite_model("openclacky", "abs-claude-sonnet-4-6"))
           .to eq("abs-claude-haiku-4-5")
-        expect(Clacky::Providers.lite_model("clackyai-sea", "abs-claude-opus-4-6"))
+        expect(Clacky::Providers.lite_model("openclacky", "abs-claude-opus-4-6"))
           .to eq("abs-claude-haiku-4-5")
       end
 
       it "returns nil for lite-class primaries (Haiku)" do
-        expect(Clacky::Providers.lite_model("clackyai-sea", "abs-claude-haiku-4-5")).to be_nil
+        expect(Clacky::Providers.lite_model("openclacky", "abs-claude-haiku-4-5")).to be_nil
       end
 
-      it "returns nil for models not in the lite_models table (e.g. DeepSeek, not hosted)" do
-        # clackyai-sea only hosts Claude; DeepSeek models are not mapped.
-        expect(Clacky::Providers.lite_model("clackyai-sea", "dsk-deepseek-v4-pro")).to be_nil
+      it "returns nil for models not in the lite_models table (e.g. unknown model)" do
+        expect(Clacky::Providers.lite_model("openclacky", "unknown-model")).to be_nil
       end
 
       it "returns nil when called without a primary on a per-family provider" do
         # Per-family providers require context — no sensible global default.
-        expect(Clacky::Providers.lite_model("clackyai-sea")).to be_nil
+        expect(Clacky::Providers.lite_model("openclacky")).to be_nil
       end
     end
 

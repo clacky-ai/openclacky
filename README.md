@@ -108,6 +108,40 @@ gem install openclacky
 
 see more: https://www.openclacky.com/docs/installation
 
+### Docker
+
+Build:
+
+```bash
+git clone https://github.com/clacky-ai/openclacky.git
+cd openclacky
+docker build -t openclacky .
+```
+
+**Linux:**
+
+```bash
+docker run -d --network=host -e CLACKY_ACCESS_KEY="" openclacky
+```
+
+`--network=host` is required so the agent inside the container can reach Chrome's remote debugging port running on the host.
+
+**macOS / Windows:**
+
+```bash
+docker run -d -p 7070:7070 -e CLACKY_ACCESS_KEY="" openclacky
+```
+
+> **Note:** On macOS/Windows, `--network=host` is not supported — browser automation may be limited.
+
+Open **http://localhost:7070** after starting.
+
+Environment variables:
+
+| Variable | Description |
+|---|---|
+| `CLACKY_ACCESS_KEY` | Protect the Web UI with an access key (empty = public mode) |
+
 
 ## Quick Start
 

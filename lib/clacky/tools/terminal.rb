@@ -1513,6 +1513,7 @@ module Clacky
       # Detect .exe invocations and redirect stdin from /dev/null unless
       # the command already has an explicit stdin redirect.
       private def redirect_exe_stdin(command)
+        return command unless Clacky::Utils::EnvironmentDetector.wsl?
         return command unless command =~ /\.exe\b/i
         return command if command =~ /<\s*[^\s|&;]/
 
@@ -1531,8 +1532,7 @@ module Clacky
       # `???`. Inject UTF-8 setup into the user's PowerShell command so the
       # shell emits UTF-8 bytes regardless of host locale.
       POWERSHELL_PREAMBLE =
-        "[Console]::OutputEncoding=[Text.Encoding]::UTF8;" \
-        "$OutputEncoding=[Text.Encoding]::UTF8;"
+        "[Console]::OutputEncoding=[Text.Encoding]::UTF8;"
 
       # Only rewrites simple `powershell[.exe]` / `pwsh[.exe]` invocations.
       # Skips -File / -EncodedCommand / commands already handling encoding /

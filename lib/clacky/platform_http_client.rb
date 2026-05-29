@@ -228,11 +228,16 @@ module Clacky
           h.request(req) do |resp|
             case resp.code.to_i
             when 200
+              expected_len = resp["content-length"]&.to_i
               File.open(dest, "wb") do |f|
                 resp.read_body do |chunk|
                   f.write(chunk)
                   written += chunk.bytesize
                 end
+              end
+              if expected_len && expected_len > 0 && written != expected_len
+                raise RetryableNetworkError,
+                      "Truncated download: got #{written} bytes, expected #{expected_len}"
               end
             when 301, 302, 303, 307, 308
               location = resp["location"]
@@ -354,11 +359,33 @@ module Clacky
         { success: true, data: body["data"] || body }
       else
         error_code = body["code"]
+        server_msg = extract_server_error_message(body)
         error_msg  = API_ERROR_MESSAGES[error_code] ||
-                     body["error"] ||
+                     server_msg ||
                      "Request failed (HTTP #{code}#{error_code ? ", code: #{error_code}" : ""}). Please contact support."
         { success: false, error: error_msg, data: body }
       end
+    end
+
+    # Server error messages can come back under different keys / shapes:
+    #   { "error":  "msg" }           — single string
+    #   { "errors": ["msg1", "msg2"] } — array of strings (Rails .errors.full_messages)
+    #   { "errors": "msg" }            — string (less common)
+    #   { "message": "msg" }           — alternative key
+    # Returns the first non-blank human-readable string, or nil if none.
+    private def extract_server_error_message(body)
+      return nil unless body.is_a?(Hash)
+
+      [body["error"], body["errors"], body["message"]].each do |val|
+        case val
+        when String
+          return val unless val.strip.empty?
+        when Array
+          joined = val.compact.map(&:to_s).reject(&:empty?).join("; ")
+          return joined unless joined.empty?
+        end
+      end
+      nil
     end
 
     # Raised for transient failures that should be retried (timeouts, conn resets, SSL errors).

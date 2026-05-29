@@ -39,6 +39,17 @@ module Clacky
         msg[:content].select { |b| b[:type] == "tool_result" }.map { |b| b[:tool_use_id] }
       end
 
+      # Anthropic requires tool_use.id to match ^[a-zA-Z0-9_-]+$ (max 128 chars).
+      # Some OpenAI-compatible upstreams (e.g. kimi-k2.6) return ids like "tool_name:0"
+      # — fine for OpenAI, rejected by Anthropic. We replace illegal chars with "_"
+      # at the format boundary so ids stay self-consistent across use/result pairs
+      # (pure function → same input maps to same output in both directions).
+      def sanitize_tool_use_id(id)
+        s = id.to_s
+        s = s.gsub(/[^a-zA-Z0-9_-]/, "_")
+        s.length > 128 ? s[0, 128] : s
+      end
+
       # ── Request building ──────────────────────────────────────────────────────
 
       # Convert canonical @messages + tools into an Anthropic API request body.
@@ -156,7 +167,6 @@ module Clacky
       end
 
       # ── Tool result formatting ────────────────────────────────────────────────
-
       # Format tool results into canonical messages to append to @messages.
       # Input:  response (canonical, has :tool_calls), tool_results array
       # Output: canonical messages: [{ role: "tool", tool_call_id:, content: }]
@@ -211,7 +221,7 @@ module Clacky
               else
                 raw_args
               end
-            blocks << { type: "tool_use", id: tc[:id], name: name, input: input || {} }
+            blocks << { type: "tool_use", id: sanitize_tool_use_id(tc[:id]), name: name, input: input || {} }
           end
 
           return { role: "assistant", content: blocks }
@@ -250,7 +260,7 @@ module Clacky
                          else
                            raw_content
                          end
-          block = { type: "tool_result", tool_use_id: msg[:tool_call_id], content: tool_content }
+          block = { type: "tool_result", tool_use_id: sanitize_tool_use_id(msg[:tool_call_id]), content: tool_content }
           block[:cache_control] = hoisted_cache_control if hoisted_cache_control
           return { role: "user", content: [block] }
         end

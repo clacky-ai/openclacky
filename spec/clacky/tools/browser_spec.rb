@@ -274,37 +274,18 @@ RSpec.describe Clacky::Tools::Browser do
   # build_evaluate_function
   # ---------------------------------------------------------------------------
   describe "#build_evaluate_function" do
-    it "wraps a bare expression with an auto-return" do
-      out = tool.send(:build_evaluate_function, "document.title")
-      expect(out).to eq("() => { return (document.title) }")
+    it "wraps any expression as an arrow returning that expression" do
+      expect(tool.send(:build_evaluate_function, "document.title")).to eq("() => (document.title)")
     end
 
-    it "treats a body containing return as a statement body" do
-      out = tool.send(:build_evaluate_function, "return document.title")
-      expect(out).to eq("() => { return document.title }")
-    end
-
-    it "treats const/let/var as a statement body (no auto-return wrapping)" do
-      js = "const x = document.title; return x"
-      out = tool.send(:build_evaluate_function, js)
-      expect(out).to include("const x = document.title; return x")
-      expect(out).not_to include("return (const")
-    end
-
-    it "treats multi-statement (with semicolon) as statement body" do
-      js = "const t = document.title; return t.length"
-      out = tool.send(:build_evaluate_function, js)
-      expect(out).not_to include("return (const")
+    it "wraps an async IIFE so its returned promise flows through" do
+      js = "(async () => { const r = await fetch('/x'); return r.status })()"
+      expect(tool.send(:build_evaluate_function, js)).to eq("() => (#{js})")
     end
 
     it "handles empty input" do
       expect(tool.send(:build_evaluate_function, "")).to eq("() => {}")
       expect(tool.send(:build_evaluate_function, "   ")).to eq("() => {}")
-    end
-
-    it "treats if/for/while as statement body" do
-      out = tool.send(:build_evaluate_function, "if (true) { return 1 } else { return 2 }")
-      expect(out).not_to include("return (if")
     end
   end
 
@@ -485,8 +466,8 @@ RSpec.describe Clacky::Tools::Browser do
       expect(props[:offset]).to be_a(Hash)
     end
 
-    it "documents evaluate as a function body in tool_description" do
-      expect(described_class.tool_description).to include("function body")
+    it "documents evaluate as a JS expression in tool_description" do
+      expect(described_class.tool_description).to include("JS expression")
     end
   end
 

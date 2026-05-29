@@ -74,10 +74,11 @@ module Clacky
 
       # Get summary statistics for a time period
       # @param period [Symbol] :day, :week, :month, :year, or :all
+      # @param model [String, nil] Filter by model name
       # @return [Hash] Summary with total_cost, total_tokens, by_model, etc.
-      def summary(period: :month)
+      def summary(period: :month, model: nil)
         from_time = period_start(period)
-        records = query(from: from_time)
+        records = query(from: from_time, model: model)
 
         total_cost = records.sum { |r| r.cost_usd || 0 }
         total_prompt = records.sum { |r| r.prompt_tokens || 0 }
@@ -116,10 +117,11 @@ module Clacky
 
       # Get daily cost breakdown for the last N days
       # @param days [Integer] Number of days to include
+      # @param model [String, nil] Filter by model name
       # @return [Array<Hash>] Daily summaries with date and cost
-      def daily_breakdown(days: 30)
+      def daily_breakdown(days: 30, model: nil)
         from_time = Time.now - (days * 24 * 60 * 60)
-        records = query(from: from_time)
+        records = query(from: from_time, model: model)
 
         by_day = records.group_by { |r| r.timestamp.strftime("%Y-%m-%d") }
 
@@ -157,6 +159,62 @@ module Clacky
           end
         end
         deleted
+      end
+
+      # Clear billing records
+      # @param scope [Symbol] :today or :all
+      # @return [Integer] Number of records/files deleted
+      def clear(scope: :today)
+        case scope
+        when :today
+          clear_today
+        when :all
+          clear_all
+        else
+          0
+        end
+      end
+
+      private def clear_today
+        # Remove today's records from the current month file
+        month_file = current_month_file
+        return 0 unless File.exist?(month_file)
+
+        today_start = Time.new(Time.now.year, Time.now.month, Time.now.day)
+        kept_lines = []
+        deleted_count = 0
+
+        File.foreach(month_file) do |line|
+          next if line.strip.empty?
+
+          begin
+            hash = JSON.parse(line, symbolize_names: true)
+            record_time = Time.parse(hash[:timestamp].to_s) rescue nil
+
+            if record_time && record_time >= today_start
+              deleted_count += 1
+            else
+              kept_lines << line
+            end
+          rescue JSON::ParserError
+            kept_lines << line
+          end
+        end
+
+        # Rewrite the file without today's records
+        File.open(month_file, "w") do |f|
+          kept_lines.each { |line| f.print(line) }
+        end
+        FileUtils.chmod(0o600, month_file) if File.exist?(month_file)
+
+        deleted_count
+      end
+
+      private def clear_all
+        # Delete all billing files
+        files = billing_files
+        files.each { |f| File.delete(f) }
+        files.size
       end
 
       private def ensure_billing_dir

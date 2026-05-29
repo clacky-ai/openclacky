@@ -35,7 +35,7 @@ module Clacky
         Workflow: open → snapshot(interactive:true) → act(ref=...). New tab from `open` is auto-selected; only use `focus` to switch back to a previously-opened tab.
         snapshot: returns hierarchical a11y tree truncated to ~8KB. Use query="text" to seek, or offset=N to page.
         act kinds: click | dblclick | type | fill | press | hover | scroll | drag | select | wait | evaluate | click_at
-        evaluate: `js` is a function body, e.g. `return document.title` or `const x=...; return x;` — result is JSON-encoded.
+        evaluate: `js` is a JS expression, e.g. "document.title". For multi-line / async logic use an IIFE: "(async () => { const r = await fetch(...); return r.status })()". Result is JSON-encoded.
         screenshot: expensive — pass `ref` to capture one element instead of the whole page.
       DESC
       self.tool_category = "web"
@@ -58,7 +58,7 @@ module Clacky
           amount:      { type: "integer", description: "act scroll pixels (default 300)" },
           ms:          { type: "integer", description: "act wait ms" },
           selector:    { type: "string",  description: "act wait: text or CSS selector" },
-          js:          { type: "string",  description: "act evaluate: JS function body (use return)" },
+          js:          { type: "string",  description: "act evaluate: JS expression (use IIFE for multi-line/async)" },
           target_ref:  { type: "string",  description: "act drag destination ref" },
           values:      { type: "array",   items: { type: "string" }, description: "act select options" },
           x:           { type: "number",  description: "click_at x px" },
@@ -264,7 +264,7 @@ module Clacky
           url = require_url(opts)
           return url if url.is_a?(Hash)
           invalidate_page_cache!
-          mcp_call("navigate_page", { type: "url", url: url })
+          mcp_call("navigate_page", with_page({ type: "url", url: url }))
           wait_for_page_ready
           { action: "navigate", success: true, profile: "user", url: url, output: "Navigated to: #{url}" }
 
@@ -385,19 +385,10 @@ module Clacky
         pid ? args.merge(pageId: pid) : args
       end
 
-      # Wrap user-supplied JS as a Chrome-DevTools-MCP `function` argument.
-      # We treat `js` as a function body so users can write `const x = ...; return x;`
-      # naturally. For pure expressions ("document.title"), we auto-prepend `return`
-      # so the result still flows back. Detection is conservative — the presence of
-      # `return` or any top-level statement keyword skips the auto-return.
       private def build_evaluate_function(js)
         body = js.to_s.strip
         return "() => {}" if body.empty?
-
-        looks_like_statement = body.match?(/(^|[\s;{])(return|const|let|var|if|for|while|throw|try|switch|function|class|do|await|async)\b/) ||
-                               body.include?(";")
-        body = "return (#{body})" unless looks_like_statement
-        "() => { #{body} }"
+        "() => (#{body})"
       end
 
       SCREENSHOT_MAX_WIDTH        = 800

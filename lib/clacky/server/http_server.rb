@@ -436,6 +436,7 @@ module Clacky
         when ["GET",    "/api/billing/summary"]   then api_billing_summary(req, res)
         when ["GET",    "/api/billing/daily"]     then api_billing_daily(req, res)
         when ["GET",    "/api/billing/records"]   then api_billing_records(req, res)
+        when ["DELETE", "/api/billing/clear"]     then api_billing_clear(req, res)
         when ["PATCH",  "/api/sessions/:id/model"] then api_switch_session_model(req, res)
         when ["PATCH",  "/api/sessions/:id/working_dir"] then api_change_session_working_dir(req, res)
         else
@@ -1113,30 +1114,32 @@ module Clacky
 
       # GET /api/billing/summary
       # Returns billing summary for a time period
-      # Query params: period (day|week|month|year|all, default: month)
+      # Query params: period (day|week|month|year|all, default: month), model (optional)
       def api_billing_summary(req, res)
         require_relative "../billing/billing_store"
 
         query  = URI.decode_www_form(req.query_string.to_s).to_h
         period = (query["period"] || "month").to_sym
+        model  = query["model"]
 
         store   = Clacky::Billing::BillingStore.new
-        summary = store.summary(period: period)
+        summary = store.summary(period: period, model: model)
 
         json_response(res, 200, summary)
       end
 
       # GET /api/billing/daily
       # Returns daily cost breakdown
-      # Query params: days (default: 30)
+      # Query params: days (default: 30), model (optional)
       def api_billing_daily(req, res)
         require_relative "../billing/billing_store"
 
         query = URI.decode_www_form(req.query_string.to_s).to_h
         days  = [(query["days"] || "30").to_i, 90].min
+        model = query["model"]
 
         store = Clacky::Billing::BillingStore.new
-        daily = store.daily_breakdown(days: days)
+        daily = store.daily_breakdown(days: days, model: model)
 
         json_response(res, 200, { days: daily })
       end
@@ -1159,6 +1162,23 @@ module Clacky
           records: records.map(&:to_h),
           count: records.size
         })
+      end
+
+      # DELETE /api/billing/clear
+      # Clears billing records
+      # Query params: scope (today|all, default: today)
+      def api_billing_clear(req, res)
+        require_relative "../billing/billing_store"
+
+        query = URI.decode_www_form(req.query_string.to_s).to_h
+        scope = query["scope"] || "today"
+
+        store = Clacky::Billing::BillingStore.new
+        deleted = store.clear(scope: scope.to_sym)
+
+        json_response(res, 200, { ok: true, deleted: deleted, scope: scope })
+      rescue => e
+        json_response(res, 500, { error: e.message })
       end
 
       # GET /api/version

@@ -58,8 +58,8 @@ RSpec.describe Clacky::Providers do
         expect(described_class.supports?("openclacky", :vision)).to be true
       end
 
-      it "returns true for clackyai-sea (Claude model)" do
-        expect(described_class.supports?("clackyai-sea", :vision,
+      it "returns true for openclacky (Claude model)" do
+        expect(described_class.supports?("openclacky", :vision,
                                          model_name: "abs-claude-sonnet-4-5")).to be true
       end
     end
@@ -72,10 +72,10 @@ RSpec.describe Clacky::Providers do
                                          model_name: "dsk-deepseek-v4-flash")).to be false
       end
 
-      it "returns false for clackyai-sea + unknown model (falls back to provider default)" do
-        # clackyai-sea no longer hosts DeepSeek; unknown model inherits provider-level vision=true.
-        expect(described_class.supports?("clackyai-sea", :vision,
-                                         model_name: "dsk-deepseek-v4-pro")).to be true
+      it "returns true for openclacky + unknown model (falls back to provider default)" do
+        # Unknown model inherits provider-level vision=true.
+        expect(described_class.supports?("openclacky", :vision,
+                                         model_name: "unknown-model")).to be true
       end
     end
 

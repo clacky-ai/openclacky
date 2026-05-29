@@ -905,7 +905,7 @@ RSpec.describe Clacky::Tools::Terminal do
 
     it "injects UTF-8 setup into -Command \"...\" form, preserving the rest" do
       out = call(%q{powershell.exe -Command "Get-NetIPAddress | Select-Object InterfaceAlias"})
-      expect(out).to eq(%q{powershell.exe -Command "[Console]::OutputEncoding=[Text.Encoding]::UTF8;$OutputEncoding=[Text.Encoding]::UTF8;Get-NetIPAddress | Select-Object InterfaceAlias"})
+      expect(out).to eq(%q{powershell.exe -Command "[Console]::OutputEncoding=[Text.Encoding]::UTF8;Get-NetIPAddress | Select-Object InterfaceAlias"})
     end
 
     it "handles -c short form and pwsh" do
@@ -915,12 +915,12 @@ RSpec.describe Clacky::Tools::Terminal do
 
     it "rewrites bare invocation into -Command form" do
       out = call(%q{powershell.exe Get-Process})
-      expect(out).to eq(%q{powershell.exe -Command "[Console]::OutputEncoding=[Text.Encoding]::UTF8;$OutputEncoding=[Text.Encoding]::UTF8;Get-Process"})
+      expect(out).to eq(%q{powershell.exe -Command "[Console]::OutputEncoding=[Text.Encoding]::UTF8;Get-Process"})
     end
 
     it "handles -Command without quotes" do
       out = call(%q{powershell -Command Get-Date})
-      expect(out).to eq(%q{powershell -Command "[Console]::OutputEncoding=[Text.Encoding]::UTF8;$OutputEncoding=[Text.Encoding]::UTF8;Get-Date"})
+      expect(out).to eq(%q{powershell -Command "[Console]::OutputEncoding=[Text.Encoding]::UTF8;Get-Date"})
     end
 
     it "splices through other PS flags like -NoProfile" do

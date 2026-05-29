@@ -301,7 +301,12 @@ module Clacky
         end
       end
 
-      raise_error(response) unless response.status == 200
+      unless response.status == 200
+        recovered_body = response.body.to_s
+        recovered_body = sse_buf.to_s if recovered_body.empty?
+        recovered = Struct.new(:status, :body).new(response.status, recovered_body)
+        raise_error(recovered)
+      end
       MessageFormat::Anthropic.parse_response(aggregator.to_h)
     end
 
@@ -351,7 +356,10 @@ module Clacky
         end
       end
 
-      raise_error(response) unless response.status == 200
+      unless response.status == 200
+        response.env.body = sse_buf if response.body.to_s.empty?
+        raise_error(response)
+      end
       MessageFormat::OpenAI.parse_response(aggregator.to_h)
     end
 
@@ -534,6 +542,12 @@ module Clacky
       error_body    = JSON.parse(response.body) rescue nil
       error_message = extract_error_message(error_body, response.body)
 
+      Clacky::Logger.warn("client.raise_error",
+        status: response.status,
+        body: response.body.to_s[0, 2000],
+        error_message: error_message.to_s[0, 500]
+      )
+
       case response.status
       when 400
         # Well-behaved APIs (Anthropic, OpenAI) never put quota/availability issues in 400.
@@ -570,12 +584,37 @@ module Clacky
         return "Invalid API endpoint or server error (received HTML instead of JSON)"
       end
 
+      return "(empty response body)" if raw_body.to_s.strip.empty? && !error_body.is_a?(Hash)
       return raw_body unless error_body.is_a?(Hash)
 
       error_body["upstreamMessage"]&.then { |m| return m unless m.empty? }
-      error_body.dig("error", "message")&.then { |m| return m } if error_body["error"].is_a?(Hash)
+
+      if error_body["error"].is_a?(Hash)
+        upstream_msg = extract_upstream_error(error_body["error"])
+        return upstream_msg if upstream_msg
+      end
+
       error_body["message"]&.then             { |m| return m }
       error_body["error"].is_a?(String) ? error_body["error"] : (raw_body.to_s[0..200] + (raw_body.to_s.length > 200 ? "..." : ""))
+    end
+
+    # OpenRouter nests the real provider error inside metadata.raw as a JSON string.
+    private def extract_upstream_error(error_hash)
+      raw = error_hash.dig("metadata", "raw")
+      if raw.is_a?(String) && !raw.empty?
+        nested = JSON.parse(raw) rescue nil
+        if nested.is_a?(Hash)
+          details = nested.dig("error", "details")
+          if details.is_a?(String) && !details.empty?
+            innermost = JSON.parse(details) rescue nil
+            if innermost.is_a?(Hash) && innermost.dig("error", "message")
+              return innermost.dig("error", "message")
+            end
+          end
+          return nested.dig("error", "message") if nested.dig("error", "message")
+        end
+      end
+      error_hash["message"]
     end
 
     # Parse JSON with user-friendly error messages.

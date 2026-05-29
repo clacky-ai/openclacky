@@ -902,11 +902,6 @@ module Clacky
             args[:skill_loader] = @skill_loader
           end
 
-          # Special handling for Time Machine tools: inject agent
-          if ["undo_task", "redo_task", "list_tasks"].include?(call[:name])
-            args[:agent] = self
-          end
-
           # Inject working_dir so tools don't rely on Dir.chdir global state
           args[:working_dir] = @working_dir if @working_dir
 
@@ -1183,9 +1178,6 @@ module Clacky
       @tool_registry.register(Tools::TodoManager.new)
       @tool_registry.register(Tools::RequestUserFeedback.new)
       @tool_registry.register(Tools::InvokeSkill.new)
-      @tool_registry.register(Tools::UndoTask.new)
-      @tool_registry.register(Tools::RedoTask.new)
-      @tool_registry.register(Tools::ListTasks.new)
       @tool_registry.register(Tools::Browser.new)
     end
 

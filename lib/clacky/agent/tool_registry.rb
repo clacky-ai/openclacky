@@ -59,13 +59,6 @@ module Clacky
       "ask_user" => "request_user_feedback",
       "user_feedback" => "request_user_feedback",
       "ask" => "request_user_feedback",
-      # undo_task aliases
-      "undo" => "undo_task",
-      # redo_task aliases
-      "redo" => "redo_task",
-      # list_tasks aliases
-      "tasks" => "list_tasks",
-      "task_history" => "list_tasks",
       # trash_manager aliases
       "trash" => "trash_manager",
       "delete" => "trash_manager",

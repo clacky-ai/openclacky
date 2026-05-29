@@ -187,7 +187,7 @@ module Clacky
             name  = func[:name]  || tc[:name]
             raw_args = func[:arguments] || tc[:arguments]
             input = raw_args.is_a?(String) ? (JSON.parse(raw_args) rescue {}) : (raw_args || {})
-            blocks << { toolUse: { toolUseId: tc[:id], name: name, input: input } }
+            blocks << { toolUse: { toolUseId: Anthropic.sanitize_tool_use_id(tc[:id]), name: name, input: input } }
           end
 
           return { role: "assistant", content: blocks }
@@ -208,7 +208,7 @@ module Clacky
                          end
           return {
             role: "user",
-            content: [{ toolResult: { toolUseId: msg[:tool_call_id], content: result_blocks } }]
+            content: [{ toolResult: { toolUseId: Anthropic.sanitize_tool_use_id(msg[:tool_call_id]), content: result_blocks } }]
           }
         end
 

@@ -737,6 +737,9 @@ module Clacky
       dl = platform_client.download_file(url, tmp_zip)
       raise dl[:error].to_s unless dl[:success]
 
+      zip_size = File.size?(tmp_zip).to_i
+      raise "Empty ZIP downloaded for #{slug}" if zip_size < 22  # min valid zip = empty central directory
+
       # Extract into dest_dir (overwrite existing files).
       # Auto-detect whether the zip has a single root folder to strip.
       # Uses get_input_stream instead of entry.extract to avoid rubyzip 3.x
@@ -780,6 +783,12 @@ module Clacky
 
       FileUtils.rm_f(tmp_zip)
 
+      if encrypted
+        manifest_path = File.join(dest_dir, "MANIFEST.enc.json")
+        raise "MANIFEST.enc.json missing after extraction" unless File.exist?(manifest_path)
+        JSON.parse(File.read(manifest_path))
+      end
+
       record_installed_skill(slug, version, skill_info["description"],
                              encrypted: encrypted,
                              description_zh: skill_info["description_zh"],
@@ -787,6 +796,8 @@ module Clacky
 
       { success: true, name: slug, version: version }
     rescue StandardError, ScriptError => e
+      FileUtils.rm_f(tmp_zip) if defined?(tmp_zip) && tmp_zip
+      FileUtils.rm_rf(dest_dir) if defined?(dest_dir) && dest_dir
       { success: false, error: e.message }
     end
 

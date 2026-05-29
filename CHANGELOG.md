@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.6] - 2026-05-29
+
+### Added
+- WPS format support for document processing
+- `--json` flag support with `-m` option
+
+### Improved
+- Billing UI and model filtering experience
+- Brand skill download now retries on failure
+- DeepSeek compatibility handling within OpenRouter provider
+
+### Fixed
+- Claude `tool_use.id` error when switching between models
+- Browser page navigation pageid bug
+- Browser IIFE execution issue
+- WSL UTF-8 command encoding bug
+- File preview path directory resolution
+
+### More
+- Remove list/undo/redo task tool
+- Clean up legacy provider code
+- Improve platform error messages for easier diagnostics
+
 ## [1.2.5] - 2026-05-28
 
 ### Fixed
