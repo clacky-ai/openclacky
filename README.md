@@ -235,3 +235,43 @@ Bug reports and pull requests are welcome on GitHub at https://github.com/clacky
 ## License
 
 Available as open source under the [MIT License](https://opensource.org/licenses/MIT).
+
+
+## FAQ
+
+### What is OpenClacky?
+OpenClacky is the most Token-efficient open-source AI Agent. It matches Claude Code on capability at comparable cost, and saves significantly against other open-source agents (~50% vs OpenClaw, ~3× cheaper than Hermes). 100% open source (MIT), BYOK with any OpenAI-compatible model.
+
+### Key Features
+| Feature | Description |
+|---------|-------------|
+| Token Efficiency | ~0.8× cost compared to Claude Code baseline |
+| Open Source | MIT license, fully open source |
+| BYOK | Use any OpenAI-compatible model |
+| Skill Evolution | Self-evolving skill ecosystem |
+| IM Integration | Feishu/WeCom/WeChat/Discord/Telegram support |
+| Ultra-high Cache | Near 100% cache hit rate |
+
+### Installation
+```bash
+gem install openclacky
+```
+
+### Requirements
+- Ruby >= 3.1.0
+- OpenAI-compatible API key
+
+### How It Works
+OpenClacky achieves cost efficiency through:
+1. **Ultra-high cache hit rate** - Double cache markers, Insert-then-Compress
+2. **Minimal tool set** - Only 16 core tools via `invoke_skill` meta-tool
+3. **Subagent routing** - Tasks routed to specialized subagents
+
+### License
+MIT License
+
+### Help Resources
+- [Website](https://www.openclacky.com/)
+- [Documentation](https://github.com/clacky-ai/openclacky#readme)
+- [CONTRIBUTING.md](./CONTRIBUTING.md)
+- [Issues](https://github.com/clacky-ai/openclacky/issues)
