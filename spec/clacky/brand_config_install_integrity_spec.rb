@@ -54,30 +54,17 @@ RSpec.describe Clacky::BrandConfig, "#install_brand_skill! integrity & cleanup" 
     expect(Dir.exist?(dest_dir)).to be false
   end
 
-  it "removes dest_dir when MANIFEST.enc.json is missing for encrypted skills" do
+  it "succeeds for built-in skills whose ZIP does not include MANIFEST.enc.json" do
+    # Platform built-in skills (added by creators via the creator center) are
+    # not packaged with MANIFEST.enc.json. The installer must not block on it.
     subject = make_subject_with_stubbed_download(->(dest) {
       build_zip(dest, "SKILL.md.enc" => "fake-encrypted")
     })
 
     result = subject.install_brand_skill!(skill_info(slug), encrypted: true)
 
-    expect(result[:success]).to be false
-    expect(result[:error]).to match(/MANIFEST.enc.json missing/)
-    expect(Dir.exist?(dest_dir)).to be false
-  end
-
-  it "removes dest_dir when MANIFEST.enc.json contains malformed JSON" do
-    subject = make_subject_with_stubbed_download(->(dest) {
-      build_zip(dest,
-                "SKILL.md.enc"      => "fake-encrypted",
-                "MANIFEST.enc.json" => "{not-valid-json")
-    })
-
-    result = subject.install_brand_skill!(skill_info(slug), encrypted: true)
-
-    expect(result[:success]).to be false
-    expect(result[:error]).to match(/unexpected token|JSON/)
-    expect(Dir.exist?(dest_dir)).to be false
+    expect(result[:success]).to be true
+    expect(Dir.exist?(dest_dir)).to be true
   end
 
   it "succeeds when ZIP and MANIFEST are valid" do
