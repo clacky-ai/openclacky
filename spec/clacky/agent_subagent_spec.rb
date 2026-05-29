@@ -258,6 +258,50 @@ RSpec.describe Clacky::Agent, "#fork_subagent" do
     end
   end
 
+  describe "subagent UI output" do
+    it "does not emit the final subagent assistant response directly to the shared UI" do
+      ui = instance_double("UI")
+      allow(ui).to receive(:show_progress)
+      allow(ui).to receive(:show_token_usage)
+
+      subagent = described_class.new(
+        client,
+        config,
+        working_dir: Dir.pwd,
+        ui: ui,
+        profile: "coding",
+        session_id: Clacky::SessionManager.generate_id,
+        source: :manual
+      )
+      subagent.instance_variable_set(:@is_subagent, true)
+
+      expect(ui).not_to receive(:show_assistant_message)
+
+      subagent.send(:emit_assistant_message, "Internal subagent result", final: true)
+    end
+
+    it "still emits intermediate subagent assistant responses" do
+      ui = instance_double("UI")
+      allow(ui).to receive(:show_progress)
+      allow(ui).to receive(:show_token_usage)
+
+      subagent = described_class.new(
+        client,
+        config,
+        working_dir: Dir.pwd,
+        ui: ui,
+        profile: "coding",
+        session_id: Clacky::SessionManager.generate_id,
+        source: :manual
+      )
+      subagent.instance_variable_set(:@is_subagent, true)
+
+      expect(ui).to receive(:show_assistant_message).with("Intermediate update", files: [])
+
+      subagent.send(:emit_assistant_message, "Intermediate update")
+    end
+  end
+
   describe "#deep_clone" do
     it "creates a deep copy of objects" do
       original = {

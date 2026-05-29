@@ -463,7 +463,7 @@ module Clacky
               tool_calls_count: (response[:tool_calls] || []).size
             )
             if response[:content] && !response[:content].empty?
-              emit_assistant_message(response[:content], reasoning_content: response[:reasoning_content])
+              emit_assistant_message(response[:content], reasoning_content: response[:reasoning_content], final: true)
             end
 
             # Show token usage after the assistant message so WebUI renders it below the bubble
@@ -1591,7 +1591,7 @@ module Clacky
     # and cannot load file:// directly) and must stay scoped to the Web UI
     # controller. IM channel subscribers need the original file:// markdown so
     # parse_file_links can extract paths and deliver images as native attachments.
-    private def emit_assistant_message(content, reasoning_content: nil)
+    private def emit_assistant_message(content, reasoning_content: nil, final: false)
       # Prepend reasoning/thinking content (from thinking-mode providers like
       # DeepSeek V4, Kimi K2) wrapped in <think> tags so the Web UI renders it
       # as a collapsible thinking block (see sessions.js _renderMarkdown).
@@ -1602,6 +1602,12 @@ module Clacky
       end
 
       return if full_content.nil? || full_content.to_s.strip.empty?
+
+      # Subagents can stream useful intermediate assistant messages before tool
+      # calls. Only their terminal answer is summarized back into the parent, so
+      # suppress that final UI emission to avoid showing the user a near-duplicate
+      # subagent answer followed by the parent's summary/response.
+      return if @is_subagent && final
 
       parsed = parse_file_links(content)
       @ui&.show_assistant_message(full_content, files: parsed[:files])
