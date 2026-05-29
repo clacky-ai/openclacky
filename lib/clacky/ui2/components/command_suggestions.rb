@@ -145,7 +145,11 @@ module Clacky
 
           output = []
           max_items = 5  # Maximum visible items
-          visible_commands = @filtered_commands.take(max_items)
+
+          # Sliding window: keep selected item visible
+          start_idx = [@selected_index - max_items + 1, 0].max
+          start_idx = [start_idx, [@filtered_commands.size - max_items, 0].max].min
+          visible_commands = @filtered_commands[start_idx, max_items] || []
 
           # Header
           header = @pastel.dim("┌─ Commands ") + @pastel.dim("─" * (width - 13)) + @pastel.dim("┐")
@@ -153,7 +157,7 @@ module Clacky
 
           # Items
           visible_commands.each_with_index do |cmd, idx|
-            is_selected = (idx == @selected_index)
+            is_selected = (start_idx + idx == @selected_index)
             line = render_command_item(cmd, is_selected, width)
             output << position_cursor(row + 1 + idx, col) + line
           end

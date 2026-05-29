@@ -25,7 +25,7 @@ RSpec.describe Clacky::Agent, "read-timeout hint injection" do
           "type"             => "default",
           "model"            => "abs-claude-sonnet-4-6",
           "api_key"          => "absk-test",
-          "base_url"         => "https://api.clacky.ai/v1",
+          "base_url"         => "https://api.openclacky.com/v1",
           "anthropic_format" => true
         }
       ],

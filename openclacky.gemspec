@@ -32,15 +32,15 @@ Gem::Specification.new do |spec|
   spec.authors = ["windy"]
   spec.email = ["yafei@dao42.com"]
 
-  spec.summary = "A command-line interface for AI models (Claude, OpenAI, etc.)"
-  spec.description = "OpenClacky is a Ruby CLI tool for interacting with AI models via OpenAI-compatible APIs. It provides chat functionality and autonomous AI agent capabilities with tool use."
-  spec.homepage = "https://github.com/yafeilee/clacky"
+  spec.summary = "The most Token-efficient open-source AI Agent — BYOK, Skill-driven, IM-integrated."
+  spec.description = "OpenClacky is a 100% open-source (MIT) AI Agent that matches Claude Code on capability at comparable cost. Built on two years of agentic R&D, it ships with a minimal 16-tool core, near-100% prompt cache hit rate, idle-time auto-compression, and BYOK support for any OpenAI-compatible model. A natural-language Skill system lets you create, evolve, and monetize agent capabilities without writing code, plus first-class integrations with Feishu, WeCom, WeChat, Discord, and Telegram."
+  spec.homepage = "https://github.com/clacky-ai/openclacky"
   spec.license = "MIT"
   spec.required_ruby_version = ">= 2.6.0"
 
   spec.metadata["homepage_uri"] = spec.homepage
-  spec.metadata["source_code_uri"] = "https://github.com/yafeilee/clacky"
-  spec.metadata["changelog_uri"] = "https://github.com/yafeilee/clacky/blob/main/CHANGELOG.md"
+  spec.metadata["source_code_uri"] = "https://github.com/clacky-ai/openclacky"
+  spec.metadata["changelog_uri"] = "https://github.com/clacky-ai/openclacky/blob/main/CHANGELOG.md"
 
   # Specify which files should be added to the gem when it is released.
   # The `git ls-files -z` loads the files in the RubyGem that have been added into git.
@@ -77,8 +77,8 @@ Gem::Specification.new do |spec|
   # rubyzip 3.x requires Ruby >= 3.0; pin to ~> 2.4.1 for cross-version compatibility
   spec.add_dependency "rubyzip", "~> 2.4.1"
 
-  # rouge >= 4.0 requires Ruby >= 2.7; cap at < 4.0 so Ruby 2.6 gets 3.30.0
-  spec.add_dependency "rouge", ">= 3.14", "< 4.0"
+  # rouge 4.x requires Ruby >= 2.7; bundler auto-resolves to 3.x on older rubies
+  spec.add_dependency "rouge", ">= 3.14", "< 5.0"
   spec.add_dependency "chunky_png", "~> 1.4"
 
   # For more information and examples about making a new gem, check out our

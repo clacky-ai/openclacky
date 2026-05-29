@@ -113,6 +113,12 @@ module Clacky
         {
           bot_token:     raw["bot_token"]
         }.compact
+      when :dingtalk
+        {
+          client_id:     raw["client_id"],
+          client_secret: raw["client_secret"],
+          allowed_users: raw["allowed_users"]
+        }.compact
       when :telegram
         {
           bot_token:     raw["bot_token"],
@@ -138,6 +144,15 @@ module Clacky
       @channels[key] ||= {}
       fields.each { |k, v| @channels[key][k.to_s] = v }
       @channels[key]["enabled"] = true unless @channels[key].key?("enabled")
+    end
+
+    # Enable a platform (requires it to already be configured).
+    # @param platform [Symbol, String]
+    # @raise [ArgumentError] if the platform has no stored credentials yet.
+    def enable_platform(platform)
+      key = platform.to_s
+      raise ArgumentError, "Platform #{platform} is not configured" unless @channels.key?(key)
+      @channels[key]["enabled"] = true
     end
 
     # Disable a platform (keeps credentials, just sets enabled: false).

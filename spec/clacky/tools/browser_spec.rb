@@ -271,6 +271,179 @@ RSpec.describe Clacky::Tools::Browser do
 
 
   # ---------------------------------------------------------------------------
+  # build_evaluate_function
+  # ---------------------------------------------------------------------------
+  describe "#build_evaluate_function" do
+    it "wraps any expression as an arrow returning that expression" do
+      expect(tool.send(:build_evaluate_function, "document.title")).to eq("() => (document.title)")
+    end
+
+    it "wraps an async IIFE so its returned promise flows through" do
+      js = "(async () => { const r = await fetch('/x'); return r.status })()"
+      expect(tool.send(:build_evaluate_function, js)).to eq("() => (#{js})")
+    end
+
+    it "handles empty input" do
+      expect(tool.send(:build_evaluate_function, "")).to eq("() => {}")
+      expect(tool.send(:build_evaluate_function, "   ")).to eq("() => {}")
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # apply_snapshot_window — query / offset
+  # ---------------------------------------------------------------------------
+  describe "#apply_snapshot_window" do
+    let(:text) { (1..200).map { |i| "- line #{i}\n" }.join }
+
+    it "returns text unchanged when no query/offset" do
+      expect(tool.send(:apply_snapshot_window, text)).to eq(text)
+    end
+
+    it "returns a window around a query match" do
+      out = tool.send(:apply_snapshot_window, text, query: "line 100")
+      expect(out).to include("line 100")
+      expect(out).to include("[snapshot window:")
+      # window is centered, should not include very early or very late lines
+      expect(out).not_to include("- line 1\n")
+      expect(out).not_to include("- line 200\n")
+    end
+
+    it "reports when a query has no match" do
+      out = tool.send(:apply_snapshot_window, text, query: "nowhere")
+      expect(out).to include("no match for query")
+    end
+
+    it "applies offset when given" do
+      out = tool.send(:apply_snapshot_window, text, offset: 50)
+      expect(out).to include("[snapshot offset: showing from line 51")
+      expect(out).not_to include("- line 1\n")
+      expect(out).to include("- line 51\n")
+    end
+
+    it "reports when offset exceeds total lines" do
+      out = tool.send(:apply_snapshot_window, text, offset: 9999)
+      expect(out).to include(">= 200 total lines")
+    end
+
+    it "prefers query over offset when both given" do
+      out = tool.send(:apply_snapshot_window, text, query: "line 100", offset: 50)
+      expect(out).to include("[snapshot window:")
+      expect(out).not_to include("[snapshot offset:")
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # compress_snapshot — new statictext collapsing behaviour
+  # ---------------------------------------------------------------------------
+  describe "#compress_snapshot (statictext collapse)" do
+    it "collapses consecutive text-only statictext lines" do
+      input = <<~SNAP
+        - main:
+          - statictext "Hello"
+          - statictext "world"
+          - statictext "foo"
+      SNAP
+      out = tool.send(:compress_snapshot, input)
+      expect(out).to include('statictext "Hello / world / foo"')
+    end
+
+    it "keeps statictext with refs separate from collapsing" do
+      input = <<~SNAP
+        - main:
+          - statictext "alpha" [ref=t1]
+          - statictext "beta" [ref=t2]
+      SNAP
+      out = tool.send(:compress_snapshot, input)
+      expect(out).to include("[ref=t1]")
+      expect(out).to include("[ref=t2]")
+    end
+
+    it "drops statictext that contains only digits (line numbers)" do
+      input = <<~SNAP
+        - code:
+          - statictext "1"
+          - statictext "2"
+          - statictext "3"
+          - statictext "real content"
+      SNAP
+      out = tool.send(:compress_snapshot, input)
+      expect(out).not_to include('"1"')
+      expect(out).not_to include('"2"')
+      expect(out).to include("real content")
+    end
+
+    it "drops empty statictext entries" do
+      input = <<~SNAP
+        - main:
+          - statictext ""
+          - statictext "kept"
+      SNAP
+      out = tool.send(:compress_snapshot, input)
+      expect(out).not_to match(/statictext ""/)
+      expect(out).to include('"kept"')
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # mcp_call retry behaviour
+  # ---------------------------------------------------------------------------
+  describe "#mcp_call retry" do
+    let(:manager) { instance_double(Clacky::BrowserManager) }
+
+    before do
+      allow(Clacky::BrowserManager).to receive(:instance).and_return(manager)
+    end
+
+    it "retries once on 'No page found' after recovering selected page" do
+      pages_result = {
+        "structuredContent" => {
+          "pages" => [{ "id" => 7, "url" => "https://x.com", "selected" => true }]
+        }
+      }
+      call_count = 0
+      allow(manager).to receive(:mcp_call) do |tool_name, _args|
+        case tool_name
+        when "click"
+          call_count += 1
+          raise "No page found" if call_count == 1
+          { "ok" => true }
+        when "list_pages" then pages_result
+        when "select_page" then { "ok" => true }
+        end
+      end
+
+      result = tool.send(:mcp_call, "click", { uid: "e1" })
+      expect(result).to eq({ "ok" => true })
+      expect(call_count).to eq(2)
+    end
+
+    it "raises a friendly message when there is no page to recover to" do
+      empty_pages = { "structuredContent" => { "pages" => [] } }
+      allow(manager).to receive(:mcp_call) do |tool_name, _args|
+        case tool_name
+        when "click" then raise "No page found"
+        when "list_pages" then empty_pages
+        end
+      end
+
+      expect { tool.send(:mcp_call, "click", { uid: "e1" }) }
+        .to raise_error(RuntimeError, /no longer available/)
+    end
+
+    it "does not retry on unrelated errors" do
+      call_count = 0
+      allow(manager).to receive(:mcp_call) do |_tool_name, _args|
+        call_count += 1
+        raise "Element ref e1 not found"
+      end
+
+      expect { tool.send(:mcp_call, "click", { uid: "e1" }) }
+        .to raise_error(RuntimeError, /Element ref e1 not found/)
+      expect(call_count).to eq(1)
+    end
+  end
+
+  # ---------------------------------------------------------------------------
   # Tool metadata
   # ---------------------------------------------------------------------------
   describe "tool metadata" do
@@ -285,6 +458,16 @@ RSpec.describe Clacky::Tools::Browser do
 
     it "does not expose a profile parameter (always uses the user's real browser)" do
       expect(described_class.tool_parameters.dig(:properties, :profile)).to be_nil
+    end
+
+    it "exposes snapshot query and offset params" do
+      props = described_class.tool_parameters[:properties]
+      expect(props[:query]).to be_a(Hash)
+      expect(props[:offset]).to be_a(Hash)
+    end
+
+    it "documents evaluate as a JS expression in tool_description" do
+      expect(described_class.tool_description).to include("JS expression")
     end
   end
 

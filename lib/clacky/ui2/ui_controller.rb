@@ -49,6 +49,7 @@ module Clacky
         @time_machine_callback = nil
         @tasks_count = 0
         @total_cost = 0.0
+        @session_id = nil
         @last_diff_lines = nil
 
         # ── Progress subsystem (v2: owned handles, stacked) ──────────────
@@ -73,6 +74,7 @@ module Clacky
 
         # Set session bar data before initializing screen
         @input_area.update_sessionbar(
+          session_id: @session_id,
           working_dir: @config[:working_dir],
           mode: @config[:mode],
           model: @config[:model],
@@ -109,10 +111,13 @@ module Clacky
       # @param cost_source [Symbol, nil] :api / :price / :default (optional)
       # @param status [String] Workspace status ('idle' or 'working') (optional)
       # @param latency [Hash, nil] Latency metrics; accepted but not displayed in the TUI.
-      def update_sessionbar(tasks: nil, cost: nil, cost_source: nil, status: nil, latency: nil)
+      # @param session_id [String, nil] Full session id; rendered as first 8 chars (parity with WebUI).
+      def update_sessionbar(tasks: nil, cost: nil, cost_source: nil, status: nil, latency: nil, session_id: nil)
         @tasks_count = tasks if tasks
         @total_cost = cost if cost
+        @session_id = session_id if session_id
         @input_area.update_sessionbar(
+          session_id: @session_id,
           working_dir: @config[:working_dir],
           mode: @config[:mode],
           model: @config[:model],
@@ -193,9 +198,35 @@ module Clacky
         @input_area.set_agent(agent, agent_profile)
       end
 
-      # Append output to the output area
-      # @param content [String] Content to append
+      # Append output to the output area.
+      #
+      # If a progress indicator is currently active (somewhere in the
+      # buffer), rotate it to the tail after the append: business content
+      # ends up above, the spinner stays at the bottom. Without this,
+      # every subsequent ticker tick on a non-tail progress entry would
+      # trigger a full output repaint (visible flicker) and the visual
+      # order would have business messages appearing below the spinner.
       def append_output(content)
+        @progress_mutex.synchronize do
+          top = @progress_stack.last
+          if top && top.entry_id
+            @layout.remove_entry(top.entry_id)
+            top.__detach_entry!
+            new_id = @layout.append_output(content)
+            progress_id = @layout.append_output(render_for(top))
+            top.__rebind_entry!(progress_id)
+            new_id
+          else
+            @layout.append_output(content)
+          end
+        end
+      end
+
+      # Internal append that bypasses the progress-rotation logic and the
+      # @progress_mutex. Used by register_progress / unregister_progress,
+      # which already hold the mutex and are themselves placing a fresh
+      # progress entry at the tail.
+      private def append_output_unlocked(content)
         @layout.append_output(content)
       end
 
@@ -411,6 +442,7 @@ module Clacky
         # doesn't bleed into the next one, and so the buffer is ready before
         # on_output starts firing (which can happen before show_progress is called).
         @stdout_lines = nil
+        @stdout_partial_tail = false
 
         # Special handling for request_user_feedback: render as a readable interactive card
         # with the full question and options, rather than the truncated format_call summary.
@@ -462,11 +494,27 @@ module Clacky
       # Receive a chunk of shell stdout from the on_output callback.
       # Lines are buffered into @stdout_lines so that Ctrl+O can open a
       # fullscreen live view, matching the original output_buffer interaction.
-      # @param lines [Array<String>] One or more stdout chunks
+      # @param lines [Array<String>] One or more stdout chunks (may contain
+      #   embedded newlines or be partial lines)
       def show_tool_stdout(lines)
         return if lines.nil? || lines.empty?
         @stdout_lines ||= []
-        @stdout_lines.concat(lines.map(&:chomp))
+        # Chunks may carry multiple newlines or trailing partial lines.
+        # Re-split on \n so the fullscreen view renders one logical line per row.
+        lines.each do |chunk|
+          next if chunk.nil? || chunk.empty?
+          chunk.to_s.split("\n", -1).each_with_index do |part, idx|
+            if idx == 0 && !@stdout_lines.empty? && @stdout_partial_tail
+              @stdout_lines[-1] = @stdout_lines[-1] + part
+            else
+              @stdout_lines << part
+            end
+          end
+          # Track whether the chunk ended on a partial line (no trailing \n)
+          # so the next chunk's first segment appends to it instead of
+          # starting a new row.
+          @stdout_partial_tail = !chunk.to_s.end_with?("\n")
+        end
       end
 
       # Show completion status (only for tasks with more than 5 iterations)
@@ -481,6 +529,8 @@ module Clacky
 
         # Clear user tip when agent stops working
         @input_area.clear_user_tip
+        # Hide todo area while idle (data preserved, restored on next work)
+        @layout.hide_todos
         @layout.render_input
 
         # Don't show completion message if awaiting user feedback
@@ -597,7 +647,7 @@ module Clacky
           end
 
           @progress_stack.push(handle)
-          entry_id = append_output(render_for(handle))
+          entry_id = append_output_unlocked(render_for(handle))
           recompute_sessionbar_status
           entry_id
         end
@@ -623,7 +673,7 @@ module Clacky
           # Restore the new top, if any: allocate a fresh entry and let it
           # resume rendering from where it left off.
           if (restored = @progress_stack.last)
-            new_id = append_output(render_for(restored))
+            new_id = append_output_unlocked(render_for(restored))
             restored.__reattach_entry!(new_id)
           end
 
@@ -762,6 +812,20 @@ module Clacky
         @legacy_progress_handles[type] = start_progress(message: display, style: style)
       end
 
+      # Stream-only update for the live thinking progress. Unlike
+      # +show_progress(progress_type: "thinking", phase: "active")+, this
+      # NEVER creates a new handle — if no thinking handle is currently
+      # alive (e.g. we're inside an idle-compression call_llm where only
+      # the quiet "Compressing..." handle is on the stack), the streamed
+      # token counts are silently dropped instead of spawning a primary
+      # spinner that would push the compression progress off-screen.
+      def stream_thinking_progress(input_tokens:, output_tokens:)
+        @legacy_progress_handles ||= {}
+        existing = @legacy_progress_handles["thinking"]
+        return unless existing&.running?
+        existing.update(metadata: { input_tokens: input_tokens, output_tokens: output_tokens })
+      end
+
       # ---------------------------------------------------------------------
       # (Legacy dead-code removed: the old imperative show_progress body
       # used to live here and is now superseded by the shim + owner
@@ -826,6 +890,8 @@ module Clacky
         @last_sessionbar_status = 'idle'
         # Clear user tip when agent stops working
         @input_area.clear_user_tip
+        # Hide todo area while idle (data preserved, restored on next work)
+        @layout.hide_todos
         @layout.render_input
       end
 
@@ -848,6 +914,8 @@ module Clacky
       # Set workspace status to working (called when agent starts working)
       def set_working_status
         update_sessionbar(status: 'working')
+        # Restore todo area if it was hidden during idle
+        @layout.show_todos
         # Show a random user tip with 40% probability when agent starts working
         @input_area.show_user_tip(probability: 0.4)
         @layout.render_input
@@ -1281,6 +1349,7 @@ module Clacky
 
           # Update session bar data (will be rendered by request_confirmation's render_all)
           @input_area.update_sessionbar(
+            session_id: @session_id,
             working_dir: @config[:working_dir],
             mode: @config[:mode],
             model: @config[:model],
@@ -1302,6 +1371,7 @@ module Clacky
         # Also clear stdout buffer used by Ctrl+O (unrelated to progress, but
         # we don't want stale command output carried across user turns).
         @stdout_lines = nil
+        @stdout_partial_tail = false
 
         # Render user message immediately before running agent
         unless data[:text].empty? && data[:files].empty?
@@ -1346,8 +1416,10 @@ module Clacky
           # Add action buttons
           choices << { name: "─" * 50, disabled: true }
           choices << { name: "[+] Add New Model", value: { action: :add } }
-          choices << { name: "[*] Edit Current Model", value: { action: :edit } }
-          choices << { name: "[-] Delete Model", value: { action: :delete } } if current_config.models.length > 1
+          if current_config.models.length > 0
+            choices << { name: "[*] Edit Current Model", value: { action: :edit } }
+            choices << { name: "[-] Delete Model", value: { action: :delete } } if current_config.models.length > 1
+          end
           choices << { name: "[X] Close", value: { action: :close } }
           
           # Show menu

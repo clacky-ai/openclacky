@@ -174,11 +174,7 @@ module Clacky
     # budget — a good description is a trigger hint, not a tutorial. Authors
     # still see their full description via `skill.description`; only the
     # system-prompt rendering is truncated.
-    #
-    # Anthropic's hard limit is 1024, but empirically ~300 chars is enough for
-    # reliable triggering (including trigger-phrase lists); longer content
-    # belongs in the SKILL.md body.
-    DESCRIPTION_MAX_CHARS = 300
+    DESCRIPTION_MAX_CHARS = 340
 
     # Get the description for context loading.
     # Returns the description from frontmatter (or first paragraph of content),

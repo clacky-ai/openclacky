@@ -5,6 +5,226 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.6] - 2026-05-29
+
+### Added
+- WPS format support for document processing
+- `--json` flag support with `-m` option
+
+### Improved
+- Billing UI and model filtering experience
+- Brand skill download now retries on failure
+- DeepSeek compatibility handling within OpenRouter provider
+
+### Fixed
+- Claude `tool_use.id` error when switching between models
+- Browser page navigation pageid bug
+- Browser IIFE execution issue
+- WSL UTF-8 command encoding bug
+- File preview path directory resolution
+
+### More
+- Remove list/undo/redo task tool
+- Clean up legacy provider code
+- Improve platform error messages for easier diagnostics
+
+## [1.2.5] - 2026-05-28
+
+### Fixed
+- Bash tool stream output not rendering in real-time
+- Multi-line shell output being incorrectly stripped
+
+### More
+- Remove WSL2 network doctor script for better compatibility
+
+## [1.2.4] - 2026-05-27
+
+### Added
+- Browser/agent snapshot now supports `with_page` for paginated results
+- Prefer WSL1 over WSL2 for better compatibility
+
+### Fixed
+- Feishu post message type and WeCom mixed message type not handled properly
+- WeChat stale QR code session not detected when reconfiguring channel
+- Channel adapter using stale reference after reconfiguration
+- Benchmark terminated early by 10-second outer request timeout
+- Model card action buttons overflowing on narrow viewports
+- Save button staying disabled when reopening model edit modal
+- WSL pipe breaking when `redirect_exe_stdin` appends `</dev/null`
+- MCP registry not hot-reloading after writing config
+- MCP server breaking from bashrc PS1 customization
+- Terminal realtime output not streaming correctly
+- PowerShell UTF-8 encoding issues
+- WSL bashrc not loading in non-interactive shells
+- Qwen 3.7 Max incorrectly treated as vision-capable model
+
+### More
+- Log service start failure reason for easier diagnostics
+
+## [1.2.3] - 2026-05-27
+
+### Added
+- Qwen 3.7 model support
+- WSL network doctor PowerShell script
+- Limit on glob/grep file walker to prevent excessive traversal
+
+### Fixed
+- Terminal single-line mode issue
+- Terminal execution hang
+- apt try logic
+
+## [1.2.2] - 2026-05-25
+
+### More
+- Add telemetry for task cost and model tracking
+
+## [1.2.1] - 2026-05-25
+
+### Fixed
+- MCP server UI display issue in Web UI
+
+## [1.2.0] - 2026-05-24
+
+### Added
+- MCP (Model Context Protocol) support with HTTP server transport
+- MCP management skill for adding, listing, probing, and reconfiguring MCP servers
+- Settings panel restructure with new "UI" and "About" tabs
+- Advanced settings toggles for compression, prompt caching, and memory update
+- Session recycle bin with soft-delete, restore, and bulk-empty operations (#172)
+- Billing system with USD/CNY currency settings (#166)
+- Configurable default working directory (#170)
+- Model ID select for switching between configured model IDs
+- Sequential image naming with upload order guarantee in Web UI (#188)
+- Browser link tips in agent output
+- Fallback URL support for model providers
+- ROADMAP.md outlining four focus areas
+
+### Improved
+- Browser tool reliability and ergonomics
+- Idle compression interval increased to 314s for fewer interruptions
+- Removed dead WeChat split_message and markdown_to_plain code paths (#187)
+
+### Fixed
+- Brand setting persistence
+- Interactive feedback card now restored during history replay (C-5599) (#190)
+- Model switcher disabled while agent is responding (C-5559) (#189)
+- Stale function call no longer breaks interrupt handling
+- Trash tool now supports directory deletion (#173)
+- Command suggestions dropdown scrolling (#157)
+- Comprehensive mobile Web UI fixes (#165)
+- WSL_UTF8=1 vs OutputEncoding=Unicode conflict in Test-UbuntuInstalled (#164)
+- USR1 hot-reload session info drop bug (#142)
+
+### More
+- DeepSeek price update
+- Contributors list and contributing readme
+- Session translation polish
+
+## [1.1.6] - 2026-05-22
+
+### Added
+- Fold cron sessions into a collapsible group in session list sidebar
+
+### Fixed
+- Free skill hints display issue
+
+## [1.1.5] - 2026-05-22
+
+### Fixed
+- Async free skills handling
+
+## [1.1.4] - 2026-05-22
+
+### Added
+- Thinking level control for AI models, configurable per provider
+- Free brand customization support
+- Syntax highlighting and per-block copy button for code blocks in Web UI (#152)
+- Font size setting (small/medium/large) with proportional UI scaling in Web UI (#147)
+- Chinese README documentation (#148)
+
+### Improved
+- Unify POST /api/file-action with download support for remote deployments (#153)
+- Hover interaction polish across Web UI
+
+### Fixed
+- Upgrade hot reload no longer leaves stale process (#143)
+
+## [1.1.3] - 2026-05-20
+
+### Added
+- Qwen3.6 (qwen3.6) model provider
+- Provider dropdown auto-focuses when opening model config in onboarding and settings
+- Dockerfile for containerized deployment
+- Debian apt mirror support for CN users, with refactored mirror configuration
+
+### Fixed
+- History file parsing incorrectly handles certain message formats
+- DeepSeek model pricing and token counting
+- Compression progress bar display during message compression
+- DingTalk: markdown message rendering, file/image delivery failures, and inbound file message type handling
+
+## [1.1.2] - 2026-05-20
+
+### Added
+- Streaming response with real-time token display in WebUI
+- Stream thinking progress indicator during agent reasoning
+- Time-to-first-token (TTFT) display in WebUI
+- LaTeX rendering support in WebUI
+- Cache hit rate display in WebUI
+
+### Fixed
+- Reasoning content properly passed as `<think>` tags to WebUI
+- User-set session name no longer overwritten by auto-rename (#136)
+- Server command now supports `--help`/`-h`/`--bind`/`-b` and `-p` alias for `--port` (#135)
+- WSL.exe output encoding and premature WSL1 fallback detection (#130)
+- Hide edit/delete model options when no models are configured (#133)
+- BrowserManager MCP process cleanup on agent exit in CLI mode (#132)
+- Windows-native OpenClaw config detection on WSL during onboarding (#129)
+
+### More
+- Updated Windows installation docs and added GitHub star history
+
+## [1.1.1] - 2026-05-17
+
+### Added
+- **WeChat SendQueue with batching, throttling, and retry.** Messages sent to multiple WeChat official account users are now queued, batched (up to 100 recipients per call), throttled to 1 batch/second, and automatically retried on failure — preventing 45007 rate-limit errors during broadcasts. (#127)
+- **Session ID in TUI session bar.** The terminal UI session bar now displays the session ID alongside the session name, making it easy to identify sessions when cross-referencing with logs or Web UI.
+- **TUI todo clean-up on task completion.** Completed todos are now removed from the terminal display when a task finishes, keeping the TUI uncluttered. (#94)
+
+### Improved
+- **Brand skills persist across same-brand upgrades.** Brand skills are no longer removed and re-downloaded when the brand stays the same after an upgrade — eliminating unnecessary network calls and keeping skill state stable.
+- **Ruby 2.6 install reliability.** The installer now pre-installs rouge 3.30.0 before `gem install` and retries with a pinned version on Ruby 2.6, avoiding dependency resolution failures on older macOS system Ruby.
+
+### Fixed
+- **TUI progress bar flicker.** The progress bar in terminal mode no longer flashes when updating rapidly, providing a smoother visual experience.
+- **Xcode command auto-install loop.** The agent no longer gets stuck in a loop trying to auto-install missing Xcode command-line tools.
+- **Brand license warning after 3-day idle.** Fixed a spurious license warning that appeared on startup after the server had been idle for 3 days.
+
+## [1.1.0] - 2026-05-15
+
+### Added
+- **DingTalk channel adapter.** New IM channel adapter connects openclacky to DingTalk via Stream Mode WebSocket. Includes DingTalk API client for text/markdown messages, Device Flow QR setup script, and full Web UI integration with channel config, HTTP server routes, and i18n strings. (#112)
+- **Feishu channel-manager skill setup & onboard improvements.** Channel-manager now includes a dedicated Feishu skills installation flow (`install_feishu_skills.rb`) and updated setup instructions. Skill installation is serialized for reliability. (#122)
+- **Custom datepicker component with i18n support.** New reusable datepicker component with CSS variable theming and full English/Chinese localization, replacing browser-native date inputs. (#119)
+- **Rename sessions via modal dialog.** Session rename now uses a proper modal dialog with i18n support instead of inline editing, for a cleaner UX. (#113)
+- **Channel enable/disable toggle.** Configured channels can now be individually enabled or disabled from the Channels page without removing credentials. Distinguishes "disabled" from "not configured" in badge and hint text. (#108)
+- **Provider promo hint for OpenClacky.** When OpenClacky is selected as provider, a contextual promo hint appears below the dropdown on both settings and onboarding pages, with dark mode support and localized copy. (#109)
+- **Running config for concurrent agent limits.** New `AgentConfig` running configuration and `SessionRegistry` concurrency controls to limit the number of simultaneously active agents, preventing resource exhaustion on busy servers.
+
+### Improved
+- **Channel page and sidebar nav polish.** Visual refinements to the Channels page layout and sidebar navigation styling.
+- **Telegram group chat skill guidance.** Channel-setup skill now clarifies Privacy Mode requirements for Telegram group chats, preventing common misconfiguration. (#117)
+
+### Fixed
+- **Channel skill trigger matching.** Renamed `channel-setup` to `channel-manager` so the agent's send-message intent matches the correct skill more reliably. (C-5584, #120)
+- **Markdown image overflow in chat bubbles.** Images in assistant messages are now width-constrained to fit within the message bubble instead of overflowing. (C-5585, #118)
+- **Channel image rewriting scoped to Web UI.** Local image URL rewriting is now applied only in the Web UI context; IM channel messages use the file basename as attachment name instead. (C-5590, #115)
+- **Discord file upload.** Added multipart middleware to the Discord Faraday connection so file attachments upload correctly. (C-5589, #116)
+- **File walk respects ignore patterns.** Fixed glob/walk to apply ignore patterns before traversal, resolving cases where ignored files were still visited. (#102)
+- **Server restart kills stale PIDs.** Improved process cleanup on restart with better PID management and user-facing hints when restart fails.
+- **Device ID persistence.** Device ID is now persisted in `BrandConfig` instead of being regenerated, ensuring stable telemetry identity across restarts.
+- **Terminal markdown rendering on Ruby 4.0.** Fixed compatibility issue with Ruby 4.0's stricter method dispatch that broke terminal markdown output. (#99)
+
 ## [1.0.5] - 2026-05-12
 
 ### Added

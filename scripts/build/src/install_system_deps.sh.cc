@@ -67,7 +67,7 @@ ensure_linux_deps() {
 
     detect_network_region
     setup_apt_mirror
-    sudo apt-get install -y build-essential git curl python3
+    apt_get_run install -y build-essential git curl python3 || return 1
     print_success "Dependencies installed"
 }
 

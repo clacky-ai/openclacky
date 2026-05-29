@@ -19,6 +19,25 @@ allowed-tools:
 
 Configure the browser tool for Clacky. Config is stored at `~/.clacky/browser.yml`.
 
+## Region-Aware Download Links
+
+Whenever you show the user a link to download or upgrade Chrome/Edge, pick the right one for their region instead of always using google.com.
+
+Treat the user as **in China** when any of these is true:
+- The user is talking to you in Chinese
+- The system locale is Chinese (`echo $LANG` contains `zh_CN` / `zh_`)
+- A previous run of `install_browser.sh` reported `Region: china` (visible in its output)
+- `curl -s --max-time 3 https://www.google.com -o /dev/null -w "%{http_code}"` returns `000` while baidu.com works
+
+Use these links accordingly:
+
+| Region | Chrome | Edge |
+|---|---|---|
+| China | https://www.google.cn/chrome/ | https://www.microsoft.com/zh-cn/edge |
+| Global | https://www.google.com/chrome/ | https://www.microsoft.com/edge |
+
+When unsure, show **both** lines (label them "China:" and "Global:") so the user can pick.
+
 ## Command Parsing
 
 | User says | Subcommand |
@@ -169,6 +188,12 @@ If still failing:
 >
 > Run `/browser-setup doctor` to diagnose the issue in detail.
 
+Fetch the online troubleshooting guide for additional help:
+
+```
+web_fetch(url="https://www.openclacky.com/docs/browser-troubleshooting")
+```
+
 Stop here and suggest running doctor.
 
 #### Case B: Other errors (MCP handshake timeout, daemon crash, etc.)
@@ -197,9 +222,10 @@ Parse the version number:
   > ⚠️ Your browser version is v${VERSION}. Version 146+ is recommended for best compatibility.
   > Continuing anyway...
 - **version < 144 or "unknown"** → Stop:
-  > ❌ Browser version v${VERSION} is too old. Please upgrade Chrome or Edge to v146+ from:
-  > - Chrome: https://www.google.com/chrome/
-  > - Edge: https://www.microsoft.com/edge
+  > ❌ Browser version v${VERSION} is too old. Please upgrade Chrome or Edge to v146+.
+  >
+  > Use the download link from the **Region-Aware Download Links** section above
+  > (pick `China` or `Global` based on the user's region).
   >
   > After upgrading, run `/browser-setup` again.
 
@@ -363,7 +389,9 @@ Connection
 
 2. Upgrade your browser:
    - Chrome v142 is too old (need v146+)
-   - Download latest version: https://www.google.com/chrome/
+   - Pick the download link for the user's region from the
+     **Region-Aware Download Links** section at the top of this skill
+     (China users → google.cn; others → google.com).
 
 After fixing these issues, run `/browser-setup` again to verify.
 ```
@@ -402,3 +430,13 @@ After fixing these issues, run `/browser-setup` again to verify.
 
 The browser tool is ready to use.
 ```
+
+### Online Troubleshooting Guide
+
+If any ❌ items are found, or the user reports a problem you cannot resolve with the above scenarios, fetch the latest troubleshooting guide:
+
+```
+web_fetch(url="https://www.openclacky.com/docs/browser-troubleshooting")
+```
+
+Use the content from that page to provide up-to-date diagnosis and resolution steps. This online document is maintained separately and may contain newer solutions not listed here.

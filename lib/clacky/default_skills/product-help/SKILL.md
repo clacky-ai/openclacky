@@ -91,9 +91,11 @@ web_fetch(url: "<URL>", max_length: 5000)
 - If still no answer, tell the user: "请访问 https://www.openclacky.com/docs 查看完整文档"
 - Keep answers concise — extract what's relevant, don't paste the whole page
 
-## Restarting the server
+## Server restart, upgrade, and downgrade
 
-If the user asks to restart the clacky/openclacky server (e.g. "重启", "restart", "请重启openclacky"):
+### Normal restart
+
+If the user asks to restart the server normally (e.g. "重启", "restart", "请重启openclacky") — without mentioning failure or errors:
 
 **Do NOT fetch any docs.** Just return this answer directly:
 
@@ -103,3 +105,9 @@ If the user asks to restart the clacky/openclacky server (e.g. "重启", "restar
 > ```
 > This sends USR1 to the Master process, which spawns a new Worker and gracefully stops the old one.
 > The `$CLACKY_MASTER_PID` environment variable is already set in the current session.
+
+### Restart failure, upgrade failure, or downgrade
+
+If the user mentions restart failure, upgrade failure, or how to downgrade (e.g. "重启失败", "升级失败", "降级", "restart failed", "upgrade failed", "downgrade", "如何降级"):
+
+→ Fetch the FAQ page: `https://www.openclacky.com/docs/faq` — it has a dedicated Troubleshooting section covering all three scenarios.

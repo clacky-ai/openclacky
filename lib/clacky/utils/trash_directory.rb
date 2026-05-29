@@ -4,17 +4,28 @@ require "digest"
 require "fileutils"
 
 module Clacky
-  # Manages global trash directory at ~/.clacky/trash
-  # Organizes trash by project directory using path hash
+  # Manages global trash directory at ~/.clacky/trash.
+  # Organises both file-trash and session-trash under one root:
+  #   ~/.clacky/trash/
+  #   ├── file-trash/      ← AI-deleted project files, keyed by project hash
+  #   └── sessions-trash/  ← soft-deleted sessions (JSON + chunk MD files)
   class TrashDirectory
     GLOBAL_TRASH_ROOT = File.join(Dir.home, ".clacky", "trash")
+
+    def self.files_trash_dir
+      File.join(GLOBAL_TRASH_ROOT, "file-trash")
+    end
+
+    def self.sessions_trash_dir
+      File.join(GLOBAL_TRASH_ROOT, "sessions-trash")
+    end
 
     attr_reader :project_root, :trash_dir, :backup_dir
 
     def initialize(project_root = Dir.pwd)
       @project_root = File.expand_path(project_root)
       @project_hash = generate_project_hash(@project_root)
-      @trash_dir = File.join(GLOBAL_TRASH_ROOT, @project_hash)
+      @trash_dir = File.join(self.class.files_trash_dir, @project_hash)
       @backup_dir = File.join(@trash_dir, "backups")
       
       setup_directories
@@ -63,12 +74,32 @@ module Clacky
       warn "Warning: Could not create project metadata: #{e.message}"
     end
 
+    # ── Legacy migration ──────────────────────────────────────────────
+
+    OLD_TRASH_ROOT = File.join(Dir.home, ".clacky", "trash")
+
+    # One-time: move pre-file-trash project hash dirs from ~/.clacky/trash/
+    # directly into the new file-trash/ subdirectory. Safe to call on every boot.
+    def self.migrate_legacy_if_needed
+      return unless Dir.exist?(OLD_TRASH_ROOT)
+
+      FileUtils.mkdir_p(files_trash_dir)
+
+      Dir.glob(File.join(OLD_TRASH_ROOT, "*")).each do |entry|
+        basename = File.basename(entry)
+        next if %w[file-trash sessions-trash].include?(basename)
+        next if File.directory?(File.join(files_trash_dir, basename))
+
+        FileUtils.mv(entry, files_trash_dir)
+      end
+    end
+
     # Get all project directories that have trash
     def self.all_projects
-      return [] unless Dir.exist?(GLOBAL_TRASH_ROOT)
+      return [] unless Dir.exist?(files_trash_dir)
       
       projects = []
-      Dir.glob(File.join(GLOBAL_TRASH_ROOT, "*", ".project_metadata.json")).each do |metadata_file|
+      Dir.glob(File.join(files_trash_dir, "*", ".project_metadata.json")).each do |metadata_file|
         begin
           metadata = JSON.parse(File.read(metadata_file))
           projects << {
@@ -93,7 +124,7 @@ module Clacky
 
     # Clean up trash directories for non-existent projects
     def self.cleanup_orphaned_projects
-      return 0 unless Dir.exist?(GLOBAL_TRASH_ROOT)
+      return 0 unless Dir.exist?(files_trash_dir)
       
       cleaned_count = 0
       all_projects.each do |project|

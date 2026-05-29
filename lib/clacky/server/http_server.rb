@@ -89,6 +89,11 @@ module Clacky
         @events << { type: "token_usage", session_id: @session_id }.merge(token_data)
       end
 
+      def show_feedback_request(question, context, options)
+        @events << { type: "request_feedback", session_id: @session_id,
+                     question: question, context: context, options: options }
+      end
+
       # Ignore all other UI methods (progress, errors, etc.) during history replay
       def method_missing(name, *args, **kwargs); end
       def respond_to_missing?(name, include_private = false); true; end
@@ -154,8 +159,8 @@ module Clacky
         @agent_config   = agent_config
         @client_factory = client_factory  # callable: -> { Clacky::Client.new(...) }
         @brand_test     = brand_test      # when true, skip remote API calls for license activation
-        @inherited_socket = socket        # TCPServer socket passed from Master (nil = standalone mode)
-        @master_pid       = master_pid    # Master PID so we can send USR1 on upgrade/restart
+        @inherited_socket  = socket        # TCPServer socket passed from Master (nil = standalone mode)
+        @master_pid        = master_pid    # Master PID so we can send USR1 on upgrade/restart
         # Capture the absolute path of the entry script and original ARGV at startup,
         # so api_restart can re-exec the correct binary even if cwd changes later.
         @restart_script = File.expand_path($0)
@@ -163,7 +168,8 @@ module Clacky
         @session_manager = Clacky::SessionManager.new(sessions_dir: sessions_dir)
         @registry        = SessionRegistry.new(
           session_manager:  @session_manager,
-          session_restorer: method(:build_session_from_data)
+          session_restorer: method(:build_session_from_data),
+          agent_config:     @agent_config
         )
         @ws_clients      = {}   # session_id => [WebSocketConnection, ...]
         @all_ws_conns    = []   # every connected WS client, regardless of session subscription
@@ -185,6 +191,9 @@ module Clacky
         )
         @browser_manager = Clacky::BrowserManager.instance
         @skill_loader    = Clacky::SkillLoader.new(working_dir: nil, brand_config: Clacky::BrandConfig.load)
+        # Lazy: process-wide MCP registry. Created on first /api/mcp/:name access
+        # so test setups that override Dir.home in before-hooks still work.
+        @mcp_registry_mutex = Mutex.new
         # Access key authentication:
         # - localhost (127.0.0.1 / ::1) is always trusted; auth is skipped entirely.
         # - Any other bind address requires CLACKY_ACCESS_KEY env var.
@@ -200,6 +209,9 @@ module Clacky
       end
 
       def start
+        # One-time migration: move legacy trash contents into file-trash/ subdirectory.
+        Clacky::TrashDirectory.migrate_legacy_if_needed
+
         # Enable console logging for the server process so log lines are visible in the terminal.
         Clacky::Logger.console = true
 
@@ -239,13 +251,13 @@ module Clacky
         shutdown_proc = proc do
           next if shutdown_once
           shutdown_once = true
-          Thread.new do
-            sleep 2
-            Clacky::Logger.warn("[HttpServer] Forced exit after graceful shutdown timeout.")
-            exit!(0)
-          end
-          # Detach the inherited (shared) listen socket BEFORE shutdown so that
-          # WEBrick's cleanup_listener does not call shutdown(SHUT_RDWR)+close on
+          # Persist in-flight agent sessions BEFORE starting the forced-exit
+          # timer, so any new messages added to @history since the last save
+          # are on disk before the new worker reads them after a hot restart.
+          interrupt_all_agents
+
+          # Detach the inherited (shared) listen socket BEFORE WEBrick.shutdown
+          # so that cleanup_listener does not call shutdown(SHUT_RDWR)+close on
           # it — that would propagate to every process sharing the underlying
           # kernel socket (Master + new worker), breaking subsequent accept()
           # on Linux. macOS's BSD stack tolerates this; Linux does not.
@@ -255,8 +267,10 @@ module Clacky
           end
           t1 = Thread.new { @channel_manager.stop rescue nil }
           t2 = Thread.new { Clacky::BrowserManager.instance.stop rescue nil }
+          t3 = Thread.new { @mcp_registry&.shutdown rescue nil }
           t1.join(1.5)
           t2.join(1.5)
+          t3.join(1.5)
           server.shutdown rescue nil
         end
         trap("INT")  { shutdown_proc.call }
@@ -354,6 +368,8 @@ module Clacky
           90
         elsif path == "/api/tool/browser"
           30
+        elsif path.end_with?("/benchmark")
+          20
         else
           10
         end
@@ -379,6 +395,8 @@ module Clacky
         when ["POST",   "/api/cron-tasks"]    then api_create_cron_task(req, res)
         when ["GET",    "/api/skills"]         then api_list_skills(res)
         when ["GET",    "/api/config"]        then api_get_config(res)
+        when ["GET",    "/api/config/settings"]  then api_get_settings(res)
+        when ["PATCH",  "/api/config/settings"]  then api_update_settings(req, res)
         when ["POST",   "/api/config/models"] then api_add_model(req, res)
         when ["POST",   "/api/config/test"]   then api_test_config(req, res)
         when ["GET",    "/api/providers"]     then api_list_providers(res)
@@ -399,18 +417,26 @@ module Clacky
         when ["GET",    "/api/trash"]     then api_trash(req, res)
         when ["POST",   "/api/trash/restore"] then api_trash_restore(req, res)
         when ["DELETE", "/api/trash"]     then api_trash_delete(req, res)
+        when ["GET",    "/api/trash/sessions"]     then api_trash_sessions(req, res)
+        when ["POST",   "/api/trash/sessions/restore"] then api_trash_session_restore(req, res)
+        when ["DELETE", "/api/trash/sessions"]     then api_trash_sessions_delete(req, res)
         when ["GET",    "/api/profile"]   then api_profile_get(res)
         when ["PUT",    "/api/profile"]   then api_profile_put(req, res)
         when ["GET",    "/api/memories"]  then api_memories_list(res)
         when ["POST",   "/api/memories"]  then api_memories_create(req, res)
         when ["GET",    "/api/channels"]          then api_list_channels(res)
+        when ["GET",    "/api/mcp"]               then api_mcp_list(res)
         when ["POST",   "/api/tool/browser"]      then api_tool_browser(req, res)
         when ["POST",   "/api/upload"]            then api_upload_file(req, res)
-        when ["POST",   "/api/open-file"]         then api_open_file(req, res)
+        when ["POST",   "/api/file-action"]       then api_file_action(req, res)
         when ["GET",    "/api/local-image"]       then api_serve_local_image(req, res)
         when ["GET",    "/api/version"]           then api_get_version(res)
         when ["POST",   "/api/version/upgrade"]   then api_upgrade_version(req, res)
         when ["POST",   "/api/restart"]           then api_restart(req, res)
+        when ["GET",    "/api/billing/summary"]   then api_billing_summary(req, res)
+        when ["GET",    "/api/billing/daily"]     then api_billing_daily(req, res)
+        when ["GET",    "/api/billing/records"]   then api_billing_records(req, res)
+        when ["DELETE", "/api/billing/clear"]     then api_billing_clear(req, res)
         when ["PATCH",  "/api/sessions/:id/model"] then api_switch_session_model(req, res)
         when ["PATCH",  "/api/sessions/:id/working_dir"] then api_change_session_working_dir(req, res)
         else
@@ -423,12 +449,35 @@ module Clacky
           elsif method == "POST" && path.match?(%r{^/api/channels/[^/]+/test$})
             platform = path.sub("/api/channels/", "").sub("/test", "")
             api_test_channel(platform, req, res)
+          elsif method == "PATCH" && path.match?(%r{^/api/channels/[^/]+/enabled$})
+            platform = path.sub("/api/channels/", "").sub("/enabled", "")
+            api_toggle_channel(platform, req, res)
           elsif method == "POST" && path.start_with?("/api/channels/")
             platform = path.sub("/api/channels/", "")
             api_save_channel(platform, req, res)
           elsif method == "DELETE" && path.start_with?("/api/channels/")
             platform = path.sub("/api/channels/", "")
             api_delete_channel(platform, res)
+          elsif method == "POST" && path.match?(%r{^/api/mcp/[^/]+/probe$})
+            name = path.sub("/api/mcp/", "").sub("/probe", "")
+            api_mcp_probe(name, res)
+          elsif method == "GET" && path.match?(%r{^/api/mcp/[^/]+/tools$})
+            name = path.sub("/api/mcp/", "").sub("/tools", "")
+            api_mcp_tools(name, res)
+          elsif method == "POST" && path.match?(%r{^/api/mcp/[^/]+/call$})
+            name = path.sub("/api/mcp/", "").sub("/call", "")
+            api_mcp_call(name, req, res)
+          elsif method == "POST" && path == "/api/mcp"
+            api_mcp_create(req, res)
+          elsif method == "PATCH" && path.match?(%r{^/api/mcp/[^/]+/enabled$})
+            name = path.sub("/api/mcp/", "").sub("/enabled", "")
+            api_mcp_toggle(name, req, res)
+          elsif method == "PUT" && path.match?(%r{^/api/mcp/[^/]+$})
+            name = path.sub("/api/mcp/", "")
+            api_mcp_update(name, req, res)
+          elsif method == "DELETE" && path.match?(%r{^/api/mcp/[^/]+$})
+            name = path.sub("/api/mcp/", "")
+            api_mcp_delete(name, req, res)
           elsif method == "GET" && path.match?(%r{^/api/sessions/[^/]+/skills$})
             session_id = path.sub("/api/sessions/", "").sub("/skills", "")
             api_session_skills(session_id, res)
@@ -444,6 +493,9 @@ module Clacky
           elsif method == "PATCH" && path.match?(%r{^/api/sessions/[^/]+/model$})
             session_id = path.sub("/api/sessions/", "").sub("/model", "")
             api_switch_session_model(session_id, req, res)
+          elsif method == "PATCH" && path.match?(%r{^/api/sessions/[^/]+/reasoning_effort$})
+            session_id = path.sub("/api/sessions/", "").sub("/reasoning_effort", "")
+            api_switch_session_reasoning_effort(session_id, req, res)
           elsif method == "POST" && path.match?(%r{^/api/sessions/[^/]+/benchmark$})
             session_id = path.sub("/api/sessions/", "").sub("/benchmark", "")
             api_benchmark_session_models(session_id, req, res)
@@ -453,6 +505,9 @@ module Clacky
           elsif method == "DELETE" && path.start_with?("/api/sessions/")
             session_id = path.sub("/api/sessions/", "")
             api_delete_session(session_id, res)
+          elsif method == "DELETE" && path.match?(%r{^/api/trash/sessions/[^/]+$})
+            session_id = path.sub("/api/trash/sessions/", "")
+            api_trash_session_delete_one(session_id, res)
           elsif method == "POST" && path.match?(%r{^/api/config/models/[^/]+/default$})
             id = path.sub("/api/config/models/", "").sub("/default", "")
             api_set_default_model(id, res)
@@ -520,7 +575,7 @@ module Clacky
         non_pinned_part = non_pinned_part.first(limit)
         sessions = pinned_part + non_pinned_part
 
-        json_response(res, 200, { sessions: sessions, has_more: has_more })
+        json_response(res, 200, { sessions: sessions, has_more: has_more, cron_count: @registry.cron_count })
       end
 
       def api_create_session(req, res)
@@ -533,7 +588,7 @@ module Clacky
         profile = "general" if profile.empty?
 
         # Optional source; defaults to :manual. Accept "system" for skill-launched sessions
-        # (e.g. /onboard, /browser-setup, /channel-setup).
+        # (e.g. /onboard, /browser-setup, /channel-manager).
         raw_source = body["source"].to_s.strip
         source = %w[manual cron channel setup].include?(raw_source) ? raw_source.to_sym : :manual
 
@@ -748,6 +803,9 @@ module Clacky
             else
               Clacky::Logger.debug("[Brand] async distribution refresh skipped/failed — #{result[:message]}")
             end
+            # Free-mode skill sync: branded + unactivated installs need their
+            # creator's free skills auto-installed for the "no serial number" UX.
+            brand.sync_free_skills_async!
           rescue StandardError => e
             Clacky::Logger.warn("[Brand] async distribution refresh raised: #{e.class}: #{e.message}")
           ensure
@@ -914,7 +972,30 @@ module Clacky
         brand = Clacky::BrandConfig.load
 
         unless brand.activated?
-          json_response(res, 403, { ok: false, error: "License not activated" })
+          # Free-mode: branded but no license. Return the unencrypted skills
+          # available to anonymous installs so the Brand Skills tab is not
+          # empty and the user can install/use them without a serial number.
+          # Each skill is tagged is_free=true so the UI can show a "Free" badge.
+          result = brand.fetch_free_skills!
+
+          if result[:success]
+            free_skills = result[:skills].map { |s| s.merge("is_free" => true) }
+            json_response(res, 200, {
+              ok:                true,
+              skills:            free_skills,
+              free_mode:         true,
+              paid_skills_count: result[:paid_skills_count].to_i
+            })
+          else
+            json_response(res, 200, {
+              ok:                true,
+              skills:            [],
+              free_mode:         true,
+              paid_skills_count: 0,
+              warning_code:      "remote_unavailable",
+              warning:           result[:error] || "Could not reach the license server."
+            })
+          end
           return
         end
 
@@ -959,8 +1040,29 @@ module Clacky
       def api_brand_skill_install(slug, req, res)
         brand = Clacky::BrandConfig.load
 
+        # Free-mode: branded but not activated. Fall back to the public free
+        # skills endpoint and install with encrypted: false. Paid (encrypted)
+        # skills still require activation and will return 404 here.
         unless brand.activated?
-          json_response(res, 403, { ok: false, error: "License not activated" })
+          fetch_result = brand.fetch_free_skills!
+          unless fetch_result[:success]
+            json_response(res, 422, { ok: false, error: fetch_result[:error] })
+            return
+          end
+
+          skill_info = fetch_result[:skills].find { |s| s["name"] == slug }
+          unless skill_info
+            json_response(res, 404, { ok: false, error: "Skill '#{slug}' is not a free skill — activate your license to access it." })
+            return
+          end
+
+          result = brand.install_free_skill!(skill_info)
+          if result[:success]
+            @skill_loader = Clacky::SkillLoader.new(working_dir: nil, brand_config: brand)
+            json_response(res, 200, { ok: true, name: result[:name], version: result[:version] })
+          else
+            json_response(res, 422, { ok: false, error: result[:error] })
+          end
           return
         end
 
@@ -1007,6 +1109,77 @@ module Clacky
       end
 
       # ── Version API ───────────────────────────────────────────────────────────
+
+      # ── Billing API ────────────────────────────────────────────────────────────
+
+      # GET /api/billing/summary
+      # Returns billing summary for a time period
+      # Query params: period (day|week|month|year|all, default: month), model (optional)
+      def api_billing_summary(req, res)
+        require_relative "../billing/billing_store"
+
+        query  = URI.decode_www_form(req.query_string.to_s).to_h
+        period = (query["period"] || "month").to_sym
+        model  = query["model"]
+
+        store   = Clacky::Billing::BillingStore.new
+        summary = store.summary(period: period, model: model)
+
+        json_response(res, 200, summary)
+      end
+
+      # GET /api/billing/daily
+      # Returns daily cost breakdown
+      # Query params: days (default: 30), model (optional)
+      def api_billing_daily(req, res)
+        require_relative "../billing/billing_store"
+
+        query = URI.decode_www_form(req.query_string.to_s).to_h
+        days  = [(query["days"] || "30").to_i, 90].min
+        model = query["model"]
+
+        store = Clacky::Billing::BillingStore.new
+        daily = store.daily_breakdown(days: days, model: model)
+
+        json_response(res, 200, { days: daily })
+      end
+
+      # GET /api/billing/records
+      # Returns recent billing records
+      # Query params: limit (default: 100), model, session_id
+      def api_billing_records(req, res)
+        require_relative "../billing/billing_store"
+
+        query      = URI.decode_www_form(req.query_string.to_s).to_h
+        limit      = [(query["limit"] || "100").to_i, 500].min
+        model      = query["model"]
+        session_id = query["session_id"]
+
+        store   = Clacky::Billing::BillingStore.new
+        records = store.query(model: model, session_id: session_id, limit: limit)
+
+        json_response(res, 200, {
+          records: records.map(&:to_h),
+          count: records.size
+        })
+      end
+
+      # DELETE /api/billing/clear
+      # Clears billing records
+      # Query params: scope (today|all, default: today)
+      def api_billing_clear(req, res)
+        require_relative "../billing/billing_store"
+
+        query = URI.decode_www_form(req.query_string.to_s).to_h
+        scope = query["scope"] || "today"
+
+        store = Clacky::Billing::BillingStore.new
+        deleted = store.clear(scope: scope.to_sym)
+
+        json_response(res, 200, { ok: true, deleted: deleted, scope: scope })
+      rescue => e
+        json_response(res, 500, { error: e.message })
+      end
 
       # GET /api/version
       # Returns current version and latest version from RubyGems (cached for 1 hour).
@@ -1300,7 +1473,11 @@ module Clacky
           sleep 0.5  # Let WEBrick flush the HTTP response
 
           if @master_pid
-            # Worker mode: tell master to hot-restart, then exit cleanly.
+            # Worker mode: tell master to hot-restart. Master will TERM us after the
+            # new worker boots; our trap("TERM") then runs shutdown_proc, which detaches
+            # the inherited listen socket before WEBrick shutdown. Do NOT exit(0) here —
+            # that bypasses trap handlers and lets the OS close(fd) on a socket shared
+            # with master+new worker, corrupting the listener on Linux/WSL.
             Clacky::Logger.info("[Restart] Sending USR1 to master (PID=#{@master_pid})")
             begin
               Process.kill("USR1", @master_pid)
@@ -1308,7 +1485,6 @@ module Clacky
               Clacky::Logger.warn("[Restart] Master PID=#{@master_pid} not found, falling back to exec.")
               standalone_exec_restart
             end
-            exit(0)
           else
             # Standalone mode (no master): fall back to the original exec approach.
             standalone_exec_restart
@@ -1451,6 +1627,273 @@ module Clacky
         json_response(res, 200, { channels: platforms })
       end
 
+      # GET /api/mcp
+      # Lists configured MCP servers without spawning any subprocess. Honors
+      # both ~/.clacky/mcp.json (global) and project-level overrides.
+      def api_mcp_list(res)
+        data = mcp_load_raw_config
+        servers = (data["mcpServers"] || {}).map do |name, spec|
+          next nil unless spec.is_a?(Hash)
+
+          type = (spec["type"] || (spec["url"] ? "http" : "stdio")).to_s
+          {
+            name:        name.to_s,
+            type:        type,
+            description: spec["description"] || "",
+            command:     spec["command"],
+            args:        Array(spec["args"]),
+            url:         spec["url"],
+            disabled:    spec["disabled"] == true,
+            has_env:     spec["env"].is_a?(Hash) && !spec["env"].empty?,
+            has_headers: spec["headers"].is_a?(Hash) && !spec["headers"].empty?,
+          }
+        end.compact
+
+        json_response(res, 200, {
+          configured:    !servers.empty?,
+          config_path:   mcp_config_path,
+          config_exists: File.exist?(mcp_config_path),
+          servers:       servers,
+        })
+      end
+
+      # POST /api/mcp/:name/probe
+      # Spawns the MCP server briefly to fetch its tool catalog, then shuts it
+      # down. Used by the WebUI to display each server's tool list on demand.
+      # No state survives the request — the next agent run does its own lazy spawn.
+      def api_mcp_probe(name, res)
+        registry = Clacky::Mcp::Registry.new(idle_timeout: 0)
+        unless registry.configured?(name)
+          json_response(res, 404, { ok: false, error: "MCP server '#{name}' not found in mcp.json" })
+          return
+        end
+
+        tools = registry.tool_definitions(name).map do |defn|
+          fn = defn[:function] || defn["function"] || {}
+          {
+            name:         fn[:name] || fn["name"],
+            description:  fn[:description] || fn["description"] || "",
+            input_schema: fn[:parameters] || fn["parameters"] || {},
+          }
+        end
+
+        json_response(res, 200, { ok: true, name: name, tools: tools, tool_count: tools.length })
+      rescue Clacky::Mcp::Client::McpError, Clacky::Mcp::Client::TransportError => e
+        json_response(res, 502, { ok: false, error: e.message })
+      rescue StandardError => e
+        json_response(res, 500, { ok: false, error: e.message })
+      ensure
+        registry&.shutdown
+      end
+
+      # GET /api/mcp/:name/tools
+      # Returns the live tool catalog for an MCP server, using the process-wide
+      # registry. The first call cold-starts the server; later calls hit cache.
+      # Subagents use this as a discovery endpoint, replacing the deleted
+      # mcp_call tool's hidden tool list.
+      def api_mcp_tools(name, res)
+        unless mcp_registry.configured?(name)
+          json_response(res, 404, { ok: false, error: "MCP server '#{name}' not found in mcp.json" })
+          return
+        end
+
+        tools = mcp_registry.tool_definitions(name).map do |defn|
+          fn = defn[:function] || defn["function"] || {}
+          {
+            name:         fn[:name] || fn["name"],
+            description:  fn[:description] || fn["description"] || "",
+            input_schema: fn[:parameters] || fn["parameters"] || {},
+          }
+        end
+
+        json_response(res, 200, { ok: true, name: name, tools: tools, tool_count: tools.length })
+      rescue Clacky::Mcp::Client::McpError, Clacky::Mcp::Client::TransportError => e
+        json_response(res, 502, { ok: false, error: e.message })
+      rescue StandardError => e
+        json_response(res, 500, { ok: false, error: e.message })
+      end
+
+      # POST /api/mcp/:name/call  body: { tool: "...", arguments: {...} }
+      # Forwards a tools/call to the configured MCP server and returns its raw
+      # result. Subagents call this from their shell tool via curl — there is
+      # no Ruby-side bridge tool anymore.
+      def api_mcp_call(name, req, res)
+        unless mcp_registry.configured?(name)
+          json_response(res, 404, { ok: false, error: "MCP server '#{name}' not found in mcp.json" })
+          return
+        end
+
+        body = parse_json_body(req) || {}
+        tool = body["tool"] || body[:tool]
+        arguments = body["arguments"] || body[:arguments] || {}
+
+        if tool.nil? || tool.to_s.strip.empty?
+          json_response(res, 400, { ok: false, error: "missing required field: tool" })
+          return
+        end
+
+        result = mcp_registry.call_tool(name, tool, arguments)
+        json_response(res, 200, { ok: true, result: result })
+      rescue Clacky::Mcp::Client::McpError, Clacky::Mcp::Client::TransportError => e
+        json_response(res, 502, { ok: false, error: e.message })
+      rescue StandardError => e
+        json_response(res, 500, { ok: false, error: e.message })
+      end
+
+      private def mcp_config_path
+        File.join(Dir.home, ".clacky", "mcp.json")
+      end
+
+      private def mcp_registry
+        @mcp_registry_mutex.synchronize do
+          @mcp_registry ||= Clacky::Mcp::Registry.new(working_dir: nil)
+        end
+      end
+
+      private def mcp_localhost_only(req, res)
+        ip = req.peeraddr.last rescue nil
+        return true if %w[127.0.0.1 ::1].include?(ip)
+
+        json_response(res, 403, { ok: false, error: "MCP write operations are only allowed from localhost" })
+        false
+      end
+
+      private def mcp_load_raw_config
+        return { "mcpServers" => {} } unless File.exist?(mcp_config_path)
+
+        data = JSON.parse(File.read(mcp_config_path))
+        data["mcpServers"] ||= data.delete("servers") || {}
+        data
+      rescue JSON::ParserError
+        { "mcpServers" => {} }
+      end
+
+      private def mcp_write_raw_config(data)
+        FileUtils.mkdir_p(File.dirname(mcp_config_path))
+        File.write(mcp_config_path, JSON.pretty_generate(data) + "\n")
+      end
+
+      private def mcp_validate_spec(body)
+        name = body["name"].to_s.strip
+        return [nil, nil, "name is required"]    if name.empty?
+        return [nil, nil, "name contains invalid characters"] unless name.match?(/\A[A-Za-z0-9_\-]+\z/)
+
+        type = (body["type"] || (body["url"] ? "http" : "stdio")).to_s
+        case type
+        when "stdio"
+          command = body["command"].to_s.strip
+          return [nil, nil, "command is required"] if command.empty?
+          spec = { "command" => command }
+          spec["args"] = Array(body["args"]).map(&:to_s) if body["args"]
+          spec["env"]  = body["env"].transform_values(&:to_s) if body["env"].is_a?(Hash)
+          spec["cwd"]  = body["cwd"].to_s if body["cwd"].is_a?(String) && !body["cwd"].empty?
+        when "http", "streamable-http"
+          url = body["url"].to_s.strip
+          return [nil, nil, "url is required for http type"] if url.empty?
+          return [nil, nil, "url must be http(s)"] unless url.match?(%r{\Ahttps?://}i)
+          spec = { "type" => "http", "url" => url }
+          spec["headers"] = body["headers"].transform_values(&:to_s) if body["headers"].is_a?(Hash)
+        else
+          return [nil, nil, "unsupported type '#{type}' (use stdio or http)"]
+        end
+
+        spec["description"] = body["description"].to_s if body["description"].is_a?(String) && !body["description"].empty?
+        [name, spec, nil]
+      end
+
+      # POST /api/mcp  { name, command, args[], env{}, cwd?, description? }
+      def api_mcp_create(req, res)
+        return unless mcp_localhost_only(req, res)
+
+        body = parse_json_body(req)
+        name, spec, err = mcp_validate_spec(body)
+        if err
+          json_response(res, 400, { ok: false, error: err })
+          return
+        end
+
+        data = mcp_load_raw_config
+        if data["mcpServers"].key?(name)
+          json_response(res, 409, { ok: false, error: "MCP server '#{name}' already exists. Use PUT to update." })
+          return
+        end
+
+        data["mcpServers"][name] = spec
+        mcp_write_raw_config(data)
+        @mcp_registry_mutex.synchronize { @mcp_registry&.reload }
+        json_response(res, 200, { ok: true, name: name, config_path: mcp_config_path })
+      end
+
+      # PUT /api/mcp/:name  { command, args[], env{}, cwd?, description? }
+      # Replaces the entire spec. Path :name wins over body name.
+      def api_mcp_update(name, req, res)
+        return unless mcp_localhost_only(req, res)
+
+        body = parse_json_body(req).merge("name" => name)
+        _, spec, err = mcp_validate_spec(body)
+        if err
+          json_response(res, 400, { ok: false, error: err })
+          return
+        end
+
+        data = mcp_load_raw_config
+        unless data["mcpServers"].key?(name)
+          json_response(res, 404, { ok: false, error: "MCP server '#{name}' not found" })
+          return
+        end
+
+        data["mcpServers"][name] = spec
+        mcp_write_raw_config(data)
+        @mcp_registry_mutex.synchronize { @mcp_registry&.reload }
+        json_response(res, 200, { ok: true, name: name })
+      end
+
+      # DELETE /api/mcp/:name
+      def api_mcp_delete(name, req, res)
+        return unless mcp_localhost_only(req, res)
+
+        data = mcp_load_raw_config
+        unless data["mcpServers"].key?(name)
+          json_response(res, 404, { ok: false, error: "MCP server '#{name}' not found" })
+          return
+        end
+
+        data["mcpServers"].delete(name)
+        mcp_write_raw_config(data)
+        @mcp_registry_mutex.synchronize { @mcp_registry&.reload }
+        json_response(res, 200, { ok: true, name: name })
+      end
+
+      # PATCH /api/mcp/:name/enabled  body: { enabled: true|false }
+      def api_mcp_toggle(name, req, res)
+        return unless mcp_localhost_only(req, res)
+
+        body = parse_json_body(req) || {}
+        enabled = body["enabled"]
+        if enabled.nil? || ![true, false].include?(enabled)
+          json_response(res, 400, { ok: false, error: "enabled (boolean) is required" })
+          return
+        end
+
+        data = mcp_load_raw_config
+        spec = data["mcpServers"][name]
+        unless spec.is_a?(Hash)
+          json_response(res, 404, { ok: false, error: "MCP server '#{name}' not found" })
+          return
+        end
+
+        if enabled
+          spec.delete("disabled")
+        else
+          spec["disabled"] = true
+        end
+        mcp_write_raw_config(data)
+
+        @mcp_registry_mutex.synchronize { @mcp_registry&.reload }
+
+        json_response(res, 200, { ok: true, name: name, disabled: spec["disabled"] == true })
+      end
+
       # POST /api/channels/:platform/send
       # Proactively send a message to a user via the given IM platform.
       #
@@ -1545,12 +1988,16 @@ module Clacky
         json_response(res, 500, { ok: false, error: e.message })
       end
 
-      # POST /api/open-file
-      # Opens a local file or directory using the OS default handler.
-      # Used by the Web UI to handle file:// links — browsers block direct
-      # file:// navigation from http:// pages for security reasons.
-      def api_open_file(req, res)
-        path = parse_json_body(req)["path"]
+      # POST /api/file-action
+      # Unified file action endpoint — open locally or download.
+      # Body: { path: String, action: "open" | "download" }
+      #   open:     opens the file with the OS default handler (local deployments).
+      #   download: returns the file as a download (remote deployments).
+      def api_file_action(req, res)
+        body = parse_json_body(req)
+        path = body["path"]
+        action = body["action"] || "open"
+
         return json_response(res, 400, { error: "path is required" }) unless path && !path.empty?
 
         # Expand ~ to the user's home directory (e.g. "~/Desktop/file.pdf").
@@ -1563,11 +2010,31 @@ module Clacky
 
         return json_response(res, 404, { error: "file not found" }) unless File.exist?(linux_path)
 
-        result = Utils::EnvironmentDetector.open_file(linux_path)
-        return json_response(res, 501, { error: "unsupported OS" }) if result.nil?
-        json_response(res, 200, { ok: true })
+        case action
+        when "open"
+          result = Utils::EnvironmentDetector.open_file(linux_path)
+          return json_response(res, 501, { error: "unsupported OS" }) if result.nil?
+          json_response(res, 200, { ok: true })
+        when "download"
+          serve_file_download(res, linux_path)
+        else
+          json_response(res, 400, { error: "invalid action. Must be 'open' or 'download'" })
+        end
       rescue => e
         json_response(res, 500, { ok: false, error: e.message })
+      end
+
+      # Stream a file to the client as a download.
+      # Content-Type is always application/octet-stream — the browser determines
+      # file type and handling from the filename extension in Content-Disposition.
+      def serve_file_download(res, path)
+        filename = File.basename(path)
+
+        res.status                  = 200
+        res["Content-Type"]         = "application/octet-stream"
+        res["Content-Disposition"]  = "attachment; filename=\"#{filename}\""
+        res["Content-Length"]       = File.size(path).to_s
+        res.body = File.binread(path)
       end
 
       # GET /api/local-image?path=file:///path/to/image.png
@@ -1661,6 +2128,34 @@ module Clacky
         json_response(res, 422, { ok: false, error: e.message })
       end
 
+      # PATCH /api/channels/:platform/enabled
+      # Body: { enabled: true|false }
+      # Toggles the platform on/off without touching credentials.
+      # Enabling requires the platform to already be configured.
+      def api_toggle_channel(platform, req, res)
+        platform = platform.to_sym
+        enabled  = parse_json_body(req)["enabled"] == true
+
+        config = Clacky::ChannelConfig.load
+
+        if enabled
+          unless config.platform_config(platform)
+            json_response(res, 422, { ok: false, error: "Platform is not configured yet" })
+            return
+          end
+          config.enable_platform(platform)
+        else
+          config.disable_platform(platform)
+        end
+
+        config.save
+        @channel_manager.reload_platform(platform, config)
+
+        json_response(res, 200, { ok: true, enabled: config.enabled?(platform) })
+      rescue StandardError => e
+        json_response(res, 422, { ok: false, error: e.message })
+      end
+
       # POST /api/channels/:platform/test
       # Body: { fields... }  (credentials to test — NOT saved)
       # Tests connectivity using the provided credentials without persisting.
@@ -1714,6 +2209,11 @@ module Clacky
             parse_mode:    raw.key?("parse_mode") ? raw["parse_mode"] : "Markdown",
             allowed_users: raw["allowed_users"] || [],
             has_token:     !raw["bot_token"].to_s.strip.empty?
+          }
+        when :dingtalk
+          {
+            client_id:     raw["client_id"] || "",
+            allowed_users: raw["allowed_users"] || []
           }
         else
           {}
@@ -2192,6 +2692,94 @@ module Clacky
         })
       end
 
+      # ── Session trash endpoints ──────────────────────────────────────
+
+      # GET /api/trash/sessions
+      # Lists all soft-deleted sessions in the session trash directory.
+      private def api_trash_sessions(_req, res)
+        sessions = @session_manager.list_trash_sessions
+
+        result = sessions.map do |s|
+          {
+            session_id:  s[:session_id],
+            name:        s[:name] || s[:title] || s[:session_id],
+            created_at:  s[:created_at],
+            updated_at:  s[:updated_at],
+            deleted_at:  s[:deleted_at],
+            total_tasks: s.dig(:stats, :total_tasks) || 0,
+            file_size:   s[:file_size] || 0,
+            model:       s[:model],
+            working_dir: s[:working_dir]
+          }
+        end
+
+        total_size = result.sum { |s| s[:file_size] }
+
+        json_response(res, 200, {
+          ok:         true,
+          sessions:   result,
+          count:      result.size,
+          total_size: total_size
+        })
+      end
+
+      # POST /api/trash/sessions/restore
+      # Body: { session_id: "..." }
+      # Restores a soft-deleted session back to the active sessions list.
+      private def api_trash_session_restore(req, res)
+        data       = parse_json_body(req)
+        session_id = data["session_id"].to_s.strip
+
+        if session_id.empty?
+          json_response(res, 400, { ok: false, error: "session_id is required" })
+          return
+        end
+
+        unless @session_manager.restore_session(session_id)
+          json_response(res, 404, { ok: false, error: "Session not found in trash: #{session_id}" })
+          return
+        end
+
+        # Load the restored session into the registry so it behaves like any
+        # other live session (status, agent, snapshot all available).
+        @registry.ensure(session_id)
+        session = @registry.session_summary(session_id)
+
+        # Use broadcast_all because no client is subscribed to a session that
+        # was just sitting in the trash — broadcast(session_id, …) would reach
+        # zero recipients.
+        broadcast_all(type: "session_restored", session: session)
+
+        json_response(res, 200, { ok: true, session: session })
+      end
+
+      # DELETE /api/trash/sessions/:id
+      # Permanently delete a single session from the trash.
+      private def api_trash_session_delete_one(session_id, res)
+        unless @session_manager.permanent_delete_trash_session(session_id)
+          json_response(res, 404, { ok: false, error: "Session not found in trash: #{session_id}" })
+          return
+        end
+
+        json_response(res, 200, { ok: true, session_id: session_id })
+      end
+
+      # DELETE /api/trash/sessions?days_old=N
+      # Bulk: permanently delete sessions older than N days (default: 7).
+      private def api_trash_sessions_delete(req, res)
+        query    = URI.decode_www_form(req.query_string.to_s).to_h
+        days_old = query["days_old"].to_s.strip
+        days_i   = days_old.empty? ? 7 : days_old.to_i
+
+        deleted = @session_manager.cleanup_trash(days: days_i)
+
+        json_response(res, 200, {
+          ok:            true,
+          deleted_count: deleted,
+          days_old:      days_i
+        })
+      end
+
       # ── Trash helpers (private) ─────────────────────────────────────
       # Reads all metadata sidecars in `trash_dir` and returns enriched
       # file records. Silently skips sidecars whose payload file has
@@ -2632,6 +3220,37 @@ module Clacky
         })
       end
 
+      # GET /api/config/settings — return advanced settings
+      def api_get_settings(res)
+        json_response(res, 200, {
+          ok: true,
+          enable_compression: @agent_config.enable_compression,
+          enable_prompt_caching: @agent_config.enable_prompt_caching,
+          memory_update_enabled: @agent_config.memory_update_enabled
+        })
+      end
+
+      # PATCH /api/config/settings — update advanced settings
+      def api_update_settings(req, res)
+        body = parse_json_body(req)
+        return json_response(res, 400, { error: "Invalid JSON" }) unless body
+
+        if body.key?("enable_compression")
+          @agent_config.enable_compression = !!body["enable_compression"]
+        end
+        if body.key?("enable_prompt_caching")
+          @agent_config.enable_prompt_caching = !!body["enable_prompt_caching"]
+        end
+        if body.key?("memory_update_enabled")
+          @agent_config.memory_update_enabled = !!body["memory_update_enabled"]
+        end
+
+        @agent_config.save
+        json_response(res, 200, { ok: true })
+      rescue => e
+        json_response(res, 422, { error: e.message })
+      end
+
       # POST /api/config — save updated model list
       # DEPRECATED: this endpoint previously accepted the entire models array
       # and replaced @models in place. That design was fragile — any missing
@@ -2962,6 +3581,26 @@ module Clacky
         json_response(res, 500, { error: e.message })
       end
 
+      # PATCH /api/sessions/:id/reasoning_effort
+      # Body: { "reasoning_effort": "off" | "low" | "medium" | "high" }
+      def api_switch_session_reasoning_effort(session_id, req, res)
+        body = parse_json_body(req)
+        raw = body["reasoning_effort"]
+        return json_response(res, 404, { error: "Session not found" }) unless @registry.ensure(session_id)
+
+        agent = nil
+        @registry.with_session(session_id) { |s| agent = s[:agent] }
+        return json_response(res, 404, { error: "Session not found" }) unless agent
+
+        agent.reasoning_effort = raw
+        @session_manager.save(agent.to_session_data)
+        broadcast_session_update(session_id)
+
+        json_response(res, 200, { ok: true, reasoning_effort: agent.reasoning_effort })
+      rescue => e
+        json_response(res, 500, { error: e.message })
+      end
+
       # POST /api/sessions/:id/benchmark
       #
       # Speed-test every configured model in one shot so the user can pick the
@@ -3005,8 +3644,12 @@ module Clacky
         end
 
         results = threads.map do |t|
-          t.join(per_model_timeout + 3)
-          t.value rescue { ok: false, error: "thread failed" }
+          if t.join(per_model_timeout + 3)
+            t.value rescue { ok: false, error: "thread failed" }
+          else
+            t.kill
+            { ok: false, error: "Request timed out" }
+          end
         end
 
         json_response(res, 200, { ok: true, results: results })
@@ -3027,7 +3670,8 @@ module Clacky
           model_cfg["api_key"].to_s,
           base_url:         model_cfg["base_url"].to_s,
           model:            model_name,
-          anthropic_format: model_cfg["anthropic_format"] || false
+          anthropic_format: model_cfg["anthropic_format"] || false,
+          read_timeout:     timeout_sec
         )
 
         # Override Faraday timeouts via a short-lived env var isn't ideal;
@@ -3105,8 +3749,8 @@ module Clacky
         # fine and no longer blocks the disk cleanup below.
         @registry.delete(session_id) if in_registry
 
-        # Always physically remove the persisted session file (+ chunks).
-        @session_manager.delete(session_id) if on_disk
+        # Soft-delete: move session to trash instead of permanently destroying it.
+        @session_manager.soft_delete(session_id) if on_disk
 
         # Notify any still-connected clients (mainly matters when the
         # session was live, but harmless otherwise).
@@ -3119,6 +3763,7 @@ module Clacky
       # Export a session bundle as a .zip download containing:
       #   - session.json          (always)
       #   - chunk-*.md            (0..N archived conversation chunks)
+      #   - logs/clacky-YYYY-MM-DD.log  (today's logger file, if present)
       # Useful for debugging — user clicks "download" in the WebUI status bar
       # and we can ask them to attach the zip to a bug report.
       def api_export_session(session_id, res)
@@ -3139,6 +3784,12 @@ module Clacky
             # Preserve original chunk filename so the ordering (chunk-1.md, chunk-2.md, ...) is clear.
             zos.put_next_entry(File.basename(chunk_path))
             zos.write(File.binread(chunk_path))
+          end
+
+          log_path = Clacky::Logger.current_log_file
+          if log_path && File.exist?(log_path)
+            zos.put_next_entry("logs/#{File.basename(log_path)}")
+            zos.write(File.binread(log_path))
           end
         end
         buffer.rewind
@@ -3282,7 +3933,7 @@ module Clacky
           page = @registry.list(limit: 21)
           has_more = page.size > 20
           all_sessions = page.first(20)
-          conn.send_json(type: "session_list", sessions: all_sessions, has_more: has_more)
+          conn.send_json(type: "session_list", sessions: all_sessions, has_more: has_more, cron_count: @registry.cron_count)
 
         when "run_task"
           # Client sends this after subscribing to guarantee it's ready to receive
@@ -3318,9 +3969,16 @@ module Clacky
         # If session is running, interrupt it first (mimics CLI behavior)
         if session[:status] == :running
           interrupt_session(session_id)
-          # Wait briefly for the thread to catch the interrupt and update status
-          # This ensures the agent loop exits cleanly before starting the new task
-          sleep 0.1
+
+          # Give the old thread a short window to exit cleanly.
+          # In the common case it returns within milliseconds (Thread#raise
+          # lands on a tight loop or LLM read). If it can't be reached in
+          # time (e.g. blocked in a slow subagent syscall), we proceed anyway:
+          # the agent's check_stale! checkpoints will refuse to mutate
+          # history once the new thread takes over.
+          old_thread = nil
+          @registry.with_session(session_id) { |s| old_thread = s[:thread] }
+          old_thread&.join(2)
         end
 
         agent = nil
@@ -3328,9 +3986,8 @@ module Clacky
         return unless agent
 
         # Auto-name the session from the first user message (before agent starts running).
-        # Check messages.empty? only — agent.name may already hold a default placeholder
-        # like "Session 1" assigned at creation time, so it's not a reliable signal.
-        if agent.history.empty?
+        # Skip if the name looks like it was set by the user (not a system-generated "Session N").
+        if agent.history.empty? && agent.name.match?(/\ASession \d+\z/)
           auto_name = content.gsub(/\s+/, " ").strip[0, 30]
           auto_name += "…" if content.strip.length > 30
           agent.rename(auto_name)
@@ -3481,10 +4138,35 @@ module Clacky
         run_agent_task(session_id, agent) { agent.run(prompt) }
       end
 
+      # Interrupt every running agent thread and persist its session state.
+      private def interrupt_all_agents
+        return unless @registry && @session_manager
+
+        @registry.each_live_agent do |id, agent, thread|
+          next unless thread&.alive?
+          begin
+            thread.raise(Clacky::AgentInterrupted, "Worker shutting down")
+            Clacky::Logger.info("[shutdown] interrupted session=#{id}")
+          rescue => e
+            Clacky::Logger.error("[shutdown] interrupt failed for session=#{id}: #{e.message}")
+          end
+          thread.join(2)
+          @session_manager.save(agent.to_session_data(status: :interrupted))
+        end
+      end
+
       # Run an agent task in a background thread, handling status updates,
       # session persistence, and idle compression timer lifecycle.
       # Yields to the caller to perform the actual agent.run call.
       private def run_agent_task(session_id, agent, &task)
+        if @registry.running_full?
+          broadcast(session_id, { type: "error", session_id: session_id,
+                                  message: "Too many concurrent tasks (max #{@registry.max_running_agents}), please try again later" })
+          return
+        end
+
+        @registry.evict_excess_idle!
+
         idle_timer = nil
         @registry.with_session(session_id) { |s| idle_timer = s[:idle_timer] }
 
@@ -3594,7 +4276,7 @@ module Clacky
       # ── Helpers ───────────────────────────────────────────────────────────────
 
       def default_working_dir
-        File.expand_path("~/clacky_workspace")
+        @agent_config&.default_working_dir || File.expand_path("~/clacky_workspace")
       end
 
       # Create a session in the registry and wire up Agent + WebUIController.

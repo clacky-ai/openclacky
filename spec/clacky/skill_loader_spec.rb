@@ -354,4 +354,55 @@ RSpec.describe Clacky::SkillLoader do
       expect(loader.errors.grep(/Skill limit reached/)).to be_empty
     end
   end
+
+  describe "free brand skills (branded but not activated)" do
+    let(:config_dir) { File.join(temp_dir, "clacky-config") }
+    let(:brand_dir)  { File.join(config_dir, "brand_skills") }
+
+    around do |example|
+      old = ENV.delete("CLACKY_TEST")
+      example.run
+    ensure
+      ENV["CLACKY_TEST"] = old if old
+    end
+
+    before do
+      FileUtils.mkdir_p(config_dir)
+      stub_const("Clacky::BrandConfig::CONFIG_DIR", config_dir)
+      stub_const("Clacky::BrandConfig::BRAND_FILE", File.join(config_dir, "brand.yml"))
+      File.write(File.join(config_dir, "brand.yml"), {
+        "product_name" => "TestBrand",
+        "package_name" => "test-brand",
+        "device_id"    => "testdevice"
+      }.to_yaml)
+
+      FileUtils.mkdir_p(File.join(brand_dir, "free-demo"))
+      File.write(File.join(brand_dir, "free-demo", "SKILL.md"), <<~CONTENT)
+        ---
+        name: free-demo
+        description: A free unencrypted brand skill
+        ---
+        Free demo content.
+      CONTENT
+    end
+
+    it "loads plain SKILL.md brand skills even without an activated license" do
+      loader = described_class.new(working_dir: working_dir, brand_config: nil)
+      loader.load_all
+
+      expect(loader.all_skills.map(&:identifier)).to include("free-demo")
+    end
+
+    it "skips encrypted .enc skills when not activated" do
+      FileUtils.mkdir_p(File.join(brand_dir, "paid-demo"))
+      File.write(File.join(brand_dir, "paid-demo", "SKILL.md.enc"), "encrypted-bytes")
+
+      loader = described_class.new(working_dir: working_dir, brand_config: nil)
+      loader.load_all
+
+      identifiers = loader.all_skills.map(&:identifier)
+      expect(identifiers).to include("free-demo")
+      expect(identifiers).not_to include("paid-demo")
+    end
+  end
 end

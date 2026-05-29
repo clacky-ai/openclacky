@@ -1,10 +1,12 @@
 <!DOCTYPE html>
-<html lang="en" id="html-root">
+<html lang="en" id="html-root" data-font-size="medium">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title id="page-title">{{BRAND_NAME}}</title>
   <link rel="icon" type="image/svg+xml" href="/icon.svg">
+  <link rel="stylesheet" href="/vendor/katex/katex.min.css">
+  <link rel="stylesheet" href="/vendor/hljs/hljs-theme.css">
   <link rel="stylesheet" href="/app.css">
   <script>
     // Inline theme init — must run before CSS renders to prevent flash of wrong theme.
@@ -110,11 +112,22 @@
                 <option value="coding"  data-i18n="sessions.search.typeCoding">Coding</option>
               </select>
               <div class="search-date-wrap">
-                <input id="session-search-date" type="date" class="search-date" />
+                <button id="session-search-date" class="search-date datepicker-trigger" type="button" data-value="" data-i18n="sessions.search.datePlaceholder"></button>
               </div>
               <button id="btn-search-clear-all" class="btn-search-clear-all" aria-label="Clear filters" hidden>✕</button>
             </div>
           </div>
+        </div>
+
+        <!-- Cron view header (hidden by default, shown when viewing cron sessions) -->
+        <div id="cron-view-header" class="sidebar-divider" style="display:none">
+          <button id="btn-cron-back" class="btn-icon-sm" title="Back" aria-label="Back to session list">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M10 3L5 8l5 5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </button>
+          <span data-i18n="sessions.cronGroup">Scheduled Tasks</span>
+          <span></span><!-- spacer -->
         </div>
 
         <!-- Unified session list (all sources + profiles, newest first) -->
@@ -158,6 +171,18 @@
               </div>
             </div>
           </div>
+          <div id="mcp-sidebar-item" class="task-item task-item-summary">
+            <div class="task-row">
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="task-icon">
+                <rect x="3" y="4" width="18" height="6" rx="1"/>
+                <rect x="3" y="14" width="18" height="6" rx="1"/>
+                <path d="M8 7h.01M8 17h.01"/>
+              </svg>
+              <div class="task-info">
+                <span class="task-name" id="mcp-sidebar-label" data-i18n="sidebar.mcp">MCP Servers</span>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -191,6 +216,17 @@
               </svg>
               <div class="task-info">
                 <span class="task-name" id="trash-sidebar-label" data-i18n="sidebar.trash">File Recall</span>
+              </div>
+            </div>
+          </div>
+          <div id="billing-sidebar-item" class="task-item task-item-summary">
+            <div class="task-row">
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="task-icon">
+                <line x1="12" y1="1" x2="12" y2="23"/>
+                <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>
+              </svg>
+              <div class="task-info">
+                <span class="task-name" id="billing-sidebar-label" data-i18n="sidebar.billing">Billing</span>
               </div>
             </div>
           </div>
@@ -276,14 +312,7 @@
 
     <!-- Chat panel -->
     <div id="chat-panel" style="display:none">
-      <!-- Mobile-only floating back button: shown inside a session on small screens.
-           Desktop: hidden. All other session info (title, status, dir, delete) is
-           provided by the bottom #session-info-bar. -->
-      <button id="btn-back-mobile" class="chat-back-btn chat-back-floating" title="Back">
-        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M15 18l-6-6 6-6"/>
-        </svg>
-      </button>
+
       <div id="messages"></div>
       <!-- New message notification banner -->
       <div id="new-message-banner" class="new-message-banner" style="display:none">
@@ -300,18 +329,23 @@
           <div id="sib-actions-dropdown" class="sib-actions-dropdown" style="display:none" role="menu"></div>
         </span>
         <span class="sib-sep sib-sep-after-id">│</span>
-        <span id="sib-dir" title="Click to change directory"></span>
+        <span id="sib-dir" data-i18n-title="sib.dir.tooltip" title="Click to change directory"></span>
         <span class="sib-sep sib-sep-after-dir">│</span>
         <span id="sib-model-wrap">
           <span id="sib-model" class="sib-model-clickable" title="Click to switch model"></span>
           <div id="sib-model-dropdown" class="sib-model-dropdown" style="display:none"></div>
         </span>
         <span class="sib-sep sib-sep-after-model">│</span>
+        <span id="sib-reasoning-wrap">
+          <span id="sib-reasoning" class="sib-reasoning-clickable" data-i18n-title="sib.reasoning.tooltip" title="Click to change reasoning effort"></span>
+          <div id="sib-reasoning-dropdown" class="sib-reasoning-dropdown" style="display:none" role="menu"></div>
+        </span>
+        <span class="sib-sep sib-sep-after-reasoning">│</span>
         <!-- Latency signal: 4-bar signal + TTFT number. Hidden until the first LLM
              call completes (see updateInfoBar / Sessions.renderSignalBars). Click
              opens a mini benchmark panel (see Step 3/4 — not yet implemented). -->
         <span id="sib-signal-wrap" style="display:none">
-          <span id="sib-signal" class="sib-signal-clickable" title="Recent LLM latency">
+          <span id="sib-signal" class="sib-signal-clickable" data-i18n-title="sib.signal.tooltip" title="Recent LLM latency">
             <span class="sig-bars" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
             <span class="sig-text"></span>
           </span>
@@ -347,7 +381,7 @@
         <div id="image-preview-strip" style="display:none"></div>
         <div id="input-bar">
           <!-- Hidden file picker -->
-          <input type="file" id="image-file-input" accept="image/png,image/jpeg,image/gif,image/webp,application/pdf,application/zip,application/x-zip-compressed,application/gzip,application/x-gzip,application/x-tar,application/x-compressed-tar,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/msword,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.presentationml.presentation,application/vnd.ms-powerpoint,text/csv,application/csv,text/markdown,text/plain,.csv,.md,.markdown,.txt,.log,.tar,.gz,.tgz,.tar.gz" multiple style="display:none">
+          <input type="file" id="image-file-input" accept="image/png,image/jpeg,image/gif,image/webp,*/*" multiple style="display:none">
           <button id="btn-attach" title="Attach file (image, pdf, docx, md, tar.gz…) — drag & drop / Ctrl+V also work">
             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66L9.41 17.41a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
@@ -379,7 +413,7 @@
             <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
           </svg>
           <span data-i18n="creator.promo.text">Publish your skills &amp; build your own brand on OpenClacky.</span>
-          <a href="https://www.openclacky.com" target="_blank" data-i18n="creator.promo.link">Learn more →</a>
+          <a href="https://www.openclacky.com/creators" target="_blank" data-i18n="creator.promo.link">Learn more →</a>
         </div>
 
         <!-- Section 1: Cloud skills (published) -->
@@ -526,12 +560,32 @@
       </div>
     </div>
 
+    <!-- ── MCP PANEL — read-only view of MCP servers from ~/.clacky/mcp.json ── -->
+    <div id="mcp-panel" style="display:none">
+      <div id="mcp-body">
+        <div class="channels-page-header">
+          <h2 class="channels-page-title" data-i18n="mcp.title">MCP Servers</h2>
+          <p class="channels-page-subtitle" data-i18n="mcp.subtitle">Standard Model Context Protocol servers (Claude Desktop / Cursor compatible). Edit ~/.clacky/mcp.json to add or remove servers.</p>
+        </div>
+
+        <div id="mcp-status" class="mcp-status"></div>
+        <div id="mcp-list"></div>
+      </div>
+    </div>
+
     <!-- ── TRASH PANEL — Recently deleted files across all projects ─── -->
     <div id="trash-panel" style="display:none">
       <div id="trash-body">
         <div class="channels-page-header">
           <h2 class="channels-page-title" data-i18n="trash.title">File Recall</h2>
           <p class="channels-page-subtitle" data-i18n="trash.subtitle">Files the agent moved to trash across all projects. Recall them back to where they were, or clear the ones you don't need.</p>
+        </div>
+
+        <div id="trash-tabs">
+          <div class="trash-tabs-left">
+            <button class="trash-tab active" data-tab="file-trash" id="tab-file-trash" data-i18n="trash.tabFile">文件回收</button>
+            <button class="trash-tab" data-tab="session-trash" id="tab-session-trash" data-i18n="trash.tabSession">会话回收</button>
+          </div>
         </div>
 
         <div class="trash-toolbar">
@@ -569,7 +623,13 @@
           </div>
         </div>
 
-        <div id="trash-list"></div>
+        <div id="trash-tab-file" class="trash-tab-content">
+          <div id="trash-list"></div>
+        </div>
+
+        <div id="trash-tab-session" class="trash-tab-content" style="display:none">
+          <div id="trash-session-list"></div>
+        </div>
       </div>
     </div>
 
@@ -644,148 +704,330 @@
       </div>
     </div>
 
+    <!-- ── BILLING PANEL ───────────────────────────────────────────────── -->
+    <div id="billing-panel" style="display:none">
+      <div id="billing-body">
+        <div id="billing-content">
+          <!-- Content loaded dynamically by billing.js -->
+        </div>
+      </div>
+    </div>
+
     <!-- ── SETTINGS PANEL ──────────────────────────────────────────────── -->
     <div id="settings-panel" style="display:none">
       <header id="settings-header">
         <span data-i18n="settings.title">Settings</span>
       </header>
+
+      <!-- Settings Tabs -->
+      <div id="settings-tabs">
+        <button class="settings-tab active" data-tab="models" data-i18n="settings.tabs.models">Models</button>
+        <button class="settings-tab" data-tab="ui" data-i18n="settings.tabs.ui">UI</button>
+        <button class="settings-tab" data-tab="general" data-i18n="settings.tabs.general">General</button>
+        <button class="settings-tab" data-tab="about" data-i18n="settings.tabs.about">About</button>
+      </div>
+
       <div id="settings-body">
 
-        <!-- Models section -->
-        <section class="settings-section">
-          <div class="settings-section-title">
-            <span data-i18n="settings.models.title">AI Models</span>
-            <button id="btn-add-model" class="btn-settings-add" data-i18n="settings.models.add">+ Add Model</button>
-          </div>
-          <div id="model-cards"></div>
-        </section>
+        <!-- ══ Tab: Models ══ -->
+        <div class="settings-tab-content active" data-tab-content="models">
+          <!-- Models section -->
+          <section class="settings-section">
+            <div class="settings-section-title">
+              <span data-i18n="settings.models.title">AI Models</span>
+              <button id="btn-add-model" class="btn-settings-add" data-i18n="settings.models.add">+ Add Model</button>
+            </div>
+            <div id="model-cards"></div>
+          </section>
+        </div>
 
-        <!-- Personalize section -->
-        <section class="settings-section">
-          <div class="settings-section-title">
-            <span data-i18n="settings.personalize.title">Personalize</span>
-          </div>
-          <div class="settings-personalize">
-            <p class="settings-personalize-desc" data-i18n="settings.personalize.desc">Re-run the onboarding to update your assistant's personality and user profile (SOUL.md &amp; USER.md).</p>
-            <button id="btn-rerun-onboard" class="btn-settings-action" data-i18n="settings.personalize.btn">✨ Re-run Onboard</button>
-          </div>
-        </section>
+        <!-- ══ Tab: UI ══ -->
+        <div class="settings-tab-content" data-tab-content="ui" style="display:none">
+          <!-- Language section -->
+          <section class="settings-section" id="language-section">
+            <div class="settings-section-title">
+              <span data-i18n="settings.lang.title">Language</span>
+            </div>
+            <div class="settings-lang-btns">
+              <button id="settings-btn-lang-en" class="settings-lang-btn" data-lang="en" data-i18n="settings.lang.en">English</button>
+              <button id="settings-btn-lang-zh" class="settings-lang-btn" data-lang="zh" data-i18n="settings.lang.zh">中文</button>
+            </div>
+          </section>
 
-        <!-- Browser section -->
-        <section class="settings-section">
-          <div class="settings-section-title">
-            <span data-i18n="settings.browser.title">Browser</span>
-          </div>
-          <div class="settings-personalize">
-            <p class="settings-personalize-desc" id="browser-status-desc" data-i18n="settings.browser.desc">Connect your browser to enable browser automation.</p>
-            <div class="settings-browser-actions">
-              <label class="toggle-switch" id="browser-toggle-wrap" style="display:none">
-                <input type="checkbox" id="browser-toggle-input">
-                <span class="toggle-slider"></span>
+          <!-- Font Size section -->
+          <section class="settings-section" id="font-size-section">
+            <div class="settings-section-title">
+              <span data-i18n="settings.fontSize.title">Font Size</span>
+            </div>
+            <div class="settings-lang-btns">
+              <button id="settings-btn-font-small" class="settings-lang-btn" data-font="small" data-i18n="settings.fontSize.small">小</button>
+              <button id="settings-btn-font-medium" class="settings-lang-btn" data-font="medium" data-i18n="settings.fontSize.medium">中</button>
+              <button id="settings-btn-font-large" class="settings-lang-btn" data-font="large" data-i18n="settings.fontSize.large">大</button>
+            </div>
+          </section>
+
+          <!-- Currency section -->
+          <section class="settings-section" id="currency-section">
+            <div class="settings-section-title">
+              <span data-i18n="settings.currency.title">Currency</span>
+            </div>
+            <div class="settings-lang-btns">
+              <button id="settings-btn-currency-usd" class="settings-lang-btn" data-currency="USD">$ USD</button>
+              <button id="settings-btn-currency-cny" class="settings-lang-btn" data-currency="CNY">¥ CNY</button>
+            </div>
+            <div class="settings-exchange-rate" id="exchange-rate-section" style="display: none;">
+              <label class="settings-exchange-rate-label">
+                <span data-i18n="settings.currency.exchangeRate">Exchange Rate (1 USD =)</span>
+                <div class="settings-exchange-rate-input-wrapper">
+                  <input type="number" id="settings-exchange-rate" class="settings-exchange-rate-input" step="0.0001" min="0.0001" placeholder="6.7944">
+                  <span class="settings-exchange-rate-unit">CNY</span>
+                </div>
               </label>
-              <button id="btn-browser-setup" class="btn-settings-action" data-i18n="settings.browser.btn">🌐 Configure Browser</button>
             </div>
-          </div>
-        </section>
+          </section>
+        </div>
 
-        <!-- Language section -->
-        <section class="settings-section" id="language-section">
-          <div class="settings-section-title">
-            <span data-i18n="settings.lang.title">Language</span>
-          </div>
-          <div class="settings-lang-btns">
-            <button id="settings-btn-lang-en" class="settings-lang-btn" data-lang="en" data-i18n="settings.lang.en">English</button>
-            <button id="settings-btn-lang-zh" class="settings-lang-btn" data-lang="zh" data-i18n="settings.lang.zh">中文</button>
-          </div>
-        </section>
+        <!-- ══ Tab: General ══ -->
+        <div class="settings-tab-content" data-tab-content="general" style="display:none">
+          <!-- Personalize section -->
+          <section class="settings-section">
+            <div class="settings-section-title">
+              <span data-i18n="settings.personalize.title">Personalize</span>
+            </div>
+            <div class="settings-personalize">
+              <p class="settings-personalize-desc" data-i18n="settings.personalize.desc">Re-run the onboarding to update your assistant's personality and user profile (SOUL.md &amp; USER.md).</p>
+              <button id="btn-rerun-onboard" class="btn-settings-action" data-i18n="settings.personalize.btn">✨ Re-run Onboard</button>
+            </div>
+          </section>
 
-        <!-- Brand & License section -->
-        <section class="settings-section" id="brand-license-section">
-          <div class="settings-section-title">
-            <span data-i18n="settings.brand.title">Brand &amp; License</span>
-          </div>
-
-          <!-- Current brand status (shown when already activated) -->
-          <div id="brand-status-card" class="brand-status-card" style="display:none">
-            <div class="brand-status-main">
-              <div class="brand-status-fields">
-                <div class="brand-status-row">
-                  <span class="brand-status-label" data-i18n="settings.brand.label.brand">Brand</span>
-                  <span class="brand-status-value" id="brand-status-name">—</span>
-                </div>
-                <div class="brand-status-row">
-                  <span class="brand-status-label" data-i18n="settings.brand.label.status">Status</span>
-                  <span class="brand-status-value" id="brand-status-badge">—</span>
-                </div>
-                <div class="brand-status-row">
-                  <span class="brand-status-label" data-i18n="settings.brand.label.expires">Expires</span>
-                  <span class="brand-status-value" id="brand-status-expires">—</span>
-                </div>
-                <div class="brand-status-row" id="brand-status-homepage-row" style="display:none">
-                  <span class="brand-status-label" data-i18n="settings.brand.label.homepage">Homepage</span>
-                  <a id="brand-status-homepage" class="brand-status-value brand-status-link" href="#" target="_blank" rel="noopener noreferrer">—</a>
-                </div>
-                <div class="brand-status-actions">
-                  <button id="btn-rebind-license" class="btn-settings-action" data-i18n="settings.brand.btn.change">Change Serial Number</button>
-                  <button id="btn-unbind-license" class="btn-settings-action btn-settings-action-danger" data-i18n="settings.brand.btn.unbind">Unbind License</button>
-                </div>
+          <!-- Browser section -->
+          <section class="settings-section">
+            <div class="settings-section-title">
+              <span data-i18n="settings.browser.title">Browser</span>
+            </div>
+            <div class="settings-personalize">
+              <p class="settings-personalize-desc" id="browser-status-desc" data-i18n="settings.browser.desc">Connect your browser to enable browser automation.</p>
+              <div class="settings-browser-actions">
+                <label class="toggle-switch" id="browser-toggle-wrap" style="display:none">
+                  <input type="checkbox" id="browser-toggle-input">
+                  <span class="toggle-slider"></span>
+                </label>
+                <button id="btn-browser-setup" class="btn-settings-action" data-i18n="settings.browser.btn">🌐 Configure Browser</button>
               </div>
-              <!-- Support contact (shown when support_contact is available) -->
-              <div id="brand-support-contact" class="brand-support-contact" style="display:none">
-                <span class="brand-support-contact-label" data-i18n="settings.brand.label.supportContact">Support</span>
-                <a id="brand-support-contact-link" class="brand-support-contact-value" href="#" target="_blank" rel="noopener noreferrer"></a>
-              </div>
+            </div>
+          </section>
 
-              <!-- Support QR code (shown when support_qr_url is available) -->
-              <div id="brand-support-qr" class="brand-support-qr" style="display:none">
-                <button class="brand-support-qr-btn" id="brand-support-qr-btn" title="Click to enlarge" aria-label="View QR code larger">
-                  <img id="brand-support-qr-img" src="" alt="Support QR Code" class="brand-support-qr-img">
-                  <span class="brand-support-qr-zoom-hint">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
-                    Click to enlarge
-                  </span>
-                </button>
-                <span class="brand-support-qr-label" data-i18n="settings.brand.label.supportQr">Tech Support</span>
-              </div>
+          <!-- Brand & License section -->
+          <section class="settings-section" id="brand-license-section">
+            <div class="settings-section-title">
+              <span data-i18n="settings.brand.title">Brand &amp; License</span>
+            </div>
 
-              <!-- QR code lightbox modal -->
-              <div id="qr-lightbox" class="qr-lightbox" style="display:none" role="dialog" aria-modal="true" aria-label="QR Code enlarged view">
-                <div class="qr-lightbox-backdrop" id="qr-lightbox-backdrop"></div>
-                <div class="qr-lightbox-content">
-                  <img id="qr-lightbox-img" src="" alt="Support QR Code" class="qr-lightbox-img">
-                  <p class="qr-lightbox-label" id="qr-lightbox-label">Tech Support</p>
-                  <p class="qr-lightbox-hint" data-i18n="settings.brand.label.qrHint">Scan with your phone camera</p>
-                  <button class="qr-lightbox-close" id="qr-lightbox-close" aria-label="Close">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            <!-- Current brand status (shown when already activated) -->
+            <div id="brand-status-card" class="brand-status-card" style="display:none">
+              <div class="brand-status-main">
+                <div class="brand-status-fields">
+                  <div class="brand-status-row">
+                    <span class="brand-status-label" data-i18n="settings.brand.label.brand">Brand</span>
+                    <span class="brand-status-value" id="brand-status-name">—</span>
+                  </div>
+                  <div class="brand-status-row">
+                    <span class="brand-status-label" data-i18n="settings.brand.label.status">Status</span>
+                    <span class="brand-status-value" id="brand-status-badge">—</span>
+                  </div>
+                  <div class="brand-status-row">
+                    <span class="brand-status-label" data-i18n="settings.brand.label.expires">Expires</span>
+                    <span class="brand-status-value" id="brand-status-expires">—</span>
+                  </div>
+                  <div class="brand-status-row" id="brand-status-homepage-row" style="display:none">
+                    <span class="brand-status-label" data-i18n="settings.brand.label.homepage">Homepage</span>
+                    <a id="brand-status-homepage" class="brand-status-value brand-status-link" href="#" target="_blank" rel="noopener noreferrer">—</a>
+                  </div>
+                  <div class="brand-status-actions">
+                    <button id="btn-rebind-license" class="btn-settings-action" data-i18n="settings.brand.btn.change">Change Serial Number</button>
+                    <button id="btn-unbind-license" class="btn-settings-action btn-settings-action-danger" data-i18n="settings.brand.btn.unbind">Unbind License</button>
+                  </div>
+                </div>
+                <!-- Support contact (shown when support_contact is available) -->
+                <div id="brand-support-contact" class="brand-support-contact" style="display:none">
+                  <span class="brand-support-contact-label" data-i18n="settings.brand.label.supportContact">Support</span>
+                  <a id="brand-support-contact-link" class="brand-support-contact-value" href="#" target="_blank" rel="noopener noreferrer"></a>
+                </div>
+
+                <!-- Support QR code (shown when support_qr_url is available) -->
+                <div id="brand-support-qr" class="brand-support-qr" style="display:none">
+                  <button class="brand-support-qr-btn" id="brand-support-qr-btn" title="Click to enlarge" aria-label="View QR code larger">
+                    <img id="brand-support-qr-img" src="" alt="Support QR Code" class="brand-support-qr-img">
+                    <span class="brand-support-qr-zoom-hint">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
+                      Click to enlarge
+                    </span>
                   </button>
+                  <span class="brand-support-qr-label" data-i18n="settings.brand.label.supportQr">Tech Support</span>
+                </div>
+
+                <!-- QR code lightbox modal -->
+                <div id="qr-lightbox" class="qr-lightbox" style="display:none" role="dialog" aria-modal="true" aria-label="QR Code enlarged view">
+                  <div class="qr-lightbox-backdrop" id="qr-lightbox-backdrop"></div>
+                  <div class="qr-lightbox-content">
+                    <img id="qr-lightbox-img" src="" alt="Support QR Code" class="qr-lightbox-img">
+                    <p class="qr-lightbox-label" id="qr-lightbox-label">Tech Support</p>
+                    <p class="qr-lightbox-hint" data-i18n="settings.brand.label.qrHint">Scan with your phone camera</p>
+                    <button class="qr-lightbox-close" id="qr-lightbox-close" aria-label="Close">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
 
-          <!-- Activation form (shown when not yet activated) -->
-          <div id="brand-activate-form" class="brand-activate-form">
-            <p class="brand-activate-desc" data-i18n="settings.brand.desc">
-              Have a serial number from a brand partner? Enter it below to activate branded mode.
-            </p>
-            <div class="brand-activate-fields">
-              <input id="settings-license-key" type="text" class="field-input"
-                     placeholder="XXXXXXXX-XXXXXXXX-XXXXXXXX-XXXXXXXX-XXXXXXXX"
-                     autocomplete="off" spellcheck="false">
-              <button id="btn-settings-activate" class="btn-primary" data-i18n="settings.brand.btn.activate">Activate</button>
+            <!-- Activation form (shown when not yet activated) -->
+            <div id="brand-activate-form" class="brand-activate-form">
+              <p class="brand-activate-desc" data-i18n="settings.brand.desc">
+                Have a serial number from a brand partner? Enter it below to activate branded mode.
+              </p>
+              <div class="brand-activate-fields">
+                <input id="settings-license-key" type="text" class="field-input"
+                       placeholder="XXXXXXXX-XXXXXXXX-XXXXXXXX-XXXXXXXX-XXXXXXXX"
+                       autocomplete="off" spellcheck="false">
+                <button id="btn-settings-activate" class="btn-primary" data-i18n="settings.brand.btn.activate">Activate</button>
+              </div>
+              <div id="settings-activate-result" class="model-test-result"></div>
+              <!-- "Get a serial number" helper row — only rendered when the
+                   brand has a homepage_url configured (set via Brand.refreshGetSerialLink).
+                   Hidden by default so unbranded / no-homepage installs don't see a dead link. -->
+              <div id="brand-get-serial" class="brand-get-serial" style="display:none">
+                <span class="brand-get-serial-hint" data-i18n="settings.brand.getSerial.hint">Don't have one yet?</span>
+                <button type="button" id="btn-get-serial" class="btn-link-inline" data-i18n="settings.brand.btn.getSerial">Get a Serial Number</button>
+              </div>
             </div>
-            <div id="settings-activate-result" class="model-test-result"></div>
-            <!-- "Get a serial number" helper row — only rendered when the
-                 brand has a homepage_url configured (set via Brand.refreshGetSerialLink).
-                 Hidden by default so unbranded / no-homepage installs don't see a dead link. -->
-            <div id="brand-get-serial" class="brand-get-serial" style="display:none">
-              <span class="brand-get-serial-hint" data-i18n="settings.brand.getSerial.hint">Don't have one yet?</span>
-              <button type="button" id="btn-get-serial" class="btn-link-inline" data-i18n="settings.brand.btn.getSerial">Get a Serial Number</button>
+
+          </section>
+        </div><!-- end Tab: General -->
+
+        <!-- ══ Tab: About ══ -->
+        <div class="settings-tab-content" data-tab-content="about" style="display:none">
+          <!-- Version section -->
+          <section class="settings-section">
+            <div class="settings-section-title">
+              <span data-i18n="settings.about.version">Version</span>
             </div>
-          </div>
+            <div class="settings-about-info">
+              <div class="about-item">
+                <span class="about-label" data-i18n="settings.about.appName">Application</span>
+                <span class="about-value" id="about-app-name">OpenClacky</span>
+              </div>
+              <div class="about-item">
+                <span class="about-label" data-i18n="settings.about.versionLabel">Version</span>
+                <span class="about-value" id="about-version">—</span>
+              </div>
+            </div>
+          </section>
 
-        </section>
+          <!-- Links section -->
+          <section class="settings-section">
+            <div class="settings-section-title">
+              <span data-i18n="settings.about.links">Links</span>
+            </div>
+            <div class="settings-about-links">
+              <a href="https://github.com/clacky-ai/openclacky" target="_blank" rel="noopener noreferrer" class="about-link">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
+                <span>GitHub</span>
+              </a>
+              <a href="https://www.openclacky.com/" target="_blank" rel="noopener noreferrer" class="about-link">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+                <span data-i18n="settings.about.website">Website</span>
+              </a>
+              <a href="https://www.openclacky.com/docs/what-is-openclacky" target="_blank" rel="noopener noreferrer" class="about-link">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+                <span data-i18n="settings.about.docs">Documentation</span>
+              </a>
+            </div>
+          </section>
+        </div>
 
+      </div>
+    </div>
+
+    <!-- ── MODEL EDIT MODAL ──────────────────────────────────────────────── -->
+    <div id="model-edit-modal" class="modal-overlay" style="display:none">
+      <div class="modal-content model-edit-modal-content">
+        <div class="modal-header">
+          <h3 id="model-modal-title" data-i18n="settings.models.modal.add">Add Model</h3>
+          <button class="modal-close" id="model-modal-close" aria-label="Close">
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+        </div>
+        <div class="modal-body">
+          <input type="hidden" id="model-modal-index" value="-1">
+          
+          <label class="model-field" id="model-modal-provider-field">
+            <span class="field-label" data-i18n="settings.models.field.provider">Provider</span>
+            <div class="custom-select-wrapper" id="model-modal-provider-wrapper">
+              <div class="custom-select-trigger" tabindex="0" id="model-modal-provider-trigger">
+                <span class="custom-select-value placeholder" id="model-modal-provider-value" data-i18n="settings.models.placeholder.provider">Select Provider</span>
+                <svg class="custom-select-arrow" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+                </svg>
+              </div>
+              <div class="custom-select-dropdown" id="model-modal-provider-dropdown"></div>
+            </div>
+            <div id="model-modal-promo-hint" class="provider-promo-hint" data-index="modal"></div>
+          </label>
+
+          <label class="model-field">
+            <span class="field-label" data-i18n="settings.models.field.model">Model</span>
+            <div class="model-name-combobox" id="model-modal-model-combobox">
+              <input type="text" id="model-modal-model" class="field-input model-name-input" placeholder="gpt-4o" autocomplete="off">
+              <button class="model-name-dropdown-btn" type="button" id="model-modal-model-dropdown-btn">
+                <svg width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+                </svg>
+              </button>
+              <div class="model-name-dropdown" id="model-modal-model-dropdown" style="display:none"></div>
+            </div>
+          </label>
+
+          <label class="model-field">
+            <span class="field-label" data-i18n="settings.models.field.baseurl">Base URL</span>
+            <div class="base-url-combobox" id="model-modal-baseurl-combobox">
+              <input type="text" id="model-modal-baseurl" class="field-input base-url-input" placeholder="https://api.openai.com/v1" autocomplete="off">
+              <button class="base-url-dropdown-btn" type="button" id="model-modal-baseurl-dropdown-btn">
+                <svg width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+                </svg>
+              </button>
+              <div class="base-url-dropdown" id="model-modal-baseurl-dropdown" style="display:none"></div>
+            </div>
+          </label>
+
+          <label class="model-field">
+            <span class="field-label">
+              <span data-i18n="settings.models.field.apikey">API Key</span>
+              <a class="get-apikey-link" id="model-modal-apikey-link" href="#" target="_blank" rel="noopener" style="display:none;margin-left:0.5rem;font-size:0.75rem;color:var(--accent,#6366f1);text-decoration:none;opacity:0.85;" data-i18n="settings.models.field.getApiKey">How to get →</a>
+            </span>
+            <div class="field-input-row">
+              <input type="password" id="model-modal-apikey" class="field-input api-key-input" placeholder="sk-..." autocomplete="off">
+              <button class="btn-toggle-key" id="model-modal-toggle-key" type="button" title="Show/hide key">
+                <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path>
+                </svg>
+              </button>
+            </div>
+          </label>
+
+          <div id="model-modal-test-result" class="model-test-result"></div>
+
+          <label class="model-field model-field-checkbox" id="model-modal-default-field">
+            <input type="checkbox" id="model-modal-set-default">
+            <span data-i18n="settings.models.field.setDefault">Set as default model</span>
+          </label>
+        </div>
+        <div class="modal-footer">
+          <button id="model-modal-cancel" class="btn-secondary" data-i18n="settings.models.btn.cancel">Cancel</button>
+          <button id="model-modal-save" class="btn-primary" data-i18n="settings.models.btn.save">Save</button>
+        </div>
       </div>
     </div>
 
@@ -833,16 +1075,17 @@
       <div class="setup-field">
         <label class="setup-label" data-i18n="onboard.key.provider">Provider</label>
         <div class="custom-select-wrapper" id="setup-provider-wrapper">
-          <div class="custom-select-trigger">
-            <span class="custom-select-value placeholder">— Choose provider —</span>
+          <div class="custom-select-trigger" tabindex="0">
+            <span class="custom-select-value placeholder" data-i18n="onboard.key.provider.placeholder">— Choose provider —</span>
             <svg class="custom-select-arrow" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
             </svg>
           </div>
           <div class="custom-select-dropdown" id="setup-provider-dropdown">
-            <div class="custom-select-option" data-value="">— Choose provider —</div>
+            <div class="custom-select-option" data-value="" data-i18n="onboard.key.provider.placeholder">— Choose provider —</div>
           </div>
         </div>
+        <div id="setup-provider-promo" class="provider-promo-hint"></div>
       </div>
 
       <div class="setup-field">
@@ -870,7 +1113,7 @@
       <div class="setup-field">
         <label class="setup-label">
           <span data-i18n="onboard.key.apikey">API Key</span>
-          <a id="setup-get-apikey-link" href="#" target="_blank" rel="noopener" style="display:none;margin-left:8px;font-size:12px;color:var(--accent,#6366f1);text-decoration:none;opacity:0.85;" data-i18n="onboard.key.getApiKey">How to get →</a>
+          <a id="setup-get-apikey-link" href="#" target="_blank" rel="noopener" style="display:none;margin-left:0.5rem;font-size:0.75rem;color:var(--accent,#6366f1);text-decoration:none;opacity:0.85;" data-i18n="onboard.key.getApiKey">How to get →</a>
         </label>
         <div class="setup-input-row">
           <input id="setup-api-key" type="password" class="setup-input" data-i18n-placeholder="settings.models.placeholder.apikey" placeholder="sk-…">
@@ -883,9 +1126,9 @@
         </div>
       </div>
 
-      <div class="setup-docs-hint" style="font-size:12px;margin-top:2px;text-align:left;">
+      <div class="setup-docs-hint" style="font-size:0.75rem;margin-top:2px;text-align:left;">
         <span style="color:var(--muted,#6b7280);" data-i18n="onboard.key.docsGuide.question">New to AI keys?</span>
-        <a id="setup-docs-link" href="https://www.openclacky.com/docs/ai-key-guide" target="_blank" rel="noopener" style="margin-left:4px;color:var(--accent,#6366f1);text-decoration:none;" data-i18n="onboard.key.docsGuide.cta">See the guide →</a>
+        <a id="setup-docs-link" href="https://www.openclacky.com/docs/ai-key-guide" target="_blank" rel="noopener" style="margin-left:0.25rem;color:var(--accent,#6366f1);text-decoration:none;" data-i18n="onboard.key.docsGuide.cta">See the guide →</a>
       </div>
 
       <div id="setup-test-result" class="setup-test-result" style="min-height:0;"></div>
@@ -904,7 +1147,6 @@
   <div class="modal-box new-session-modal">
     <div class="modal-header">
       <h3 class="modal-title" data-i18n="sessions.modal.title">Create New Session</h3>
-      <button id="new-session-modal-close" class="modal-close-btn" title="Close">×</button>
     </div>
     <div class="modal-body">
       <div class="modal-field">
@@ -944,8 +1186,8 @@
       </div>
     </div>
     <div class="modal-footer">
-      <button id="new-session-create" class="btn-primary" data-i18n="sessions.modal.create">Create Session</button>
       <button id="new-session-cancel" class="btn-secondary" data-i18n="modal.cancel">Cancel</button>
+      <button id="new-session-create" class="btn-primary" data-i18n="sessions.modal.create">Create Session</button>
     </div>
   </div>
 </div>
@@ -953,10 +1195,10 @@
 <!-- ── CONFIRMATION MODAL ────────────────────────────────────────────────── -->
 <div id="modal-overlay" class="modal-overlay" style="display:none">
   <div class="modal-box sm">
-    <div id="modal-message" style="font-size:14px;line-height:1.6;margin-bottom:20px;white-space:pre-wrap"></div>
+    <div id="modal-message" class="modal-confirm-message"></div>
     <div class="modal-actions">
-      <button id="modal-yes" class="btn-primary" data-i18n="modal.yes">Yes</button>
       <button id="modal-no"  class="btn-secondary" data-i18n="modal.no">No</button>
+      <button id="modal-yes" class="btn-primary" data-i18n="modal.yes">Yes</button>
     </div>
   </div>
 </div>
@@ -964,11 +1206,34 @@
 <!-- Prompt modal for text input -->
 <div id="prompt-modal-overlay" class="modal-overlay" style="display:none">
   <div class="modal-box sm">
-    <div id="prompt-modal-message" style="font-size:14px;line-height:1.6;margin-bottom:12px"></div>
+    <div id="prompt-modal-message" style="font-size:0.875rem;line-height:1.6;margin-bottom:0.75rem"></div>
     <input type="text" id="prompt-modal-input" class="prompt-modal-input" autocomplete="off" spellcheck="false">
     <div class="modal-actions">
-      <button id="prompt-modal-ok" class="btn-primary" data-i18n="modal.ok">OK</button>
       <button id="prompt-modal-cancel" class="btn-secondary" data-i18n="modal.cancel">Cancel</button>
+      <button id="prompt-modal-ok" class="btn-primary" data-i18n="modal.ok">OK</button>
+    </div>
+  </div>
+</div>
+
+<!-- Toast stack — non-blocking notifications anchored bottom-right -->
+<div id="toast-stack" class="toast-stack" aria-live="polite" aria-atomic="true"></div>
+
+<!-- Rename Session Modal -->
+<div id="rename-modal-overlay" class="modal-overlay" style="display:none">
+  <div class="modal-box sm">
+    <div class="modal-title" data-i18n="sessions.actions.rename">Rename</div>
+    <div class="modal-body">
+      <div class="modal-field">
+        <label class="modal-label" for="rename-modal-input">
+          <span data-i18n="sessions.modal.name">Name</span>
+          <span class="label-required">*</span>
+        </label>
+        <input type="text" id="rename-modal-input" class="modal-input" autocomplete="off" spellcheck="false">
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button id="rename-modal-cancel" class="btn-secondary" data-i18n="modal.cancel">Cancel</button>
+      <button id="rename-modal-save" class="btn-primary" data-i18n="modal.ok">OK</button>
     </div>
   </div>
 </div>
@@ -976,16 +1241,22 @@
 
 
 <script src="/marked.min.js"></script>
+<script src="/vendor/hljs/highlight.min.js"></script>
+<script src="/vendor/katex/katex.min.js"></script>
+<script src="/vendor/katex/auto-render.min.js"></script>
 <script src="/i18n.js"></script>
 <script src="/auth.js"></script>
 <script src="/theme.js"></script>
 <script src="/ws.js"></script>
 <script src="/ws-dispatcher.js"></script>
 <script src="/sessions.js"></script>
+<script src="/datepicker.js"></script>
 <script src="/tasks.js"></script>
 <script src="/skills.js"></script>
 <script src="/channels.js"></script>
+<script src="/mcp.js"></script>
 <script src="/settings.js"></script>
+<script src="/billing.js"></script>
 <script src="/onboard.js"></script>
 <script src="/brand.js"></script>
 <script src="/creator.js"></script>

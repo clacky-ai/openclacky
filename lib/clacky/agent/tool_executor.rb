@@ -108,6 +108,15 @@ module Clacky
           preview_error
         rescue JSON::ParserError
           nil
+        rescue StandardError => e
+          @debug_logs << {
+            timestamp: Time.now.iso8601,
+            event: "tool_preview_error",
+            tool_name: call[:name],
+            error_class: e.class.name,
+            error_message: e.message
+          }
+          nil
         end
       end
 
@@ -178,6 +187,9 @@ module Clacky
         if formatted_result.is_a?(Hash) && formatted_result[:image_inject]
           image_inject = formatted_result[:image_inject]
           formatted_result = formatted_result.reject { |k, _| k == :image_inject }
+          if formatted_result[:content_string]
+            formatted_result = formatted_result[:content_string]
+          end
         end
 
         # If the tool returned a plain string, use it directly (avoids double-escaping).
@@ -187,7 +199,6 @@ module Clacky
         content = if formatted_result.is_a?(String)
                     formatted_result
                   elsif formatted_result.is_a?(Array)
-                    # Multipart content (e.g. screenshot image blocks) — keep as Array
                     formatted_result
                   else
                     JSON.generate(formatted_result)
@@ -393,6 +404,11 @@ module Clacky
         unless File.exist?(expanded_path)
           @ui&.show_file_error("File not found: #{path}")
           return { error: "File not found: #{path}", path: path }
+        end
+
+        if File.directory?(expanded_path)
+          @ui&.show_file_error("Path is a directory, not a file: #{path}")
+          return { error: "Path is a directory, not a file: #{path}", path: path }
         end
 
         if old_string.empty?

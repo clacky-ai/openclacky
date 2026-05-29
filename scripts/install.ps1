@@ -11,8 +11,8 @@
 #     -BrandName    Display name shown in prompts    (default: OpenClacky)
 #     -CommandName  CLI command name after install   (default: openclacky)
 #
-# WSL2 is preferred. If virtualisation is unavailable (e.g. running inside a VM),
-# the script automatically falls back to WSL1.
+# WSL1 is preferred (shares Windows network stack — no mirrored networking needed).
+# If WSL1 import fails, the script falls back to WSL2 with mirrored networking.
 # If WSL is not installed at all, the script enables it and asks you to reboot.
 # After rebooting, run the same command again to complete installation.
 #
@@ -27,11 +27,14 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
+$env:WSL_UTF8 = "1"
 
 $global:DisplayName = if ($BrandName)   { $BrandName }   else { "OpenClacky" }
 $global:DisplayCmd  = if ($CommandName) { $CommandName } else { "openclacky" }
 
 $CLACKY_CDN_BASE_URL   = "https://oss.1024code.com"
+$CLACKY_CDN_PRIMARY_HOST = "oss.1024code.com"
+$CLACKY_CDN_BACKUP_HOST  = "clackyai-1258723534.cos.ap-guangzhou.myqcloud.com"
 $INSTALL_PS1_COMMAND   = "powershell -c `"irm $CLACKY_CDN_BASE_URL/clacky-ai/openclacky/main/scripts/install.ps1 | iex`""
 $INSTALL_SCRIPT_URL    = "$CLACKY_CDN_BASE_URL/clacky-ai/openclacky/main/scripts/install.sh"
 $UBUNTU_WSL_AMD64_URL        = "$CLACKY_CDN_BASE_URL/ubuntu-jammy-wsl-amd64-ubuntu22.04lts.rootfs.tar.gz"
@@ -71,18 +74,24 @@ function Get-SafeTempDir {
 # Invoke-WebRequest. Returns $true on success, $false on failure.
 function Invoke-Download {
     param([string]$Url, [string]$OutFile)
-    $ok = $false
+    $urls = @($Url)
     try {
-        curl.exe -L --fail --progress-bar $Url -o $OutFile
-        $ok = ($LASTEXITCODE -eq 0)
+        if (([Uri]$Url).Host -eq $CLACKY_CDN_PRIMARY_HOST) {
+            $urls += ([Uri]$Url).AbsoluteUri.Replace($CLACKY_CDN_PRIMARY_HOST, $CLACKY_CDN_BACKUP_HOST)
+        }
     } catch {}
-    if (-not $ok) {
+    foreach ($u in $urls) {
+        if ($u -ne $Url) { Write-Warn "Primary download failed, retrying with backup mirror." }
         try {
-            Invoke-WebRequest -Uri $Url -OutFile $OutFile -UseBasicParsing
-            $ok = $true
-        } catch { $ok = $false }
+            curl.exe -L --fail --progress-bar $u -o $OutFile
+            if ($LASTEXITCODE -eq 0) { return $true }
+        } catch {}
+        try {
+            Invoke-WebRequest -Uri $u -OutFile $OutFile -UseBasicParsing -TimeoutSec 60
+            return $true
+        } catch {}
     }
-    return $ok
+    return $false
 }
 
 # Verify SHA256 of a local file against a remote .sha256 file.
@@ -142,14 +151,18 @@ function Invoke-WslStatusExitCode {
 }
 
 # Returns $true if a distro named exactly "Ubuntu" is registered.
-# wsl --list outputs UTF-16LE; switch OutputEncoding to decode correctly.
+# wsl --list outputs UTF-16LE regardless of WSL_UTF8; temporarily clear it and switch
+# OutputEncoding to Unicode so the output decodes correctly.
 function Test-UbuntuInstalled {
-    $prev = [Console]::OutputEncoding
+    $prevEnc = [Console]::OutputEncoding
+    $prevUtf8 = $env:WSL_UTF8
     [Console]::OutputEncoding = [System.Text.Encoding]::Unicode
+    $env:WSL_UTF8 = $null
     try {
         $out = (wsl.exe --list --quiet 2>$null) -join "`n"
     } finally {
-        [Console]::OutputEncoding = $prev
+        [Console]::OutputEncoding = $prevEnc
+        $env:WSL_UTF8 = $prevUtf8
     }
     # Whole-line match to avoid false positives from Ubuntu-22.04, Ubuntu-24.04, etc.
     return ($out -match '(?im)^Ubuntu\s*$')
@@ -249,9 +262,10 @@ function Install-UbuntuRootfs {
 
     Write-Step "Importing Ubuntu into WSL$WslVersion (this may take a minute)..."
     New-Item -ItemType Directory -Force -Path $UBUNTU_WSL_DIR | Out-Null
-    wsl.exe --import Ubuntu $UBUNTU_WSL_DIR $TarPath --version $WslVersion
+    $wslOutput = wsl.exe --import Ubuntu $UBUNTU_WSL_DIR $TarPath --version $WslVersion 2>&1
     if ($LASTEXITCODE -ne 0) {
         Write-Fail "wsl --import failed (exit $LASTEXITCODE)."
+        if ($wslOutput) { Write-Fail "$wslOutput" }
         Write-Fail "Try removing $UBUNTU_WSL_DIR and running the script again."
         exit 1
     }
@@ -395,7 +409,7 @@ function Test-VirtualisationSupported {
     if ($ok) {
         Write-Info "WSL2 probe passed — using WSL2."
     } else {
-        Write-Info "WSL2 probe failed (Hyper-V not available) — falling back to WSL1."
+        Write-Info "WSL2 probe failed (Hyper-V not available)."
     }
     return $ok
 }
@@ -431,6 +445,7 @@ function Enable-WslFeatures {
     dism /online /enable-feature /featurename:VirtualMachinePlatform /all /norestart | Out-Null
     Write-Success "WSL components enabled."
     Install-WslKernel
+    Set-InstallReg -Name "WslFeaturesEnabled" -Value "1"
     Set-InstallReg -Name "InstallPhase" -Value "wsl-pending"
     Prompt-Reboot
 }
@@ -464,8 +479,10 @@ Write-Info "Windows Build $osBuild — OK."
 Write-Step "Checking WSL status..."
 $wslCode = Invoke-WslStatusExitCode
 Write-Info "WSL --status exit code: $wslCode"
-$installPhase = Get-InstallReg -Name "InstallPhase" -Default ""
+$installPhase       = Get-InstallReg -Name "InstallPhase"       -Default ""
+$wslFeaturesEnabled = Get-InstallReg -Name "WslFeaturesEnabled" -Default ""
 Write-Info "InstallPhase: '$installPhase'"
+Write-Info "WslFeaturesEnabled: '$wslFeaturesEnabled'"
 
 if ($installPhase -eq "" -and $wslCode -ne 0) {
     # First run and WSL not ready: enable WSL features and reboot.
@@ -484,26 +501,59 @@ if ($installPhase -eq "wsl-pending" -and $wslCode -eq 1) {
 # wslCode != 1 (0, -1, -444, 50, etc.): WSL is functional, continue.
 Remove-InstallReg -Name "InstallPhase"
 
-# Step 2: Install Ubuntu, preferring WSL2 when the real rootfs imports cleanly.
+# Step 2: Install Ubuntu, preferring WSL1 (shares Windows network — no mirrored needed).
+# If WSL1 import fails, fall back to WSL2.
+# If the distro already exists, keep whatever version was previously installed.
 if (Test-UbuntuInstalled) {
     Write-Info "Ubuntu (WSL) already installed — skipping import."
     $wslVersion = Get-InstallReg -Name "WslVersion" -Default 2
 } else {
     $tarPath = Get-UbuntuRootfs
-    if (Test-VirtualisationSupported -TarPath $tarPath) {
-        wsl.exe --set-default-version 2 >$null 2>$null
-        Install-UbuntuRootfs -WslVersion 2 -TarPath $tarPath
-        $wslVersion = 2
-    } else {
-        Write-Info "[main] WSL2 unavailable, falling back to WSL1..."
-        Install-UbuntuRootfs -WslVersion 1 -TarPath $tarPath
+
+    # Try WSL1 first
+    Write-Info "Attempting WSL1 import..."
+    $wsl1Ok = $false
+    try {
+        New-Item -ItemType Directory -Force -Path $UBUNTU_WSL_DIR | Out-Null
+        wsl.exe --import Ubuntu $UBUNTU_WSL_DIR $tarPath --version 1 >$null 2>$null
+        $wsl1Ok = ($LASTEXITCODE -eq 0)
+    } catch {
+        $wsl1Ok = $false
+    }
+
+    if ($wsl1Ok) {
+        Write-Success "Ubuntu (WSL1) imported successfully."
         $wslVersion = 1
+    } else {
+        # Clean up failed WSL1 attempt
+        wsl.exe --unregister Ubuntu 2>$null | Out-Null
+        Remove-Item -Force -Recurse -ErrorAction SilentlyContinue $UBUNTU_WSL_DIR
+
+        Write-Info "WSL1 import failed, trying WSL2..."
+        if (Test-VirtualisationSupported -TarPath $tarPath) {
+            wsl.exe --set-default-version 2 >$null 2>$null
+            Install-UbuntuRootfs -WslVersion 2 -TarPath $tarPath
+            $wslVersion = 2
+        } else {
+            if ($wslFeaturesEnabled -ne "1") {
+                Write-Warn "Neither WSL1 nor WSL2 is available. Enabling WSL components..."
+                Enable-WslFeatures
+                # Always exits (prompts reboot)
+            }
+            Write-Fail "Failed to import Ubuntu into both WSL1 and WSL2."
+            Write-Fail "Please ensure Windows Subsystem for Linux is enabled and try again."
+            exit 1
+        }
     }
 }
 
-if ($wslVersion -eq 2) { Set-Wsl2MirroredNetworking }
-
 Write-Success "WSL is ready."
 Run-InstallInWsl
+
+# For WSL2, configure mirrored networking AFTER install.sh succeeds (NAT is more
+# reliable for outbound traffic during installation). The shutdown here is safe
+# because installation is already complete.
+if ($wslVersion -eq 2) { Set-Wsl2MirroredNetworking }
+
 Set-InstallReg -Name "WslVersion" -Value $wslVersion
 Show-PostInstall -WslVersion $wslVersion

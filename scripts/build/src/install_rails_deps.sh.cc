@@ -31,8 +31,8 @@ install_ruby() {
     if is_macos; then
         brew install openssl@3 libyaml gmp
     elif is_linux_apt; then
-        sudo apt-get install -y \
-            rustc libssl-dev libyaml-dev zlib1g-dev libgmp-dev
+        apt_get_run install -y \
+            rustc libssl-dev libyaml-dev zlib1g-dev libgmp-dev || return 1
     fi
 
     ensure_mise || return 1
@@ -75,8 +75,8 @@ install_postgres() {
 
     elif is_linux_apt; then
         setup_apt_mirror
-        sudo apt-get install -y postgresql libpq-dev \
-            libssl-dev libreadline-dev zlib1g-dev libyaml-dev libffi-dev
+        apt_get_run install -y postgresql libpq-dev \
+            libssl-dev libreadline-dev zlib1g-dev libyaml-dev libffi-dev || return 1
         sudo systemctl enable --now postgresql || true
     fi
 

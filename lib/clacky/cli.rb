@@ -103,7 +103,7 @@ module Clacky
       end
 
       # Validate and get working directory
-      working_dir = validate_working_directory(options[:path])
+      working_dir = validate_working_directory(options[:path], agent_config)
 
       # Update agent config with CLI options
       agent_config.permission_mode = options[:mode].to_sym if options[:mode]
@@ -165,6 +165,7 @@ module Clacky
         end
       ensure
         Dir.chdir(original_dir)
+        Clacky::BrowserManager.instance.stop rescue nil
       end
     end
 
@@ -174,7 +175,7 @@ module Clacky
       # is booted by this process), and only when the user hasn't already set
       # CLACKY_SERVER_HOST / CLACKY_SERVER_PORT explicitly.
       #
-      # Why: skills like `channel-setup` and `browser-setup` call back into
+      # Why: skills like `channel-manager` and `browser-setup` call back into
       # http://${CLACKY_SERVER_HOST}:${CLACKY_SERVER_PORT}/api/*. In server
       # mode those vars are injected by HTTPServer#start. In CLI mode they
       # would be blank, so the skill templates expand to an unreachable URL.
@@ -339,25 +340,16 @@ module Clacky
 
       # ── Brand license check (CLI mode) ──────────────────────────────────────
       #
-      # Called at the start of run_agent_with_ui2, before UI2 raw mode begins.
-      # Uses Thor's say + tty-prompt for interaction (both are existing dependencies).
-      #
-      # Flow:
-      #   not branded       -> skip (standard OpenClacky experience)
-      #   branded, no key   -> prompt for license key and activate
-      #   branded, expired  -> warn and continue
-      #   branded, active   -> send heartbeat if interval elapsed (once per day)
+      # CLI is a developer-oriented entrypoint: we never block startup with an
+      # interactive license prompt. Unactivated installs run in free mode; the
+      # WebUI is where end-users activate. This method only surfaces non-blocking
+      # warnings (expiry, offline grace period) and dispatches async heartbeats.
       private def check_brand_license_cli
         brand = Clacky::BrandConfig.load
         return unless brand.branded?
+        return unless brand.activated?
 
-        Clacky::Logger.info("[Brand] check_brand_license_cli: activated=#{brand.activated?} expired=#{brand.expired?} expires_at=#{brand.license_expires_at&.iso8601 || "nil"} last_heartbeat=#{brand.license_last_heartbeat&.iso8601 || "nil"}")
-
-        unless brand.activated?
-          Clacky::Logger.info("[Brand] check_brand_license_cli: not activated, prompting user")
-          cli_prompt_license_activation(brand)
-          return
-        end
+        Clacky::Logger.info("[Brand] check_brand_license_cli: activated=true expired=#{brand.expired?} expires_at=#{brand.license_expires_at&.iso8601 || "nil"} last_heartbeat=#{brand.license_last_heartbeat&.iso8601 || "nil"}")
 
         if brand.expired?
           Clacky::Logger.warn("[Brand] check_brand_license_cli: license expired at #{brand.license_expires_at&.iso8601}")
@@ -368,18 +360,6 @@ module Clacky
         end
 
         if brand.heartbeat_due?
-          # Fire-and-forget heartbeat in a background thread.
-          #
-          # Rationale: a slow/unreachable license server would otherwise block
-          # CLI startup for up to ~92s (2 hosts × 2 attempts × 23s timeout)
-          # before the user sees the prompt. Heartbeat is "best-effort" by
-          # design — its only job is to refresh `last_heartbeat` / `expires_at`
-          # on disk for the next run's grace-period calculation. Missing a
-          # single heartbeat is harmless; the next launch will try again.
-          #
-          # Consequence: if this run was going to trigger the
-          # grace_period_exceeded warning, the user will see it on the *next*
-          # launch instead of this one. Acceptable trade-off.
           Clacky::Logger.info("[Brand] check_brand_license_cli: heartbeat due, dispatching async...")
           Thread.new do
             begin
@@ -397,10 +377,6 @@ module Clacky
           Clacky::Logger.debug("[Brand] check_brand_license_cli: heartbeat not due yet")
         end
 
-        # Surface the grace-period warning based on *already-persisted* state
-        # (computed from last_heartbeat on disk). This works whether the
-        # previous run's heartbeat succeeded, failed, or was interrupted —
-        # grace_period_exceeded? reads last_heartbeat, not this run's result.
         if brand.grace_period_exceeded?
           say ""
           say "WARNING: Could not reach the #{brand.product_name} license server.", :yellow
@@ -409,45 +385,15 @@ module Clacky
         end
       end
 
-      # Interactive license key prompt using tty-prompt.
-      private def cli_prompt_license_activation(brand)
-        prompt = TTY::Prompt.new
-
-        say ""
-        say "Welcome to #{brand.product_name}!", :cyan
-        say "A license key is required to activate this installation."
-        say ""
-
-        loop do
-          key = prompt.ask("Enter your license key (XXXXXXXX-XXXXXXXX-XXXXXXXX-XXXXXXXX-XXXXXXXX):",
-                           required: false) { |q| q.modify :strip }
-
-          if key.nil? || key.empty?
-            say "No key entered. You can activate later by re-launching.", :yellow
-            say ""
-            return
-          end
-
-          unless key.match?(/\A[0-9A-Fa-f]{8}(-[0-9A-Fa-f]{8}){4}\z/)
-            say "Invalid key format. Expected: XXXXXXXX-XXXXXXXX-XXXXXXXX-XXXXXXXX-XXXXXXXX", :red
-            next
-          end
-
-          say "Activating..."
-          result = brand.activate!(key)
-
-          if result[:success]
-            say result[:message], :green
-            say ""
-            return
-          else
-            say result[:message], :red
-            say "(Press Enter to skip activation.)"
-          end
-        end
-      end
-
       CLI_DEFAULT_SESSION_NAME = "CLI Session"
+
+      # Format a number with thousand separators for display
+      # @param num [Integer, Float] The number to format
+      # @return [String] Formatted number string
+      private def format_number(num)
+        return "0" if num.nil? || num == 0
+        num.to_s.reverse.gsub(/(\d{3})(?=\d)/, '\\1,').reverse
+      end
 
       # Auto-name a CLI session from the first user message, mirroring server-side logic.
       # Renames when the agent has no history yet (i.e. first message of the session).
@@ -459,12 +405,31 @@ module Clacky
         agent.rename(auto_name)
       end
 
-      def validate_working_directory(path)
+      # Format error message and backtrace (first 3 lines) for session saving
+      private def format_error(e)
+        "#{e.message}\n#{e.backtrace&.first(3)&.join("\n")}"
+      end
+
+      # Validates non-interactive file paths and maps them to hashes with detected MIME types
+      private def prepare_non_interactive_files(file_paths)
+        file_paths.each do |path|
+          raise ArgumentError, "File not found: #{path}" unless File.exist?(path)
+        end
+        # Convert file paths to file hashes — agent.run decides how to handle each
+        file_paths.map do |path|
+          mime = Utils::FileProcessor.detect_mime_type(path) rescue "application/octet-stream"
+          { name: File.basename(path), mime_type: mime, path: path }
+        end
+      end
+
+      def validate_working_directory(path, config = nil)
         working_dir = path || Dir.pwd
 
-        # If no path specified and currently in home directory, use ~/clacky_workspace
+        # If no path specified and currently in home directory, use configured
+        # default_working_dir (or ~/clacky_workspace as fallback)
         if path.nil? && File.expand_path(working_dir) == File.expand_path(Dir.home)
-          working_dir = File.expand_path("~/clacky_workspace")
+          default = config&.default_working_dir || File.expand_path("~/clacky_workspace")
+          working_dir = File.expand_path(default)
 
           # Create directory if it doesn't exist
           unless Dir.exist?(working_dir)
@@ -594,7 +559,7 @@ module Clacky
           session_manager&.save(agent.to_session_data(status: :interrupted))
           ui_controller.show_warning("Task interrupted by user")
         else
-          error_message = "#{exception.message}\n#{exception.backtrace&.first(3)&.join("\n")}"
+          error_message = format_error(exception)
           session_manager&.save(agent.to_session_data(status: :error, error_message: error_message))
           ui_controller.show_error("Error: #{exception.message}")
         end
@@ -607,31 +572,61 @@ module Clacky
         # Force auto-approve — no one is around to confirm anything
         agent_config.permission_mode = :auto_approve
 
-        # Validate paths up-front so we fail fast with a clear message
-        file_paths.each do |path|
-          raise ArgumentError, "File not found: #{path}" unless File.exist?(path)
+        is_json = !!options[:json]
+
+        # Validate and prepare files up-front (DRY)
+        begin
+          files = prepare_non_interactive_files(file_paths)
+        rescue => e
+          session_manager&.save(agent.to_session_data(status: :error, error_message: format_error(e)))
+
+          if is_json
+            ui = Clacky::JsonUIController.new
+            ui.emit("error", message: e.message)
+            ui.set_idle_status
+          else
+            $stderr.puts "Error: #{e.message}"
+          end
+          exit(1)
         end
 
-        # Convert file paths to file hashes — agent.run decides how to handle each
-        files = file_paths.map do |path|
-          mime = Utils::FileProcessor.detect_mime_type(path) rescue "application/octet-stream"
-          { name: File.basename(path), mime_type: mime, path: path }
+
+        # Wire up the appropriate UI controller and execute
+        if is_json
+          ui = Clacky::JsonUIController.new
+          agent.instance_variable_set(:@ui, ui)
+          ui.emit("system", message: "Agent started", model: agent_config.model_name, working_dir: agent.working_dir)
+
+          status = run_json_task(agent, ui, session_manager) do
+            auto_name_session(agent, message)
+            agent.run(message, files: files)
+          end
+
+          if status == :success
+            ui.emit("done", total_cost: agent.total_cost, total_tasks: agent.total_tasks)
+            exit(0)
+          else
+            exit(1)
+          end
+        else
+          ui = Clacky::PlainUIController.new
+          agent.instance_variable_set(:@ui, ui)
+
+          begin
+            auto_name_session(agent, message)
+            agent.run(message, files: files)
+            session_manager&.save(agent.to_session_data(status: :success))
+            exit(0)
+          rescue Clacky::AgentInterrupted
+            session_manager&.save(agent.to_session_data(status: :interrupted))
+            $stderr.puts "\nInterrupted."
+            exit(1)
+          rescue => e
+            session_manager&.save(agent.to_session_data(status: :error, error_message: format_error(e)))
+            $stderr.puts "Error: #{e.message}"
+            exit(1)
+          end
         end
-
-        # Wire up plain-text stdout UI so all agent output is visible
-        plain_ui = Clacky::PlainUIController.new
-        agent.instance_variable_set(:@ui, plain_ui)
-
-        auto_name_session(agent, message)
-        agent.run(message, files: files)
-        session_manager&.save(agent.to_session_data(status: :success))
-        exit(0)
-      rescue Clacky::AgentInterrupted
-        $stderr.puts "\nInterrupted."
-        exit(1)
-      rescue => e
-        $stderr.puts "Error: #{e.message}"
-        exit(1)
       end
 
       # Run agent with JSON (NDJSON) output mode — persistent process.
@@ -674,6 +669,7 @@ module Clacky
               next
             end
 
+
             # Handle built-in commands
             case content.downcase
             when "/exit", "/quit"
@@ -712,12 +708,15 @@ module Clacky
         yield
         session_manager&.save(agent.to_session_data(status: :success))
         json_ui.update_sessionbar(tasks: agent.total_tasks, cost: agent.total_cost)
+        :success
       rescue Clacky::AgentInterrupted
         session_manager&.save(agent.to_session_data(status: :interrupted))
         json_ui.emit("interrupted")
+        :interrupted
       rescue => e
-        session_manager&.save(agent.to_session_data(status: :error, error_message: e.message))
+        session_manager&.save(agent.to_session_data(status: :error, error_message: format_error(e)))
         json_ui.emit("error", message: e.message)
+        :error
       ensure
         json_ui.set_idle_status
       end
@@ -766,6 +765,9 @@ module Clacky
 
         # Inject UI into agent
         agent.instance_variable_set(:@ui, ui_controller)
+
+        # Inject current session id into UI session bar (parity with WebUI #sib-id)
+        ui_controller.update_sessionbar(session_id: agent.session_id)
 
         # Set skill loader for command suggestions, filtered by agent profile whitelist
         ui_controller.set_skill_loader(agent.skill_loader, agent.agent_profile)
@@ -879,7 +881,7 @@ module Clacky
             end
             ui_controller.show_info("Session cleared. Starting fresh.")
             # Update session bar with reset values
-            ui_controller.update_sessionbar(tasks: agent.total_tasks, cost: agent.total_cost)
+            ui_controller.update_sessionbar(tasks: agent.total_tasks, cost: agent.total_cost, session_id: agent.session_id)
             # Clear todo area display
             ui_controller.update_todos([])
             next
@@ -961,6 +963,98 @@ module Clacky
 
     end
 
+    # ── billing command ────────────────────────────────────────────────────────
+    desc "billing", "Show billing summary and usage statistics"
+    long_desc <<-LONGDESC
+      Display billing summary with token usage and cost breakdown.
+
+      Period options:
+        day    - Today's usage
+        week   - Last 7 days
+        month  - Current month (default)
+        year   - Current year
+        all    - All time
+
+      Examples:
+        $ clacky billing
+        $ clacky billing --period week
+        $ clacky billing --period all --json
+    LONGDESC
+    option :period, type: :string, default: "month",
+           desc: "Time period: day, week, month, year, all (default: month)"
+    option :json, type: :boolean, default: false,
+           desc: "Output as JSON"
+    option :days, type: :numeric, default: 30,
+           desc: "Number of days for daily breakdown (default: 30)"
+    option :help, type: :boolean, aliases: "-h", desc: "Show this help message"
+    def billing
+      if options[:help]
+        invoke :help, ["billing"]
+        return
+      end
+
+      require_relative "billing/billing_store"
+
+      store = Clacky::Billing::BillingStore.new
+      period = options[:period].to_sym
+      summary = store.summary(period: period)
+
+      if options[:json]
+        require "json"
+        puts JSON.pretty_generate(summary)
+        return
+      end
+
+      # Display formatted billing summary
+      puts ""
+      puts "📊 Billing Summary (#{period})"
+      puts "─" * 50
+      puts ""
+
+      # Total cost
+      cost_str = summary[:total_cost] > 0 ? "$#{format('%.4f', summary[:total_cost])}" : "$0.0000"
+      puts "  💰 Total Cost:       #{cost_str}"
+      puts "  📝 Total Tokens:     #{format_number(summary[:total_tokens])}"
+      puts "  📥 Prompt Tokens:    #{format_number(summary[:prompt_tokens])}"
+      puts "  📤 Completion:       #{format_number(summary[:completion_tokens])}"
+      puts "  🗄️  Cache Read:       #{format_number(summary[:cache_read_tokens])}"
+      puts "  📝 Cache Write:      #{format_number(summary[:cache_write_tokens])}"
+      puts "  🔢 API Requests:     #{summary[:record_count]}"
+      puts ""
+
+      # By model breakdown
+      if summary[:by_model] && !summary[:by_model].empty?
+        puts "📈 By Model:"
+        puts "─" * 50
+        summary[:by_model].each do |model, data|
+          cost = data.is_a?(Hash) ? data[:cost] : data
+          requests = data.is_a?(Hash) ? data[:requests] : "?"
+          puts "  #{model}"
+          puts "    Cost: $#{format('%.4f', cost)}  |  Requests: #{requests}"
+        end
+        puts ""
+      end
+
+      # Daily breakdown (last N days)
+      daily = store.daily_breakdown(days: [options[:days], 14].min)
+      recent_days = daily.select { |d| d[:cost] > 0 }.last(7)
+
+      if recent_days.any?
+        puts "📅 Recent Daily Usage:"
+        puts "─" * 50
+        recent_days.each do |day|
+          bar_len = [(day[:cost] * 100).to_i, 30].min
+          bar = "█" * bar_len
+          puts "  #{day[:date]}  $#{format('%.4f', day[:cost])}  #{bar}"
+        end
+        puts ""
+      end
+
+      puts "─" * 50
+      puts "  Data stored in: ~/.clacky/billing/"
+      puts ""
+    end
+
     # ── server command ─────────────────────────────────────────────────────────
     desc "server", "Start the Clacky web UI server"
     long_desc <<-LONGDESC
@@ -973,8 +1067,8 @@ module Clacky
         $ clacky server
         $ clacky server --port 8080
     LONGDESC
-    option :host, type: :string, default: "127.0.0.1", desc: "Bind host (default: 127.0.0.1)"
-    option :port, type: :numeric, default: 7070, desc: "Listen port (default: 7070)"
+    option :host, type: :string, aliases: ["-b", "--bind"], default: "127.0.0.1", desc: "Bind host (default: 127.0.0.1)"
+    option :port, type: :numeric, aliases: "-p", default: 7070, desc: "Listen port (default: 7070)"
     option :brand_test, type: :boolean, default: false,
            desc: "Enable brand test mode: mock license activation without calling remote API"
     option :no_compression, type: :boolean, default: false,
@@ -985,11 +1079,17 @@ module Clacky
            desc: "Disable prompt caching"
     option :no_skill_evolution, type: :boolean, default: false,
            desc: "Disable automatic skill evolution"
+    option :help, type: :boolean, aliases: "-h", desc: "Show this help message"
     def server
+      if options[:help]
+        invoke :help, ["server"]
+        return
+      end
+
       # ── Security gate ──────────────────────────────────────────────────────
       # Binding to 0.0.0.0 exposes the server to the public network.
       # Refuse to start unless CLACKY_ACCESS_KEY env var is set.
-      if options[:host] == "0.0.0.0" && ENV.fetch("CLACKY_ACCESS_KEY", "").strip.empty?
+      if options[:host] == "0.0.0.0" && !ENV.key?("CLACKY_ACCESS_KEY")
         puts <<~MSG
           ╔══════════════════════════════════════════════════════════════╗
           ║  ⚠️  Security Warning: Refusing to start                      ║
@@ -1032,8 +1132,8 @@ module Clacky
         $stdout = Clacky::Server::EPIPESafeIO.new($stdout)
         $stderr = Clacky::Server::EPIPESafeIO.new($stderr)
 
-        fd         = ENV["CLACKY_INHERIT_FD"].to_i
-        master_pid = ENV["CLACKY_MASTER_PID"].to_i
+        fd              = ENV["CLACKY_INHERIT_FD"].to_i
+        master_pid      = ENV["CLACKY_MASTER_PID"].to_i
         # Must use TCPServer.for_fd (not Socket.for_fd) so that accept_nonblock
         # returns a single Socket, not [Socket, Addrinfo] — WEBrick expects the former.
         socket     = TCPServer.for_fd(fd)

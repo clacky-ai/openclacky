@@ -22,13 +22,18 @@ module Clacky
 
       attr_reader :platform, :chat_id
 
-      def initialize(event, adapter)
-        @platform   = event[:platform]
-        @chat_id    = event[:chat_id]
-        @message_id = event[:message_id]  # original message to reply under
-        @adapter    = adapter
-        @buffer     = []
-        @mutex      = Mutex.new
+      # @param event   [Hash]          inbound IM event
+      # @param adapter_resolver [Proc]  callable returning the current live adapter for this platform.
+      #   Using a resolver (instead of caching the adapter instance) ensures that after
+      #   reload_platform replaces an adapter, in-flight sessions automatically pick up the
+      #   new one — no swap/patch needed.
+      def initialize(event, adapter_resolver)
+        @platform         = event[:platform]
+        @chat_id          = event[:chat_id]
+        @message_id       = event[:message_id]  # original message to reply under
+        @adapter_resolver = adapter_resolver
+        @buffer           = []
+        @mutex            = Mutex.new
       end
 
       # Update the reply context for the current inbound message.
@@ -62,6 +67,7 @@ module Clacky
         # raw markdown links would just be noise in the chat.
         text = content.to_s.gsub(/!?\[[^\]]*\]\(file:\/\/[^)]+\)/, "").strip
         send_text(text) unless text.empty?
+        flush_adapter_pending
         files.each do |f|
           Clacky::Logger.info("[ChannelUI] sending file path=#{f[:path].inspect} name=#{f[:name].inspect}")
           send_file(f[:path], f[:name])
@@ -120,6 +126,7 @@ module Clacky
         end
         parts << "#{duration.round(1)}s" if duration
         send_text(parts.join(" · "))
+        flush_adapter_pending
       end
 
       def append_output(content)
@@ -183,15 +190,25 @@ module Clacky
         text = text.to_s.gsub(/<think>[\s\S]*?<\/think>\n*/i, "").strip
         return if text.empty?
 
-        @adapter.send_text(@chat_id, text, reply_to: @message_id)
+        adapter = @adapter_resolver.call
+        unless adapter
+          Clacky::Logger.warn("[ChannelUI] send_text: no live adapter for :#{@platform}")
+          return nil
+        end
+        adapter.send_text(@chat_id, text, reply_to: @message_id)
       rescue StandardError => e
         Clacky::Logger.warn("[ChannelUI] send_text failed", platform: @platform, chat_id: @chat_id, error: e)
         nil
       end
 
       def send_file(path, name = nil)
-        if @adapter.respond_to?(:send_file)
-          @adapter.send_file(@chat_id, path, name: name)
+        adapter = @adapter_resolver.call
+        unless adapter
+          Clacky::Logger.warn("[ChannelUI] send_file: no live adapter for :#{@platform}")
+          return nil
+        end
+        if adapter.respond_to?(:send_file)
+          adapter.send_file(@chat_id, path, name: name)
         else
           # Fallback for adapters that don't support file sending
           send_text("File: #{name || File.basename(path)}\n#{path}")
@@ -217,6 +234,11 @@ module Clacky
 
         send_text(@buffer.join("\n"))
         @buffer.clear
+      end
+
+      def flush_adapter_pending
+        adapter = @adapter_resolver.call
+        adapter.flush_pending(@chat_id) if adapter&.respond_to?(:flush_pending)
       end
     end
   end

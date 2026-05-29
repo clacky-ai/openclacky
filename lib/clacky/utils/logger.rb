@@ -35,6 +35,13 @@ module Clacky
         @console ||= false
       end
 
+      # Path of the log file currently being written to (today's file).
+      # File may not exist yet if no log has been emitted today — callers
+      # should check File.exist? before reading.
+      def current_log_file
+        log_file_path(Time.now)
+      end
+
       # Log at DEBUG level.
       def debug(message, **context)
         write_log(:debug, message, context)

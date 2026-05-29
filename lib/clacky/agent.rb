@@ -43,12 +43,29 @@ module Clacky
     attr_reader :session_id, :name, :history, :iterations, :total_cost, :working_dir, :created_at, :total_tasks, :todos,
                 :cache_stats, :cost_source, :ui, :skill_loader, :agent_profile,
                 :status, :error, :updated_at, :source,
-                :latest_latency  # Hash of latency metrics from the most recent LLM call (see Client#send_messages_with_tools)
+                :latest_latency,  # Hash of latency metrics from the most recent LLM call (see Client#send_messages_with_tools)
+                :reasoning_effort
     attr_accessor :pinned
+
+    REASONING_EFFORTS = %w[low medium high].freeze
 
     def permission_mode
       @config&.permission_mode&.to_s || ""
     end
+
+    def reasoning_effort=(value)
+      @reasoning_effort = normalize_reasoning_effort(value)
+    end
+
+    private def normalize_reasoning_effort(value)
+      return nil if value.nil?
+      str = value.to_s.strip.downcase
+      return nil if str.empty? || str == "off" || str == "none"
+      return str if REASONING_EFFORTS.include?(str)
+      nil
+    end
+
+    public
 
     def initialize(client, config, working_dir:, ui:, profile:, session_id:, source:)
       @client = client  # Client for current model
@@ -79,6 +96,7 @@ module Clacky
       @task_cost_source = :estimated  # Track cost source for current task
       @previous_total_tokens = 0  # Track tokens from previous iteration for delta calculation
       @latest_latency = nil  # Most recent LLM call's latency metrics (see Client#send_messages_with_tools)
+      @reasoning_effort = nil  # Per-session reasoning effort override; nil = provider default
       @ui = ui  # UIController for direct UI interaction
       @debug_logs = []  # Debug logs for troubleshooting
       @pending_injections = []     # Pending inline skill injections to flush after observe()
@@ -99,9 +117,19 @@ module Clacky
       # Skill loader for skill management (brand_config enables encrypted skill loading)
       @skill_loader = SkillLoader.new(working_dir: @working_dir, brand_config: @brand_config)
 
+      # MCP virtual skills: load mcp.json and expose one VirtualSkill per
+      # configured server in the AVAILABLE MCP SERVERS section. The agent does
+      # NOT spawn or talk to MCP server processes itself — all calls go through
+      # the local Clacky HTTP API (/api/mcp/:server/tools and /call). Subagents
+      # invoke those endpoints via curl, so MCP behaves like any other skill.
+      @skill_loader.attach_virtual_skill_provider(Mcp::SkillProvider.new(working_dir: @working_dir))
+
       # Background sync: compare remote skill versions and download updates quietly.
       # Runs in a daemon thread so Agent startup is never blocked.
       @brand_config.sync_brand_skills_async!
+      # Free-mode counterpart: branded but not activated → fetch unencrypted skills
+      # via the public endpoint so users get a working install with no serial number.
+      @brand_config.sync_free_skills_async!
 
       # Initialize Time Machine
       init_time_machine
@@ -179,7 +207,7 @@ module Clacky
       return nil unless model
 
       {
-        name: model["name"],
+        id: model["id"],
         model: model["model"],
         base_url: model["base_url"]
       }
@@ -188,6 +216,11 @@ module Clacky
     # Get current model name (respects any active fallback override)
     private def current_model
       @config.effective_model_name
+    end
+
+    private def current_provider
+      return nil unless @client.respond_to?(:provider_id)
+      @client.provider_id
     end
 
     # Rename this session. Called by auto-naming (first message) or user explicit rename.
@@ -220,6 +253,8 @@ module Clacky
       @task_cache_stats = {
         cache_creation_input_tokens: 0,
         cache_read_input_tokens: 0,
+        prompt_tokens: 0,
+        completion_tokens: 0,
         total_requests: 0,
         cache_hit_requests: 0
       }
@@ -353,6 +388,7 @@ module Clacky
 
       @hooks.trigger(:on_start, user_input)
 
+      result = nil
       begin
         # Track if request_user_feedback was called
         awaiting_user_feedback = false
@@ -427,7 +463,7 @@ module Clacky
               tool_calls_count: (response[:tool_calls] || []).size
             )
             if response[:content] && !response[:content].empty?
-              emit_assistant_message(response[:content])
+              emit_assistant_message(response[:content], reasoning_content: response[:reasoning_content])
             end
 
             # Show token usage after the assistant message so WebUI renders it below the bubble
@@ -448,7 +484,7 @@ module Clacky
 
           # Show assistant message if there's content before tool calls
           if response[:content] && !response[:content].empty?
-            emit_assistant_message(response[:content])
+            emit_assistant_message(response[:content], reasoning_content: response[:reasoning_content])
           end
 
           # Show token usage after assistant message (or immediately if no message).
@@ -555,7 +591,7 @@ module Clacky
         @pending_error_rollback = true if e.is_a?(Clacky::BadRequestError)
 
         # Build error result for session data, but let CLI handle error display
-        result = build_result(:error, error: e.message)  # rubocop:disable Lint/UselessAssignment
+        result = build_result(:error, error: e.message)
         raise
       ensure
         # Safety net: ensure any lingering progress spinner is stopped.
@@ -570,7 +606,7 @@ module Clacky
 
         # Fire-and-forget telemetry after every agent run.
         # Tracks daily active users (distinct devices per day) and task volume.
-        Clacky::Telemetry.task!
+        Clacky::Telemetry.task!(result: result)
       end
     end
 
@@ -759,6 +795,19 @@ module Clacky
       response
     end
 
+    # Abort the current iteration if this thread no longer owns the task.
+    # A new user message starts a fresh task on a new thread; the old thread
+    # may still be blocked inside a long-running tool (e.g. a subagent that
+    # didn't observe Thread#raise from interrupt_session). Calling this at
+    # safe checkpoints — before LLM calls and before appending tool results
+    # to history — guarantees a stale thread cannot corrupt history with
+    # tool messages that no longer have a matching assistant tool_calls.
+    private def check_stale!
+      return unless @task_thread
+      return if Thread.current == @task_thread
+      raise Clacky::AgentInterrupted, "Task superseded by a newer task on another thread"
+    end
+
     private def act(tool_calls)
       return { denied: false, feedback: nil, tool_results: [], awaiting_feedback: false } unless tool_calls
 
@@ -853,13 +902,19 @@ module Clacky
             args[:skill_loader] = @skill_loader
           end
 
-          # Special handling for Time Machine tools: inject agent
-          if ["undo_task", "redo_task", "list_tasks"].include?(call[:name])
-            args[:agent] = self
-          end
-
           # Inject working_dir so tools don't rely on Dir.chdir global state
           args[:working_dir] = @working_dir if @working_dir
+
+          # For terminal: stream live stdout chunks to the UI as they arrive,
+          # so the user sees real-time output (e.g. build logs) instead of a
+          # blank spinner. The UI buffers lines for Ctrl+O fullscreen view
+          # (CLI) and emits tool_stdout WS events (WebUI) that the browser
+          # appends to the running .tool-item.
+          if call[:name] == "terminal" && @ui.respond_to?(:show_tool_stdout)
+            args[:on_output] = ->(chunk) {
+              @ui.show_tool_stdout([chunk])
+            }
+          end
 
           # Show progress immediately for every tool execution so the user
           # always knows the agent is working. Using +with_progress+ wraps
@@ -958,6 +1013,11 @@ module Clacky
       # Use Client to format results based on API type (Anthropic vs OpenAI)
       return if tool_results.empty?
 
+      # Refuse to write tool results if this thread is stale (a newer task
+      # has taken over). Otherwise the tool message would be appended with
+      # the new task's @current_task_id, orphaned from its assistant.
+      check_stale!
+
       formatted_messages = @client.format_tool_results(response, tool_results, model: current_model)
       formatted_messages.each { |msg| @history.append(msg.merge(task_id: @current_task_id)) }
 
@@ -979,9 +1039,12 @@ module Clacky
         next unless mime_type && base64_data
 
         data_url = "data:#{mime_type};base64,#{base64_data}"
+        label = path ? File.basename(path.to_s) : "image"
+        image_block = { type: "image_url", image_url: { url: data_url } }
+        image_block[:image_path] = path if path
         image_content = [
-          { type: "text",      text: "[Image from file_reader: #{File.basename(path.to_s)}]" },
-          { type: "image_url", image_url: { url: data_url } }
+          { type: "text", text: "[Image: #{label}]" },
+          image_block
         ]
         @history.append({
           role:             "user",
@@ -1068,6 +1131,8 @@ module Clacky
       {
         status: status,
         session_id: @session_id,
+        model: current_model,
+        provider: current_provider,
         iterations: task_iterations,
         duration_seconds: Time.now - @start_time,
         total_cost_usd: task_cost.round(4),
@@ -1113,9 +1178,6 @@ module Clacky
       @tool_registry.register(Tools::TodoManager.new)
       @tool_registry.register(Tools::RequestUserFeedback.new)
       @tool_registry.register(Tools::InvokeSkill.new)
-      @tool_registry.register(Tools::UndoTask.new)
-      @tool_registry.register(Tools::RedoTask.new)
-      @tool_registry.register(Tools::ListTasks.new)
       @tool_registry.register(Tools::Browser.new)
     end
 
@@ -1514,7 +1576,7 @@ module Clacky
         inline = $1 == "!"
         # URL-decode percent-encoded characters (e.g. Chinese filenames encoded by AI)
         raw_path = CGI.unescape($3)
-        name   = $2.empty? ? File.basename(raw_path) : $2
+        name   = File.basename(raw_path)
         path   = File.expand_path(raw_path)
         Clacky::Logger.info("[parse_file_links] raw=#{$3.inspect} expanded=#{path.inspect} exist=#{File.exist?(path)}")
         files << { name: name, path: path, inline: inline }
@@ -1523,15 +1585,26 @@ module Clacky
     end
 
     # Emit assistant message to UI, parsing any embedded file:// links first.
-    private def emit_assistant_message(content)
-      return if content.nil? || content.empty?
+    #
+    # Local image URL rewriting (file:// → /api/local-image) is intentionally
+    # NOT done here. It is browser-specific (the Web UI runs on http://localhost
+    # and cannot load file:// directly) and must stay scoped to the Web UI
+    # controller. IM channel subscribers need the original file:// markdown so
+    # parse_file_links can extract paths and deliver images as native attachments.
+    private def emit_assistant_message(content, reasoning_content: nil)
+      # Prepend reasoning/thinking content (from thinking-mode providers like
+      # DeepSeek V4, Kimi K2) wrapped in <think> tags so the Web UI renders it
+      # as a collapsible thinking block (see sessions.js _renderMarkdown).
+      if reasoning_content && !reasoning_content.to_s.strip.empty?
+        full_content = "<think>\n#{reasoning_content}\n</think>\n#{content}"
+      else
+        full_content = content
+      end
 
-      # Rewrite local image paths (file:// and bare absolute) to /api/local-image proxy URLs
-      # so the browser can render them without file:// security blocks.
-      content = Clacky::Utils::FileProcessor.rewrite_local_image_urls(content)
+      return if full_content.nil? || full_content.to_s.strip.empty?
 
       parsed = parse_file_links(content)
-      @ui&.show_assistant_message(parsed[:text], files: parsed[:files])
+      @ui&.show_assistant_message(full_content, files: parsed[:files])
     end
 
     # Track modified files for Time Machine snapshots

@@ -43,10 +43,12 @@ module Clacky
       .mp3 .mp4 .avi .mov .mkv .wav .flac
       .ttf .otf .woff .woff2
       .db .sqlite .bin .dat
+      .wps .et .dps
     ].freeze
 
     GLOB_ALLOWED_BINARY_EXTENSIONS = %w[
       .pdf .doc .docx .ppt .pptx .xls .xlsx .odt .odp .ods
+      .wps .et .dps
     ].freeze
 
     LLM_BINARY_EXTENSIONS = %w[.png .jpg .jpeg .gif .webp .pdf].freeze
@@ -64,6 +66,7 @@ module Clacky
       ".docx" => :document,  ".doc"  => :document,
       ".xlsx" => :spreadsheet, ".xls" => :spreadsheet,
       ".pptx" => :presentation, ".ppt" => :presentation,
+      ".wps"  => :document, ".et"  => :spreadsheet, ".dps" => :presentation,
       ".pdf"  => :pdf,
       ".zip"  => :zip, ".gz" => :zip, ".tgz" => :zip, ".tar" => :zip, ".rar" => :zip, ".7z" => :zip,
       ".png"  => :image, ".jpg" => :image, ".jpeg" => :image,

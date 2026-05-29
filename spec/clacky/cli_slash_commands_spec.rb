@@ -45,7 +45,8 @@ RSpec.describe Clacky::CLI, "UI2 slash commands" do
       skill_loader: skill_loader,
       agent_profile: agent_profile,
       total_tasks: 0,
-      total_cost: 0.0)
+      total_cost: 0.0,
+      session_id: "current-session-id")
   end
 
   # Trigger the registered on_input block with a given command string.
@@ -82,7 +83,7 @@ RSpec.describe Clacky::CLI, "UI2 slash commands" do
   # ── /clear ─────────────────────────────────────────────────────────────────
   describe "/clear" do
     let(:new_agent) do
-      instance_double(Clacky::Agent, total_tasks: 0, total_cost: 0.0)
+      instance_double(Clacky::Agent, total_tasks: 0, total_cost: 0.0, session_id: "fresh-session-id")
     end
 
     before do
@@ -117,7 +118,7 @@ RSpec.describe Clacky::CLI, "UI2 slash commands" do
     end
 
     it "resets the session bar to zero" do
-      expect(ui_controller).to receive(:update_sessionbar).with(tasks: 0, cost: 0.0)
+      expect(ui_controller).to receive(:update_sessionbar).with(tasks: 0, cost: 0.0, session_id: "fresh-session-id")
       send_input("/clear")
     end
 

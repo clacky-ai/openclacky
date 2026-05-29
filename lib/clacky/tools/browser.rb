@@ -30,10 +30,13 @@ module Clacky
     class Browser < Base
       self.tool_name = "browser"
       self.tool_description = <<~DESC.strip
-        Control user's real Chrome (146+) for web automation. Prefer web_fetch/web_search for read-only pages.
-        Actions: snapshot | act | open | navigate | tabs | focus | close | screenshot | status.
-        Always snapshot(interactive:true) before act. screenshot is EXPENSIVE — use ref= for a single element.
-        act kinds: click, dblclick, type, fill, press, hover, scroll, drag, select, wait, evaluate, click_at (coord fallback).
+        Drive the user's real Chrome for web automation. Prefer web_fetch for read-only pages.
+        Actions: open | navigate | snapshot | act | screenshot | tabs | focus | close | status
+        Workflow: open → snapshot(interactive:true) → act(ref=...). New tab from `open` is auto-selected; only use `focus` to switch back to a previously-opened tab.
+        snapshot: returns hierarchical a11y tree truncated to ~8KB. Use query="text" to seek, or offset=N to page.
+        act kinds: click | dblclick | type | fill | press | hover | scroll | drag | select | wait | evaluate | click_at
+        evaluate: `js` is a JS expression, e.g. "document.title". For multi-line / async logic use an IIFE: "(async () => { const r = await fetch(...); return r.status })()". Result is JSON-encoded.
+        screenshot: expensive — pass `ref` to capture one element instead of the whole page.
       DESC
       self.tool_category = "web"
       self.tool_parameters = {
@@ -48,23 +51,25 @@ module Clacky
             enum: %w[click dblclick type fill press hover drag select scroll wait evaluate click_at],
             description: "act: interaction kind"
           },
-          ref:         { type: "string",  description: "element ref from snapshot (e.g. 'e1'); screenshot: single element" },
+          ref:         { type: "string",  description: "element ref from snapshot (e.g. 'e1')" },
           text:        { type: "string",  description: "act type/fill text" },
           key:         { type: "string",  description: "act press key (e.g. 'Enter')" },
           direction:   { type: "string",  enum: %w[up down left right], description: "act scroll" },
-          amount:      { type: "integer", description: "act scroll pixels" },
+          amount:      { type: "integer", description: "act scroll pixels (default 300)" },
           ms:          { type: "integer", description: "act wait ms" },
-          selector:    { type: "string",  description: "act wait CSS selector" },
-          js:          { type: "string",  description: "act evaluate JS" },
+          selector:    { type: "string",  description: "act wait: text or CSS selector" },
+          js:          { type: "string",  description: "act evaluate: JS expression (use IIFE for multi-line/async)" },
           target_ref:  { type: "string",  description: "act drag destination ref" },
           values:      { type: "array",   items: { type: "string" }, description: "act select options" },
           x:           { type: "number",  description: "click_at x px" },
           y:           { type: "number",  description: "click_at y px" },
           url:         { type: "string",  description: "open/navigate URL" },
           target_id:   { type: "string",  description: "focus/close tab id" },
-          interactive: { type: "boolean", description: "snapshot: interactive only" },
-          compact:     { type: "boolean", description: "snapshot: compact" },
-          depth:       { type: "integer", description: "snapshot: max depth" },
+          interactive: { type: "boolean", description: "snapshot: only interactive elements" },
+          compact:     { type: "boolean", description: "snapshot: drop empty containers" },
+          depth:       { type: "integer", description: "snapshot: max tree depth" },
+          query:       { type: "string",  description: "snapshot: return window around first match" },
+          offset:      { type: "integer", description: "snapshot: skip N lines (paging)" },
           full_page:   { type: "boolean", description: "screenshot: full page" }
         },
         required: ["action"]
@@ -74,8 +79,17 @@ module Clacky
       MCP_HANDSHAKE_TIMEOUT = 10
       MCP_CALL_TIMEOUT      = 60
       MIN_NODE_MAJOR        = 20
-      MAX_SNAPSHOT_CHARS    = 4000
+      MAX_SNAPSHOT_CHARS    = 8000
       MAX_LLM_OUTPUT_CHARS  = 6000
+      SNAPSHOT_QUERY_WINDOW = 60   # lines around a query hit
+      # Errors that mean "the selected/active page is gone" — auto-retry once.
+      RETRYABLE_PAGE_ERRORS = [
+        "selected page has been closed",
+        "No page found",
+        "no active page",
+        "Target closed",
+        "page is detached"
+      ].freeze
 
       def execute(action:, profile: nil, working_dir: nil, **opts)
         bypass = action.to_s == "status" ||
@@ -108,7 +122,6 @@ module Clacky
         if action == "screenshot" && result[:image_data]
           mime_type       = result[:mime_type] || "image/png"
           image_data      = result[:image_data]
-          data_url        = "data:#{mime_type};base64,#{image_data}"
           original_path   = result[:original_path]
           compressed_path = result[:compressed_path]
 
@@ -118,10 +131,14 @@ module Clacky
                     "\n- Compressed (800px, sent to AI): #{compressed_path || 'unavailable'}"
           end
 
-          return [
-            { type: "text",      text:      text },
-            { type: "image_url", image_url: { url: data_url } }
-          ]
+          return {
+            content_string: text,
+            image_inject: {
+              mime_type: mime_type,
+              base64_data: image_data,
+              path: compressed_path || original_path
+            }
+          }
         end
 
         output = result[:output].to_s
@@ -225,34 +242,44 @@ module Clacky
           { action: "tabs", success: true, profile: "user", output: format_tabs(pages), tabs: pages }
 
         when "snapshot"
-          raw  = mcp_call("take_snapshot")
+          raw  = mcp_call("take_snapshot", with_page({}))
           text = build_ai_snapshot(extract_snapshot(raw),
                                    interactive: opts[:interactive] || opts["interactive"],
                                    compact:     opts[:compact]     || opts["compact"],
                                    max_depth:   opts[:depth]       || opts["depth"])
+          text = apply_snapshot_window(text,
+                                       query:  opts[:query]  || opts["query"],
+                                       offset: opts[:offset] || opts["offset"])
           { action: "snapshot", success: true, profile: "user", output: text }
 
         when "open"
           url = require_url(opts)
           return url if url.is_a?(Hash)
+          invalidate_page_cache!
           mcp_call("new_page", { url: url })
+          wait_for_page_ready
           { action: "open", success: true, profile: "user", url: url, output: "Opened: #{url}" }
 
         when "navigate"
           url = require_url(opts)
           return url if url.is_a?(Hash)
-          mcp_call("navigate_page", { type: "url", url: url })
+          invalidate_page_cache!
+          mcp_call("navigate_page", with_page({ type: "url", url: url }))
+          wait_for_page_ready
           { action: "navigate", success: true, profile: "user", url: url, output: "Navigated to: #{url}" }
 
         when "focus"
           target_id = opts[:target_id] || opts["target_id"]
           return { error: "target_id is required for focus. Use action=tabs to list open tabs." } if target_id.nil? || target_id.to_s.empty?
+          invalidate_page_cache!
           mcp_call("select_page", { pageId: target_id.to_i, bringToFront: true })
+          @page_id_cache = target_id.to_i
           { action: "focus", success: true, profile: "user", output: "Focused tab #{target_id}" }
 
         when "close"
           target_id = opts[:target_id] || opts["target_id"]
           return { error: "target_id is required for close. Use action=tabs to list open tabs." } if target_id.nil? || target_id.to_s.empty?
+          invalidate_page_cache!
           mcp_call("close_page", { pageId: target_id.to_i })
           { action: "close", success: true, profile: "user", output: "Closed tab #{target_id}" }
 
@@ -276,44 +303,47 @@ module Clacky
         kind = (opts[:kind] || opts["kind"] || "click").to_s
         ref  = opts[:ref]   || opts["ref"]
 
+        # Page-scoped MCP calls all benefit from an explicit pageId. We pass it
+        # transparently via with_page so the AI never has to think about it.
         case kind
         when "click", "dblclick"
           uid = require_ref(ref)
           return uid if uid.is_a?(Hash)
           args = { uid: uid }
           args[:dblClick] = true if kind == "dblclick"
-          mcp_call("click", args)
+          mcp_call("click", with_page(args))
 
         when "fill", "type"
           uid = require_ref(ref)
           return uid if uid.is_a?(Hash)
-          mcp_call("fill", { uid: uid, value: opts[:text] || opts["text"] || "" })
+          mcp_call("fill", with_page({ uid: uid, value: opts[:text] || opts["text"] || "" }))
 
         when "press"
-          mcp_call("press_key", { key: opts[:key] || opts["key"] || "Enter" })
+          mcp_call("press_key", with_page({ key: opts[:key] || opts["key"] || "Enter" }))
 
         when "hover"
           uid = require_ref(ref)
           return uid if uid.is_a?(Hash)
-          mcp_call("hover", { uid: uid })
+          mcp_call("hover", with_page({ uid: uid }))
 
         when "drag"
           uid = require_ref(ref)
           return uid if uid.is_a?(Hash)
-          mcp_call("drag", { from_uid: uid, to_uid: opts[:target_ref] || opts["target_ref"] || "" })
+          mcp_call("drag", with_page({ from_uid: uid, to_uid: opts[:target_ref] || opts["target_ref"] || "" }))
 
         when "select"
           uid = require_ref(ref)
           return uid if uid.is_a?(Hash)
           values = Array(opts[:values] || opts["values"] || [])
-          mcp_call("fill", { uid: uid, value: values.first.to_s })
+          mcp_call("fill", with_page({ uid: uid, value: values.first.to_s }))
 
         when "scroll"
           direction = opts[:direction] || opts["direction"] || "down"
           amount    = (opts[:amount]   || opts["amount"]   || 300).to_i
           dx = case direction; when "right" then amount; when "left" then -amount; else 0; end
           dy = case direction; when "down"  then amount; when "up"   then -amount; else 0; end
-          mcp_call("evaluate_script", { function: "() => { window.scrollBy(#{dx}, #{dy}) }" })
+          mcp_call("evaluate_script",
+                   with_page({ function: "() => { window.scrollBy(#{dx}, #{dy}) }" }))
 
         when "wait"
           ms  = opts[:ms]       || opts["ms"]
@@ -322,26 +352,22 @@ module Clacky
             sleep(ms.to_i / 1000.0)
             return { action: "act", success: true, profile: "user", output: "Waited #{ms}ms" }
           elsif sel
-            mcp_call("wait_for", { text: [sel] })
+            mcp_call("wait_for", with_page({ text: [sel] }))
           else
             sleep(1)
           end
 
         when "evaluate"
-          js      = opts[:js] || opts["js"] || ""
-          pages   = extract_pages(mcp_call("list_pages"))
-          sel     = pages.find { |p| p[:selected] }
-          page_id = sel ? sel[:id] : (pages.first && pages.first[:id])
-          eval_args = { function: "() => { return (#{js}) }" }
-          eval_args[:pageId] = page_id if page_id
-          result = mcp_call("evaluate_script", eval_args)
+          js = (opts[:js] || opts["js"] || "").to_s
+          fn = build_evaluate_function(js)
+          result = mcp_call("evaluate_script", with_page({ function: fn }))
           return { action: "act", success: true, profile: "user", output: extract_message(result).to_s }
 
         when "click_at"
           x = opts[:x] || opts["x"]
           y = opts[:y] || opts["y"]
           return { error: "click_at requires x and y coordinates" } unless x && y
-          result = mcp_call("click_at", { x: x.to_f, y: y.to_f })
+          result = mcp_call("click_at", with_page({ x: x.to_f, y: y.to_f }))
           return { action: "act", success: true, profile: "user", output: extract_message(result).to_s }
 
         else
@@ -349,6 +375,20 @@ module Clacky
         end
 
         { action: "act", success: true, profile: "user", output: "#{kind} completed." }
+      end
+
+      # Merge pageId into MCP args when we know the current page. Safe no-op
+      # if the cache is empty — the MCP server then falls back to its own
+      # selected-page state, matching the old behaviour.
+      private def with_page(args)
+        pid = current_page_id
+        pid ? args.merge(pageId: pid) : args
+      end
+
+      private def build_evaluate_function(js)
+        body = js.to_s.strip
+        return "() => {}" if body.empty?
+        "() => (#{body})"
       end
 
       SCREENSHOT_MAX_WIDTH        = 800
@@ -360,7 +400,7 @@ module Clacky
 
         call_args = { format: "png", fullPage: full_page }
         call_args[:uid] = uid if uid
-        result = mcp_call("take_screenshot", call_args)
+        result = mcp_call("take_screenshot", with_page(call_args))
 
         image_block = Array(result["content"]).find { |b| b.is_a?(Hash) && b["type"] == "image" }
 
@@ -419,15 +459,72 @@ module Clacky
       # Chrome MCP
       # -----------------------------------------------------------------------
 
-      # Delegate to BrowserManager. Auto-retries once on "selected page has been closed".
+      # Delegate to BrowserManager. Auto-retries once on transient page-context errors
+      # (closed/detached selected page, or "no active page" right after open).
       private def mcp_call(tool_name, arguments = {})
         Clacky::BrowserManager.instance.mcp_call(tool_name, arguments)
       rescue RuntimeError => e
-        if e.message.include?("selected page has been closed")
-          raise RuntimeError, "The browser tab was closed. Use action=open to open a new tab, then retry."
-        else
-          raise
+        msg = e.message.to_s
+        if RETRYABLE_PAGE_ERRORS.any? { |frag| msg.include?(frag) }
+          # Try to recover by re-selecting the most recent page, then retry once.
+          recovered = recover_selected_page
+          if recovered
+            @page_id_cache = nil
+            return Clacky::BrowserManager.instance.mcp_call(tool_name, arguments)
+          end
+          raise RuntimeError, "The browser tab is no longer available. Use action=open to open a new tab, then retry."
         end
+        raise
+      end
+
+      # Pick the currently selected page, or fall back to the most recent one,
+      # and re-issue select_page so subsequent calls have a valid context.
+      # Returns the chosen pageId, or nil if there are no pages at all.
+      private def recover_selected_page
+        list = Clacky::BrowserManager.instance.mcp_call("list_pages")
+        pages = extract_pages(list)
+        return nil if pages.empty?
+        target = pages.find { |p| p[:selected] } || pages.last
+        Clacky::BrowserManager.instance.mcp_call("select_page",
+          { pageId: target[:id].to_i, bringToFront: false })
+        target[:id].to_i
+      rescue StandardError
+        nil
+      end
+
+      # Cached lookup of the currently selected pageId. The MCP server tracks
+      # selected state internally, but several tools/call paths drop it under
+      # race conditions (tab just opened, focus mid-flight). Passing pageId
+      # explicitly to every page-scoped call eliminates "No page found" flakes.
+      # Cache is invalidated by retry path and by open/navigate/focus.
+      private def current_page_id
+        return @page_id_cache if @page_id_cache
+        list = Clacky::BrowserManager.instance.mcp_call("list_pages")
+        pages = extract_pages(list)
+        sel = pages.find { |p| p[:selected] } || pages.last
+        @page_id_cache = sel && sel[:id] && sel[:id].to_i
+      rescue StandardError
+        nil
+      end
+
+      private def invalidate_page_cache!
+        @page_id_cache = nil
+      end
+
+      # After open/navigate, briefly poll until a selected page exists.
+      # Avoids the classic race where the next act/snapshot fires before
+      # chrome-devtools-mcp has registered the new tab.
+      private def wait_for_page_ready(timeout: 1.5)
+        deadline = Time.now + timeout
+        while Time.now < deadline
+          pid = current_page_id
+          return pid if pid
+          sleep 0.1
+          invalidate_page_cache!
+        end
+        nil
+      rescue StandardError
+        nil
       end
 
       # -----------------------------------------------------------------------
@@ -575,27 +672,101 @@ module Clacky
       # Output helpers
       # -----------------------------------------------------------------------
 
+      # Apply optional `query` / `offset` to a freshly-built snapshot. When
+      # `query` matches, return a window of SNAPSHOT_QUERY_WINDOW lines around
+      # the first hit. When `offset` is given, drop the first N lines. Returns
+      # the original text untouched when neither is provided. Both options let
+      # the AI request just the slice it needs instead of the whole tree.
+      private def apply_snapshot_window(text, query: nil, offset: nil)
+        return text if (query.nil? || query.to_s.empty?) && (offset.nil? || offset.to_i <= 0)
+
+        lines = text.lines
+        total = lines.size
+
+        if query && !query.to_s.empty?
+          q = query.to_s
+          idx = lines.index { |l| l.include?(q) }
+          if idx.nil?
+            return "[snapshot: no match for query=#{q.inspect} in #{total} lines]\n"
+          end
+          half  = SNAPSHOT_QUERY_WINDOW / 2
+          start = [idx - half, 0].max
+          stop  = [idx + half, total - 1].min
+          window = lines[start..stop].join
+          header = "[snapshot window: lines #{start + 1}-#{stop + 1} of #{total}, match at line #{idx + 1}]\n"
+          return header + window
+        end
+
+        skip = offset.to_i
+        return "[snapshot: offset #{skip} >= #{total} total lines]\n" if skip >= total
+        header = "[snapshot offset: showing from line #{skip + 1} of #{total}]\n"
+        header + lines[skip..-1].join
+      end
+
       private def compress_snapshot(output)
         return output if output.empty?
 
         lines    = output.lines
         orig     = lines.size
+
+        # Pass 1: drop pure noise lines.
         filtered = lines.reject do |line|
           s = line.strip
           s.start_with?("- /url:", "/url:", "- /placeholder:", "/placeholder:") ||
-            s == "- img" || s.match?(/\A-\s+img\s*\z/)
+            s == "- img" || s.match?(/\A-\s+img\s*\z/) ||
+            # statictext nodes that are just line numbers / single digits / bullets
+            s.match?(/\A-\s+statictext\s+"\d{1,3}"\s*\z/) ||
+            s.match?(/\A-\s+statictext\s+""\s*\z/) ||
+            # an empty statictext placeholder ([ref=…] but no content) is also noise
+            s.match?(/\A-\s+statictext\s*\z/)
         end
 
-        removed = orig - filtered.size
-        filtered << "\n[snapshot compressed: #{removed} lines removed]\n" if removed > 0
-        filtered.join
+        # Pass 2: collapse runs of consecutive statictext lines at the same
+        # indent into a single line, joining their quoted text with " / ".
+        # Long form pages (article / docs) easily explode 500+ statictext nodes;
+        # this is the single biggest token saver.
+        collapsed = []
+        run = nil  # { indent:, texts:, ref: }
+        flush = lambda do
+          if run
+            head = "#{' ' * run[:indent]}- statictext \"#{run[:texts].join(' / ')}\""
+            head += " [ref=#{run[:ref]}]" if run[:ref]
+            collapsed << head + "\n"
+            run = nil
+          end
+        end
+
+        filtered.each do |line|
+          m = line.match(/\A(\s*)-\s+statictext\s+"(.*?)"(?:\s+\[ref=([^\]]+)\])?\s*\z/)
+          if m
+            indent = m[1].length
+            text   = m[2]
+            ref    = m[3]
+            if run && run[:indent] == indent && run[:ref].nil? && ref.nil?
+              # merge text-only statictext runs (no refs) — keep refs separate so
+              # the AI can still target individual elements.
+              run[:texts] << text unless run[:texts].last == text  # cheap dedupe
+            else
+              flush.call
+              run = { indent: indent, texts: [text], ref: ref }
+            end
+          else
+            flush.call
+            collapsed << line
+          end
+        end
+        flush.call
+
+        removed = orig - collapsed.size
+        collapsed << "\n[snapshot compressed: #{removed} lines removed]\n" if removed > 0
+        collapsed.join
       end
 
       private def truncate_output(output, max_chars)
         return output if output.length <= max_chars
 
         lines      = output.lines
-        available  = max_chars - 150
+        available  = max_chars - 200
         first_part = []
         acc        = 0
         lines.each do |line|
@@ -603,7 +774,9 @@ module Clacky
           first_part << line
           acc += line.length
         end
-        first_part.join + "\n... [truncated: #{first_part.size}/#{lines.size} lines shown] ..."
+        hint = "\n... [truncated: #{first_part.size}/#{lines.size} lines shown — " \
+               "rerun with query=\"keyword\" or offset=#{first_part.size} to see more] ...\n"
+        first_part.join + hint
       end
     end
   end

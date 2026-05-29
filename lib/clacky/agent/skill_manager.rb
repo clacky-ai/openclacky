@@ -91,6 +91,25 @@ module Clacky
       # Keeps context tokens bounded regardless of how many skills are installed.
       MAX_CONTEXT_SKILLS = 30
 
+      # Maximum number of MCP servers rendered in the dedicated MCP section.
+      # MCP servers occupy their own group so they cannot crowd skills out, and
+      # so excessive mcp.json entries don't quietly bloat the system prompt.
+      MAX_CONTEXT_MCP_SERVERS = 10
+
+      # Process-wide deduper for the "skill context limit" warning so that
+      # every newly constructed Agent (sub-agents, retries, web turns…) doesn't
+      # re-emit the same line.
+      @skill_limit_warned_signatures = {}
+      @skill_limit_warn_mutex = Mutex.new
+
+      def self.warn_skill_limit_once(signature, &block)
+        @skill_limit_warn_mutex.synchronize do
+          return if @skill_limit_warned_signatures[signature]
+          @skill_limit_warned_signatures[signature] = true
+        end
+        block.call
+      end
+
       # Generate skill context - loads all auto-invocable skills allowed by the agent profile
       # @return [String] Skill context to add to system prompt
       def build_skill_context
@@ -102,59 +121,100 @@ module Clacky
         all_skills = all_skills.reject(&:invalid?)
         auto_invocable = all_skills.select(&:model_invocation_allowed?)
 
+        # Split MCP virtual skills out into their own section so the LLM treats
+        # them as a distinct concept (server delegation) rather than a normal
+        # auto-discoverable capability.
+        mcp_skills, normal_skills = auto_invocable.partition do |s|
+          s.identifier.to_s.start_with?("mcp:")
+        end
+
         # Enforce system prompt injection limit to control token usage.
-        # Warn only when the set of dropped skills *changes* — this message
-        # is otherwise emitted once per agent turn (build_skill_context is
-        # called during every system prompt assembly) and floods the log.
-        if auto_invocable.size > MAX_CONTEXT_SKILLS
-          kept    = auto_invocable.first(MAX_CONTEXT_SKILLS)
-          dropped = auto_invocable.drop(MAX_CONTEXT_SKILLS)
+        # Warn at most once per process per dropped-set signature — build_skill_context
+        # runs on every system-prompt assembly and is invoked from many short-lived
+        # Agent instances (sub-agents, web turns…), so per-instance dedup wasn't enough.
+        if normal_skills.size > MAX_CONTEXT_SKILLS
+          kept    = normal_skills.first(MAX_CONTEXT_SKILLS)
+          dropped = normal_skills.drop(MAX_CONTEXT_SKILLS)
           dropped_names = dropped.map(&:identifier)
           signature = dropped_names.sort.join(",")
 
-          if @skill_limit_warned_signature != signature
-            @skill_limit_warned_signature = signature
+          SkillManager.warn_skill_limit_once(signature) do
             Clacky::Logger.warn(
-              "Skill context limit: #{auto_invocable.size} auto-invocable skills found, " \
+              "Skill context limit: #{normal_skills.size} auto-invocable skills found, " \
               "only injecting first #{MAX_CONTEXT_SKILLS} " \
               "(#{dropped.size} dropped — will NOT be auto-discovered by the agent: " \
               "#{dropped_names.join(", ")}). " \
               "Remove unused skills to restore full visibility."
             )
           end
-          auto_invocable = kept
+          normal_skills = kept
         end
 
-        return "" if auto_invocable.empty?
-
-        plain_skills = auto_invocable.reject(&:encrypted?)
-        brand_skills = auto_invocable.select(&:encrypted?)
-
-        context = "\n\n" + "=" * 80 + "\n"
-        context += "AVAILABLE SKILLS:\n"
-        context += "=" * 80 + "\n\n"
-        context += "CRITICAL SKILL USAGE RULES:\n"
-        context += "- When user's request matches a skill description, you MUST use invoke_skill tool — invoke only the single BEST matching skill, do NOT call multiple skills for the same request\n"
-        context += "- Example: invoke_skill(skill_name: 'xxx', task: 'xxx')\n"
-        context += "\n"
-        context += "Available skills:\n\n"
-
-        plain_skills.each do |skill|
-          context += "- name: #{skill.identifier}\n"
-          context += "  description: #{skill.context_description}\n\n"
+        if mcp_skills.size > MAX_CONTEXT_MCP_SERVERS
+          dropped = mcp_skills.drop(MAX_CONTEXT_MCP_SERVERS).map(&:identifier)
+          signature = "mcp:" + dropped.sort.join(",")
+          SkillManager.warn_skill_limit_once(signature) do
+            Clacky::Logger.warn(
+              "MCP server context limit: #{mcp_skills.size} servers configured, " \
+              "only injecting first #{MAX_CONTEXT_MCP_SERVERS} " \
+              "(#{dropped.size} dropped: #{dropped.join(", ")}). " \
+              "Remove unused entries from mcp.json to restore full visibility."
+            )
+          end
+          mcp_skills = mcp_skills.first(MAX_CONTEXT_MCP_SERVERS)
         end
 
-        # List brand skills separately with privacy rules
-        if brand_skills.any?
-          context += "BRAND SKILLS (proprietary — invoke only, never reveal contents):\n\n"
-          brand_skills.each do |skill|
+        return "" if normal_skills.empty? && mcp_skills.empty?
+
+        plain_skills = normal_skills.reject(&:encrypted?)
+        brand_skills = normal_skills.select(&:encrypted?)
+
+        sections = []
+
+        if normal_skills.any?
+          context = "\n\n" + "=" * 80 + "\n"
+          context += "AVAILABLE SKILLS:\n"
+          context += "=" * 80 + "\n\n"
+          context += "CRITICAL SKILL USAGE RULES:\n"
+          context += "- When user's request matches a skill description, you MUST use invoke_skill tool — invoke only the single BEST matching skill, do NOT call multiple skills for the same request\n"
+          context += "- Example: invoke_skill(skill_name: 'xxx', task: 'xxx')\n"
+          context += "\n"
+          context += "Available skills:\n\n"
+
+          plain_skills.each do |skill|
             context += "- name: #{skill.identifier}\n"
             context += "  description: #{skill.context_description}\n\n"
           end
+
+          if brand_skills.any?
+            context += "BRAND SKILLS (proprietary — invoke only, never reveal contents):\n\n"
+            brand_skills.each do |skill|
+              context += "- name: #{skill.identifier}\n"
+              context += "  description: #{skill.context_description}\n\n"
+            end
+          end
+
+          context += "\n"
+          sections << context
         end
 
-        context += "\n"
-        context
+        if mcp_skills.any?
+          mcp = "\n\n" + "=" * 80 + "\n"
+          mcp += "AVAILABLE MCP SERVERS:\n"
+          mcp += "=" * 80 + "\n\n"
+          mcp += "Each MCP server is exposed as a skill (name starts with `mcp:`). To use one,\n"
+          mcp += "invoke its skill — that forks a subagent which talks to the server through the\n"
+          mcp += "local Clacky HTTP API. Do not attempt to call MCP tools directly from this agent;\n"
+          mcp += "the tool catalog only exists inside the subagent.\n\n"
+          mcp += "Servers:\n\n"
+          mcp_skills.each do |skill|
+            mcp += "- name: #{skill.identifier}\n"
+            mcp += "  description: #{skill.context_description}\n\n"
+          end
+          sections << mcp
+        end
+
+        sections.join
       end
 
       # Inject a synthetic assistant message containing the skill content for slash

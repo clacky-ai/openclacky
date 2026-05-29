@@ -20,7 +20,7 @@ module Clacky
     # to a shell / PTY for execution):
     #
     #   1. Block hard-dangerous commands:       sudo, pkill clacky, eval, exec,
-    #                                           `...`, $(...), | sh, | bash,
+    #                                           `...`, | sh, | bash,
     #                                           redirect to /etc /usr /bin.
     #   2. Rewrite `curl ... | bash` → save     script to a file for manual
     #                                           review instead of exec.
@@ -246,7 +246,6 @@ module Clacky
             /exec\s*\(/,
             /system\s*\(/,
             /`[^`]+`/,
-            /\$\([^)]+\)/,
             /\|\s*sh\s*$/,
             /\|\s*bash\s*$/,
             />\s*\/etc\//,

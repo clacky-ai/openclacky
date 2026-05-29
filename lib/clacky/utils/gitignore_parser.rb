@@ -14,6 +14,33 @@ module Clacky
       end
     end
 
+    def merge!(other_gitignore_path, prefix: nil)
+      return unless other_gitignore_path && File.exist?(other_gitignore_path)
+
+      File.readlines(other_gitignore_path, chomp: true).each do |line|
+        next if line.strip.empty? || line.start_with?('#')
+
+        negation = line.start_with?('!')
+        raw = negation ? line[1..] : line
+        info = normalize_pattern(raw)
+
+        if prefix
+          original = info[:pattern]
+          original = original[1..] if info[:is_absolute]
+          info[:pattern] = "#{prefix}/#{original}"
+          info[:is_absolute] = false
+        end
+
+        if negation
+          @negation_patterns << info
+        else
+          @patterns << info
+        end
+      end
+    rescue StandardError => e
+      warn "Warning: Failed to merge .gitignore: #{e.message}"
+    end
+
     # Check if a file path should be ignored
     def ignored?(path)
       relative_path = path.start_with?('./') ? path[2..] : path

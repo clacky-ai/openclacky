@@ -14,9 +14,13 @@ module Clacky
 
         def initialize
           @todos = []
+          @pending_todos = []
+          @completed_count = 0
+          @total_count = 0
           @pastel = Pastel.new
           @width = TTY::Screen.width
           @height = 0  # Dynamic height based on todos
+          @hidden = false
         end
 
         # Update todos list
@@ -27,8 +31,24 @@ module Clacky
           @completed_count = @todos.count { |t| t[:status] == "completed" }
           @total_count = @todos.size
 
-          # Calculate height: 0 if no pending, otherwise 1 line per task (up to MAX_DISPLAY_TASKS)
-          if @pending_todos.empty?
+          recalc_height
+        end
+
+        # Hide the area without discarding todos data; show again to restore.
+        def hide
+          return if @hidden
+          @hidden = true
+          @height = 0
+        end
+
+        def show
+          return unless @hidden
+          @hidden = false
+          recalc_height
+        end
+
+        private def recalc_height
+          if @hidden || @pending_todos.empty?
             @height = 0
           else
             @height = [@pending_todos.size, MAX_DISPLAY_TASKS].min

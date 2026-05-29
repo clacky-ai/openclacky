@@ -26,9 +26,6 @@ module Clacky
       RESTART_EXIT_CODE        = 75
       MAX_CONSECUTIVE_FAILURES = 5
 
-      # How long (seconds) to wait for a new worker to become ready before killing the old one.
-      NEW_WORKER_BOOT_WAIT = 3
-
       def initialize(host:, port:, argv: nil, extra_flags: [])
         @host   = host
         @port   = port
@@ -158,22 +155,16 @@ module Clacky
         pid
       end
 
-      # Spawn a new worker, wait for it to boot, then gracefully stop the old one.
+      # Gracefully stop the old worker (so it can persist in-memory sessions),
+      # wait for it to exit, then spawn a new one.
       def hot_restart
         old_pid = @worker_pid
-        Clacky::Logger.info("[Master] Hot restart: spawning new worker (old PID=#{old_pid})...")
+        Clacky::Logger.info("[Master] Hot restart: stopping old worker PID=#{old_pid}...")
 
-        new_pid = spawn_worker
-        @worker_pid = new_pid
-
-        # Give the new worker time to bind and start serving
-        sleep NEW_WORKER_BOOT_WAIT
-
-        # Gracefully stop old worker — TERM the whole process group first so
-        # grandchildren (node MCP, etc.) also get a chance to shut down cleanly.
+        # TERM the old worker's process group so grandchildren (node MCP, etc.)
+        # also get a chance to shut down cleanly (triggering interrupt_all_agents).
         begin
           Process.kill("TERM", -old_pid)
-          # Reap it (non-blocking loop so we don't block the monitor)
           deadline = Time.now + 5
           loop do
             pid, = Process.waitpid2(old_pid, Process::WNOHANG)
@@ -186,6 +177,9 @@ module Clacky
           # already gone — fine
         end
 
+        # Old worker is gone; now spawn the replacement.
+        new_pid = spawn_worker
+        @worker_pid = new_pid
         Clacky::Logger.info("[Master] Hot restart complete. New worker PID=#{new_pid}")
       end
 
@@ -275,34 +269,56 @@ module Clacky
         puts ""
       end
 
+      # Scan all fallback port PID files to prevent duplicate masters
+      # when a previous instance bound to a non-default fallback port.
       def kill_existing_master
-        return unless File.exist?(pid_file_path)
+        max_port = (@port == 7070) ? (@port + 5) : @port
+        (@port..max_port).each do |port|
+          kill_master_on_port(port)
+        end
+      end
 
-        pid = File.read(pid_file_path).strip.to_i
-        return if pid <= 0
+      private def kill_master_on_port(port)
+        path = File.join(Dir.tmpdir, "clacky-master-#{port}.pid")
+        return unless File.exist?(path)
+
+        pid = File.read(path).strip.to_i
+        if pid <= 0
+          File.delete(path) rescue nil
+          return
+        end
 
         begin
           Process.kill("TERM", pid)
-          Clacky::Logger.info("[Master] Sent TERM to existing master (PID=#{pid}), waiting up to 3s...")
+          Clacky::Logger.info("[Master] Sent TERM to existing master (PID=#{pid}, port=#{port}), waiting...")
 
-          unless port_free_within?(5)
-            Clacky::Logger.warn("[Master] Port #{@port} still in use after 5s, sending KILL to PID=#{pid}...")
-            Process.kill("KILL", pid) rescue Errno::ESRCH
-            unless port_free_within?(2)
-              Clacky::Logger.error("[Master] Port #{@port} still in use after KILL, giving up.")
-              exit(1)
-            end
+          deadline = Time.now + 5
+          until process_dead?(pid) || Time.now > deadline
+            sleep 0.1
           end
 
-          Clacky::Logger.info("[Master] Port #{@port} is now free.")
+          unless process_dead?(pid)
+            Clacky::Logger.warn("[Master] PID=#{pid} still alive after 5s, sending KILL...")
+            Process.kill("KILL", pid) rescue Errno::ESRCH
+          end
+
+          Clacky::Logger.info("[Master] Existing master PID=#{pid} (port=#{port}) stopped.")
         rescue Errno::ESRCH
           Clacky::Logger.info("[Master] Existing master PID=#{pid} already gone.")
         rescue Errno::EPERM
           Clacky::Logger.warn("[Master] Could not stop existing master (PID=#{pid}) — permission denied.")
-          exit(1)
         ensure
-          File.delete(pid_file_path) if File.exist?(pid_file_path)
+          File.delete(path) if File.exist?(path)
         end
+      end
+
+      private def process_dead?(pid)
+        Process.kill(0, pid)
+        false
+      rescue Errno::ESRCH
+        true
+      rescue Errno::EPERM
+        false
       end
     end
   end

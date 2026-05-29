@@ -57,6 +57,7 @@ module Clacky
 
           # Session bar info
           @sessionbar_info = {
+            session_id: nil,   # Full session id; rendered as first 8 chars (parity with WebUI)
             working_dir: nil,
             mode: nil,
             model: nil,
@@ -138,6 +139,7 @@ module Clacky
         end
 
         # Update session bar info
+        # @param session_id [String] Full session id (rendered as first 8 chars)
         # @param working_dir [String] Working directory
         # @param mode [String] Permission mode
         # @param model [String] AI model name
@@ -145,7 +147,8 @@ module Clacky
         # @param cost [Float] Total cost
         # @param cost_source [Symbol, nil] :api / :price / :default — :default renders as N/A
         # @param status [String] Workspace status ('idle' or 'working')
-        def update_sessionbar(working_dir: nil, mode: nil, model: nil, tasks: nil, cost: nil, cost_source: nil, status: nil)
+        def update_sessionbar(session_id: nil, working_dir: nil, mode: nil, model: nil, tasks: nil, cost: nil, cost_source: nil, status: nil)
+          @sessionbar_info[:session_id] = session_id if session_id
           @sessionbar_info[:working_dir] = working_dir if working_dir
           @sessionbar_info[:mode] = mode if mode
           @sessionbar_info[:model] = model if model
@@ -1134,6 +1137,12 @@ module Clacky
             status_color = status_color_for(@sessionbar_info[:status])
             status_indicator = get_status_indicator(@sessionbar_info[:status], status_color)
             parts << "#{status_indicator} #{@pastel.public_send(status_color, @sessionbar_info[:status])}"
+          end
+
+          # Session id — first 8 chars (parity with WebUI #sib-id)
+          if @sessionbar_info[:session_id]
+            sid_short = @sessionbar_info[:session_id].to_s[0, 8]
+            parts << theme.format_text(sid_short, :statusbar_secondary) unless sid_short.empty?
           end
 
           # Working directory (shortened if too long)

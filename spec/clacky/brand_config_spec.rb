@@ -160,20 +160,26 @@ RSpec.describe Clacky::BrandConfig do
   # ── #grace_period_exceeded? ───────────────────────────────────────────────
 
   describe "#grace_period_exceeded?" do
-    it "returns false when last_heartbeat is nil" do
+    it "returns false when there is no recorded heartbeat failure" do
       config = described_class.new({})
       expect(config.grace_period_exceeded?).to be false
     end
 
-    it "returns true when grace period has elapsed" do
-      old_ts = (Time.now.utc - Clacky::BrandConfig::HEARTBEAT_GRACE_PERIOD - 1).iso8601
-      config = described_class.new("license_last_heartbeat" => old_ts)
+    it "returns false when heartbeat last_heartbeat is old but no failure has been recorded" do
+      ancient_ts = (Time.now.utc - (10 * 86_400)).iso8601
+      config = described_class.new("license_last_heartbeat" => ancient_ts)
+      expect(config.grace_period_exceeded?).to be false
+    end
+
+    it "returns true when heartbeats have been failing continuously past the grace period" do
+      old_failure = (Time.now.utc - Clacky::BrandConfig::HEARTBEAT_GRACE_PERIOD - 1).iso8601
+      config = described_class.new("license_last_heartbeat_failure" => old_failure)
       expect(config.grace_period_exceeded?).to be true
     end
 
-    it "returns false within grace period" do
-      recent_ts = (Time.now.utc - Clacky::BrandConfig::HEARTBEAT_INTERVAL - 60).iso8601
-      config = described_class.new("license_last_heartbeat" => recent_ts)
+    it "returns false when the failure streak is still within the grace period" do
+      recent_failure = (Time.now.utc - 60).iso8601
+      config = described_class.new("license_last_heartbeat_failure" => recent_failure)
       expect(config.grace_period_exceeded?).to be false
     end
   end
@@ -250,6 +256,25 @@ RSpec.describe Clacky::BrandConfig do
         saved = YAML.safe_load(File.read(brand_file))
         expect(saved["license_key"]).to eq("0000002A-00000007-DEADBEEF-CAFEBABE-A1B2C3D4")
         expect(saved["product_name"]).to eq("Brand42")
+      end
+    end
+
+    it "preserves installed brand skills when re-activating with the same brand identity" do
+      with_temp_brand_file do
+        config = described_class.new
+        # Initial activation — same key derives product_name "Brand42" both times.
+        config.activate_mock!("0000002A-00000007-DEADBEEF-CAFEBABE-A1B2C3D4")
+        expect(config).not_to receive(:clear_brand_skills!)
+        config.activate_mock!("0000002A-99999999-DEADBEEF-CAFEBABE-FFFFFFFF")
+      end
+    end
+
+    it "wipes installed brand skills when switching to a different brand" do
+      with_temp_brand_file do
+        config = described_class.new
+        config.activate_mock!("0000002A-00000007-DEADBEEF-CAFEBABE-A1B2C3D4")  # Brand42
+        expect(config).to receive(:clear_brand_skills!).and_call_original
+        config.activate_mock!("00000001-FFFFFFFF-DEADBEEF-CAFEBABE-00000001")  # Brand1
       end
     end
   end

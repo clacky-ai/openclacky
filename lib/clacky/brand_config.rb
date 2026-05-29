@@ -44,7 +44,7 @@ module Clacky
                 :license_expires_at, :license_last_heartbeat, :device_id,
                 :logo_url, :support_contact, :license_user_id,
                 :support_qr_url, :theme_color, :homepage_url,
-                :distribution_last_refreshed_at
+                :distribution_last_refreshed_at, :license_last_heartbeat_failure
 
     def initialize(attrs = {})
       @product_name            = attrs["product_name"]
@@ -66,6 +66,11 @@ module Clacky
       # #refresh_distribution!). Persisted to brand.yml so 24h throttling
       # survives restarts.
       @distribution_last_refreshed_at = parse_time(attrs["distribution_last_refreshed_at"])
+      # Tracks when heartbeats started failing continuously. Set on a failed
+      # heartbeat (only if currently nil), cleared on a successful one.
+      # grace_period_exceeded? uses this — NOT last_heartbeat — so a user who
+      # simply hasn't run the app in days doesn't see a stale "offline" warning.
+      @license_last_heartbeat_failure = parse_time(attrs["license_last_heartbeat_failure"])
 
       # In-memory decryption key cache: "skill_id:skill_version_id" => { key:, expires_at: }
       # Never persisted to disk. Survives across multiple skill invocations within one session.
@@ -76,13 +81,28 @@ module Clacky
 
     # Load brand configuration from ~/.clacky/brand.yml.
     # Returns an empty BrandConfig (no brand) if the file does not exist.
+    # Always ensures a stable device_id is present and persisted.
     def self.load
-      return new({}) unless File.exist?(BRAND_FILE)
+      if File.exist?(BRAND_FILE)
+        data = YAML.safe_load(File.read(BRAND_FILE)) || {}
+      else
+        data = {}
+      end
 
-      data = YAML.safe_load(File.read(BRAND_FILE)) || {}
-      new(data)
+      instance = new(data)
+      instance.ensure_device_id!
+      instance
     rescue StandardError
-      new({})
+      instance = new({})
+      instance.ensure_device_id!
+      instance
+    end
+
+    def ensure_device_id!
+      return if @device_id && !@device_id.strip.empty?
+
+      @device_id = generate_device_id
+      save
     end
 
     # Returns true when this installation has a product name configured.
@@ -115,16 +135,19 @@ module Clacky
       due
     end
 
-    # Returns true when the grace period for missed heartbeats has expired.
+    # Returns true when heartbeats have been failing continuously for longer
+    # than the grace period. Only considers ACTUAL failure streaks — a user
+    # who hasn't launched the app in a week is NOT in violation, since no
+    # heartbeat attempt has actually failed.
     def grace_period_exceeded?
-      if @license_last_heartbeat.nil?
-        Clacky::Logger.debug("[Brand] grace_period_exceeded? => false (no heartbeat recorded)")
+      if @license_last_heartbeat_failure.nil?
+        Clacky::Logger.debug("[Brand] grace_period_exceeded? => false (no active failure streak)")
         return false
       end
 
-      elapsed = Time.now.utc - @license_last_heartbeat
+      elapsed = Time.now.utc - @license_last_heartbeat_failure
       exceeded = elapsed >= HEARTBEAT_GRACE_PERIOD
-      Clacky::Logger.debug("[Brand] grace_period_exceeded? elapsed=#{elapsed.to_i}s grace=#{HEARTBEAT_GRACE_PERIOD}s => #{exceeded}")
+      Clacky::Logger.debug("[Brand] grace_period_exceeded? failing_since=#{@license_last_heartbeat_failure.iso8601} elapsed=#{elapsed.to_i}s grace=#{HEARTBEAT_GRACE_PERIOD}s => #{exceeded}")
       exceeded
     end
 
@@ -163,6 +186,7 @@ module Clacky
       @license_user_id        = nil
       @device_id              = nil
       @distribution_last_refreshed_at = nil
+      @license_last_heartbeat_failure = nil
       { success: true }
     end
 
@@ -195,9 +219,20 @@ module Clacky
         data = response[:data]
         @license_activated_at   = Time.now.utc
         @license_last_heartbeat = Time.now.utc
+        @license_last_heartbeat_failure = nil
         @license_expires_at     = parse_time(data["expires_at"])
         server_device_id = data["device_id"].to_s.strip
         @device_id = server_device_id unless server_device_id.empty?
+
+        # Decide whether the new key belongs to the SAME brand as the previously
+        # activated one. If yes (e.g. trial → paid), keep the installed brand
+        # skills — they are still decryptable and the user shouldn't have to
+        # re-download. If no (switching brands), wipe them.
+        prev_package_name = @package_name
+        prev_product_name = @product_name
+        new_dist          = data["distribution"].is_a?(Hash) ? data["distribution"] : {}
+        same_brand        = brand_identity_match?(prev_package_name, prev_product_name, new_dist)
+
         # Clear ALL stale fields first, then apply fresh values from the new key.
         # Order matters: reset everything before re-assigning so no old value lingers.
         @product_name    = nil
@@ -214,10 +249,10 @@ module Clacky
         owner_uid = data["owner_user_id"]
         @license_user_id = owner_uid.to_s.strip if owner_uid && !owner_uid.to_s.strip.empty?
         apply_distribution(data["distribution"])
-        # Clear previously installed brand skills before saving the new license.
-        # Skills from the old brand are encrypted with that brand's keys — they
-        # cannot be decrypted with the new license and must be re-downloaded.
-        clear_brand_skills!
+        # Skills from a different brand are encrypted with that brand's keys —
+        # they cannot be decrypted with the new license and must be re-downloaded.
+        # Same-brand re-activation (trial→paid, key rotation) preserves them.
+        clear_brand_skills! unless same_brand
         save
         { success: true, message: "License activated successfully!", product_name: @product_name,
           user_id: @license_user_id, data: data }
@@ -243,14 +278,19 @@ module Clacky
 
       # Always derive product_name fresh from the key in mock mode,
       # so switching keys produces a different brand each time.
-      user_id       = parse_user_id_from_key(@license_key)
-      @product_name = "Brand#{user_id}"
+      user_id            = parse_user_id_from_key(@license_key)
+      new_product_name   = "Brand#{user_id}"
+      prev_product_name  = @product_name
+      same_brand         = brand_identity_match?(@package_name, prev_product_name,
+                                                 { "product_name" => new_product_name })
+      @product_name = new_product_name
 
       @license_activated_at   = Time.now.utc
       @license_last_heartbeat = Time.now.utc
+      @license_last_heartbeat_failure = nil
       @license_expires_at     = Time.now.utc + (365 * 86_400)  # 1 year from now
-      # Clear old brand skills so stale encrypted files from a previous brand don't linger
-      clear_brand_skills!
+      # Same-brand re-activation preserves installed skills; switching brands wipes them.
+      clear_brand_skills! unless same_brand
       save
 
       {
@@ -291,13 +331,16 @@ module Clacky
 
       if response[:success]
         @license_last_heartbeat = Time.now.utc
+        @license_last_heartbeat_failure = nil
         @license_expires_at = parse_time(response[:data]["expires_at"]) if response[:data]["expires_at"]
         apply_distribution(response[:data]["distribution"])
         save
         Clacky::Logger.info("[Brand] heartbeat! success — expires_at=#{@license_expires_at&.iso8601} last_heartbeat=#{@license_last_heartbeat.iso8601}")
         { success: true, message: "Heartbeat OK" }
       else
-        Clacky::Logger.warn("[Brand] heartbeat! failed — #{response[:error]}")
+        @license_last_heartbeat_failure ||= Time.now.utc
+        save
+        Clacky::Logger.warn("[Brand] heartbeat! failed — #{response[:error]} (failing_since=#{@license_last_heartbeat_failure.iso8601})")
         { success: false, message: response[:error] || "Heartbeat failed" }
       end
     end
@@ -364,6 +407,86 @@ module Clacky
       else
         Clacky::Logger.warn("[Brand] refresh_distribution! failed — #{response[:error]}")
         { success: false, message: response[:error] || "Refresh failed" }
+      end
+    end
+
+    # Fetch the list of free (unencrypted, published) skills available for the
+    # configured package_name. Anonymous endpoint — no license key required.
+    # This is what powers the "no serial number" free mode: a branded install
+    # that is not activated still gets the creator's free skills automatically.
+    #
+    # Returns { success: bool, skills: [], error: }. Each skill in the returned
+    # array carries the same shape as fetch_brand_skills! (name, latest_version,
+    # description, etc.) so install_brand_skill! can consume it directly.
+    def fetch_free_skills!
+      return { success: false, error: "Not branded", skills: [] } unless branded?
+      if @package_name.nil? || @package_name.strip.empty?
+        return { success: false, error: "package_name not configured", skills: [] }
+      end
+
+      encoded_pkg = URI.encode_www_form_component(@package_name.strip)
+      response    = platform_client.get("/api/v1/distributions/free_skills?package_name=#{encoded_pkg}")
+
+      if response[:success] && response[:data].is_a?(Hash)
+        installed = installed_brand_skills
+        skills    = (response[:data]["skills"] || []).map do |skill|
+          normalized   = skill["name"].to_s.downcase.gsub(/[\s_]+/, "-").gsub(/[^a-z0-9-]/, "").gsub(/-+/, "-")
+          name         = installed.keys.find { |k| k == normalized } || normalized
+          local        = installed[name]
+          latest_ver   = (skill["latest_version"] || {})["version"] || skill["version"]
+          needs_update = local ? version_older?(local["version"], latest_ver) : false
+          skill.merge(
+            "name"              => name,
+            "installed_version" => local ? local["version"] : nil,
+            "needs_update"      => needs_update
+          )
+        end
+        { success: true, skills: skills, paid_skills_count: response[:data]["paid_skills_count"].to_i }
+      else
+        { success: false, error: response[:error] || "Failed to fetch free skills", skills: [], paid_skills_count: 0 }
+      end
+    end
+
+    # Install a single free (unencrypted) skill. Thin wrapper around
+    # install_brand_skill! that records the skill as encrypted: false so the
+    # loader reads SKILL.md directly without attempting decryption.
+    def install_free_skill!(skill_info)
+      install_brand_skill!(skill_info, encrypted: false)
+    end
+
+    # Synchronise free skills in the background for unactivated branded installs.
+    #
+    # Mirrors sync_brand_skills_async! but uses the public free_skills endpoint
+    # so no license is required. Only runs when the install is branded and NOT
+    # activated — once a license is activated the regular brand-skill sync
+    # takes over (and may include additional encrypted skills).
+    #
+    # @return [Thread, nil]
+    def sync_free_skills_async!(on_complete: nil)
+      return nil unless branded?
+      return nil if activated?
+      return nil if ENV["CLACKY_TEST"] == "1"
+
+      Thread.new do
+        Thread.current.abort_on_exception = false
+
+        begin
+          result = fetch_free_skills!
+          next unless result[:success]
+
+          remote_skill_names = result[:skills].map { |s| s["name"] }
+          installed_brand_skills.each_key do |local_name|
+            send(:delete_brand_skill!, local_name) unless remote_skill_names.include?(local_name)
+          end
+
+          installed = installed_brand_skills
+          to_install = result[:skills].select { |s| installed[s["name"]].nil? || s["needs_update"] }
+          results    = to_install.map { |skill_info| install_free_skill!(skill_info) }
+
+          on_complete&.call(results)
+        rescue StandardError
+          # Background sync failures are intentionally swallowed.
+        end
       end
     end
 
@@ -586,7 +709,9 @@ module Clacky
 
     # Install (or update) a single brand skill by downloading and extracting its zip.
     # skill_info: a hash from fetch_brand_skills! with at least name + latest_version.download_url + version
-    def install_brand_skill!(skill_info)
+    # encrypted: whether the ZIP contains AES-encrypted .enc files + MANIFEST.enc.json (true)
+    #            or plaintext SKILL.md and supporting files (false, used by free-mode).
+    def install_brand_skill!(skill_info, encrypted: true)
       require "net/http"
       require "uri"
 
@@ -611,6 +736,9 @@ module Clacky
       tmp_zip = File.join(brand_skills_dir, "#{slug}.zip")
       dl = platform_client.download_file(url, tmp_zip)
       raise dl[:error].to_s unless dl[:success]
+
+      zip_size = File.size?(tmp_zip).to_i
+      raise "Empty ZIP downloaded for #{slug}" if zip_size < 22  # min valid zip = empty central directory
 
       # Extract into dest_dir (overwrite existing files).
       # Auto-detect whether the zip has a single root folder to strip.
@@ -655,13 +783,21 @@ module Clacky
 
       FileUtils.rm_f(tmp_zip)
 
-      # Record installed version in brand_skills.json (including description for
-      # offline display when the remote API is unreachable).
-      # encrypted: true because the ZIP contains MANIFEST.enc.json + AES-256-GCM encrypted files.
-      record_installed_skill(slug, version, skill_info["description"], encrypted: true, description_zh: skill_info["description_zh"], name_zh: skill_info["name_zh"])
+      if encrypted
+        manifest_path = File.join(dest_dir, "MANIFEST.enc.json")
+        raise "MANIFEST.enc.json missing after extraction" unless File.exist?(manifest_path)
+        JSON.parse(File.read(manifest_path))
+      end
+
+      record_installed_skill(slug, version, skill_info["description"],
+                             encrypted: encrypted,
+                             description_zh: skill_info["description_zh"],
+                             name_zh: skill_info["name_zh"])
 
       { success: true, name: slug, version: version }
     rescue StandardError, ScriptError => e
+      FileUtils.rm_f(tmp_zip) if defined?(tmp_zip) && tmp_zip
+      FileUtils.rm_rf(dest_dir) if defined?(dest_dir) && dest_dir
       { success: false, error: e.message }
     end
 
@@ -1119,6 +1255,7 @@ module Clacky
       # Persist user_id so user-licensed features remain available across restarts
       data["license_user_id"]        = @license_user_id        if @license_user_id && !@license_user_id.strip.empty?
       data["distribution_last_refreshed_at"] = @distribution_last_refreshed_at.iso8601 if @distribution_last_refreshed_at
+      data["license_last_heartbeat_failure"] = @license_last_heartbeat_failure.iso8601 if @license_last_heartbeat_failure
       YAML.dump(data)
     end
 
@@ -1138,6 +1275,30 @@ module Clacky
     # Instance-level delegate so fetch_brand_skills! can call version_older? directly.
     private def version_older?(installed, latest)
       self.class.version_older?(installed, latest)
+    end
+
+    # Decide whether a re-activation key targets the same brand as the
+    # currently-loaded one, so we know whether installed brand skills can stay.
+    #
+    # Identity preference, in order:
+    #   1. package_name — bundle identifier, the strongest brand signal
+    #   2. product_name — display name fallback when package_name is missing
+    #
+    # If neither is present on either side, treat as different brand (safe default:
+    # wipe skills) since we can't confirm continuity.
+    private def brand_identity_match?(prev_package_name, prev_product_name, new_dist)
+      new_dist  = {} unless new_dist.is_a?(Hash)
+      new_pkg   = new_dist["package_name"].to_s.strip
+      old_pkg   = prev_package_name.to_s.strip
+      if !new_pkg.empty? && !old_pkg.empty?
+        return new_pkg == old_pkg
+      end
+
+      new_prod  = new_dist["product_name"].to_s.strip
+      old_prod  = prev_product_name.to_s.strip
+      return new_prod == old_prod if !new_prod.empty? && !old_prod.empty?
+
+      false
     end
 
     # Apply distribution fields from API response.

@@ -46,7 +46,10 @@ module Clacky
       # Tracks usage activity and daily task volume.
       # No client-side dedup — the server keeps every event for task counting,
       # and derives DAU from distinct devices per day.
-      def task!
+      #
+      # @param result [Hash, nil] optional build_result hash from Agent#run.
+      #   When present, enriches the payload with model/provider/tokens/cost/duration/status.
+      def task!(result: nil)
         return unless enabled?
 
         brand = Clacky::BrandConfig.load
@@ -54,9 +57,10 @@ module Clacky
           device_id: resolve_device_id(brand),
           version:   Clacky::VERSION,
           brand:     brand.branded? ? brand.package_name : nil
-        }.compact
+        }
+        payload.merge!(extract_task_metrics(result)) if result.is_a?(Hash)
 
-        fire_and_forget("/api/v1/telemetry/task", payload)
+        fire_and_forget("/api/v1/telemetry/task", payload.compact)
       end
 
       # ── private helpers ────────────────────────────────────────────────
@@ -67,22 +71,29 @@ module Clacky
       end
 
       private def resolve_device_id(brand)
-        if brand.device_id && !brand.device_id.empty?
-          brand.device_id
-        else
-          generate_anonymous_device_id
-        end
+        brand.device_id
       end
 
-      # Generate an anonymous device fingerprint that is stable for the same
-      # machine/user but does not reveal identifiable information.
-      private def generate_anonymous_device_id
-        components = [
-          Socket.gethostname,
-          ENV["USER"] || ENV["USERNAME"] || "",
-          RUBY_PLATFORM
-        ]
-        Digest::SHA256.hexdigest(components.join(":"))
+      private def extract_task_metrics(result)
+        cache = result[:cache_stats] || {}
+        duration = result[:duration_seconds]
+        error = result[:error]
+        {
+          model:                  result[:model],
+          provider:               result[:provider],
+          status:                 result[:status],
+          iterations:             result[:iterations],
+          duration_ms:            duration ? (duration * 1000).round : nil,
+          cost_usd:               result[:total_cost_usd],
+          cost_source:            result[:cost_source],
+          prompt_tokens:          cache[:prompt_tokens],
+          completion_tokens:      cache[:completion_tokens],
+          cache_creation_tokens:  cache[:cache_creation_input_tokens],
+          cache_read_tokens:      cache[:cache_read_input_tokens],
+          cache_total_requests:   cache[:total_requests],
+          cache_hit_requests:     cache[:cache_hit_requests],
+          error_kind:             error.is_a?(String) ? error[0, 64] : error&.class&.name
+        }
       end
 
       # Send a POST to the telemetry endpoint in a background thread.

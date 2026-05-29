@@ -116,6 +116,128 @@ module Clacky
         CONFIG_FILE_PATTERNS.any? { |pattern| file.match?(pattern) }
       end
 
+      # Paths considered too broad to recursively walk by default. Searching from
+      # these would commonly traverse millions of files (system roots, $HOME with
+      # many workspaces, WSL Windows mounts). Tools should refuse such requests
+      # and ask for a narrower base_path.
+      def self.dangerous_root?(path)
+        return false if path.nil? || path.empty?
+
+        expanded = File.expand_path(path)
+        return true if expanded == "/"
+
+        system_roots = ["/root", "/home", "/Users", "/mnt", "/media", "/var", "/etc", "/usr", "/opt"]
+        return true if system_roots.include?(expanded)
+
+        ["/Users/", "/home/"].each do |prefix|
+          next unless expanded.start_with?(prefix)
+          tail = expanded[prefix.length..]
+          return true if tail && !tail.empty? && !tail.include?("/")
+        end
+
+        return true if expanded =~ %r{\A/mnt/[a-zA-Z]\z}
+
+        home = ENV["HOME"]
+        return true if home && !home.empty? && expanded == File.expand_path(home)
+
+        false
+      end
+
+      # Hard ceiling on directories visited in a single walk. Prevents indefinite
+      # traversal across huge trees (e.g. /root, $HOME, /mnt/c on WSL).
+      MAX_DIRS_VISITED = 20_000
+
+      # Wall-clock budget for a single walk, in seconds.
+      WALK_TIMEOUT_SECONDS = 15
+
+      # Raised internally to abort a walk when a budget is exhausted.
+      class WalkBudgetExceeded < StandardError
+        attr_reader :reason
+        def initialize(reason)
+          @reason = reason
+          super(reason.to_s)
+        end
+      end
+
+      # Walk a directory tree, pruning ignored directories early.
+      # Yields each non-ignored file path. Supports nested .gitignore files.
+      # @param skipped [Hash, nil] If provided, increments :ignored for each gitignore-skipped entry.
+      # @param status [Hash, nil] If provided, populated with :truncated and :truncation_reason
+      #   when the walk is aborted due to dir-count or wall-clock budget.
+      def self.walk_files(base_path, gitignore: nil, skipped: nil, status: nil,
+                          max_dirs_visited: MAX_DIRS_VISITED,
+                          timeout_seconds: WALK_TIMEOUT_SECONDS,
+                          &block)
+        unless block_given?
+          return enum_for(:walk_files, base_path,
+                          gitignore: gitignore, skipped: skipped, status: status,
+                          max_dirs_visited: max_dirs_visited, timeout_seconds: timeout_seconds)
+        end
+
+        root_gitignore = gitignore || begin
+          gi_path = find_gitignore(base_path)
+          gi_path ? Clacky::GitignoreParser.new(gi_path) : nil
+        end
+
+        budget = {
+          dirs_visited: 0,
+          max_dirs: max_dirs_visited,
+          deadline: timeout_seconds ? (Process.clock_gettime(Process::CLOCK_MONOTONIC) + timeout_seconds) : nil
+        }
+
+        begin
+          _walk_recursive(base_path, base_path, root_gitignore, skipped, budget, &block)
+        rescue WalkBudgetExceeded => e
+          if status
+            status[:truncated] = true
+            status[:truncation_reason] = e.reason.to_s
+          end
+        end
+      end
+
+      def self._walk_recursive(dir, base_path, gitignore, skipped, budget, &block)
+        budget[:dirs_visited] += 1
+        if budget[:dirs_visited] > budget[:max_dirs]
+          raise WalkBudgetExceeded.new(:max_dirs_visited)
+        end
+        if budget[:deadline] && Process.clock_gettime(Process::CLOCK_MONOTONIC) > budget[:deadline]
+          raise WalkBudgetExceeded.new(:timeout)
+        end
+
+        child_gitignore_path = File.join(dir, ".gitignore")
+        if dir != base_path && File.exist?(child_gitignore_path)
+          gitignore ||= Clacky::GitignoreParser.new(nil)
+          relative_dir = dir[(base_path.length + 1)..]
+          gitignore.merge!(child_gitignore_path, prefix: relative_dir)
+        end
+
+        begin
+          entries = Dir.children(dir)
+        rescue Errno::EACCES, Errno::ENOENT
+          return
+        end
+
+        entries.sort.each do |name|
+          full = File.join(dir, name)
+          relative = full[(base_path.length + 1)..]
+
+          if File.directory?(full)
+            next if ALWAYS_IGNORED_DIRS.include?(name)
+            if gitignore&.ignored?("#{relative}/") || should_ignore_file?(full, base_path, gitignore)
+              next
+            end
+            _walk_recursive(full, base_path, gitignore, skipped, budget, &block)
+          else
+            if !is_config_file?(full) && should_ignore_file?(full, base_path, gitignore)
+              skipped[:ignored] += 1 if skipped
+              next
+            end
+            yield full
+          end
+        end
+      end
+      private_class_method :_walk_recursive
+
     end
   end
 end

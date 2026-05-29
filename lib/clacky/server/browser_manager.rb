@@ -258,7 +258,19 @@ module Clacky
       # close_others: true prevents inheriting the server's listening socket (port 7070).
       # The MCP daemon is an independent external process and should not hold server fds.
       stdin, stdout, stderr_io, wait_thr = Open3.popen3(*wrapped, close_others: true)
-      Thread.new { stderr_io.read rescue nil }
+      stderr_buf = String.new
+      stderr_thr = Thread.new do
+        stderr_io.each_line { |line| stderr_buf << line }
+      rescue IOError
+      end
+
+      # Give the process a moment to fail fast (e.g. command not found)
+      sleep 0.1
+      unless wait_thr.alive?
+        stderr_thr.join(1)
+        Clacky::Logger.error("[BrowserManager] MCP daemon exited immediately (exit=#{wait_thr.value.exitstatus}). stderr:\n#{stderr_buf}")
+        raise "chrome-devtools-mcp failed to start (exit=#{wait_thr.value.exitstatus}): #{stderr_buf.lines.last(5).join}"
+      end
 
       # MCP handshake
       init_msg = json_rpc("initialize", {
@@ -280,9 +292,10 @@ module Clacky
       init_resp = read_response(stdout, target_id: 1,
                                 timeout: Clacky::Tools::Browser::MCP_HANDSHAKE_TIMEOUT)
       unless init_resp
-        Clacky::Logger.error("[BrowserManager] MCP initialize handshake timed out after #{Clacky::Tools::Browser::MCP_HANDSHAKE_TIMEOUT}s")
+        stderr_thr.join(0.5)
+        Clacky::Logger.error("[BrowserManager] MCP initialize handshake timed out after #{Clacky::Tools::Browser::MCP_HANDSHAKE_TIMEOUT}s. stderr:\n#{stderr_buf}")
         Process.kill("TERM", wait_thr.pid) rescue nil
-        raise "Chrome MCP initialize handshake timed out"
+        raise "Chrome MCP initialize handshake timed out. stderr: #{stderr_buf.lines.last(5).join}"
       end
 
       Clacky::Logger.debug("[BrowserManager] MCP initialize successful, sending initialized notification...")

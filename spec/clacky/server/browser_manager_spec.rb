@@ -265,7 +265,7 @@ RSpec.describe Clacky::BrowserManager do
       fake_stdin  = StringIO.new
       fake_stdout = StringIO.new(init_resp + "\n")
       fake_stderr = StringIO.new
-      fake_wait   = double("wait_thr", pid: 12_345)
+      fake_wait   = double("wait_thr", pid: 12_345, alive?: true)
 
       allow(Open3).to receive(:popen3).and_return([fake_stdin, fake_stdout, fake_stderr, fake_wait])
 
@@ -288,7 +288,7 @@ RSpec.describe Clacky::BrowserManager do
 
       fake_stdin  = StringIO.new
       fake_stderr = StringIO.new
-      fake_wait   = double("wait_thr", pid: 12_346)
+      fake_wait   = double("wait_thr", pid: 12_346, alive?: true)
 
       allow(Open3).to receive(:popen3).and_return([fake_stdin, StringIO.new, fake_stderr, fake_wait])
       allow(Process).to receive(:kill).and_return(nil)

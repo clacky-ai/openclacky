@@ -20,6 +20,12 @@ module Clacky
         @active_task_id = @current_task_id
         @task_parents[@current_task_id] = parent_id
 
+        # Claim ownership of this task for the current thread.
+        # If a stale thread (e.g. a slow subagent) wakes up later it will see
+        # @task_thread != Thread.current via check_stale! and self-terminate
+        # before it can write to history.
+        @task_thread = Thread.current
+
         @current_task_id
       end
 

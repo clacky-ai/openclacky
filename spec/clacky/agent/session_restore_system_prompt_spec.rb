@@ -47,10 +47,15 @@ RSpec.describe "Agent#restore_session refreshes system prompt" do
         This is the new skill content.
       MD
 
+      # Isolate from user's global/brand skills so the test is deterministic.
+      # Without this, MAX_CONTEXT_SKILLS may drop the project skill when too many
+      # other skills are installed.
+      allow_any_instance_of(Clacky::SkillLoader).to receive(:load_global_clacky_skills).and_return([])
+      allow_any_instance_of(Clacky::SkillLoader).to receive(:load_brand_skills).and_return([])
+
       agent = Clacky::Agent.new(client, config, working_dir: tmpdir, ui: nil, profile: "general", session_id: Clacky::SessionManager.generate_id, source: :manual)
       session_data = minimal_session_data(working_dir: tmpdir)
 
-      # Before restore, the @messages contain the stale system prompt
       agent.restore_session(session_data)
 
       system_msg = agent.history.to_a.find { |m| m[:role] == "system" }

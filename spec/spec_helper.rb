@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 ENV["CLACKY_TEST"] = "1"
+ENV["CLACKY_TELEMETRY"] = "0"
 
 require "clacky"
 require "tmpdir"

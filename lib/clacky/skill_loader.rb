@@ -2,6 +2,7 @@
 
 require "pathname"
 require "fileutils"
+require "set"
 require "clacky"
 
 module Clacky
@@ -34,8 +35,19 @@ module Clacky
       @skills_by_command = {} # Map slash_command -> Skill
       @errors = []            # Store loading errors
       @loaded_from = {}       # Track which location each skill was loaded from
+      @virtual_skill_providers = []  # Objects responding to #virtual_skills (e.g. Mcp::Registry)
 
       load_all
+    end
+
+    # Register an object that supplies virtual (in-memory) skills. The object
+    # must respond to #virtual_skills returning an Array<Skill>. Virtual skills
+    # are merged on every #all_skills / #find_by_name call so a registry can
+    # add or remove servers at runtime without forcing a full reload.
+    # @param provider [#virtual_skills]
+    def attach_virtual_skill_provider(provider)
+      return unless provider.respond_to?(:virtual_skills)
+      @virtual_skill_providers << provider unless @virtual_skill_providers.include?(provider)
     end
 
     # Load all skills from configured locations
@@ -74,8 +86,10 @@ module Clacky
     # own (editable, up-to-date) copy rather than the encrypted distribution copy.
     # @return [Array<Skill>]
     def load_brand_skills
-      return [] unless @brand_config&.activated?
+      return [] unless @brand_config && (@brand_config.branded? || @brand_config.activated?)
       return [] if ENV["CLACKY_TEST"] == "1"
+
+      activated = @brand_config.activated?
 
       # Use brand_config#brand_skills_dir so the path respects CONFIG_DIR,
       # which is important for test isolation via stub_const.
@@ -92,6 +106,8 @@ module Clacky
         encrypted = skill_dir.join("SKILL.md.enc").exist?
         plain     = skill_dir.join("SKILL.md").exist?
         next unless encrypted || plain
+
+        next if encrypted && !activated
 
         skill_name = skill_dir.basename.to_s
 
@@ -135,31 +151,50 @@ module Clacky
       load_skills_from_directory(project_clacky_dir, :project_clacky)
     end
 
-    # Get all loaded skills
+    # Get all loaded skills (including virtual skills supplied by attached providers)
     # @return [Array<Skill>]
     def all_skills
-      @skills.values
+      base = @skills.values
+      virtuals = collect_virtual_skills
+      return base if virtuals.empty?
+
+      # Real skills always shadow virtuals when names collide — protects against
+      # an MCP server accidentally named after a real skill.
+      seen = base.map(&:identifier).to_set
+      base + virtuals.reject { |s| seen.include?(s.identifier) }
     end
 
     # Get a skill by its identifier
     # @param identifier [String] Skill name or directory name
     # @return [Skill, nil]
     def [](identifier)
-      @skills[identifier]
+      @skills[identifier] || virtual_skill(identifier)
     end
 
     # Find a skill by its slash command
     # @param command [String] e.g., "/explain-code"
     # @return [Skill, nil]
     def find_by_command(command)
-      @skills_by_command[command]
+      @skills_by_command[command] || collect_virtual_skills.find { |s| s.slash_command == command }
     end
 
     # Find a skill by its name (identifier)
     # @param name [String] Skill identifier (e.g., "code-explorer", "pptx")
     # @return [Skill, nil]
     def find_by_name(name)
-      @skills[name]
+      @skills[name] || virtual_skill(name)
+    end
+
+    private def virtual_skill(name)
+      collect_virtual_skills.find { |s| s.identifier == name }
+    end
+
+    private def collect_virtual_skills
+      return [] if @virtual_skill_providers.empty?
+      @virtual_skill_providers.flat_map { |p| Array(p.virtual_skills) }
+    rescue StandardError => e
+      @errors << "Virtual skill provider failed: #{e.message}"
+      []
     end
 
     # Get skills that can be invoked by user

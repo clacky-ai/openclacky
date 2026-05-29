@@ -87,8 +87,18 @@ module Clacky
       def show_assistant_message(content, files:)
         return if (content.nil? || content.to_s.strip.empty?) && files.empty?
 
-        emit("assistant_message", content: content.to_s, files: files)
+        # Rewrite local image paths (file:// and bare absolute) to /api/local-image
+        # proxy URLs only for the browser, which runs on http://localhost and is
+        # blocked by browser security policy from loading file:// directly.
+        # Channel subscribers receive the original content so they can deliver
+        # local images as native attachments via send_file().
+        web_content = Clacky::Utils::FileProcessor.rewrite_local_image_urls(content.to_s)
+        emit("assistant_message", content: web_content, files: files)
         forward_to_subscribers { |sub| sub.show_assistant_message(content, files: files) }
+      end
+
+      def show_feedback_request(question, context, options)
+        emit("request_feedback", question: question, context: context, options: options)
       end
 
       def show_tool_call(name, args)
@@ -219,15 +229,19 @@ module Clacky
 
       def show_progress(message = nil, prefix_newline: true, progress_type: "thinking", phase: "active", metadata: {})
         if phase == "active"
-          @progress_start_time = Time.now
-          # Store complete progress state for replay when user switches back to this session
+          # Only set start time when transitioning into a fresh progress phase.
+          # Streaming LLM calls fire show_progress every chunk for token updates;
+          # resetting the timer each time would make the elapsed counter jitter
+          # back to 0 in the UI and force the frontend to rebuild its interval.
+          if @live_progress_state.nil? || @live_progress_state[:progress_type] != progress_type
+            @progress_start_time = Time.now
+            @live_stdout_buffer = []
+          end
           @live_progress_state = {
             message: message,
             progress_type: progress_type,
             metadata: metadata
           }
-          # Reset stdout buffer for each new command so re-subscribe only replays current run
-          @live_stdout_buffer = []
         elsif phase == "done"
           @live_tool_call = nil   # command finished — nothing left to replay
           # Keep @live_stdout_buffer intact — it will be reset on the next show_progress call.

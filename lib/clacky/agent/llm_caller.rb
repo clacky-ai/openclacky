@@ -88,6 +88,11 @@ module Clacky
         # the error propagate.
         context_overflow_retry_attempted = false
 
+        # Capture model name at API call time for accurate billing tracking.
+        # If the user switches models while the API call is in progress, we still
+        # want to bill under the model that actually handled the request.
+        api_call_model = current_model
+
         begin
           begin
           # Use active_messages (Time Machine) when undone, otherwise send full history.
@@ -100,10 +105,12 @@ module Clacky
 
           response = @client.send_messages_with_tools(
             messages_to_send,
-            model: current_model,
+            model: api_call_model,
             tools: tools_to_send,
             max_tokens: @config.max_tokens,
-            enable_caching: @config.enable_prompt_caching
+            enable_caching: @config.enable_prompt_caching,
+            reasoning_effort: @reasoning_effort,
+            on_chunk: build_progress_on_chunk
           )
 
           # Successful response — if we were probing, confirm primary is healthy.
@@ -122,8 +129,22 @@ module Clacky
           # block below handles retry + fallback identically to 5xx/429.
           detect_upstream_truncation!(response)
 
+          # Empty response detector: model returned nothing (no content, no
+          # tool_calls, finish_reason != "stop"). DeepSeek via OpenRouter
+          # occasionally does this. Treat as transient failure and retry.
+          if response[:content].to_s.strip.empty? &&
+              (response[:tool_calls].nil? || response[:tool_calls].empty?) &&
+              response[:finish_reason].to_s != "stop" &&
+              response[:finish_reason].to_s != "length"
+            Clacky::Logger.warn("llm.empty_response_detected",
+              model: api_call_model,
+              finish_reason: response[:finish_reason].to_s,
+              completion_tokens: response.dig(:token_usage, :completion_tokens)
+            )
+            raise RetryableError, "[LLM] Model returned empty response (no content, no tool_calls), retrying..."
+          end
+
         rescue Faraday::TimeoutError => e
-          # ── Read-timeout path (distinct from connection-level failures) ──
           # Faraday::TimeoutError on our non-streaming POST almost always means
           # the *response* took longer than the 300s read-timeout to come back —
           # i.e. the model is trying to produce a huge output in one shot
@@ -208,6 +229,7 @@ module Clacky
           if retries <= current_max
             if retries == RETRIES_BEFORE_FALLBACK && !@config.fallback_active?
               if try_activate_fallback(current_model)
+                api_call_model = current_model
                 retries = 0
                 retry
               end
@@ -297,7 +319,9 @@ module Clacky
         end
 
         # Track cost and collect token usage data.
-        token_data = track_cost(response[:usage], raw_api_usage: response[:raw_api_usage])
+        # Pass the model name captured at API call time to ensure accurate billing
+        # even if the user switched models during the (potentially long) API call.
+        token_data = track_cost(response[:usage], raw_api_usage: response[:raw_api_usage], model: api_call_model)
         response[:token_usage] = token_data
 
         # [DIAG] Log raw client response shape. Only emit when we see the
@@ -747,6 +771,22 @@ module Clacky
         @ui&.show_warning(
           "Upstream response was truncated mid tool-call — asking model to use smaller steps and retrying..."
         )
+      end
+
+      # Build a streaming progress callback for Client#send_messages_with_tools.
+      # Returns nil when no UI is attached, so the client skips the streaming
+      # plumbing entirely. Callback throttles UI updates to avoid flooding the
+      # progress handle on fast streams.
+      private def build_progress_on_chunk
+        return nil unless @ui
+        last_emit_at = 0.0
+        min_interval = 0.25
+        ->(input_tokens:, output_tokens:) {
+          now = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+          return if now - last_emit_at < min_interval && output_tokens > 0
+          last_emit_at = now
+          @ui.stream_thinking_progress(input_tokens: input_tokens, output_tokens: output_tokens)
+        }
       end
     end
   end

@@ -30,6 +30,9 @@ module Clacky
         ".xls"  => "xlsx_parser.rb",
         ".pptx" => "pptx_parser.rb",
         ".ppt"  => "pptx_parser.rb",
+        ".wps"  => "wps_parser.rb",
+        ".et"   => "wps_parser.rb",
+        ".dps"  => "wps_parser.rb",
       }.freeze
 
       # Ensure ~/.clacky/parsers/ exists and all default parsers are present.

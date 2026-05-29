@@ -39,6 +39,17 @@ module Clacky
         msg[:content].select { |b| b[:type] == "tool_result" }.map { |b| b[:tool_use_id] }
       end
 
+      # Anthropic requires tool_use.id to match ^[a-zA-Z0-9_-]+$ (max 128 chars).
+      # Some OpenAI-compatible upstreams (e.g. kimi-k2.6) return ids like "tool_name:0"
+      # — fine for OpenAI, rejected by Anthropic. We replace illegal chars with "_"
+      # at the format boundary so ids stay self-consistent across use/result pairs
+      # (pure function → same input maps to same output in both directions).
+      def sanitize_tool_use_id(id)
+        s = id.to_s
+        s = s.gsub(/[^a-zA-Z0-9_-]/, "_")
+        s.length > 128 ? s[0, 128] : s
+      end
+
       # ── Request building ──────────────────────────────────────────────────────
 
       # Convert canonical @messages + tools into an Anthropic API request body.
@@ -48,7 +59,7 @@ module Clacky
       # @param max_tokens [Integer]
       # @param caching_enabled [Boolean]
       # @return [Hash] ready to serialize as JSON body
-      def build_request_body(messages, model, tools, max_tokens, caching_enabled)
+      def build_request_body(messages, model, tools, max_tokens, caching_enabled, reasoning_effort: nil)
         system_messages = messages.select { |m| m[:role] == "system" }
         regular_messages = messages.reject { |m| m[:role] == "system" }
 
@@ -64,7 +75,19 @@ module Clacky
         body = { model: model, max_tokens: max_tokens, messages: api_messages }
         body[:system] = system_text unless system_text.empty?
         body[:tools]  = api_tools   if api_tools&.any?
+
+        if (effort = normalized_effort(reasoning_effort))
+          body[:thinking] = { type: "adaptive" }
+          body[:output_config] = { effort: effort }
+        end
+
         body
+      end
+
+      private_class_method def self.normalized_effort(effort)
+        return nil if effort.nil? || effort.to_s.empty?
+        s = effort.to_s
+        %w[low medium high].include?(s) ? s : nil
       end
 
       # ── Response parsing ──────────────────────────────────────────────────────
@@ -144,7 +167,6 @@ module Clacky
       end
 
       # ── Tool result formatting ────────────────────────────────────────────────
-
       # Format tool results into canonical messages to append to @messages.
       # Input:  response (canonical, has :tool_calls), tool_results array
       # Output: canonical messages: [{ role: "tool", tool_call_id:, content: }]
@@ -182,8 +204,24 @@ module Clacky
             func  = tc[:function] || tc
             name  = func[:name]  || tc[:name]
             raw_args = func[:arguments] || tc[:arguments]
-            input = raw_args.is_a?(String) ? JSON.parse(raw_args) : raw_args
-            blocks << { type: "tool_use", id: tc[:id], name: name, input: input || {} }
+            input =
+              if raw_args.is_a?(String)
+                begin
+                  JSON.parse(raw_args)
+                rescue JSON::ParserError => e
+                  Clacky::Logger.warn("message_format.anthropic.tool_args_parse_failed",
+                    tool_name: name.to_s,
+                    tool_call_id: tc[:id].to_s,
+                    args_len: raw_args.length,
+                    args_head: raw_args[0, 120],
+                    error: e.message
+                  ) if defined?(Clacky::Logger)
+                  {}
+                end
+              else
+                raw_args
+              end
+            blocks << { type: "tool_use", id: sanitize_tool_use_id(tc[:id]), name: name, input: input || {} }
           end
 
           return { role: "assistant", content: blocks }
@@ -222,7 +260,7 @@ module Clacky
                          else
                            raw_content
                          end
-          block = { type: "tool_result", tool_use_id: msg[:tool_call_id], content: tool_content }
+          block = { type: "tool_result", tool_use_id: sanitize_tool_use_id(msg[:tool_call_id]), content: tool_content }
           block[:cache_control] = hoisted_cache_control if hoisted_cache_control
           return { role: "user", content: [block] }
         end

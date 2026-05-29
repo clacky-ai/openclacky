@@ -10,15 +10,15 @@ RSpec.describe Clacky::Agent, "fallback model integration" do
   let(:primary_model)  { "abs-claude-sonnet-4-6" }
   let(:fallback_model) { "abs-claude-sonnet-4-5" }
 
-  # Config that maps to clackyai provider so fallback_model_for works
+  # Config that maps to openclacky provider so fallback_model_for works
   let(:config) do
     Clacky::AgentConfig.new(
       models: [
         {
           "type"             => "default",
           "model"            => primary_model,
-          "api_key"          => "absk-test",
-          "base_url"         => "https://api.clacky.ai/v1",
+          "api_key"          => "clacky-test-key",
+          "base_url"         => "https://api.openclacky.com/v1",
           "anthropic_format" => true
         }
       ],
@@ -28,7 +28,7 @@ RSpec.describe Clacky::Agent, "fallback model integration" do
 
   let(:client) do
     instance_double(Clacky::Client).tap do |c|
-      c.instance_variable_set(:@api_key, "absk-test")
+      c.instance_variable_set(:@api_key, "clacky-test-key")
       allow(c).to receive(:bedrock?).and_return(false)
       allow(c).to receive(:anthropic_format?).and_return(true)
       allow(c).to receive(:supports_prompt_caching?).and_return(false)

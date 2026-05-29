@@ -77,7 +77,8 @@ module Clacky
 
           def handle_raw_message(raw)
             msgtype = raw["msgtype"]
-            return unless %w[text image file].include?(msgtype)
+            Clacky::Logger.info("[wecom] msgtype=#{msgtype} raw=#{raw.to_s[0..300]}")
+            return unless %w[text image file mixed].include?(msgtype)
 
             chat_id = raw["chatid"] || raw.dig("from", "userid")
             return unless chat_id
@@ -92,18 +93,9 @@ module Clacky
               text = raw.dig("text", "content").to_s.strip
               return if text.empty?
             when "image"
-              url    = raw.dig("image", "url")
-              aeskey = raw.dig("image", "aeskey")
-              return unless url
-              result = MediaDownloader.download(url, aeskey)
-              mime = MediaDownloader.detect_mime(result[:body])
-              if result[:body].bytesize > MAX_IMAGE_BYTES
-                @ws_client.send_message(chat_id, "Image too large (#{(result[:body].bytesize / 1024.0).round(0).to_i}KB), max #{MAX_IMAGE_BYTES / 1024}KB")
-                return
-              end
-              require "base64"
-              data_url = "data:#{mime};base64,#{Base64.strict_encode64(result[:body])}"
-              files = [{ name: "image.jpg", mime_type: mime, data_url: data_url }]
+              file = download_image(raw["image"], chat_id)
+              return unless file
+              files = [file]
             when "file"
               url      = raw.dig("file", "url")
               aeskey   = raw.dig("file", "aeskey")
@@ -113,6 +105,9 @@ module Clacky
               filename = result[:filename] || filename
               saved = Clacky::Utils::FileProcessor.save(body: result[:body], filename: filename)
               files = [saved]
+            when "mixed"
+              text, files = parse_mixed(raw.dig("mixed", "msg_item") || [], chat_id)
+              return if text.empty? && files.empty?
             end
 
             event = {
@@ -136,6 +131,36 @@ module Clacky
             rescue
               nil
             end
+          end
+
+          private def download_image(image_data, chat_id)
+            url    = image_data&.[]("url")
+            aeskey = image_data&.[]("aeskey")
+            return nil unless url
+            result = MediaDownloader.download(url, aeskey)
+            mime = MediaDownloader.detect_mime(result[:body])
+            if result[:body].bytesize > MAX_IMAGE_BYTES
+              @ws_client.send_message(chat_id, "Image too large (#{(result[:body].bytesize / 1024.0).round(0).to_i}KB), max #{MAX_IMAGE_BYTES / 1024}KB")
+              return nil
+            end
+            require "base64"
+            data_url = "data:#{mime};base64,#{Base64.strict_encode64(result[:body])}"
+            { name: "image.jpg", mime_type: mime, data_url: data_url }
+          end
+
+          private def parse_mixed(items, chat_id)
+            text_parts = []
+            files = []
+            items.each do |item|
+              case item["msgtype"]
+              when "text"
+                text_parts << item.dig("text", "content").to_s.strip
+              when "image"
+                file = download_image(item["image"], chat_id)
+                files << file if file
+              end
+            end
+            [text_parts.join("\n").strip, files]
           end
 
           MAX_IMAGE_BYTES = Clacky::Utils::FileProcessor::MAX_IMAGE_BYTES

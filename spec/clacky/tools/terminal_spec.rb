@@ -101,6 +101,32 @@ RSpec.describe Clacky::Tools::Terminal do
       expect(result).to include(:error)
       expect(result[:error]).to match(/cwd/i)
     end
+
+    it "blocks multi-line commands and points the agent at write+bash" do
+      cmd = "cat <<'EOF'\nhello\nEOF"
+      result = tool.execute(command: cmd)
+      expect(result[:multiline_blocked]).to be(true)
+      expect(result[:error]).to match(/multi-line/i)
+      expect(result[:hint]).to match(/write.*bash/i)
+    end
+
+    it "blocks any command containing an embedded newline" do
+      result = tool.execute(command: "echo a\necho b")
+      expect(result[:multiline_blocked]).to be(true)
+    end
+
+    it "treats a trailing newline as still single-line" do
+      result = tool.execute(command: "echo hi\n")
+      expect(result[:multiline_blocked]).to be_nil
+      expect(result[:exit_code]).to eq(0)
+    end
+
+    it "allows long single-line commands chained with && or ;" do
+      result = tool.execute(command: "echo a && echo b ; echo c")
+      expect(result[:multiline_blocked]).to be_nil
+      expect(result[:exit_code]).to eq(0)
+      expect(result[:output].to_s).to include("a", "b", "c")
+    end
   end
 
   # ---------------------------------------------------------------------------
@@ -340,22 +366,17 @@ RSpec.describe Clacky::Tools::Terminal do
     end
 
     it "does NOT rewrite rm inside a heredoc body (regression: multi-line commands)" do
-      # A command that writes a heredoc whose body contains the word 'rm'
-      # must be executed as-is — not mangled by the old static rewriter,
-      # which would have treated the heredoc body tokens as rm targets.
-      Dir.mktmpdir do |dir|
-        script = File.join(dir, "heredoc_victim.txt")
-        cmd = <<~CMD
-          cat > #{script} <<'PYEOF'
-          this line mentions rm but must NOT be interpreted as a command
-          rm is just a word here
-          PYEOF
-        CMD
-        result = tool.execute(command: cmd, cwd: dir)
-        expect(result[:exit_code]).to eq(0)
-        expect(File.exist?(script)).to be(true)
-        expect(File.read(script)).to include("rm is just a word here")
-      end
+      # The Security layer must not treat heredoc body tokens as rm targets.
+      # Multi-line commands are now blocked at the tool entry, so we exercise
+      # the Security layer directly here.
+      cmd = <<~CMD
+        cat > /tmp/heredoc_victim.txt <<'PYEOF'
+        this line mentions rm but must NOT be interpreted as a command
+        rm is just a word here
+        PYEOF
+      CMD
+      safe = Clacky::Tools::Security.make_safe(cmd, project_root: Dir.pwd)
+      expect(safe).to eq(cmd.strip)
     end
 
     it "does NOT apply security rewriting to input (input is a reply, not a command)" do
@@ -749,7 +770,7 @@ RSpec.describe Clacky::Tools::Terminal do
       # actual run, only that auto-tuning kicked in — so we stub do_start
       # to return immediately.
       captured = {}
-      allow(tool).to receive(:do_start) do |_cmd, cwd:, env:, timeout:, idle_ms:, background:|
+      allow(tool).to receive(:do_start) do |_cmd, cwd:, env:, timeout:, idle_ms:, background:, on_output: nil|
         captured[:timeout] = timeout
         captured[:idle_ms] = idle_ms
         captured[:background] = background
@@ -765,7 +786,7 @@ RSpec.describe Clacky::Tools::Terminal do
 
     it "respects caller-supplied timeout/idle_ms even for slow commands" do
       captured = {}
-      allow(tool).to receive(:do_start) do |_cmd, cwd:, env:, timeout:, idle_ms:, background:|
+      allow(tool).to receive(:do_start) do |_cmd, cwd:, env:, timeout:, idle_ms:, background:, on_output: nil|
         captured[:timeout] = timeout
         captured[:idle_ms] = idle_ms
         { exit_code: 0, output: "", bytes_read: 0 }
@@ -779,7 +800,7 @@ RSpec.describe Clacky::Tools::Terminal do
 
     it "does NOT auto-tune background launches" do
       captured = {}
-      allow(tool).to receive(:do_start) do |_cmd, cwd:, env:, timeout:, idle_ms:, background:|
+      allow(tool).to receive(:do_start) do |_cmd, cwd:, env:, timeout:, idle_ms:, background:, on_output: nil|
         captured[:timeout] = timeout
         captured[:idle_ms] = idle_ms
         captured[:background] = background
@@ -876,6 +897,69 @@ RSpec.describe Clacky::Tools::Terminal do
     end
   end
 
+  describe "#force_powershell_utf8" do
+    let(:terminal) { described_class.new }
+    def call(cmd)
+      terminal.send(:force_powershell_utf8, cmd)
+    end
+
+    it "injects UTF-8 setup into -Command \"...\" form, preserving the rest" do
+      out = call(%q{powershell.exe -Command "Get-NetIPAddress | Select-Object InterfaceAlias"})
+      expect(out).to eq(%q{powershell.exe -Command "[Console]::OutputEncoding=[Text.Encoding]::UTF8;Get-NetIPAddress | Select-Object InterfaceAlias"})
+    end
+
+    it "handles -c short form and pwsh" do
+      expect(call(%q{powershell.exe -c "Get-Process"})).to include("UTF8;Get-Process")
+      expect(call(%q{pwsh -Command "Get-Date"})).to start_with("pwsh -Command \"[Console]")
+    end
+
+    it "rewrites bare invocation into -Command form" do
+      out = call(%q{powershell.exe Get-Process})
+      expect(out).to eq(%q{powershell.exe -Command "[Console]::OutputEncoding=[Text.Encoding]::UTF8;Get-Process"})
+    end
+
+    it "handles -Command without quotes" do
+      out = call(%q{powershell -Command Get-Date})
+      expect(out).to eq(%q{powershell -Command "[Console]::OutputEncoding=[Text.Encoding]::UTF8;Get-Date"})
+    end
+
+    it "splices through other PS flags like -NoProfile" do
+      out = call(%q{powershell.exe -NoProfile -Command "Get-Process"})
+      expect(out).to include("-NoProfile -Command \"[Console]")
+      expect(out).to end_with("Get-Process\"")
+    end
+
+    it "leaves -File invocations alone" do
+      cmd = %q{powershell.exe -File foo.ps1}
+      expect(call(cmd)).to eq(cmd)
+    end
+
+    it "leaves -EncodedCommand alone" do
+      cmd = %q{powershell.exe -EncodedCommand SQBuAHYAbwBrAGUA}
+      expect(call(cmd)).to eq(cmd)
+    end
+
+    it "is idempotent when OutputEncoding is already set" do
+      cmd = %q{powershell.exe -Command "[Console]::OutputEncoding=[Text.Encoding]::UTF8; Get-Date"}
+      expect(call(cmd)).to eq(cmd)
+    end
+
+    it "ignores non-powershell commands" do
+      expect(call("ls /tmp")).to eq("ls /tmp")
+      expect(call("cmd.exe /c dir")).to eq("cmd.exe /c dir")
+    end
+
+    it "refuses to splice across shell-level pipelines" do
+      cmd = %q{cat foo | powershell.exe -Command "Get-Date"}
+      expect(call(cmd)).to eq(cmd)
+    end
+
+    it "handles bare `powershell.exe` with no args" do
+      out = call("powershell.exe")
+      expect(out).to start_with("powershell.exe -Command \"[Console]")
+    end
+  end
+
   # ---------------------------------------------------------------------------
   # .run_sync — internal Ruby synchronous-capture API
   # ---------------------------------------------------------------------------
@@ -911,6 +995,57 @@ RSpec.describe Clacky::Tools::Terminal do
         # On macOS /tmp is symlinked to /private/tmp; compare via realpath.
         expect(File.realpath(output.strip)).to eq(File.realpath(dir))
       end
+    end
+  end
+
+  describe "Xcode Command Line Tools detection (macOS)" do
+    let(:fake_session_class) do
+      Struct.new(:id, :read_offset, :marker_token, :marker_regex,
+                 :log_file, :exit_code, :status, :pid, keyword_init: true)
+    end
+
+    before do
+      allow(tool).to receive(:read_log_slice) { |_, _, _| @stub_output }
+      allow(tool).to receive(:log_size) { @stub_output.bytesize }
+      allow(tool).to receive(:strip_command_echo) { |s, **| s }
+      allow(tool).to receive(:cleanup_session)
+      allow(tool).to receive(:session_healthy?).and_return(false)
+      allow(Clacky::Tools::Terminal::SessionManager).to receive(:advance_offset)
+    end
+
+    it "rewrites the xcode-select shim message into an actionable install hint" do
+      @stub_output = "xcode-select: note: No developer tools were found, " \
+                     "requesting install."
+      allow(tool).to receive(:read_until_marker).and_return([nil, 1, :matched])
+
+      session = fake_session_class.new(
+        id: "sess-x", read_offset: 0, marker_token: "TOKEN",
+        marker_regex: nil, log_file: "/dev/null", exit_code: 1,
+        status: "exited", pid: 0
+      )
+
+      result = tool.send(:wait_and_package, session, timeout: 5)
+
+      expect(result[:exit_code]).to eq(1)
+      expect(result[:output]).to include("Xcode Command Line Tools are not installed")
+      expect(result[:output]).to include("install_system_deps.sh")
+      expect(result[:output]).not_to include("xcode-select")
+    end
+
+    it "leaves normal output unchanged" do
+      @stub_output = "hello world"
+      allow(tool).to receive(:read_until_marker).and_return([nil, 0, :matched])
+
+      session = fake_session_class.new(
+        id: "sess-ok", read_offset: 0, marker_token: "TOKEN",
+        marker_regex: nil, log_file: "/dev/null", exit_code: 0,
+        status: "exited", pid: 0
+      )
+
+      result = tool.send(:wait_and_package, session, timeout: 5)
+
+      expect(result[:exit_code]).to eq(0)
+      expect(result[:output]).to eq("hello world")
     end
   end
 

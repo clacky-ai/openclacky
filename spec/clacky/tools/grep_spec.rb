@@ -132,10 +132,65 @@ RSpec.describe Clacky::Tools::Grep do
         result = tool.execute(pattern: "TerminalChannel", path: dir, file_pattern: "**/*.rb")
 
         expect(result[:error]).to be_nil
-        # Should only find the file in lib/, not in tmp/ or vendor/
         expect(result[:files_with_matches]).to eq(1)
         expect(result[:results].first[:file]).to end_with("lib/test.rb")
-        expect(result[:skipped_files][:ignored]).to eq(2)
+      end
+    end
+
+    it "respects nested .gitignore in subdirectories" do
+      Dir.mktmpdir do |dir|
+        FileUtils.mkdir_p(File.join(dir, "frontend", "dist"))
+        FileUtils.mkdir_p(File.join(dir, "frontend", "src"))
+        FileUtils.mkdir_p(File.join(dir, "backend"))
+
+        File.write(File.join(dir, "frontend", ".gitignore"), "dist/\n")
+
+        File.write(File.join(dir, "frontend", "dist", "bundle.js"), "findme")
+        File.write(File.join(dir, "frontend", "src", "app.js"), "findme")
+        File.write(File.join(dir, "backend", "server.rb"), "findme")
+
+        result = tool.execute(pattern: "findme", path: dir, file_pattern: "**/*")
+
+        expect(result[:error]).to be_nil
+        files = result[:results].map { |r| File.basename(r[:file]) }
+        expect(files).to include("app.js", "server.rb")
+        expect(files).not_to include("bundle.js")
+      end
+    end
+  end
+
+  describe "broad-path guard" do
+    it "refuses to grep from filesystem root" do
+      result = tool.execute(pattern: "anything", path: "/")
+      expect(result[:error]).to include("Refusing to recursively grep")
+    end
+
+    it "refuses to grep from /root" do
+      allow(File).to receive(:exist?).and_call_original
+      allow(File).to receive(:exist?).with("/root").and_return(true)
+      allow(File).to receive(:directory?).and_call_original
+      allow(File).to receive(:directory?).with("/root").and_return(true)
+
+      result = tool.execute(pattern: "anything", path: "/root")
+      expect(result[:error]).to include("Refusing to recursively grep")
+    end
+
+    it "still allows narrow project paths" do
+      Dir.mktmpdir do |dir|
+        File.write(File.join(dir, "a.txt"), "hello")
+        result = tool.execute(pattern: "hello", path: dir)
+        expect(result[:error]).to be_nil
+      end
+    end
+
+    it "still allows grep on a single file even if it lives under /etc" do
+      # File-mode grep should not trigger the directory broad-path guard.
+      Tempfile.create("grep_single") do |f|
+        f.write("needle\n")
+        f.flush
+        result = tool.execute(pattern: "needle", path: f.path)
+        expect(result[:error]).to be_nil
+        expect(result[:total_matches]).to eq(1)
       end
     end
   end

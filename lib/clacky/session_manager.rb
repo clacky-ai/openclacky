@@ -51,15 +51,10 @@ module Clacky
       all_sessions.find { |s| s[:session_id].to_s.start_with?(session_id.to_s) }
     end
 
-    # Physical delete — removes disk file + associated chunk files.
-    # Returns true if found and deleted, false if not found.
+    # Soft-delete: move session JSON + chunks to the session trash directory.
+    # Returns true if found and moved, false if not found.
     def delete(session_id)
-      session = all_sessions.find { |s| s[:session_id].to_s.start_with?(session_id.to_s) }
-      return false unless session
-
-      filepath = File.join(@sessions_dir, generate_filename(session[:session_id], session[:created_at]))
-      delete_session_with_chunks(filepath)
-      true
+      soft_delete(session_id)
     end
 
     # Return the on-disk files associated with a session: the main JSON file
@@ -177,7 +172,7 @@ module Clacky
         session = load_session_file(filepath)
         next unless session
         if Time.parse(session[:updated_at]) < cutoff
-          delete_session_with_chunks(filepath)
+          _hard_delete_session_with_chunks(filepath)
           deleted += 1
         end
       end
@@ -192,8 +187,42 @@ module Clacky
 
       sessions[keep..].each do |session|
         filepath = File.join(@sessions_dir, generate_filename(session[:session_id], session[:created_at]))
-        delete_session_with_chunks(filepath) if File.exist?(filepath)
+        _hard_delete_session_with_chunks(filepath) if File.exist?(filepath)
       end.size
+    end
+
+    # ── Session trash (delegates to Tools::TrashManager) ──────────────
+    # All business logic lives in Clacky::Tools::TrashManager; SessionManager
+    # only provides the sessions_dir context and filesystem helpers used there.
+
+    # Soft-delete: stamp deleted_at, move JSON + chunks to sessions-trash/.
+    def soft_delete(session_id)
+      require_relative "tools/trash_manager"
+      Clacky::Tools::TrashManager.soft_delete_session(session_id, sessions_dir: @sessions_dir)
+    end
+
+    # Restore a soft-deleted session back to the active sessions directory.
+    def restore_session(session_id)
+      require_relative "tools/trash_manager"
+      Clacky::Tools::TrashManager.restore_session(session_id, sessions_dir: @sessions_dir)
+    end
+
+    # List all soft-deleted sessions (newest-first).
+    def list_trash_sessions
+      require_relative "tools/trash_manager"
+      Clacky::Tools::TrashManager.list_trash_sessions(sessions_dir: @sessions_dir)
+    end
+
+    # Permanently delete one session from the trash — cannot be undone.
+    def permanent_delete_trash_session(session_id)
+      require_relative "tools/trash_manager"
+      Clacky::Tools::TrashManager.permanent_delete_trash_session(session_id, sessions_dir: @sessions_dir)
+    end
+
+    # Clean up soft-deleted sessions older than :days (default: 90).
+    def cleanup_trash(days: 90)
+      require_relative "tools/trash_manager"
+      Clacky::Tools::TrashManager.empty_trash_sessions(sessions_dir: @sessions_dir, days: days)
     end
 
 
@@ -251,10 +280,10 @@ module Clacky
     end
 
     # Delete a session JSON file and all its associated chunk MD files.
-    def delete_session_with_chunks(json_filepath)
+    private def _hard_delete_session_with_chunks(json_filepath)
       File.delete(json_filepath) if File.exist?(json_filepath)
       base = File.basename(json_filepath, ".json")
-      Dir.glob(File.join(@sessions_dir, "#{base}-chunk-*.md")).each { |f| File.delete(f) }
+      Dir.glob(File.join(File.dirname(json_filepath), "#{base}-chunk-*.md")).each { |f| File.delete(f) }
     end
 
     def load_session_file(filepath)

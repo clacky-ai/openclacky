@@ -51,7 +51,9 @@ module Clacky
 
         # { rc_sources; } 1>&2 — send rc-time stdout to stderr so target's
         # stdout is pristine. `exec` replaces the shell with target.
-        script = "{ #{rc_sources}; } 1>&2; exec #{command}"
+        # PS1 trick: Ubuntu .bashrc has `[ -z "$PS1" ] && return` guard that
+        # skips the entire file in non-interactive shells. Setting PS1 defeats it.
+        script = "PS1='$ '; { #{rc_sources}; } 1>&2; exec #{command}"
         [shell, "-c", script]
       end
 

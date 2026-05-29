@@ -140,10 +140,11 @@
   <script>
     const params  = new URLSearchParams(location.search);
     const url     = params.get("url");
-    // since: Unix timestamp (seconds) passed by the setup skill when opening this page.
-    // We only show success if token_updated_at > since, preventing false positives
-    // when the user already had a token from a previous login.
-    const since   = parseInt(params.get("since") || "0", 10);
+    // since: the moment this page loaded, in Unix seconds.
+    // We only show success if token_updated_at >= since, so a pre-existing token
+    // never triggers the overlay.
+    // Intentionally NOT taken from the URL param — the page is the source of truth.
+    const since   = Math.floor(Date.now() / 1000);
     const el      = document.getElementById("qrcode");
 
     if (!url) {

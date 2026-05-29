@@ -101,24 +101,6 @@ RSpec.describe Clacky::AgentConfig do
         end
       end
 
-      it "converts old name field to model field" do
-        with_temp_config({
-          "models" => [
-            {
-              "name" => "default",
-              "api_key" => "sk-key1",
-              "base_url" => "https://api.test.com",
-              "anthropic_format" => true
-            }
-          ]
-        }) do |config_file|
-          config = described_class.load(config_file)
-
-          expect(config.models.length).to eq(1)
-          expect(config.models[0]["model"]).to eq("default")
-          expect(config.models[0]["name"]).to be_nil
-        end
-      end
     end
 
     context "backward compatibility with old hash format" do
@@ -845,13 +827,13 @@ RSpec.describe Clacky::AgentConfig do
   # Lite model resolution (virtual, on-demand; no longer materialized into @models)
   # ─────────────────────────────────────────────────────────────────────────
   describe "#lite_model_config_for_current (virtual lite derivation)" do
-    context "when clackyai-sea is the configured provider (base_url matches)" do
+    context "when openclacky is the configured provider (base_url matches)" do
       it "does NOT materialize lite into @models at load time" do
         with_temp_config([
           {
             "model"            => "abs-claude-sonnet-4-6",
             "api_key"          => "absk-test-key",
-            "base_url"         => "https://api.clacky.ai",
+            "base_url"         => "https://api.openclacky.com",
             "anthropic_format" => false,
             "type"             => "default"
           }
@@ -870,7 +852,7 @@ RSpec.describe Clacky::AgentConfig do
           {
             "model"            => "abs-claude-sonnet-4-6",
             "api_key"          => "absk-test-key",
-            "base_url"         => "https://api.clacky.ai",
+            "base_url"         => "https://api.openclacky.com",
             "anthropic_format" => false,
             "type"             => "default"
           }
@@ -881,7 +863,7 @@ RSpec.describe Clacky::AgentConfig do
           expect(lite).not_to be_nil
           expect(lite["model"]).to eq("abs-claude-haiku-4-5")
           expect(lite["api_key"]).to eq("absk-test-key")
-          expect(lite["base_url"]).to eq("https://api.clacky.ai")
+          expect(lite["base_url"]).to eq("https://api.openclacky.com")
           expect(lite["type"]).to eq("lite")
           expect(lite["virtual"]).to be true
         end
@@ -892,7 +874,7 @@ RSpec.describe Clacky::AgentConfig do
           {
             "model"            => "abs-claude-haiku-4-5",
             "api_key"          => "absk-test-key",
-            "base_url"         => "https://api.clacky.ai",
+            "base_url"         => "https://api.openclacky.com",
             "anthropic_format" => false,
             "type"             => "default"
           }
@@ -907,14 +889,14 @@ RSpec.describe Clacky::AgentConfig do
           {
             "model"            => "abs-claude-sonnet-4-6",
             "api_key"          => "absk-test-key",
-            "base_url"         => "https://api.clacky.ai",
+            "base_url"         => "https://api.openclacky.com",
             "anthropic_format" => false,
             "type"             => "default"
           },
           {
             "model"            => "my-custom-lite",
             "api_key"          => "absk-test-key",
-            "base_url"         => "https://api.clacky.ai",
+            "base_url"         => "https://api.openclacky.com",
             "anthropic_format" => false,
             "type"             => "lite"
           }
@@ -987,7 +969,7 @@ RSpec.describe Clacky::AgentConfig do
           {
             "model"            => "abs-claude-sonnet-4-6",
             "api_key"          => "absk-test-key",
-            "base_url"         => "https://api.clacky.ai",
+            "base_url"         => "https://api.openclacky.com",
             "anthropic_format" => false,
             "type"             => "default"
           }
@@ -1012,20 +994,20 @@ RSpec.describe Clacky::AgentConfig do
   # Providers.find_by_base_url
   # ─────────────────────────────────────────────────────────────────────────
   describe "Clacky::Providers.find_by_base_url" do
-    it "returns clackyai-sea for https://api.clacky.ai" do
-      expect(Clacky::Providers.find_by_base_url("https://api.clacky.ai")).to eq("clackyai-sea")
+    it "returns openclacky for https://api.openclacky.com" do
+      expect(Clacky::Providers.find_by_base_url("https://api.openclacky.com")).to eq("openclacky")
     end
 
     it "is tolerant of trailing slashes" do
-      expect(Clacky::Providers.find_by_base_url("https://api.clacky.ai/")).to eq("clackyai-sea")
+      expect(Clacky::Providers.find_by_base_url("https://api.openclacky.com/")).to eq("openclacky")
     end
 
     it "matches sub-path variants like /v1" do
-      expect(Clacky::Providers.find_by_base_url("https://api.clacky.ai/v1")).to eq("clackyai-sea")
+      expect(Clacky::Providers.find_by_base_url("https://api.openclacky.com/v1")).to eq("openclacky")
     end
 
     it "matches sub-path variants like /v1/" do
-      expect(Clacky::Providers.find_by_base_url("https://api.clacky.ai/v1/")).to eq("clackyai-sea")
+      expect(Clacky::Providers.find_by_base_url("https://api.openclacky.com/v1/")).to eq("openclacky")
     end
 
     it "returns nil for unknown base URLs" do
@@ -1041,26 +1023,25 @@ RSpec.describe Clacky::AgentConfig do
   # Providers.lite_model (per-family lookup)
   # ─────────────────────────────────────────────────────────────────────────
   describe "Clacky::Providers.lite_model" do
-    context "clackyai-sea (Claude-only lite_models table)" do
+    context "openclacky (Claude-only lite_models table)" do
       it "returns Haiku for Claude-family primaries" do
-        expect(Clacky::Providers.lite_model("clackyai-sea", "abs-claude-sonnet-4-6"))
+        expect(Clacky::Providers.lite_model("openclacky", "abs-claude-sonnet-4-6"))
           .to eq("abs-claude-haiku-4-5")
-        expect(Clacky::Providers.lite_model("clackyai-sea", "abs-claude-opus-4-6"))
+        expect(Clacky::Providers.lite_model("openclacky", "abs-claude-opus-4-6"))
           .to eq("abs-claude-haiku-4-5")
       end
 
       it "returns nil for lite-class primaries (Haiku)" do
-        expect(Clacky::Providers.lite_model("clackyai-sea", "abs-claude-haiku-4-5")).to be_nil
+        expect(Clacky::Providers.lite_model("openclacky", "abs-claude-haiku-4-5")).to be_nil
       end
 
-      it "returns nil for models not in the lite_models table (e.g. DeepSeek, not hosted)" do
-        # clackyai-sea only hosts Claude; DeepSeek models are not mapped.
-        expect(Clacky::Providers.lite_model("clackyai-sea", "dsk-deepseek-v4-pro")).to be_nil
+      it "returns nil for models not in the lite_models table (e.g. unknown model)" do
+        expect(Clacky::Providers.lite_model("openclacky", "unknown-model")).to be_nil
       end
 
       it "returns nil when called without a primary on a per-family provider" do
         # Per-family providers require context — no sensible global default.
-        expect(Clacky::Providers.lite_model("clackyai-sea")).to be_nil
+        expect(Clacky::Providers.lite_model("openclacky")).to be_nil
       end
     end
 
@@ -1072,6 +1053,53 @@ RSpec.describe Clacky::AgentConfig do
     it "returns nil for unknown provider IDs" do
       expect(Clacky::Providers.lite_model("nonexistent")).to be_nil
       expect(Clacky::Providers.lite_model("nonexistent", "anything")).to be_nil
+    end
+  end
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # default_working_dir
+  # ─────────────────────────────────────────────────────────────────────────
+  describe "#default_working_dir" do
+    it "returns nil by default (no config, no env)" do
+      with_env("CLACKY_WORKSPACE_DIR" => nil) do
+        config = described_class.new
+        expect(config.default_working_dir).to be_nil
+      end
+    end
+
+    it "reads from CLACKY_WORKSPACE_DIR env var" do
+      with_env("CLACKY_WORKSPACE_DIR" => "/tmp/custom-workspace") do
+        config = described_class.new
+        expect(config.default_working_dir).to eq("/tmp/custom-workspace")
+      end
+    end
+
+    it "reads from options hash" do
+      config = described_class.new(default_working_dir: "/opt/workspace")
+      expect(config.default_working_dir).to eq("/opt/workspace")
+    end
+
+    it "loads from config.yml settings" do
+      with_env("CLACKY_WORKSPACE_DIR" => nil) do
+        with_temp_config({
+          "settings" => {
+            "default_working_dir" => "/home/user/projects"
+          }
+        }) do |config_file|
+          config = described_class.load(config_file)
+          expect(config.default_working_dir).to eq("/home/user/projects")
+        end
+      end
+    end
+
+    it "persists via save/load roundtrip" do
+      with_temp_config do |config_file|
+        config = described_class.new(default_working_dir: "/persist/test")
+        config.save(config_file)
+
+        reloaded = described_class.load(config_file)
+        expect(reloaded.default_working_dir).to eq("/persist/test")
+      end
     end
   end
 

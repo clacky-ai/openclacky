@@ -6,6 +6,12 @@
 [![Downloads](https://img.shields.io/gem/dt/openclacky?label=downloads&style=flat-square&color=brightgreen)](https://rubygems.org/gems/openclacky)
 [![License](https://img.shields.io/badge/license-MIT-lightgrey?style=flat-square)](LICENSE.txt)
 
+<p align="center">
+  <a href="README.md">English</a> · <a href="README_CN.md">简体中文</a>
+</p>
+
+> Contributing? Read **[CONTRIBUTING.md](./CONTRIBUTING.md)** before opening a PR.
+
 **The most Token-efficient open-source AI Agent.**
 
 OpenClacky matches Claude Code on capability at comparable cost, and saves significantly against other open-source agents (~50% vs OpenClaw, ~3× cheaper than Hermes). 100% open source (MIT), BYOK with any OpenAI-compatible model, built on two years of Agentic R&D and harness engineering.
@@ -18,7 +24,7 @@ Same task, how much do you pay? Under comparable agent workloads, OpenClacky sav
 
 | Agent | Relative cost | Notes |
 |---|---|---|
-| **OpenClacky** | **~0.8–1.2×** | 16 tools · ~100% cache hit · subagent routing |
+| **OpenClacky** | **~0.8** | 16 tools · ~100% cache hit · subagent routing |
 | Claude Code | 1.0× (baseline) | World-class harness, closed-source subscription |
 | OpenClaw | ~1.5× | Comparable harness agent |
 | Hermes | ~3× | 52 built-in tools — schema bloat ~3–4× |
@@ -31,11 +37,11 @@ Core agent capability is roughly on par across the field — the real differenti
 
 | Feature | Claude Code | OpenClaw | Hermes | **OpenClacky** |
 |---|:---:|:---:|:---:|:---:|
-| Token cost | 1.0× | ~1.5× | ~3× | **~0.8–1.2×** |
+| Token cost | 1.0× | ~1.5× | ~3× | **~0.8** |
 | Open source | ❌ Closed | ✅ Open | ✅ Open | ✅ MIT |
 | BYOK / model freedom | ❌ Anthropic only | ✅ | ✅ | ✅ |
 | Skill self-evolution | ❌ | ❌ | ✅ | ✅ |
-| IM integration (Feishu / WeCom / WeChat) | ❌ | ✅ | ✅ | ✅ |
+| IM integration (Feishu/WeCom/WeChat/Discord/Telegram) | ❌ | ✅ | ✅ | ✅ |
 
 ## How we get the cost down
 
@@ -80,17 +86,62 @@ More options: https://www.openclacky.com/
 
 ### Command line
 
+One-line install(Mac/Ubuntu):
+
+```bash
+/bin/bash -c "$(curl -sSL https://raw.githubusercontent.com/clacky-ai/openclacky/main/scripts/install.sh)"
+```
+
+Windows:
+
+```bash
+powershell -c "& ([scriptblock]::Create((irm 'https://raw.githubusercontent.com/clacky-ai/openclacky/main/scripts/install.ps1')))"
+```
+
+or using Ruby(3.x/4.x):
+
 **Requirements:** Ruby >= 3.1.0
 
 ```bash
 gem install openclacky
 ```
 
-Or one-line install:
+see more: https://www.openclacky.com/docs/installation
+
+### Docker
+
+Build:
 
 ```bash
-/bin/bash -c "$(curl -sSL https://raw.githubusercontent.com/clacky-ai/openclacky/main/scripts/install.sh)"
+git clone https://github.com/clacky-ai/openclacky.git
+cd openclacky
+docker build -t openclacky .
 ```
+
+**Linux:**
+
+```bash
+docker run -d --network=host -e CLACKY_ACCESS_KEY="" openclacky
+```
+
+`--network=host` is required so the agent inside the container can reach Chrome's remote debugging port running on the host.
+
+**macOS / Windows:**
+
+```bash
+docker run -d -p 7070:7070 -e CLACKY_ACCESS_KEY="" openclacky
+```
+
+> **Note:** On macOS/Windows, `--network=host` is not supported — browser automation may be limited.
+
+Open **http://localhost:7070** after starting.
+
+Environment variables:
+
+| Variable | Description |
+|---|---|
+| `CLACKY_ACCESS_KEY` | Protect the Web UI with an access key (empty = public mode) |
+
 
 ## Quick Start
 
@@ -137,6 +188,16 @@ $ openclacky
 > How does the payment module work?
 ```
 
+## Star History
+
+<a href="https://www.star-history.com/?repos=clacky-ai%2Fopenclacky&type=date&legend=top-left">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=clacky-ai/openclacky&type=date&theme=dark&legend=top-left" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=clacky-ai/openclacky&type=date&legend=top-left" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=clacky-ai/openclacky&type=date&legend=top-left" />
+ </picture>
+</a>
+
 ## Advanced — Creator Program
 
 Already power users are turning their workflows into vertical AI experts on OpenClacky — encrypted distribution, License management, self-set pricing. Legal, healthcare, financial planning, and more.
@@ -158,6 +219,14 @@ bin/clacky
 - **2 years of Agentic R&D** — 3 generations of architecture
 - **16 core tools** — minimal by design
 - **Backed by** MiraclePlus · ZhenFund · Sequoia China · Hillhouse Capital
+
+## Contributors
+
+Every line of code, bug report, and thoughtful review matters. Thank you for making OpenClacky better.
+
+<a href="https://github.com/clacky-ai/openclacky/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=clacky-ai/openclacky" />
+</a>
 
 ## Contributing
 

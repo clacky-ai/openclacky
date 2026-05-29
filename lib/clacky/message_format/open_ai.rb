@@ -44,7 +44,7 @@ module Clacky
       # @param vision_supported [Boolean] whether the target model accepts
       #   image_url content blocks (default true, conservative)
       # @return [Hash]
-      def build_request_body(messages, model, tools, max_tokens, caching_enabled, vision_supported: true)
+      def build_request_body(messages, model, tools, max_tokens, caching_enabled, vision_supported: true, reasoning_effort: nil)
         api_messages = messages.map { |msg| normalize_message_content(msg, vision_supported: vision_supported) }
 
         body = { model: model, max_tokens: max_tokens, messages: api_messages }
@@ -57,6 +57,10 @@ module Clacky
           else
             body[:tools] = tools
           end
+        end
+
+        if reasoning_effort && !reasoning_effort.to_s.empty?
+          body[:reasoning_effort] = reasoning_effort.to_s
         end
 
         body

@@ -72,6 +72,9 @@ module Clacky
           {session_id, input:"pw\n"}      reply to prompt / poll (input:"")
           {session_id, kill:true}         stop
 
+        Single-line only. For multi-line scripts (heredoc, loops, multi-statement blocks)
+        write a file first, then run it: write(path:"/tmp/run.sh", content:...) → terminal(command:"bash /tmp/run.sh").
+
         Response: exit_code = done; session_id = running (state: waiting/background/timeout).
         If output exceeds the limit, `output` is truncated and `full_output_file` points
         at a file on disk — use terminal(command: "grep ... <path>") to search it.
@@ -196,7 +199,7 @@ module Clacky
       # ---------------------------------------------------------------------
       def execute(command: nil, session_id: nil, input: nil, background: false,
                   cwd: nil, env: nil, timeout: nil, kill: nil, idle_ms: nil,
-                  working_dir: nil, **_ignored)
+                  working_dir: nil, on_output: nil, **_ignored)
         # Auto-tune: if the caller didn't explicitly set a timeout/idle_ms
         # AND the command is a well-known long-runner (rspec, bundle install,
         # cargo build, etc.), we stretch the budget AND disable idle-return.
@@ -223,13 +226,25 @@ module Clacky
         # Continue / poll a running session
         if session_id
           return { error: "input is required when session_id is given" } if input.nil?
-          return do_continue(session_id.to_i, input.to_s, timeout: timeout, idle_ms: idle_ms)
+          return do_continue(session_id.to_i, input.to_s, timeout: timeout, idle_ms: idle_ms, on_output: on_output)
         end
 
         # Start a new command
         if command && !command.to_s.strip.empty?
+          if multiline_command?(command)
+            return {
+              error: "Multi-line commands are unreliable in our PTY shell " \
+                     "(heredocs / unclosed quotes / multi-line blocks can hang the session).",
+              hint: "Write the script to a file first, then execute it. " \
+                    "Example: 1) write(path: \"/tmp/run.sh\", content: \"...\")  " \
+                    "2) terminal(command: \"bash /tmp/run.sh\")",
+              multiline_blocked: true
+            }
+          end
+
           return do_start(command.to_s, cwd: cwd, env: env, timeout: timeout,
-                          idle_ms: idle_ms, background: background ? true : false)
+                          idle_ms: idle_ms, background: background ? true : false,
+                          on_output: on_output)
         end
 
         { error: "terminal: must provide either `command`, or `session_id`+`input`, or `session_id`+`kill: true`." }
@@ -313,7 +328,7 @@ module Clacky
       # ---------------------------------------------------------------------
       # 1) Start a new command
       # ---------------------------------------------------------------------
-      private def do_start(command, cwd:, env:, timeout:, background:, idle_ms: DEFAULT_IDLE_MS)
+      private def do_start(command, cwd:, env:, timeout:, background:, idle_ms: DEFAULT_IDLE_MS, on_output: nil)
         if cwd && !Dir.exist?(cwd.to_s)
           return { error: "cwd does not exist: #{cwd}" }
         end
@@ -324,6 +339,16 @@ module Clacky
           command,
           project_root: cwd || Dir.pwd
         )
+
+        # WSL interop fix: Windows .exe processes inherit the PTY's stdin fd
+        # and attempt to use it as a Windows Console, causing them to hang
+        # indefinitely. Redirect stdin from /dev/null for any .exe invocation
+        # that doesn't already have an explicit stdin redirect.
+        safe_command = redirect_exe_stdin(safe_command)
+
+        # PowerShell 5 on Chinese Windows emits CP936/GBK by default; force
+        # UTF-8 so our PTY (which decodes as UTF-8) doesn't see ??? bytes.
+        safe_command = force_powershell_utf8(safe_command)
 
         # Background / dedicated path — never reuse the persistent shell,
         # because these commands stay running and would occupy the slot.
@@ -343,7 +368,8 @@ module Clacky
             background: true,
             persistent: false,
             original_command: command,
-            rewritten_command: safe_command
+            rewritten_command: safe_command,
+            on_output: on_output
           )
         end
 
@@ -368,14 +394,15 @@ module Clacky
           idle_ms: idle_ms,
           persistent: persistent,
           original_command: command,
-          rewritten_command: safe_command
+          rewritten_command: safe_command,
+          on_output: on_output
         )
       end
 
       # ---------------------------------------------------------------------
       # 2) Continue / poll an existing session
       # ---------------------------------------------------------------------
-      private def do_continue(session_id, input, timeout:, idle_ms: DEFAULT_IDLE_MS)
+      private def do_continue(session_id, input, timeout:, idle_ms: DEFAULT_IDLE_MS, on_output: nil)
         session = SessionManager.refresh(session_id)
         return { error: "Session ##{session_id} not found (already finished or killed)." } unless session
 
@@ -386,7 +413,7 @@ module Clacky
 
         session.mutex.synchronize { session.writer.write(normalize_input_for_pty(input.to_s)) } unless input.to_s.empty?
 
-        wait_and_package(session, timeout: timeout, idle_ms: idle_ms)
+        wait_and_package(session, timeout: timeout, idle_ms: idle_ms, on_output: on_output)
       end
 
       # `\n` is a Unix newline, not the "Enter key". Inside cooked-mode PTYs
@@ -435,10 +462,11 @@ module Clacky
       #   :timeout | session_id, state=timeout    | session_id, state=background
       private def wait_and_package(session, timeout:, idle_ms: DEFAULT_IDLE_MS,
                                    background: false, persistent: false,
-                                   original_command: nil, rewritten_command: nil)
+                                   original_command: nil, rewritten_command: nil,
+                                   on_output: nil)
         start_offset = session.read_offset
 
-        _before, code, state = read_until_marker(session, timeout: timeout, idle_ms: idle_ms)
+        _before, code, state = read_until_marker(session, timeout: timeout, idle_ms: idle_ms, on_output: on_output)
 
         new_offset = log_size(session)
         raw = read_log_slice(session.log_file, start_offset, new_offset)
@@ -494,6 +522,12 @@ module Clacky
           else
             cleanup_session(session)
           end
+          if xcode_tools_missing?(cleaned)
+            cleaned = "Xcode Command Line Tools are not installed.\n" \
+                      "Run: bash ~/.clacky/scripts/install_system_deps.sh\n" \
+                      "Then retry the original command."
+            exit_code = 1
+          end
           {
             output: cleaned,
             exit_code: exit_code,
@@ -519,6 +553,11 @@ module Clacky
             hint: background_hint(background, session.id)
           }.compact
         end
+      end
+
+      private def xcode_tools_missing?(output)
+        return false if output.nil? || output.empty?
+        output.include?("xcode-select") && output.include?("No developer tools were found")
       end
 
       private def session_healthy?(session)
@@ -757,7 +796,7 @@ module Clacky
 
         spawn_env = {
           "TERM" => "xterm-256color",
-          "PS1"  => "",
+          "PS1"  => " ",
           # Prevent our sub-shell from polluting the user's ~/.zsh_history
           # (or ~/.bash_history). We fork a full interactive login shell to
           # get rbenv/nvm/brew-shellenv/mise loaded, but every command we
@@ -1035,10 +1074,16 @@ module Clacky
       #     whole persistent shell.
       def source_rc_in_session(session, rc_files)
         return if rc_files.empty?
-        cmd = rc_files.map { |f|
+        sources = rc_files.map { |f|
           escaped = f.gsub('"', '\"')
           "source \"#{escaped}\" || true"
         }.join("; ")
+        # rc files often gate interactive-only setup (mise activate, direnv
+        # hook, nvm, pyenv, oh-my-zsh) on `[ -z "$PS1" ]` / `[[ -o interactive ]]`.
+        # We normally keep PS1="" to suppress prompt noise in captured output,
+        # but that makes those gates fail when we re-source rc here. Set a
+        # placeholder PS1 just for the duration of the source, then restore "".
+        cmd = %Q{__clacky_old_ps1="$PS1"; PS1="__CLACKY_PS1__"; #{sources}; PS1="$__clacky_old_ps1"; unset __clacky_old_ps1}
         run_inline(session, cmd, timeout: 15)
       end
 
@@ -1091,7 +1136,12 @@ module Clacky
       # Poll the log file until a marker matches, idle-return fires, or timeout.
       # Returns [raw_before_marker, exit_code_or_nil, state].
       # state ∈ :matched, :idle, :timeout, :eof
-      private def read_until_marker(session, timeout:, idle_ms: DEFAULT_IDLE_MS)
+      #
+      # `on_output` (optional Proc): called as on_output.call(chunk_string) for
+      # each new piece of output as it arrives, BEFORE the marker is detected.
+      # The chunk has ANSI codes / wrapper echoes stripped so it's safe to
+      # render in a UI. The completion marker itself is never passed through.
+      private def read_until_marker(session, timeout:, idle_ms: DEFAULT_IDLE_MS, on_output: nil)
         return ["", nil, :eof] unless session.marker_regex
 
         deadline    = Time.now + timeout
@@ -1099,14 +1149,98 @@ module Clacky
         start_size  = session.read_offset
         last_size   = start_size
         last_change = Time.now
+        streamed_to = start_size  # bytes already pushed to on_output
+        # Per-call streaming state: we hold back bytes until we see a \n so
+        # we can run cleaning on whole lines, then drop wrapper-echo lines.
+        stream_pending = +""
+        # Phase: until we observe the full `{ user_cmd; }; __clacky_ec=$?; printf "..." "$__clacky_ec"`
+        # wrapper echo (or decide it never came), buffer everything so the
+        # wrapper opener `{ ...` doesn't leak to the UI.
+        wrapper_swallowed = false
+
+        flush_stream = lambda do |raw, force_partial: false|
+          return unless on_output && raw && !raw.empty?
+          stream_pending << raw
+
+          # Phase 1: swallow the wrapper echo. The wrapper always ends with
+          # the literal printf tail `"$__clacky_ec"`. Until we see that, we
+          # accumulate; once we do, we strip the whole wrapper out and only
+          # emit whatever real output came after it.
+          #
+          # However, when stty -echo is active (the normal case for our
+          # persistent sessions), the wrapper is never echoed — so the tail
+          # marker never appears. We detect this by checking: if we have a
+          # complete line (\n present) and it does NOT contain the wrapper
+          # fingerprint, echo was suppressed and we can start streaming
+          # immediately.
+          unless wrapper_swallowed
+            tail_marker = '"$__clacky_ec"'
+            tail_idx = stream_pending.index(tail_marker)
+            if tail_idx
+              eol_after = stream_pending.index("\n", tail_idx) || (stream_pending.bytesize - 1)
+              stream_pending.replace(stream_pending.byteslice(eol_after + 1, stream_pending.bytesize - eol_after - 1).to_s)
+              wrapper_swallowed = true
+            elsif force_partial
+              wrapper_swallowed = true
+            elsif stream_pending.include?("\n") && !stream_pending.include?("__clacky_ec")
+              # stty -echo suppressed the wrapper echo; real output is arriving.
+              wrapper_swallowed = true
+            else
+              return
+            end
+          end
+
+          if force_partial
+            buffered = stream_pending.dup
+            stream_pending.clear
+          else
+            nl = stream_pending.rindex("\n")
+            return if nl.nil?
+            buffered = stream_pending.byteslice(0, nl + 1)
+            stream_pending.replace(stream_pending.byteslice(nl + 1, stream_pending.bytesize - nl - 1).to_s)
+          end
+          cleaned = OutputCleaner.clean(buffered)
+          # Strip any wrapper echo that still slipped through (e.g. when a
+          # session is reused and ZLE re-echoes our wrapper mid-stream).
+          cleaned = strip_command_echo(cleaned, marker_token: session.marker_token)
+          # Belt-and-braces: drop any line that still carries our internal
+          # tokens.
+          cleaned = cleaned.lines.reject do |ln|
+            ln.include?("__clacky_ec") ||
+              ln.include?("__CLACKY_DONE_") ||
+              ln.include?("__clacky_f") ||
+              ln.include?("__clacky_pc") ||
+              ln.match?(/\A\s*\}\s*>\s*\/dev\/null\s+2>&1;?\s*\z/)
+          end.join
+          # Collapse runs of 3+ blank lines into a single blank line so
+          # PTY noise (cursor-positioning codes cleaned to empty lines)
+          # doesn't produce a wall of whitespace in the streaming UI.
+          cleaned = cleaned.gsub(/\n{3,}/, "\n\n")
+          cleaned = cleaned.lstrip if cleaned.match?(/\A\n+\z/)
+          on_output.call(cleaned) unless cleaned.empty? || cleaned.match?(/\A\s*\z/)
+        rescue StandardError
+          # Streaming is best-effort — never let a UI bug abort the command.
+        end
 
         loop do
           current_size = log_size(session)
           if current_size > last_size
             slice = read_log_slice(session.log_file, session.read_offset, current_size)
             if (m = slice.match(session.marker_regex))
+              marker_abs = session.read_offset + m.begin(0)
+              if marker_abs > streamed_to
+                tail = read_log_slice(session.log_file, streamed_to, marker_abs)
+                flush_stream.call(tail, force_partial: true)
+              end
               return [slice[0...m.begin(0)], m[1].to_i, :matched]
             end
+
+            if current_size > streamed_to
+              new_chunk = read_log_slice(session.log_file, streamed_to, current_size)
+              flush_stream.call(new_chunk)
+              streamed_to = current_size
+            end
+
             last_size = current_size
             last_change = Time.now
           end
@@ -1115,16 +1249,31 @@ module Clacky
           if session.status == "exited" || session.status == "killed"
             slice = read_log_slice(session.log_file, session.read_offset, log_size(session))
             if (m = slice.match(session.marker_regex))
+              marker_abs = session.read_offset + m.begin(0)
+              if marker_abs > streamed_to
+                tail = read_log_slice(session.log_file, streamed_to, marker_abs)
+                flush_stream.call(tail, force_partial: true)
+              end
               return [slice[0...m.begin(0)], m[1].to_i, :matched]
+            end
+            final_size = log_size(session)
+            if final_size > streamed_to
+              flush_stream.call(read_log_slice(session.log_file, streamed_to, final_size), force_partial: true)
             end
             return [slice, nil, :eof]
           end
 
           if last_size > start_size && (Time.now - last_change) >= idle_sec
+            # Going idle: flush any partial buffered line (e.g. an in-progress
+            # progress bar without trailing \n) so the UI sees current state.
+            flush_stream.call("", force_partial: true) unless stream_pending.empty?
             return ["", nil, :idle]
           end
 
-          return ["", nil, :timeout] if Time.now >= deadline
+          if Time.now >= deadline
+            flush_stream.call("", force_partial: true) unless stream_pending.empty?
+            return ["", nil, :timeout]
+          end
           sleep 0.05
         end
       end
@@ -1166,6 +1315,17 @@ module Clacky
         s = s.lstrip
 
         SLOW_COMMAND_PATTERNS.any? { |pat| s.include?(pat) }
+      end
+
+      # True when `command` spans multiple lines. Trailing newlines are
+      # ignored — a single-line command terminated with "\n" is still
+      # single-line. Multi-line commands frequently hang the persistent
+      # PTY shell (incomplete heredoc, unclosed quote, multi-line block
+      # without closer) — the agent should write a script file and
+      # invoke it instead.
+      private def multiline_command?(command)
+        return false if command.nil?
+        command.to_s.sub(/\n+\z/, "").include?("\n")
       end
 
       # Apply per-line truncation to a cleaned (post-OutputCleaner) string.
@@ -1346,6 +1506,64 @@ module Clacky
         lines = text.split(/\r?\n/).reject { |l| l.strip.empty? }
         return "" if lines.empty?
         lines.last(DISPLAY_TAIL_LINES).join("\n")
+      end
+
+      # WSL interop fix: Windows .exe processes inherit the PTY stdin fd
+      # and try to use it as a Windows Console, which hangs indefinitely.
+      # Detect .exe invocations and redirect stdin from /dev/null unless
+      # the command already has an explicit stdin redirect.
+      private def redirect_exe_stdin(command)
+        return command unless Clacky::Utils::EnvironmentDetector.wsl?
+        return command unless command =~ /\.exe\b/i
+        return command if command =~ /<\s*[^\s|&;]/
+
+        # If the command has a shell-level pipe, insert </dev/null before
+        # the first pipe so only the .exe segment gets its stdin redirected,
+        # rather than starving a downstream pipe reader (e.g. `tr`, `grep`).
+        if command =~ /\|/
+          command.sub(/\s*\|/, ' </dev/null |')
+        else
+          "#{command} </dev/null"
+        end
+      end
+
+      # PowerShell 5 on Chinese Windows defaults [Console]::OutputEncoding
+      # to CP936/GBK; our PTY decodes as UTF-8 so non-ASCII output becomes
+      # `???`. Inject UTF-8 setup into the user's PowerShell command so the
+      # shell emits UTF-8 bytes regardless of host locale.
+      POWERSHELL_PREAMBLE =
+        "[Console]::OutputEncoding=[Text.Encoding]::UTF8;"
+
+      # Only rewrites simple `powershell[.exe]` / `pwsh[.exe]` invocations.
+      # Skips -File / -EncodedCommand / commands already handling encoding /
+      # pipelines (anything risky to splice).
+      private def force_powershell_utf8(command)
+        cmd = command.to_s
+        return command unless cmd =~ /\A\s*(?:powershell(?:\.exe)?|pwsh(?:\.exe)?)\b/i
+        return command if cmd =~ /OutputEncoding/i
+        return command if cmd =~ /\s-(?:File|EncodedCommand|enc|f)\b/i
+
+        # `-Command "..."` form: pipeline / chain characters inside the
+        # quoted body are PowerShell-internal, not shell-level, so we splice
+        # safely into the quoted string.
+        if (m = cmd.match(/\A(\s*(?:powershell(?:\.exe)?|pwsh(?:\.exe)?)\s+(?:[^"'\s]+\s+)*?-(?:Command|c)\s+)(["'])(.*)\2(\s*(?:<\s*\S+\s*)?)\z/i))
+          head, quote, body, tail = m[1], m[2], m[3], m[4].to_s
+          return "#{head}#{quote}#{POWERSHELL_PREAMBLE}#{body}#{quote}#{tail}"
+        end
+
+        # Outside the quoted-Command form, refuse to splice if there's any
+        # shell-level pipe / chain — too risky to get the boundaries right.
+        return command if cmd =~ /[|&;]/
+
+        if (m = cmd.match(/\A(\s*(?:powershell(?:\.exe)?|pwsh(?:\.exe)?))(.*)\z/i))
+          exe, rest = m[1], m[2].to_s.strip
+          return command if rest.start_with?("-") && rest !~ /\A-(?:Command|c)\b/i
+          rest = rest.sub(/\A-(?:Command|c)\b\s*/i, "")
+          inner = rest.empty? ? POWERSHELL_PREAMBLE.chomp(";") : "#{POWERSHELL_PREAMBLE}#{rest}"
+          return %Q{#{exe} -Command "#{inner}"}
+        end
+
+        command
       end
     end
   end

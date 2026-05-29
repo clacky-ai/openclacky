@@ -116,7 +116,6 @@ module Clacky
       last = @messages.last
       return false unless last[:role] == "assistant" && last[:tool_calls]&.any?
 
-      # Check that there is no tool result message after this assistant message
       last_assistant_idx = @messages.rindex { |m| m == last }
       @messages[(last_assistant_idx + 1)..].none? { |m| m[:role] == "tool" || m[:tool_results] }
     end
@@ -193,7 +192,7 @@ module Clacky
     #   thinking inline (e.g. MiniMax: <think>...</think> in content), so
     #   this bypass lets us recover on the retry without a server restart.
     def to_api(force_reasoning_content_pad: false)
-      msgs = @messages.map { |m| strip_internal_fields(m) }
+      msgs = @messages.map { |m| strip_for_api(m) }
       ensure_reasoning_content_consistency(msgs, force: force_reasoning_content_pad)
     end
 
@@ -246,6 +245,31 @@ module Clacky
       return unless pending_tool_calls?
 
       @messages.pop
+    end
+
+    private def strip_for_api(message)
+      msg = strip_internal_fields(message)
+      content = msg[:content]
+      return msg unless content.is_a?(Array)
+
+      cleaned = content.filter_map do |block|
+        next block unless block.is_a?(Hash)
+
+        if block[:type] == "image_url" &&
+            block.dig(:image_url, :url) == "[image stripped]"
+          next nil
+        end
+
+        block.key?(:image_path) ? block.reject { |k, _| k == :image_path } : block
+      end
+
+      return msg if cleaned == content
+
+      if cleaned.empty?
+        msg.merge(content: "[images were shown to you in a previous turn]")
+      else
+        msg.merge(content: cleaned)
+      end
     end
 
     private def strip_internal_fields(message)

@@ -216,18 +216,22 @@ Silently run `ruby "SKILL_DIR/scripts/install_builtin_skills.rb"`,
 then parse the last stdout line as JSON and read `installed` as N.
 
 - If N > 0, show one line:
-  - zh: `✅ 已为你内置 N 个技能，输入 /skills 随时查看。`
-  - en: `✅ Installed N builtin skills. Type /skills anytime to view them.`
+  - zh: `✅ 已为你内置 N 个技能。`
+  - en: `✅ Installed N builtin skills.`
 
 ### A.10. Import external skills (optional)
 
-Run `test -d ~/.openclaw && echo yes || echo no`. If `no`, skip silently.
-If `yes`:
+Check if OpenClaw is installed:
+- Run `test -d ~/.openclaw && echo yes || echo no`
+- If `no` and on WSL (i.e. `/proc/version` contains `microsoft`), also run:
+  `powershell.exe -NoProfile -Command '$env:USERPROFILE' 2>/dev/null | tr -d '\r'` to get the Windows home, then check `test -d "$(wslpath '<win_home>')/.openclaw" && echo yes || echo no`
+- If all checks return `no`, skip silently.
+If any check returns `yes`:
 1. `ruby "SKILL_DIR/scripts/import_external_skills.rb" --source openclaw --dry-run`
 2. Parse the skill count N.
 3. Ask via `request_user_feedback`:
-   - zh: `{ "question": "检测到你安装过 OpenClaw，找到 N 个 Skills，导入到 Clacky 直接使用？", "options": ["导入", "跳过"] }`
-   - en: `{ "question": "OpenClaw detected. Found N skills. Import them into Clacky?", "options": ["Import", "Skip"] }`
+   - zh: `{ "question": "检测到你安装过 OpenClaw，找到 N 个 Skills。现在建议跳过，后续使用 /skill-add 按需安装。", "options": ["全部导入", "跳过"] }`
+   - en: `{ "question": "OpenClaw detected. Found N skills. We recommend skipping for now and installing only what you need later with /skill-add.", "options": ["Import all", "Skip"] }`
 4. If confirmed: `ruby "SKILL_DIR/scripts/import_external_skills.rb" --source openclaw --yes`
 
 ### A.11. Celebrate soul setup & offer browser

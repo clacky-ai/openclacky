@@ -232,36 +232,9 @@ module Clacky
         "name" => "Anthropic (Claude)",
         "base_url" => "https://api.anthropic.com",
         "api" => "anthropic-messages",
-        "default_model" => "claude-sonnet-4.6",
-        "models" => ["claude-opus-4-7", "claude-opus-4-6", "claude-sonnet-4.6", "claude-haiku-4.5"],
+        "default_model" => "claude-sonnet-4-6",
+        "models" => ["claude-opus-4-7", "claude-opus-4-6", "claude-sonnet-4-6", "claude-haiku-4-5"],
         "website_url" => "https://console.anthropic.com/settings/keys"
-      }.freeze,
-
-      "clackyai-sea" => {
-        "name" => "ClackyAI(Sea)",
-        "base_url" => "https://api.clacky.ai",
-        "api" => "bedrock",
-        "default_model" => "abs-claude-sonnet-4-5",
-        "models" => [
-          "abs-claude-opus-4-6",
-          "abs-claude-sonnet-4-6",
-          "abs-claude-sonnet-4-5",
-          "abs-claude-haiku-4-5"
-        ],
-        # Claude family — all vision-capable.
-        "capabilities" => { "vision" => true }.freeze,
-        # Per-primary lite pairing — see openclacky preset for rationale.
-        "lite_models" => {
-          "abs-claude-opus-4-6"   => "abs-claude-haiku-4-5",
-          "abs-claude-sonnet-4-6" => "abs-claude-haiku-4-5",
-          "abs-claude-sonnet-4-5" => "abs-claude-haiku-4-5"
-        },
-        # Fallback chain: if a model is unavailable, try the next one in order.
-        # Keys are primary model names; values are the fallback model to use instead.
-        "fallback_models" => {
-          "abs-claude-sonnet-4-6" => "abs-claude-sonnet-4-5"
-        },
-        "website_url" => "https://clacky.ai"
       }.freeze,
 
       "mimo" => {
@@ -329,6 +302,38 @@ module Clacky
           "gpt-5.4" => "gpt-5.4-mini"
         },
         "website_url" => "https://platform.openai.com/api-keys"
+      }.freeze,
+
+      "qwen" => {
+        "name" => "Qwen (Alibaba)",
+        "base_url" => "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        "api" => "openai-completions",
+        "default_model" => "qwen3.7-max",
+        "models" => [
+          "qwen3.7-max",
+          "qwen3.6-plus",
+          "qwen3.6-max",
+          "qwen3.6-27b",
+          "qwen3.6-flash",
+          "qwen-plus-latest",
+        ],
+        "endpoint_variants" => [
+          { "label" => "Mainland China",  "label_key" => "settings.models.baseurl.variant.mainland_cn",   "base_url" => "https://dashscope.aliyuncs.com/compatible-mode/v1",     "region" => "cn"   }.freeze,
+          { "label" => "Singapore",       "label_key" => "settings.models.baseurl.variant.international", "base_url" => "https://dashscope-intl.aliyuncs.com/compatible-mode/v1", "region" => "intl" }.freeze,
+          { "label" => "US (Virginia)",   "label_key" => "settings.models.baseurl.variant.us",            "base_url" => "https://dashscope-us.aliyuncs.com/compatible-mode/v1",   "region" => "us"   }.freeze
+        ].freeze,
+        "capabilities" => { "vision" => true }.freeze,
+        "model_capabilities" => {
+          "qwen3.7-max" => { "vision" => false }.freeze
+        }.freeze,
+        "lite_models" => {
+          "qwen3.7-max"      => "qwen3.6-flash",
+          "qwen3.6-plus"     => "qwen3.6-flash",
+          "qwen3.6-max"      => "qwen3.6-flash",
+          "qwen3.6-27b"      => "qwen3.6-flash",
+          "qwen-plus-latest" => "qwen3.6-flash"
+        },
+        "website_url" => "https://bailian.console.aliyun.com/?apiKey=1"
       }.freeze
 
     }.freeze

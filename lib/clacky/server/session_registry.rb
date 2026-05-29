@@ -18,13 +18,12 @@ module Clacky
     class SessionRegistry
       SESSION_TIMEOUT = 24 * 60 * 60 # 24 hours of inactivity before cleanup
 
-      # session_manager: Clacky::SessionManager instance
-      # session_restorer: callable(session_data) → session_id — builds agent + wires into registry
-      def initialize(session_manager: nil, session_restorer: nil)
+      def initialize(session_manager: nil, session_restorer: nil, agent_config:)
         @sessions         = {}
         @mutex            = Mutex.new
         @session_manager  = session_manager
         @session_restorer = session_restorer
+        @agent_config     = agent_config
         # Tracks sessions currently being restored from disk.
         # Other threads calling ensure() for the same id will wait via @restore_cond
         # instead of seeing a half-built session (agent=nil).
@@ -166,11 +165,12 @@ module Clacky
             model_info = s[:agent]&.current_model_info
             live_name  = s[:agent]&.name
             live_name  = nil if live_name&.empty?
-            live_cost_source = s[:agent]&.cost_source
-            { status: s[:status], error: s[:error], model: model_info&.dig(:model), name: live_name,
-              total_tasks: s[:agent]&.total_tasks, total_cost: s[:agent]&.total_cost,
-              cost_source: live_cost_source,
-              latest_latency: s[:agent]&.latest_latency }
+          live_cost_source = s[:agent]&.cost_source
+          { status: s[:status], error: s[:error], model: model_info&.dig(:model), model_id: model_info&.dig(:id), name: live_name,
+            total_tasks: s[:agent]&.total_tasks, total_cost: s[:agent]&.total_cost,
+            cost_source: live_cost_source,
+            reasoning_effort: s[:agent]&.reasoning_effort,
+            latest_latency: s[:agent]&.latest_latency }
           end
         end
 
@@ -239,9 +239,10 @@ module Clacky
           model_info = s[:agent]&.current_model_info
           live_name  = s[:agent]&.name
           live_name  = nil if live_name&.empty?
-          { status: s[:status], error: s[:error], model: model_info&.dig(:model),
+          { status: s[:status], error: s[:error], model: model_info&.dig(:model), model_id: model_info&.dig(:id),
             name: live_name, total_tasks: s[:agent]&.total_tasks,
             total_cost: s[:agent]&.total_cost, cost_source: s[:agent]&.cost_source,
+            reasoning_effort: s[:agent]&.reasoning_effort,
             latest_latency: s[:agent]&.latest_latency }
         end
 
@@ -259,6 +260,7 @@ module Clacky
           status:        ls ? ls[:status].to_s : "idle",
           error:         ls ? ls[:error] : nil,
           model:         ls&.dig(:model),
+          model_id:      ls&.dig(:model_id),
           source:        s_source(s),
           agent_profile: (s[:agent_profile] || "general").to_s,
           working_dir:   s[:working_dir],
@@ -272,6 +274,7 @@ module Clacky
           # per-assistant-message `latency` fields in messages[]. Reloaded
           # sessions start with nil and get populated on the next LLM call.
           latest_latency: ls&.dig(:latest_latency),
+          reasoning_effort: ls&.dig(:reasoning_effort) || s.dig(:config, :reasoning_effort),
           pinned:        s[:pinned] || false,
         }
       end
@@ -285,6 +288,12 @@ module Clacky
       end
 
       public
+
+      # Count all cron sessions on disk (not filtered by pagination).
+      def cron_count
+        return 0 unless @session_manager
+        @session_manager.all_sessions.count { |s| s_source(s) == "cron" }
+      end
 
       # Delete a session from registry (and interrupt its thread).
       def delete(session_id)
@@ -322,6 +331,79 @@ module Clacky
         end
       end
 
+      def count_by_status(status)
+        @mutex.synchronize do
+          @sessions.count { |_, s| s[:status] == status }
+        end
+      end
+
+      def max_running_agents
+        @agent_config.max_running_agents
+      end
+
+      def max_idle_agents
+        @agent_config.max_idle_agents
+      end
+
+      def running_full?
+        count_by_status(:running) >= max_running_agents
+      end
+
+      # Evict oldest idle agents beyond MAX_IDLE_AGENTS.
+      # Persists session data to disk before releasing the agent from memory.
+      def evict_excess_idle!
+        to_evict = []
+
+        @mutex.synchronize do
+          idle = @sessions.select { |_, s| s[:status] == :idle && s[:agent] }
+                   .sort_by { |_, s| s[:updated_at] || Time.at(0) }
+
+          while idle.size > max_idle_agents
+            id, session = idle.shift
+            to_evict << [id, session]
+          end
+        end
+
+        to_evict.each { |id, session| persist_and_release(id, session) }
+      end
+
+      # Yield [session_id, agent, thread] for each session that currently has
+      # an in-memory agent. Used by the worker's graceful-shutdown path to
+      # flush any unsaved @history (e.g. a user message added at the start
+      # of Agent#run that hasn't yet reached the save-on-completion branch
+      # in run_agent_task).
+      #
+      # The session id list is snapshotted under the mutex so concurrent
+      # mutations don't disturb iteration; the yield happens outside the
+      # mutex so callers can do slow I/O (JSON serialization, File.write)
+      # without blocking other registry operations.
+      def each_live_agent
+        snapshot = @mutex.synchronize do
+          @sessions.filter_map do |id, s|
+            agent = s[:agent]
+            next nil unless agent
+            [id, agent, s[:thread]]
+          end
+        end
+        snapshot.each { |id, agent, thread| yield id, agent, thread }
+      end
+
+      private def persist_and_release(id, session)
+        agent = session[:agent]
+        @session_manager&.save(agent.to_session_data(status: :success)) if agent
+
+        @mutex.synchronize do
+          s = @sessions[id]
+          next unless s
+          s[:idle_timer]&.cancel
+          s[:agent] = nil
+          s[:ui] = nil
+          s[:idle_timer] = nil
+          s[:thread] = nil
+          @sessions.delete(id)
+        end
+      end
+
       # Build a summary hash for API responses (for in-registry sessions).
       # Used when we need live agent fields (name, cost, etc.) after ensure().
       def session_summary(session_id)
@@ -331,7 +413,7 @@ module Clacky
         return nil unless agent
 
         model_info = agent.current_model_info
-        
+
         {
           id:              session[:id],
           name:            agent.name,

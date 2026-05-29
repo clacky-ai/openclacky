@@ -52,7 +52,7 @@ module Clacky
       # @param max_tokens [Integer]
       # @param caching_enabled [Boolean] (currently unused for Bedrock)
       # @return [Hash] ready to serialize as JSON body
-      def build_request_body(messages, model, tools, max_tokens, caching_enabled = false)
+      def build_request_body(messages, model, tools, max_tokens, caching_enabled = false, reasoning_effort: nil)
         system_messages = messages.select { |m| m[:role] == "system" }
         regular_messages = messages.reject { |m| m[:role] == "system" }
 
@@ -83,7 +83,19 @@ module Clacky
           body[:toolConfig] = { tools: tools.map { |t| to_api_tool(t) } }
         end
 
+        extra = additional_fields_for_effort(reasoning_effort)
+        body[:additionalModelRequestFields] = extra if extra
+
         body
+      end
+
+      private_class_method def self.additional_fields_for_effort(effort)
+        return nil if effort.nil? || effort.to_s.empty?
+        return nil unless %w[low medium high].include?(effort.to_s)
+        {
+          thinking: { type: "adaptive" },
+          output_config: { effort: effort.to_s }
+        }
       end
 
       # ── Response parsing ──────────────────────────────────────────────────────
@@ -175,7 +187,7 @@ module Clacky
             name  = func[:name]  || tc[:name]
             raw_args = func[:arguments] || tc[:arguments]
             input = raw_args.is_a?(String) ? (JSON.parse(raw_args) rescue {}) : (raw_args || {})
-            blocks << { toolUse: { toolUseId: tc[:id], name: name, input: input } }
+            blocks << { toolUse: { toolUseId: Anthropic.sanitize_tool_use_id(tc[:id]), name: name, input: input } }
           end
 
           return { role: "assistant", content: blocks }
@@ -196,7 +208,7 @@ module Clacky
                          end
           return {
             role: "user",
-            content: [{ toolResult: { toolUseId: msg[:tool_call_id], content: result_blocks } }]
+            content: [{ toolResult: { toolUseId: Anthropic.sanitize_tool_use_id(msg[:tool_call_id]), content: result_blocks } }]
           }
         end
 
