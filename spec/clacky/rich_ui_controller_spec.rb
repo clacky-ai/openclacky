@@ -1,6 +1,14 @@
 # frozen_string_literal: true
 
 require "spec_helper"
+
+if Gem::Version.new(RUBY_VERSION) < Gem::Version.new("2.7.0")
+  RSpec.describe "Clacky::RichUIController" do
+    it "is not supported on Ruby older than 2.7" do
+      skip "ruby_rich requires Ruby >= 2.7"
+    end
+  end
+else
 require_relative "../../lib/clacky/rich_ui_controller"
 
 RSpec.describe Clacky::RichUIController do
@@ -478,4 +486,5 @@ RSpec.describe Clacky::RichUIController do
       expect(rendered).not_to include("sk-secret")
     end
   end
+end
 end

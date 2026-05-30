@@ -13,10 +13,18 @@ jobs:
     name: Ruby ${{ matrix.ruby }}
     strategy:
       matrix:
-        ruby:
-          - '4.0'
-          - '3.3.5'
-          - '2.6'
+        include:
+          - ruby: '2.6.8'
+            lockfile: Gemfile.lock.ruby-2.6
+            bundler: '2.4.22'
+          - ruby: '3.3.4'
+            lockfile: Gemfile.lock.ruby-3.3
+            bundler: ''
+          - ruby: '4.0.5'
+            lockfile: Gemfile.lock.ruby-4.0
+            bundler: ''
+    env:
+      BUNDLE_LOCKFILE: ${{ matrix.lockfile }}
 
     steps:
       - uses: actions/checkout@v4
@@ -24,9 +32,23 @@ jobs:
         uses: ruby/setup-ruby@v1
         with:
           ruby-version: ${{ matrix.ruby }}
-          bundler-cache: ${{ matrix.ruby != '2.6' }}
-      - name: Bundle install (Ruby 2.6)
-        if: matrix.ruby == '2.6'
-        run: bundle install --jobs 4
+          bundler-cache: false
+      - name: Install Bundler for Ruby 2.6
+        if: matrix.bundler != ''
+        run: gem install bundler -v "${{ matrix.bundler }}"
+      - name: Resolve dependencies
+        run: |
+          if [ -n "${{ matrix.bundler }}" ]; then
+            bundle _${{ matrix.bundler }}_ lock --lockfile="$BUNDLE_LOCKFILE"
+            bundle _${{ matrix.bundler }}_ install --jobs 4
+          else
+            bundle lock --lockfile="$BUNDLE_LOCKFILE"
+            bundle install --jobs 4
+          fi
       - name: Run the default task
-        run: bundle exec rake
+        run: |
+          if [ -n "${{ matrix.bundler }}" ]; then
+            bundle _${{ matrix.bundler }}_ exec rake
+          else
+            bundle exec rake
+          fi

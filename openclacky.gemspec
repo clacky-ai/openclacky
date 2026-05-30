@@ -36,7 +36,7 @@ Gem::Specification.new do |spec|
   spec.description = "OpenClacky is a 100% open-source (MIT) AI Agent that matches Claude Code on capability at comparable cost. Built on two years of agentic R&D, it ships with a minimal 16-tool core, near-100% prompt cache hit rate, idle-time auto-compression, and BYOK support for any OpenAI-compatible model. A natural-language Skill system lets you create, evolve, and monetize agent capabilities without writing code, plus first-class integrations with Feishu, WeCom, WeChat, Discord, and Telegram."
   spec.homepage = "https://github.com/clacky-ai/openclacky"
   spec.license = "MIT"
-  spec.required_ruby_version = ">= 2.6.0"
+  spec.required_ruby_version = ">= 2.6.0", "< 4.1"
 
   spec.metadata["homepage_uri"] = spec.homepage
   spec.metadata["source_code_uri"] = "https://github.com/clacky-ai/openclacky"

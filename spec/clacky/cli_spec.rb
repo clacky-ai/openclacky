@@ -5,6 +5,25 @@ require "fileutils"
 require "pathname"
 
 RSpec.describe Clacky::CLI do
+  describe "rich UI compatibility" do
+    it "exits before loading rich UI on Ruby versions older than 2.7" do
+      cli = described_class.new
+      allow(cli).to receive(:options).and_return({ ui: "rich" })
+      allow(cli).to receive(:check_brand_license_cli)
+      allow(cli).to receive(:say)
+      stub_const("RUBY_VERSION", "2.6.8")
+
+      expect do
+        cli.send(:run_agent_with_ui2, double("agent"), Dir.pwd, double("agent_config"))
+      end.to raise_error(SystemExit)
+
+      expect(cli).to have_received(:say).with(
+        "Error: Rich UI requires Ruby >= 2.7. Use --ui ui2 on Ruby 2.6.8.",
+        :red
+      )
+    end
+  end
+
   describe "working directory validation" do
     let(:cli) { Clacky::CLI.new }
 

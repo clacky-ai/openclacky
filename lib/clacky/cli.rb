@@ -6,7 +6,6 @@ require "fileutils"
 require_relative "ui2"
 require_relative "json_ui_controller"
 require_relative "plain_ui_controller"
-require_relative "rich_ui_controller"
 require_relative "brand_config"
 
 module Clacky
@@ -729,6 +728,11 @@ module Clacky
         ui_name = (options[:ui] || ENV["OPENCLACKY_UI"] || "ui2").to_s
 
         ui_controller = if ui_name == "rich"
+          if Gem::Version.new(RUBY_VERSION) < Gem::Version.new("2.6.0")
+            say "Error: Rich UI requires Ruby >= 2.6. Use --ui ui2 on Ruby #{RUBY_VERSION}.", :red
+            exit 1
+          end
+          require_relative "rich_ui_controller"
           RichUIController.new(
             working_dir: working_dir,
             mode: agent_config.permission_mode.to_s,

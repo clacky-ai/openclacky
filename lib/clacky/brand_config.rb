@@ -786,7 +786,11 @@ module Clacky
       if encrypted
         manifest_path = File.join(dest_dir, "MANIFEST.enc.json")
         raise "MANIFEST.enc.json missing after extraction" unless File.exist?(manifest_path)
-        JSON.parse(File.read(manifest_path))
+        begin
+          JSON.parse(File.read(manifest_path))
+        rescue JSON::ParserError => e
+          raise "Invalid JSON in MANIFEST.enc.json: #{e.message}"
+        end
       end
 
       record_installed_skill(slug, version, skill_info["description"],

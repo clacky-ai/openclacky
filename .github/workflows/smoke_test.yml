@@ -11,6 +11,8 @@ jobs:
   smoke:
     runs-on: ubuntu-latest
     name: Web Search Smoke Tests
+    env:
+      BUNDLE_LOCKFILE: Gemfile.lock.ruby-3.3
 
     steps:
       - uses: actions/checkout@v4
@@ -18,8 +20,13 @@ jobs:
       - name: Set up Ruby
         uses: ruby/setup-ruby@v1
         with:
-          ruby-version: "3.3.5"
-          bundler-cache: true
+          ruby-version: "3.3.4"
+          bundler-cache: false
+
+      - name: Resolve dependencies
+        run: |
+          bundle lock --lockfile="$BUNDLE_LOCKFILE"
+          bundle install --jobs 4
 
       - name: Run smoke tests
         run: bundle exec rspec spec/integration/web_search_smoke_spec.rb --tag smoke --format documentation

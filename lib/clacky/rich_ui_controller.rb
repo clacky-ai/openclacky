@@ -35,8 +35,6 @@ module RubyRich
         end
       end
 
-      private
-
       def clacky_stop_selection_without_copy
         return false unless @selecting
 
@@ -160,6 +158,17 @@ module RubyRich
       rescue Encoding::UndefinedConversionError, Encoding::InvalidByteSequenceError, IOError, SystemCallError
         false
       end
+
+      private :clacky_stop_selection_without_copy,
+              :copy_to_clipboard,
+              :copy_selection,
+              :clacky_clear_selection,
+              :apply_selection,
+              :clacky_highlight_display_range,
+              :clacky_clipboard_commands,
+              :clacky_write_clipboard_command,
+              :clacky_try_windows_clipboard,
+              :clacky_copy_to_terminal_clipboard
     end
   end
 
@@ -342,8 +351,6 @@ module Clacky
       panel.render
     end
 
-    private
-
     def render_tasks
       return muted("No active todos") if @tasks.empty?
 
@@ -395,11 +402,15 @@ module Clacky
     def muted(text)
       "#{RubyRich::AnsiCode.color(:black, true)}#{text}#{RubyRich::AnsiCode.reset}"
     end
+
+    private :render_tasks,
+            :task_label,
+            :task_status,
+            :status_marker,
+            :muted
   end
 
   class RichAgentShell < RubyRich::AgentShell
-    private
-
     def build_layout
       @sidebar = RichTodoSidebar.new
       @viewport.instance_variable_set(:@scrollbar, false)
@@ -460,6 +471,11 @@ module Clacky
       @callbacks[:interrupt]&.call(input_was_empty: input_was_empty)
       false
     end
+
+    private :build_layout,
+            :attach_components,
+            :attach_agent_controls,
+            :handle_interrupt
   end
 
   # Experimental RubyRich-backed TUI controller.
@@ -722,7 +738,7 @@ module Clacky
       end
     end
 
-    def update_sessionbar(tasks: nil, cost: nil, cost_source: nil, status: nil, latency: nil)
+    def update_sessionbar(tasks: nil, cost: nil, cost_source: nil, status: nil, latency: nil, session_id: nil)
       _ = cost_source
       _ = latency
       @tasks_count = tasks if tasks
@@ -833,8 +849,6 @@ module Clacky
 
       content.gsub(%r{<think(?:ing)?>[\s\S]*?</think(?:ing)?>}mi, "").gsub(/\n{3,}/, "\n\n").strip
     end
-
-    private
 
     def track_tool_activity(id, label, status)
       activity = { id: id, label: label.to_s, status: status }
@@ -1243,6 +1257,41 @@ module Clacky
       "#{key[0..5]}...#{key[-4..]}"
     end
 
+    private :track_tool_activity,
+            :update_tool_activity,
+            :refresh_sidebar_tasks,
+            :reset_task_sidebar_tracking,
+            :tool_activity_label,
+            :normalize_tool_args,
+            :compact_tool_arg,
+            :tool_url_host,
+            :truncate_tool_label,
+            :escape_tool_label,
+            :add_conversation_markdown,
+            :stream_markdown?,
+            :add_file_summary_after,
+            :add_plain_block,
+            :expand_ansi_multiline_spans,
+            :normalize_markdown_for_terminal,
+            :add_file_summary,
+            :wire_shell_callbacks,
+            :session_status,
+            :run_callback_async,
+            :render_welcome_banner,
+            :terminal_width,
+            :config_menu_choices,
+            :config_initial_selection,
+            :show_menu_dialog,
+            :show_form_dialog,
+            :show_blocking_dialog,
+            :show_model_edit_form,
+            :show_provider_selection,
+            :merge_model_form_values,
+            :validate_model_form,
+            :format_args,
+            :normalize_todo,
+            :mask_api_key
+
     class LayoutAdapter
       def initialize(shell)
         @shell = shell
@@ -1334,8 +1383,6 @@ module Clacky
         @layout.render_to_buffer
       end
 
-      private
-
       def move(delta)
         return if @choices.empty?
 
@@ -1369,6 +1416,11 @@ module Clacky
       def muted(text)
         "#{RubyRich::AnsiCode.color(:black, true)}#{text}#{RubyRich::AnsiCode.reset}"
       end
+
+      private :move,
+              :render_content,
+              :choice_line,
+              :muted
     end
 
     class FormDialog
@@ -1425,8 +1477,6 @@ module Clacky
         @layout.calculate_dimensions(@width, @height)
         @layout.render_to_buffer
       end
-
-      private
 
       def wire_default_keys
         key(:string, 100) { |event, _live| current_editor.insert(event[:value]); true }
@@ -1486,6 +1536,14 @@ module Clacky
       def muted(text)
         "#{RubyRich::AnsiCode.color(:black, true)}#{text}#{RubyRich::AnsiCode.reset}"
       end
+
+      private :wire_default_keys,
+              :current_editor,
+              :move_field,
+              :values,
+              :render_content,
+              :render_field_value,
+              :muted
     end
   end
 end
