@@ -24,3 +24,6 @@ gem "climate_control"
 gem "ruby_rich", "~> 0.4.7" if ruby_version >= Gem::Version.new("2.6")
 
 gem "redcarpet", "~> 3.6"
+
+# Ruby 4.0 移除了 cgi 等 stdlib gems，Bundler 2.4.x 内部依赖 CGI.parse
+gem "cgi" if ruby_version >= Gem::Version.new("4.0")
