@@ -170,7 +170,10 @@ module Clacky
             total_tasks: s[:agent]&.total_tasks, total_cost: s[:agent]&.total_cost,
             cost_source: live_cost_source,
             reasoning_effort: s[:agent]&.reasoning_effort,
-            latest_latency: s[:agent]&.latest_latency }
+            latest_latency: s[:agent]&.latest_latency,
+            card_model: model_info&.dig(:card_model),
+            sub_model: model_info&.dig(:sub_model),
+            sub_model_options: sub_model_options_for(model_info) }
           end
         end
 
@@ -243,7 +246,10 @@ module Clacky
             name: live_name, total_tasks: s[:agent]&.total_tasks,
             total_cost: s[:agent]&.total_cost, cost_source: s[:agent]&.cost_source,
             reasoning_effort: s[:agent]&.reasoning_effort,
-            latest_latency: s[:agent]&.latest_latency }
+            latest_latency: s[:agent]&.latest_latency,
+            card_model: model_info&.dig(:card_model),
+            sub_model: model_info&.dig(:sub_model),
+            sub_model_options: sub_model_options_for(model_info) }
         end
 
         build_enriched_row(disk, live)
@@ -261,6 +267,9 @@ module Clacky
           error:         ls ? ls[:error] : nil,
           model:         ls&.dig(:model),
           model_id:      ls&.dig(:model_id),
+          card_model:    ls&.dig(:card_model),
+          sub_model:     ls&.dig(:sub_model),
+          sub_model_options: ls&.dig(:sub_model_options) || [],
           source:        s_source(s),
           agent_profile: (s[:agent_profile] || "general").to_s,
           working_dir:   s[:working_dir],
@@ -279,6 +288,17 @@ module Clacky
         }
       end
 
+
+      # Look up the provider preset for the session's current card and
+      # return the sub-model list. Empty when the card's base_url isn't
+      # in any preset (e.g. self-hosted custom endpoints) — the WebUI
+      # treats that as "no sub-model switcher available".
+      private def sub_model_options_for(model_info)
+        return [] unless model_info && model_info[:base_url]
+        provider_id = Clacky::Providers.find_by_base_url(model_info[:base_url])
+        return [] unless provider_id
+        Clacky::Providers.models(provider_id)
+      end
 
       # Normalize source field from a disk session hash.
       # "system" is a legacy value renamed to "setup" — treat them as equivalent.

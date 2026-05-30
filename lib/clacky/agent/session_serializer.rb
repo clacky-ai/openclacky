@@ -80,10 +80,26 @@ module Clacky
           end
         end
 
+        # Re-apply the per-session sub-model pin (if any). Done AFTER
+        # switch_model_by_id so the overlay isn't cleared by the card switch
+        # invariant. Validation happens at write-time (the WebUI/API enforces
+        # the name belongs to the card's provider) — at restore-time we trust
+        # what we previously wrote.
+        saved_sub_model = session_data.dig(:config, :sub_model)
+        if saved_sub_model && !saved_sub_model.to_s.empty?
+          set_session_sub_model(saved_sub_model)
+        end
+
         # Rebuild and refresh the system prompt so any newly installed skills
         # (or other configuration changes since the session was saved) are
         # reflected immediately — without requiring the user to create a new session.
         refresh_system_prompt
+      end
+
+      private def persisted_card_field(key)
+        card_id = @config.current_model_id
+        return nil unless card_id
+        @config.models.find { |m| m["id"] == card_id }&.dig(key)
       end
 
       # Generate session data for saving
@@ -134,10 +150,13 @@ module Clacky
             reasoning_effort: @reasoning_effort,
             # Persist the current model identity so the session can restore its
             # original model on restart. model_name + model_base_url form a
-            # composite key to avoid matching a different provider's model of
-            # the same name. Falls back to default if the model no longer exists.
-            model_name: @config.current_model&.dig("model"),
-            model_base_url: @config.current_model&.dig("base_url")
+            # composite key that points at the underlying card (NOT the
+            # sub-model overlay) — overlays are layered on top via :sub_model
+            # below so card lookup stays stable when the user toggles
+            # sub-models.
+            model_name: persisted_card_field("model"),
+            model_base_url: persisted_card_field("base_url"),
+            sub_model: @config.session_model_overlay_name
           },
           stats: stats_data,
           messages: @history.to_a

@@ -124,8 +124,12 @@ module Clacky
         # Check if compression is enabled
         return nil unless @config.enable_compression
 
-        # Use actual API-reported tokens from last request
-        total_tokens = @previous_total_tokens
+        # Use the larger of: API-reported tokens from last response, or current
+        # estimated history size. The estimate guards the case where a single
+        # huge tool result was just appended after the last API call — without
+        # this, the next request can ship the bloated history before any
+        # compression triggers (issue #218).
+        total_tokens = [@previous_total_tokens, @history.estimate_tokens].max
         message_count = @history.size
 
         # Force compression (for idle compression) - use lower threshold

@@ -211,6 +211,14 @@ module Clacky
       # Keys honored: "api_key", "base_url", "model", "anthropic_format".
       # @return [Hash, nil]
       @virtual_model_overlay = options[:virtual_model_overlay]
+
+      # Per-session sub-model override. Persists across restarts via the
+      # session file. Independent of @virtual_model_overlay (which is for
+      # short-lived subagent forks). Used by the WebUI sub-model switcher
+      # to pin a session to e.g. "dsk-deepseek-v4-pro" while the underlying
+      # card still says "abs-claude-sonnet-4-6". Only the "model" key is
+      # honored — sub-model switching never changes credentials.
+      @session_model_overlay = options[:session_model_overlay]
     end
 
     # Load configuration from file
@@ -354,6 +362,9 @@ module Clacky
       if @virtual_model_overlay
         copy.instance_variable_set(:@virtual_model_overlay, @virtual_model_overlay.dup)
       end
+      if @session_model_overlay
+        copy.instance_variable_set(:@session_model_overlay, @session_model_overlay.dup)
+      end
       copy
     end
 
@@ -431,8 +442,11 @@ module Clacky
       index = @models.find_index { |m| m["id"] == id }
       return false if index.nil?
 
+      previous_id = @current_model_id
       @current_model_id = id
       @current_model_index = index
+
+      @session_model_overlay = nil if previous_id != id
 
       true
     end
@@ -760,14 +774,18 @@ module Clacky
       resolved = resolve_current_model_entry
       return nil unless resolved
 
-      # If a virtual overlay is active (e.g. subagent running on lite-model
-      # credentials), return a *merged copy* so callers see the overlay fields
-      # but the shared @models hash is never mutated.
-      if @virtual_model_overlay && !@virtual_model_overlay.empty?
-        resolved.merge(@virtual_model_overlay)
-      else
-        resolved
+      # Merge order (low → high): base entry, session-level sub-model override,
+      # then short-lived subagent overlay. Both layers are kept separate so
+      # a subagent fork can stack its own credentials on top of an active
+      # sub-model pin without erasing it.
+      merged = resolved
+      if @session_model_overlay && !@session_model_overlay.empty?
+        merged = merged.merge(@session_model_overlay)
       end
+      if @virtual_model_overlay && !@virtual_model_overlay.empty?
+        merged = merged.merge(@virtual_model_overlay)
+      end
+      merged.equal?(resolved) ? resolved : merged
     end
 
     # Internal: resolve the current model entry from @models (no overlay).
@@ -820,6 +838,36 @@ module Clacky
     # @return [Hash, nil] the active overlay (read-only view; dup before mutating)
     def virtual_model_overlay
       @virtual_model_overlay
+    end
+
+    # Apply a session-level sub-model override. Lives on this AgentConfig
+    # only (each session deep_copy's its own scalar ivar) and survives a
+    # restart through the session file. Pass nil or "" to clear.
+    #
+    # The override only rewrites the resolved current_model's "model" field —
+    # api_key / base_url / anthropic_format come from the underlying card,
+    # so the user's credentials and provider identity are untouched.
+    #
+    # @param model_name [String, nil] sub-model name, e.g. "dsk-deepseek-v4-pro"
+    def session_model_overlay=(model_name)
+      if model_name.nil? || model_name.to_s.strip.empty?
+        @session_model_overlay = nil
+      else
+        @session_model_overlay = { "model" => model_name.to_s.strip }
+      end
+    end
+
+    # @return [Hash, nil] the active session sub-model overlay
+    def session_model_overlay
+      @session_model_overlay
+    end
+
+    # Convenience accessor: the sub-model name currently pinned on this
+    # session, or nil when no override is active. Used by serializers and
+    # the WebUI to surface "card · sub-model" two-line displays.
+    # @return [String, nil]
+    def session_model_overlay_name
+      @session_model_overlay && @session_model_overlay["model"]
     end
 
     # Query whether the *current* model supports a given capability.

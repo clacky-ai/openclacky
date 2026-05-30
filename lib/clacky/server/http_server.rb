@@ -496,6 +496,9 @@ module Clacky
           elsif method == "PATCH" && path.match?(%r{^/api/sessions/[^/]+/reasoning_effort$})
             session_id = path.sub("/api/sessions/", "").sub("/reasoning_effort", "")
             api_switch_session_reasoning_effort(session_id, req, res)
+          elsif method == "PATCH" && path.match?(%r{^/api/sessions/[^/]+/submodel$})
+            session_id = path.sub("/api/sessions/", "").sub("/submodel", "")
+            api_switch_session_submodel(session_id, req, res)
           elsif method == "POST" && path.match?(%r{^/api/sessions/[^/]+/benchmark$})
             session_id = path.sub("/api/sessions/", "").sub("/benchmark", "")
             api_benchmark_session_models(session_id, req, res)
@@ -3597,6 +3600,47 @@ module Clacky
         broadcast_session_update(session_id)
 
         json_response(res, 200, { ok: true, reasoning_effort: agent.reasoning_effort })
+      rescue => e
+        json_response(res, 500, { error: e.message })
+      end
+
+      # PATCH /api/sessions/:id/submodel
+      # Body: { "model_name": "dsk-deepseek-v4-pro" | null }
+      #
+      # Pin this session to a sub-model under its current card without
+      # touching credentials or the global @models. Pass null/empty to clear
+      # and fall back to the card default. The name must appear in the
+      # provider preset's "models" list — anything else is rejected.
+      def api_switch_session_submodel(session_id, req, res)
+        body = parse_json_body(req)
+        raw = body["model_name"]
+        model_name = raw.is_a?(String) ? raw.strip : nil
+
+        return json_response(res, 404, { error: "Session not found" }) unless @registry.ensure(session_id)
+
+        agent = nil
+        @registry.with_session(session_id) { |s| agent = s[:agent] }
+        return json_response(res, 404, { error: "Session not found" }) unless agent
+
+        if model_name && !model_name.empty?
+          info = agent.current_model_info
+          provider_id = info && Clacky::Providers.find_by_base_url(info[:base_url])
+          allowed = provider_id ? Clacky::Providers.models(provider_id) : []
+          if allowed.empty?
+            return json_response(res, 400, { error: "Current model has no provider preset; sub-model switching unavailable" })
+          end
+          unless allowed.include?(model_name)
+            return json_response(res, 400, { error: "Sub-model '#{model_name}' not listed under provider '#{provider_id}'" })
+          end
+        else
+          model_name = nil
+        end
+
+        agent.set_session_sub_model(model_name)
+        @session_manager.save(agent.to_session_data)
+        broadcast_session_update(session_id)
+
+        json_response(res, 200, { ok: true, sub_model: agent.current_model_info[:sub_model] })
       rescue => e
         json_response(res, 500, { error: e.message })
       end

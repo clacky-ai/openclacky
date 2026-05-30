@@ -177,7 +177,13 @@ module Clacky
           else
             total_tokens - @previous_total_tokens
           end
-        @previous_total_tokens = total_tokens  # Update for next iteration
+
+        # Guard: do NOT overwrite @previous_total_tokens with 0 when the upstream
+        # returns missing/zero usage (observed when history overflows the model
+        # context: response comes back as content="" + finish_reason="stop" +
+        # zero usage). Resetting to 0 would disable the compression trigger on
+        # subsequent turns and poison the session permanently.
+        @previous_total_tokens = total_tokens if total_tokens > 0
 
         {
           delta_tokens: delta_tokens,

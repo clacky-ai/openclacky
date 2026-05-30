@@ -31,6 +31,7 @@ module Clacky
         "api" => "bedrock",
         "default_model" => "abs-claude-sonnet-4-6",
         "models" => [
+          "abs-claude-opus-4-8",
           "abs-claude-opus-4-7",
           "abs-claude-opus-4-6",
           "abs-claude-sonnet-4-6",
@@ -61,6 +62,7 @@ module Clacky
         # sibling wired up (yet) on this provider; subagents using the
         # Gemini default will just reuse it for lite work until we add one.
         "lite_models" => {
+          "abs-claude-opus-4-8"   => "abs-claude-haiku-4-5",
           "abs-claude-opus-4-7"   => "abs-claude-haiku-4-5",
           "abs-claude-opus-4-6"   => "abs-claude-haiku-4-5",
           "abs-claude-sonnet-4-6" => "abs-claude-haiku-4-5",
@@ -88,6 +90,7 @@ module Clacky
         # ID manually; this list only seeds the picker.
         "models" => [
           "anthropic/claude-sonnet-4-6",
+          "anthropic/claude-opus-4-8",
           "anthropic/claude-opus-4-7",
           "anthropic/claude-opus-4-6",
           "anthropic/claude-haiku-4-5",
@@ -101,6 +104,7 @@ module Clacky
         # cheap/fast sidekick automatically.
         "lite_models" => {
           "anthropic/claude-sonnet-4-6" => "anthropic/claude-haiku-4-5",
+          "anthropic/claude-opus-4-8"   => "anthropic/claude-haiku-4-5",
           "anthropic/claude-opus-4-7"   => "anthropic/claude-haiku-4-5",
           "anthropic/claude-opus-4-6"   => "anthropic/claude-haiku-4-5",
           "openai/gpt-5.5"              => "openai/gpt-5.4-mini",
@@ -233,7 +237,7 @@ module Clacky
         "base_url" => "https://api.anthropic.com",
         "api" => "anthropic-messages",
         "default_model" => "claude-sonnet-4-6",
-        "models" => ["claude-opus-4-7", "claude-opus-4-6", "claude-sonnet-4-6", "claude-haiku-4-5"],
+        "models" => ["claude-opus-4-8", "claude-opus-4-7", "claude-opus-4-6", "claude-sonnet-4-6", "claude-haiku-4-5"],
         "website_url" => "https://console.anthropic.com/settings/keys"
       }.freeze,
 
