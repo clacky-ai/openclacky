@@ -49,9 +49,9 @@ module Clacky
         # backend by the platform.
         "image_models" => [
           "or-gemini-3-pro-image",
-          "or-gpt-image-1"
+          "or-gpt-image-2"
         ],
-        "default_image_model" => "or-gpt-image-1",
+        "default_image_model" => "or-gpt-image-2",
         # Provider-level default: the Claude family served here is vision-capable.
         "capabilities" => { "vision" => true }.freeze,
         # Model-level overrides: DeepSeek models routed through this provider
@@ -134,13 +134,13 @@ module Clacky
           /\Aanthropic\// => "anthropic-messages",
           /\Aclaude[-.]/  => "anthropic-messages"
         }.freeze,
-        # Image generation models available via OpenRouter's standard
-        # OpenAI-compatible /v1/images/generations endpoint.
-        "image_models" => [
-          "google/gemini-3-pro-image-preview",
-          "openai/gpt-image-1"
-        ],
-        "default_image_model" => "openai/gpt-image-1",
+        # Image generation via OpenRouter is currently routed through the
+        # openclacky platform gateway (see "openclacky" provider above) which
+        # handles the OpenRouter chat-completions + modalities translation.
+        # Direct OpenRouter image config is not exposed here — leave empty
+        # until we ship a dedicated client-side adapter for that protocol.
+        "image_models" => [],
+        "default_image_model" => nil,
         "website_url" => "https://openrouter.ai/keys"
       }.freeze,
 
@@ -326,9 +326,9 @@ module Clacky
         # OpenAI's image generation model — same /v1/images/generations
         # endpoint, so the OpenAICompat image provider handles it.
         "image_models" => [
-          "gpt-image-1"
+          "gpt-image-2"
         ],
-        "default_image_model" => "gpt-image-1",
+        "default_image_model" => "gpt-image-2",
         "website_url" => "https://platform.openai.com/api-keys"
       }.freeze,
 

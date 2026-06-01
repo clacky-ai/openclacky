@@ -180,10 +180,10 @@ RSpec.describe Clacky::Media::OpenAICompat do
   describe "base_url normalization" do
     let(:response_body) { JSON.generate({ "data" => [{ "url" => "https://x/y.png" }] }) }
 
-    it "appends /v1 when missing" do
+    it "uses the base_url verbatim when no /v1 suffix is present" do
       p = described_class.new(entry.merge("base_url" => "https://api.example.com"))
       conn = p.send(:connection)
-      expect(conn.url_prefix.to_s).to eq("https://api.example.com/v1/")
+      expect(conn.url_prefix.to_s).to eq("https://api.example.com/")
     end
 
     it "leaves an existing /v1 alone" do
@@ -195,7 +195,7 @@ RSpec.describe Clacky::Media::OpenAICompat do
     it "tolerates a trailing slash" do
       p = described_class.new(entry.merge("base_url" => "https://api.example.com/"))
       conn = p.send(:connection)
-      expect(conn.url_prefix.to_s).to eq("https://api.example.com/v1/")
+      expect(conn.url_prefix.to_s).to eq("https://api.example.com/")
     end
   end
 end

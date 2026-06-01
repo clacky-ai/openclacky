@@ -142,14 +142,11 @@ module Clacky
         model_name.to_s.match?(/gemini|imagen/i)
       end
 
-      # OpenAI-compatible base_urls vary in whether they include the /v1
-      # suffix. Faraday joins relative paths against the base, so we
-      # normalise to always end with a slash and append /v1/ when the
-      # host doesn't carry it.
+      # base_url is taken verbatim from PRESETS (each provider already
+      # includes the API version segment when needed). We only ensure a
+      # trailing slash so Faraday's relative-path join behaves.
       private def normalized_base_url
-        url = @base_url.to_s.chomp("/")
-        url += "/v1" unless url.match?(%r{/v\d+\z})
-        "#{url}/"
+        "#{@base_url.to_s.chomp("/")}/"
       end
 
       private def parse_json(body)
