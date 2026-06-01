@@ -127,7 +127,11 @@ module Clacky
           prompt: prompt,
           aspect_ratio: aspect,
           provider: provider_id,
-          extra: { "size" => size }
+          extra: {
+            "size"     => size,
+            "usage"    => body["usage"],
+            "cost_usd" => body["cost_usd"]
+          }.compact
         )
       end
 

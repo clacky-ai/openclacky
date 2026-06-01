@@ -731,10 +731,32 @@ module Clacky
           aspect_ratio: aspect_ratio,
           output_dir: output_dir
         )
+        if result["success"]
+          log_media_usage(result, prompt: prompt)
+        end
         status = result["success"] ? 200 : 422
         json_response(res, status, result)
       rescue StandardError => e
         json_response(res, 500, { error: e.message })
+      end
+
+      private def log_media_usage(result, prompt:)
+        usage = result["usage"]
+        cost  = result["cost_usd"]
+        return if usage.nil? && cost.nil?
+
+        parts = []
+        parts << "model=#{result["model"]}"
+        parts << "provider=#{result["provider"]}"
+        if usage.is_a?(Hash)
+          parts << "prompt_tokens=#{usage["prompt_tokens"]}"
+          parts << "completion_tokens=#{usage["completion_tokens"]}"
+          parts << "cache_read=#{usage["cache_read_tokens"]}" if usage["cache_read_tokens"].to_i > 0
+          parts << "cache_write=#{usage["cache_write_tokens"]}" if usage["cache_write_tokens"].to_i > 0
+        end
+        parts << format("cost_usd=%.6f", cost.to_f) if cost
+        parts << "prompt=#{prompt[0, 60].inspect}"
+        Clacky::Logger.info("[Media] image generated #{parts.join(" ")}")
       end
 
       # GET /api/media/types

@@ -59,11 +59,20 @@ curl -s -X POST http://${CLACKY_SERVER_HOST}:${CLACKY_SERVER_PORT}/api/media/ima
   "provider": "openclacky",
   "prompt": "A clean, modern hero illustration ...",
   "aspect_ratio": "landscape",
-  "size": "1536x1024"
+  "size": "1536x1024",
+  "usage": {
+    "prompt_tokens": 50,
+    "completion_tokens": 4500,
+    "cache_read_tokens": 0,
+    "cache_write_tokens": 0,
+    "total_tokens": 4550
+  }
 }
 ```
 
 The `image` field is an absolute path on disk. To embed it in markdown, slides, or HTML, convert it to a path relative to the document you're writing.
+
+`usage` may be absent when the configured backend doesn't return token counts. Treat it as optional.
 
 ### Response shape (failure)
 
@@ -80,15 +89,17 @@ The `image` field is an absolute path on disk. To embed it in markdown, slides, 
 
 Common `error_type` values: `not_configured`, `auth_required`, `network_error`, `api_error`, `empty_response`. Tell the user the error plainly; if it's `auth_required` or `api_error 401/403`, point them at settings to fix the api_key.
 
-## Step 3 — Use the image
+## Step 3 — Show the image
 
-After a success response, reference the saved path in whatever you're building:
+`Read` does NOT show the image to the user — it only feeds it into your own context. To make the user actually see it, write a markdown tag in your reply:
 
-- Markdown / READMEs: `![hero](./assets/generated/img_20260525_xxx.png)`
-- Slides (reveal.js / Marp): `<img src="assets/generated/img_xxx.png" />`
-- HTML pages: standard `<img>` tag with the relative path
+```markdown
+![](file:///abs/path/from/response.png)
+```
 
-Don't re-encode or move the file — just reference it where it sits.
+Take the `image` field from the response and prefix `file://` (three slashes, since the path is absolute).
+
+If you're also embedding it in a document (README, PPT, etc.), use a relative path: `![](./assets/generated/xxx.png)`.
 
 ## Prompt writing tips
 
