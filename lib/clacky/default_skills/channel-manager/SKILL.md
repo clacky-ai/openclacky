@@ -99,128 +99,51 @@ Ask:
 
 ### Feishu setup
 
-#### Step 1 — Try automated setup (script)
+Feishu now offers a one-click **Agent App** (智能体应用) that auto-configures all
+required permissions, events, and publishing for you — no Bot capability toggle,
+no permission JSON, no event subscription, no version/release steps. Just create
+the app and copy the credentials. The connection mode is unchanged (long
+connection / WebSocket), handled entirely by the server.
 
-Run the setup script (full path is available in the supporting files list above):
-```bash
-ruby "SKILL_DIR/feishu_setup.rb"
-```
-**Important**: call `terminal` with `timeout: 180` — the script may wait up to 90s for a WebSocket connection in Phase 4.
+#### Step 1 — Open the Agent App creation page
 
-**If exit code is 0:**
-- The script completed successfully.
-- Config is already written to `~/.clacky/channels.yml`.
-- Tell the user: "✅ Feishu channel configured automatically! The channel is ready."
-- **Skip Step 2 (manual fallback) and continue to Step 3.**
+1. Navigate: `open https://open.feishu.cn/page/launcher?from=backend_oneclick`. Pass `isolated: true`. If the browser is not configured (the `open` call fails), just give the user the URL and ask them to open it manually in any browser — the rest of the flow is fully manual and does not need browser automation.
+2. If a login page or QR code is shown, tell the user to scan/log in and wait for "done".
 
-**If exit code is non-0:**
-- Check stdout for the error message.
-- **If the error contains "Browser not configured" or "browser tool":**
-  - Tell the user: "The browser tool is not configured yet. Let me help you set it up first..."
-  - Invoke the `browser-setup` skill: `invoke_skill("browser-setup", "setup")`.
-  - After browser-setup completes, tell the user: "Browser is ready! Let me retry the Feishu setup..."
-  - **Retry the script** (same command, same timeout). If it succeeds this time, stop. If it fails again, check the new error and proceed accordingly.
-- **If the error contains "No cookies found" or "Please log in":**
-  - Open Feishu login page using browser tool:
-    ```
-    browser(action="navigate", url="https://open.feishu.cn/app")
-    ```
-  - Tell the user: "I've opened Feishu in your browser. Please log in, then reply 'done'."
-  - Wait for "done".
-  - **Retry the script** (same command, same timeout). Repeat this login-wait-retry loop up to **3 times total**.
-    - If any attempt succeeds (exit code 0), stop — setup is complete.
-    - If an attempt fails with a **different** error (not a login error), break out of the loop and continue to Step 2.
-    - If all 3 attempts fail with login errors, tell the user: "Automated setup was unable to detect a Feishu login after 3 attempts. Switching to guided setup..." and continue to Step 2.
-- **Otherwise (non-login, non-browser error):**
-  - Tell the user: "Automated setup encountered an issue: `<error message>`. Switching to guided setup..."
-  - Continue to Step 2 (manual flow) below.
+#### Step 2 — Create the Agent App
 
----
+3. After login, the page lands on **创建飞书智能体应用 (Create Feishu Agent App)**.
+   Guide the user: "Enter an app name (e.g. Open Clacky), then click **立即创建 (Create Now)**. Reply done."
+   (The avatar is auto-assigned at random and can be changed anytime — it does not affect setup.)
+   Wait for "done".
 
-#### Step 2 — Manual guided setup (fallback)
+#### Step 3 — Copy credentials
 
-Only reach here if the automated script failed.
+4. The page jumps to **创建成功 (Created Successfully)**, showing `App ID` and `App Secret`.
+   The Secret is masked by default. Guide the user: "Click the eye icon next to **App Secret** to reveal it,
+   then copy both values and paste here. Reply with: App ID: xxx, App Secret: xxx"
+   Wait for the reply. Parse `app_id` (starts with `cli_`) and `app_secret`. Trim whitespace and
+   make sure the two values are not swapped.
 
-##### Phase 1 — Open Feishu Open Platform
+#### Step 4 — Save credentials
 
-1. Navigate: `open https://open.feishu.cn/app`. Pass `isolated: true`.
-2. If a login page or QR code is shown, tell the user to log in and wait for "done".
-3. Confirm the app list is visible.
+5. Run:
+   ```bash
+   curl -X POST http://${CLACKY_SERVER_HOST}:${CLACKY_SERVER_PORT}/api/channels/feishu \
+     -H "Content-Type: application/json" \
+     -d '{"app_id":"<APP_ID>","app_secret":"<APP_SECRET>","domain":"https://open.feishu.cn"}'
+   ```
+   **CRITICAL: This curl call is the ONLY way to save credentials. NEVER write `~/.clacky/channels.yml`
+   or any file under `~/.clacky/channels/` directly. The server API handles persistence, hot-reload,
+   and establishing the long connection.**
 
-##### Phase 2 — Create a new app
-
-4. **Always create a new app** — do NOT reuse existing apps. Guide the user: "Click 'Create Enterprise Self-Built App', fill in name (e.g. Open Clacky) and description (e.g. AI assistant powered by openclacky), then submit. Reply done." Wait for "done".
-
-##### Phase 3 — Enable Bot capability
-
-5. Feishu opens Add App Capabilities by default after creating an app. Guide the user: "Find the Bot capability card and click the Add button next to it, then reply done." Wait for "done".
-
-##### Phase 4 — Get credentials
-
-6. Navigate to Credentials & Basic Info in the left menu.
-7. Guide the user: "Copy App ID and App Secret, then paste here. Reply with: App ID: xxx, App Secret: xxx" Wait for the reply. Parse `app_id` and `app_secret`.
-
-##### Phase 5 — Add message permissions
-
-8. Navigate to Permission Management and open the bulk import dialog.
-9. Guide the user: "In the bulk import dialog, clear the existing example first (select all, delete), then paste the following JSON. Reply done." Wait for "done". Do NOT try to clear or edit via browser — user does it.
-
-```json
-{
-  "scopes": {
-    "tenant": [
-      "im:message",
-      "im:message.p2p_msg:readonly",
-      "im:message:send_as_bot"
-    ],
-    "user": []
-  }
-}
-```
-
-##### Phase 6 — Configure event subscription (Long Connection)
-
-**CRITICAL**: Feishu requires the long connection to be established *before* you can save the event config. The platform shows "No application connection detected" until `clacky server` is running and connected.
-
-10. **Apply config and establish connection** — Run:
-    ```bash
-    curl -X POST http://${CLACKY_SERVER_HOST}:${CLACKY_SERVER_PORT}/api/channels/feishu \
-      -H "Content-Type: application/json" \
-      -d '{"app_id":"<APP_ID>","app_secret":"<APP_SECRET>","domain":"https://open.feishu.cn"}'
-    ```
-    **CRITICAL: This curl call is the ONLY way to save credentials. NEVER write `~/.clacky/channels.yml` or any file under `~/.clacky/channels/` directly. The server API handles persistence and hot-reload.**
-11. **Wait for connection** — Poll until log shows `[feishu-ws] WebSocket connected ✅`:
-    ```bash
-    for i in $(seq 1 20); do
-      grep -q "\[feishu-ws\] WebSocket connected" ~/.clacky/logger/clacky-$(date +%Y-%m-%d).log 2>/dev/null && echo "CONNECTED" && break
-      sleep 1
-    done
-    ```
-12. **Configure events** — Guide the user: "In Events & Callbacks, select 'Long Connection' mode. Click Save. Then click Add Event, search `im.message.receive_v1`, select it, click Add. Reply done." Wait for "done".
-
-##### Phase 7 — Publish the app
-
-13. Navigate to Version Management & Release. Guide the user: "Create a new version (e.g. 1.0.0, note: Initial release for Open Clacky) and publish it. Reply done." Wait for "done".
-
-##### Phase 8 — Validate
-
-```bash
-curl -s -X POST "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal" \
-  -H "Content-Type: application/json" \
-  -d '{"app_id":"<APP_ID>","app_secret":"<APP_SECRET>"}'
-```
-
-Check for `"code":0`. On success: continue to Step 3 (below).
-
-##### Phase 9 — done
-
-Step 2 ends here. **Continue to Step 3.**
+On success: tell the user "✅ Feishu channel configured!" and **continue to Step 5 (Feishu CLI)**.
 
 ---
 
-#### Step 3 — Optional: install Feishu CLI
+#### Step 5 — Optional: install Feishu CLI
 
-Reach here from either Step 1 success or end of Step 2. Read `app_id` and `app_secret` from `~/.clacky/channels.yml` (under `channels.feishu`) for the install commands below.
+Reach here after the channel is configured (Step 4 succeeded). Read `app_id` and `app_secret` from `~/.clacky/channels.yml` (under `channels.feishu`) for the install commands below.
 
 Call `request_user_feedback`:
 
@@ -269,7 +192,7 @@ When `lark-cli auth login` returns successfully, tell the user:
 
 ### WeCom setup
 
-1. Navigate: `open https://work.weixin.qq.com/wework_admin/frame#/aiHelper/create`. Pass `isolated: true`.
+1. Navigate: `open https://work.weixin.qq.com/wework_admin/frame#/aiHelper/create`. Pass `isolated: true`. If the browser is not configured (the `open` call fails), just give the user the URL and ask them to open it manually in any browser — the rest of the flow is fully manual and does not need browser automation.
 2. If a login page or QR code is shown, tell the user to log in and wait for "done".
 3. Guide the user: "Scroll to the bottom of the right panel and click 'API mode creation'. Reply done." Wait for "done".
 4. Guide the user: "Click 'Add' next to 'Visible Range'. Select the top-level company node. Click Confirm. Reply done." Wait for "done".

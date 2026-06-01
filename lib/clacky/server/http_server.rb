@@ -1614,7 +1614,7 @@ module Clacky
       # Returns current config and running status for all supported platforms.
       # POST /api/tool/browser
       # Executes a browser tool action via the shared BrowserManager daemon.
-      # Used by skill scripts (e.g. feishu_setup.rb) to reuse the server's
+      # Used by skill scripts to reuse the server's
       # existing Chrome connection without spawning a second MCP daemon.
       #
       # Request body: JSON with same params as the browser tool
