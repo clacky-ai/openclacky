@@ -51,6 +51,7 @@ module Clacky
           "or-gemini-3-pro-image",
           "or-gpt-image-1"
         ],
+        "default_image_model" => "or-gpt-image-1",
         # Provider-level default: the Claude family served here is vision-capable.
         "capabilities" => { "vision" => true }.freeze,
         # Model-level overrides: DeepSeek models routed through this provider
@@ -139,6 +140,7 @@ module Clacky
           "google/gemini-3-pro-image-preview",
           "openai/gpt-image-1"
         ],
+        "default_image_model" => "openai/gpt-image-1",
         "website_url" => "https://openrouter.ai/keys"
       }.freeze,
 
@@ -326,6 +328,7 @@ module Clacky
         "image_models" => [
           "gpt-image-1"
         ],
+        "default_image_model" => "gpt-image-1",
         "website_url" => "https://platform.openai.com/api-keys"
       }.freeze,
 
@@ -362,6 +365,8 @@ module Clacky
       }.freeze
 
     }.freeze
+
+    MEDIA_KINDS = %w[image video audio].freeze
 
     class << self
       # Check if a provider preset exists
@@ -475,6 +480,52 @@ module Clacky
       def image_models(provider_id)
         preset = PRESETS[provider_id]
         preset&.dig("image_models") || []
+      end
+
+      # Video generation models — placeholder. No provider supports video
+      # via Clacky yet; once they do, declare "video_models" alongside
+      # "image_models" in the relevant PRESETS entry and this returns it.
+      def video_models(provider_id)
+        preset = PRESETS[provider_id]
+        preset&.dig("video_models") || []
+      end
+
+      # Audio generation models — same placeholder pattern as video_models.
+      def audio_models(provider_id)
+        preset = PRESETS[provider_id]
+        preset&.dig("audio_models") || []
+      end
+
+      # Unified entry for media model lookup by kind.
+      # @param provider_id [String]
+      # @param kind [String] one of "image" / "video" / "audio"
+      # @return [Array<String>]
+      def media_models(provider_id, kind)
+        case kind.to_s
+        when "image" then image_models(provider_id)
+        when "video" then video_models(provider_id)
+        when "audio" then audio_models(provider_id)
+        else []
+        end
+      end
+
+      # Default media model for a kind under a provider. Falls back to the
+      # first declared model when no explicit default is set in the preset.
+      # Used by AgentConfig#derive_media_models! to pick which model to
+      # surface when the user is on "auto" mode.
+      def default_media_model(provider_id, kind)
+        preset = PRESETS[provider_id]
+        return nil unless preset
+        explicit = preset["default_#{kind}_model"]
+        return explicit if explicit
+        media_models(provider_id, kind).first
+      end
+
+      # The set of media kinds Clacky knows about. Drives UI rendering and
+      # derivation loops — adding a new modality means listing it here plus
+      # adding the corresponding generator class.
+      def media_kinds
+        MEDIA_KINDS
       end
 
       # Get the lite model for a provider.

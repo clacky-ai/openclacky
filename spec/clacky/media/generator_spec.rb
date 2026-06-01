@@ -9,8 +9,8 @@ RSpec.describe Clacky::Media::Generator do
     context "when no type=image model is configured" do
       it "returns a not_configured error response" do
         config = Clacky::AgentConfig.new(models: [
-          { "model" => "abs-claude-sonnet-4-6", "type" => "default",
-            "base_url" => "https://api.openclacky.com", "api_key" => "clacky-test" }
+          { "model" => "some-chat-model", "type" => "default",
+            "base_url" => "https://example.invalid/v1", "api_key" => "k" }
         ])
         result = described_class.new(config).generate_image(prompt: "a cat")
 

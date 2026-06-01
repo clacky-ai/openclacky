@@ -318,7 +318,9 @@ module Clacky
         end
       end
 
-      new(**constructor_args)
+      instance = new(**constructor_args)
+      instance.derive_media_models!
+      instance
     end
 
     # Auto-injection of provider-preset lite models into @models has been
@@ -585,10 +587,92 @@ module Clacky
       }.compact
     end
 
-    # Find model by type (default or lite)
-    # Returns the model hash or nil if not found
+    # Find model by type (default or lite or media kind)
+    # Returns the model hash or nil if not found.
+    # For media kinds (image/video/audio): explicit user-configured (custom)
+    # entries win; otherwise an auto-derived virtual entry is returned
+    # based on the default model's provider — mirroring how lite is
+    # virtually derived via #lite_model_config_for_current.
     def find_model_by_type(type)
+      kind = type.to_s
+      if Clacky::Providers::MEDIA_KINDS.include?(kind)
+        custom = @models.find { |m| m["type"] == kind }
+        return custom if custom
+        return derive_media_model(kind)
+      end
       @models.find { |m| m["type"] == type }
+    end
+
+    private def derive_media_model(kind)
+      default = find_model_by_type("default")
+      return nil unless default
+
+      provider_id = Clacky::Providers.resolve_provider(
+        base_url: default["base_url"],
+        api_key:  default["api_key"]
+      )
+      return nil unless provider_id
+
+      model_name = Clacky::Providers.default_media_model(provider_id, kind)
+      return nil if model_name.nil? || model_name.to_s.empty?
+
+      {
+        "model"         => model_name,
+        "base_url"      => default["base_url"],
+        "api_key"       => default["api_key"],
+        "type"          => kind,
+        "auto_injected" => true
+      }
+    end
+
+    # Kept as a no-op for backward compatibility. Media auto entries are
+    # now derived virtually on read; nothing is materialized into @models.
+    def derive_media_models!
+      @models.reject! { |m| m["auto_injected"] && Clacky::Providers::MEDIA_KINDS.include?(m["type"].to_s) }
+    end
+
+    # Returns the configured/derived media model entry for `kind`, plus a
+    # hint about its source. UI uses this to render the tri-state control.
+    # @param kind [String] one of "image" / "video" / "audio"
+    # @return [Hash{String=>Object}] keys:
+    #   "configured" [Boolean]            — anything available?
+    #   "source"     [String]             — "off" | "auto" | "custom"
+    #   "model"      [String, nil]
+    #   "base_url"   [String, nil]
+    #   "provider"   [String, nil]        — provider id
+    #   "available"  [Array<String>]      — auto-source candidates from preset
+    def media_state(kind)
+      kind = kind.to_s
+      custom = @models.find { |m| m["type"] == kind }
+      auto   = custom ? nil : derive_media_model(kind)
+      entry  = custom || auto
+
+      provider_id = if entry
+                      Clacky::Providers.resolve_provider(
+                        base_url: entry["base_url"],
+                        api_key:  entry["api_key"]
+                      )
+                    end
+
+      available_provider_id = if custom
+                                provider_id
+                              else
+                                default = find_model_by_type("default")
+                                default && Clacky::Providers.resolve_provider(
+                                  base_url: default["base_url"],
+                                  api_key:  default["api_key"]
+                                )
+                              end
+      available = available_provider_id ? Clacky::Providers.media_models(available_provider_id, kind) : []
+
+      {
+        "configured" => !entry.nil?,
+        "source"     => custom ? "custom" : (auto ? "auto" : "off"),
+        "model"      => entry && entry["model"],
+        "base_url"   => entry && entry["base_url"],
+        "provider"   => provider_id,
+        "available"  => available
+      }
     end
 
     # Find model by composite key (model name + base_url).

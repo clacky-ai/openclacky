@@ -399,6 +399,7 @@ module Clacky
         when ["PATCH",  "/api/config/settings"]  then api_update_settings(req, res)
         when ["POST",   "/api/config/models"] then api_add_model(req, res)
         when ["POST",   "/api/config/test"]   then api_test_config(req, res)
+        when ["GET",    "/api/config/media"]  then api_get_media_config(res)
         when ["GET",    "/api/providers"]     then api_list_providers(res)
         when ["GET",    "/api/onboard/status"]    then api_onboard_status(res)
         when ["GET",    "/api/browser/status"]    then api_browser_status(res)
@@ -525,6 +526,9 @@ module Clacky
           elsif method == "DELETE" && path.match?(%r{^/api/config/models/[^/]+$})
             id = path.sub("/api/config/models/", "")
             api_delete_model(id, res)
+          elsif method == "PATCH" && path.match?(%r{^/api/config/media/(image|video|audio)$})
+            kind = path.sub("/api/config/media/", "")
+            api_update_media_config(kind, req, res)
           elsif method == "POST" && path.match?(%r{^/api/cron-tasks/[^/]+/run$})
             name = URI.decode_www_form_component(path.sub("/api/cron-tasks/", "").sub("/run", ""))
             api_run_cron_task(name, res)
@@ -734,16 +738,99 @@ module Clacky
       # capabilities to the user.
       def api_media_types(res)
         out = {}
-        %w[image video audio].each do |t|
-          entry = @agent_config.find_model_by_type(t)
+        Clacky::Providers::MEDIA_KINDS.each do |t|
+          state = @agent_config.media_state(t)
           out[t] =
-            if entry
-              { configured: true, model: entry["model"], base_url: entry["base_url"] }
+            if state["configured"]
+              {
+                configured: true,
+                model:      state["model"],
+                base_url:   state["base_url"],
+                source:     state["source"]
+              }
             else
-              { configured: false }
+              { configured: false, source: "off" }
             end
         end
         json_response(res, 200, out)
+      end
+
+      # GET /api/config/media
+      # Used by the Settings UI to render the tri-state media controls.
+      # Per-kind payload mirrors AgentConfig#media_state.
+      def api_get_media_config(res)
+        out = {}
+        Clacky::Providers::MEDIA_KINDS.each do |t|
+          state = @agent_config.media_state(t)
+          entry = @agent_config.find_model_by_type(t)
+          out[t] = {
+            source:     state["source"],
+            model:      state["model"],
+            base_url:   state["base_url"],
+            api_key_masked: entry ? mask_api_key(entry["api_key"]) : nil,
+            provider:   state["provider"],
+            available:  state["available"],
+            configured: state["configured"]
+          }
+        end
+
+        # Surface what the current default model can offer, even when the
+        # user is currently in "off" — the UI uses this to render the
+        # auto-mode preview ("Auto would use X").
+        default = @agent_config.find_model_by_type("default")
+        provider_id = default && Clacky::Providers.resolve_provider(
+          base_url: default["base_url"],
+          api_key:  default["api_key"]
+        )
+        defaults = {}
+        Clacky::Providers::MEDIA_KINDS.each do |t|
+          defaults[t] = {
+            provider:  provider_id,
+            model:     provider_id ? Clacky::Providers.default_media_model(provider_id, t) : nil,
+            available: provider_id ? Clacky::Providers.media_models(provider_id, t) : []
+          }
+        end
+
+        json_response(res, 200, { media: out, default_provider: defaults })
+      end
+
+      # PATCH /api/config/media/:kind
+      # Body: { source: "off"|"auto"|"custom", model?, base_url?, api_key?,
+      #         anthropic_format? }
+      # off / auto — remove any custom entry; "auto" lets the virtual
+      # derivation in AgentConfig#find_model_by_type take over.
+      # custom — replace any existing custom entry with the supplied fields.
+      def api_update_media_config(kind, req, res)
+        body = parse_json_body(req) || {}
+        source = body["source"].to_s
+        unless %w[off auto custom].include?(source)
+          return json_response(res, 422, { error: "invalid source" })
+        end
+
+        @agent_config.models.reject! { |m| m["type"] == kind }
+
+        if source == "custom"
+          model    = body["model"].to_s.strip
+          base_url = body["base_url"].to_s.strip
+          api_key  = body["api_key"].to_s
+          if model.empty? || base_url.empty? || api_key.empty? || api_key.include?("****")
+            return json_response(res, 422, { error: "model, base_url, api_key are required" })
+          end
+
+          @agent_config.models << {
+            "id"               => SecureRandom.uuid,
+            "model"            => model,
+            "base_url"         => base_url,
+            "api_key"          => api_key,
+            "anthropic_format" => body["anthropic_format"] || false,
+            "type"             => kind
+          }
+        end
+
+        @agent_config.save
+        json_response(res, 200, { ok: true, state: @agent_config.media_state(kind) })
+      rescue => e
+        json_response(res, 422, { error: e.message })
       end
 
       # POST /api/onboard/complete
@@ -3334,8 +3421,13 @@ module Clacky
             type:             m["type"]
           }
         end
-        # Filter out auto-injected models (like lite) from UI display
-        models.reject! { |m| @agent_config.models[m[:index]]["auto_injected"] }
+        # Filter out auto-injected models (lite, derived media) AND media
+        # entries (image/video/audio) — those are managed via the dedicated
+        # media-config UI, not the chat-model card list.
+        models.reject! do |m|
+          raw = @agent_config.models[m[:index]]
+          raw["auto_injected"] || Clacky::Providers::MEDIA_KINDS.include?(raw["type"].to_s)
+        end
         json_response(res, 200, {
           models: models,
           current_index: @agent_config.current_model_index,

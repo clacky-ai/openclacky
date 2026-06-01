@@ -46,12 +46,17 @@ module Clacky
           )
         end
 
-        payload = {
-          model:  @model,
-          prompt: prompt,
-          size:   size,
-          n:      n
-        }
+        payload = { model: @model, n: n }
+        if gemini_family?(@model)
+          # Gemini image models (routed via openclacky / openrouter gateway)
+          # don't accept the OpenAI `size` parameter — they infer aspect from
+          # the prompt text. Embedding a hint keeps the user's aspect choice
+          # honoured without breaking the gateway request validator.
+          payload[:prompt] = "#{prompt}\n\n[aspect: #{aspect}]"
+        else
+          payload[:prompt] = prompt
+          payload[:size]   = size
+        end
 
         begin
           response = connection.post("images/generations") do |req|
@@ -131,6 +136,10 @@ module Clacky
           f.options.timeout      = 120
           f.options.open_timeout = 10
         end
+      end
+
+      private def gemini_family?(model_name)
+        model_name.to_s.match?(/gemini|imagen/i)
       end
 
       # OpenAI-compatible base_urls vary in whether they include the /v1
