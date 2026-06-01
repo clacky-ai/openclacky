@@ -3647,29 +3647,51 @@ module Clacky
         return json_response(res, 400, { error: "Invalid JSON" }) unless body
 
         api_key = body["api_key"].to_s
-        # If masked, use the stored key from the matching model (by index or current)
         if api_key.include?("****")
           idx = body["index"]&.to_i || @agent_config.current_model_index
           api_key = @agent_config.models.dig(idx, "api_key").to_s
         end
 
-        begin
-          model = body["model"].to_s
-          test_client = Clacky::Client.new(
-            api_key,
-            base_url:         body["base_url"].to_s,
-            model:            model,
-            anthropic_format: body["anthropic_format"] || false
-          )
-          result = test_client.test_connection(model: model)
-          if result[:success]
-            json_response(res, 200, { ok: true, message: "Connected successfully" })
-          else
-            json_response(res, 200, { ok: false, message: result[:error].to_s })
-          end
-        rescue => e
-          json_response(res, 200, { ok: false, message: e.message })
+        model            = body["model"].to_s
+        base_url         = body["base_url"].to_s
+        anthropic_format = body["anthropic_format"] || false
+
+        result, used_base_url = try_test_with_base_url(api_key, base_url, model, anthropic_format)
+
+        if result[:success] && used_base_url != base_url
+          json_response(res, 200, {
+            ok:                  true,
+            message:             "Connected (auto-corrected base_url to add /v1)",
+            effective_base_url:  used_base_url
+          })
+        elsif result[:success]
+          json_response(res, 200, { ok: true, message: "Connected successfully" })
+        else
+          json_response(res, 200, { ok: false, message: result[:error].to_s })
         end
+      rescue => e
+        json_response(res, 200, { ok: false, message: e.message })
+      end
+
+      private def try_test_with_base_url(api_key, base_url, model, anthropic_format)
+        result = run_test_connection(api_key, base_url, model, anthropic_format)
+        return [result, base_url] if result[:success]
+        return [result, base_url] unless result[:status] == 404
+        return [result, base_url] if base_url.match?(%r{/v\d+/?\z})
+
+        candidate = "#{base_url.chomp("/")}/v1"
+        retried   = run_test_connection(api_key, candidate, model, anthropic_format)
+        retried[:success] ? [retried, candidate] : [result, base_url]
+      end
+
+      private def run_test_connection(api_key, base_url, model, anthropic_format)
+        client = Clacky::Client.new(
+          api_key,
+          base_url:         base_url,
+          model:            model,
+          anthropic_format: anthropic_format
+        )
+        client.test_connection(model: model)
       end
 
       # GET /api/providers — return built-in provider presets for quick setup

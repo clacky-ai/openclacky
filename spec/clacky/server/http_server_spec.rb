@@ -873,6 +873,90 @@ RSpec.describe Clacky::Server::HttpServer do
         expect(parsed_body(res)["ok"]).to be true
       end
     end
+
+    it "auto-retries with /v1 suffix on 404 and reports effective_base_url" do
+      first_client  = double("client_no_v1")
+      second_client = double("client_v1")
+      allow(first_client).to receive(:test_connection)
+        .and_return({ success: false, status: 404, error: "404 page not found" })
+      allow(second_client).to receive(:test_connection)
+        .and_return({ success: true, status: 200 })
+
+      with_server(agent_config: agent_config) do |server|
+        call = 0
+        allow(Clacky::Client).to receive(:new) do |_key, base_url:, **|
+          call += 1
+          case call
+          when 1
+            expect(base_url).to eq("https://api.example.com")
+            first_client
+          when 2
+            expect(base_url).to eq("https://api.example.com/v1")
+            second_client
+          end
+        end
+
+        payload = {
+          model:            "test-model",
+          base_url:         "https://api.example.com",
+          api_key:          "sk-testkey1234567890abcd",
+          anthropic_format: false
+        }
+        req = fake_req(method: "POST", path: "/api/config/test", body: payload)
+        res = fake_res
+        dispatch(server, req, res)
+
+        body = parsed_body(res)
+        expect(body["ok"]).to be true
+        expect(body["effective_base_url"]).to eq("https://api.example.com/v1")
+      end
+    end
+
+    it "does not retry when base_url already ends with /v\d+" do
+      test_client = double("client")
+      allow(test_client).to receive(:test_connection)
+        .and_return({ success: false, status: 404, error: "not found" })
+
+      with_server(agent_config: agent_config) do |server|
+        expect(Clacky::Client).to receive(:new).once.and_return(test_client)
+
+        payload = {
+          model:    "test-model",
+          base_url: "https://api.example.com/v1",
+          api_key:  "sk-testkey1234567890abcd",
+          anthropic_format: false
+        }
+        req = fake_req(method: "POST", path: "/api/config/test", body: payload)
+        res = fake_res
+        dispatch(server, req, res)
+
+        body = parsed_body(res)
+        expect(body["ok"]).to be false
+        expect(body).not_to have_key("effective_base_url")
+      end
+    end
+
+    it "does not retry on non-404 errors" do
+      test_client = double("client")
+      allow(test_client).to receive(:test_connection)
+        .and_return({ success: false, status: 401, error: "Unauthorized" })
+
+      with_server(agent_config: agent_config) do |server|
+        expect(Clacky::Client).to receive(:new).once.and_return(test_client)
+
+        payload = {
+          model:    "test-model",
+          base_url: "https://api.example.com",
+          api_key:  "sk-bad",
+          anthropic_format: false
+        }
+        req = fake_req(method: "POST", path: "/api/config/test", body: payload)
+        res = fake_res
+        dispatch(server, req, res)
+
+        expect(parsed_body(res)["ok"]).to be false
+      end
+    end
   end
 
   # ── 404 for unknown routes ────────────────────────────────────────────────

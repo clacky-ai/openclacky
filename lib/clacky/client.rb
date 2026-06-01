@@ -561,10 +561,14 @@ module Clacky
     # ── Error handling ────────────────────────────────────────────────────────
 
     def handle_test_response(response)
-      return { success: true } if response.status == 200
+      return { success: true, status: response.status } if response.status == 200
 
       error_body = JSON.parse(response.body) rescue nil
-      { success: false, error: extract_error_message(error_body, response.body) }
+      {
+        success: false,
+        status:  response.status,
+        error:   extract_error_message(error_body, response.body)
+      }
     end
 
     def raise_error(response)
