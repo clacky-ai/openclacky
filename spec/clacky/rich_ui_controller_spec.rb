@@ -2,10 +2,10 @@
 
 require "spec_helper"
 
-if Gem::Version.new(RUBY_VERSION) < Gem::Version.new("2.7.0")
+if Gem::Version.new(RUBY_VERSION) < Gem::Version.new("2.6.0")
   RSpec.describe "Clacky::RichUIController" do
-    it "is not supported on Ruby older than 2.7" do
-      skip "ruby_rich requires Ruby >= 2.7"
+    it "is not supported on Ruby older than 2.6" do
+      skip "ruby_rich requires Ruby >= 2.6"
     end
   end
 else
@@ -22,8 +22,9 @@ RSpec.describe Clacky::RichUIController do
       expect(ui.shell.layout[:todos]).not_to be_nil
       expect(ui.shell.layout[:todos].width).to eq(36)
       expect(ui.shell.layout[:transcript].width).to eq(64)
-      expect(ui.shell.layout.render).to include("Todos")
-      expect(ui.shell.layout.render).not_to include("Plan")
+      rendered_text = strip_ansi(ui.shell.layout.render)
+      expect(rendered_text).to include("Todos")
+      expect(rendered_text).not_to include("Plan")
     end
 
     it "renders todo_manager tasks in the right-side todos panel" do
@@ -36,14 +37,14 @@ RSpec.describe Clacky::RichUIController do
       ])
       ui.shell.layout.calculate_dimensions(100, 30)
 
-      rendered = ui.shell.layout.render
-      expect(rendered).to include("Todos")
-      expect(rendered).to include("Research DeepSeek v4")
-      expect(rendered).to include("Write weather scraper")
-      expect(rendered).to include("Optimize SQL query")
-      expect(rendered).not_to match(/\b1\s+✓/)
-      expect(rendered).not_to match(/\b1\s+●/)
-      expect(rendered).not_to match(/\b1\s+○/)
+      rendered_text = strip_ansi(ui.shell.layout.render)
+      expect(rendered_text).to include("Todos")
+      expect(rendered_text).to include("Research DeepSeek v4")
+      expect(rendered_text).to include("Write weather scraper")
+      expect(rendered_text).to include("Optimize SQL query")
+      expect(rendered_text).not_to match(/\b1\s+✓/)
+      expect(rendered_text).not_to match(/\b1\s+●/)
+      expect(rendered_text).not_to match(/\b1\s+○/)
     end
 
     it "shows tool activity in the todos panel when todo_manager has not created todos" do
@@ -53,13 +54,13 @@ RSpec.describe Clacky::RichUIController do
       ui.show_tool_call("web_fetch", { url: "https://www.chinadaily.com.cn/a/202505/01/example.html" })
       ui.shell.layout.calculate_dimensions(100, 30)
 
-      rendered = ui.shell.layout.render
-      expect(rendered).to include("Todos")
+      rendered_text = strip_ansi(ui.shell.layout.render)
+      expect(rendered_text).to include("Todos")
       expect(ui.shell.sidebar.tasks.map { |task| task[:label] }).to include(
         'web_search("普京访华 2025最新消息")',
         "web_fetch(www.chinadaily.com.cn)"
       )
-      expect(rendered).not_to include("No active todos")
+      expect(rendered_text).not_to include("No active todos")
     end
 
     it "keeps explicit todo_manager tasks ahead of tool activity" do
@@ -69,8 +70,8 @@ RSpec.describe Clacky::RichUIController do
       ui.update_todos([{ content: "Collect release notes", status: "in_progress" }])
       ui.shell.layout.calculate_dimensions(100, 30)
 
-      rendered = ui.shell.layout.render
-      expect(rendered).to include("Collect release notes")
+      rendered_text = strip_ansi(ui.shell.layout.render)
+      expect(rendered_text).to include("Collect release notes")
       expect(ui.shell.sidebar.tasks.map { |task| task[:label] }).to eq(["Collect release notes"])
     end
 
@@ -82,9 +83,9 @@ RSpec.describe Clacky::RichUIController do
       ui.update_todos([])
       ui.shell.layout.calculate_dimensions(100, 30)
 
-      rendered = ui.shell.layout.render
+      rendered_text = strip_ansi(ui.shell.layout.render)
       expect(ui.shell.sidebar.tasks).to eq([])
-      expect(rendered).to include("No active todos")
+      expect(rendered_text).to include("No active todos")
     end
   end
 
@@ -417,6 +418,10 @@ RSpec.describe Clacky::RichUIController do
     line.gsub(/\e\[[0-9;:]*m/, "").display_width
   end
 
+  def strip_ansi(text)
+    text.gsub(/\e\[[0-9;]*m/, "")
+  end
+
   describe Clacky::RichUIController::ConfigMenuDialog do
     it "renders a selectable model configuration menu" do
       dialog = described_class.new(
@@ -430,14 +435,15 @@ RSpec.describe Clacky::RichUIController do
         selected_index: 0
       )
 
-      rendered = dialog.render_to_buffer.map { |line| line.compact.join }.join("\n")
+      rendered_lines = dialog.render_to_buffer.map { |line| line.compact.join }
+      rendered_text = strip_ansi(rendered_lines.join("\n"))
 
-      expect(rendered).to include("Model Configuration")
-      expect(rendered).to include("➜")
-      expect(rendered).to include("[+] Add New Model")
-      expect(rendered).to include("[*] Edit Current Model")
-      expect(rendered).to include("[X] Close")
-      expect(rendered).to include("Enter: Select")
+      expect(rendered_text).to include("Model Configuration")
+      expect(rendered_text).to include("➜")
+      expect(rendered_text).to include("[+] Add New Model")
+      expect(rendered_text).to include("[*] Edit Current Model")
+      expect(rendered_text).to include("[X] Close")
+      expect(rendered_text).to include("Enter: Select")
     end
 
     it "skips disabled separators when navigating" do
@@ -480,10 +486,10 @@ RSpec.describe Clacky::RichUIController do
         fields: [{ name: :api_key, label: "API Key:", default: "sk-secret", mask: true }]
       )
 
-      rendered = dialog.render_to_buffer.map { |line| line.compact.join }.join("\n")
+      rendered_text = strip_ansi(dialog.render_to_buffer.map { |line| line.compact.join }.join("\n"))
 
-      expect(rendered).to include("*********")
-      expect(rendered).not_to include("sk-secret")
+      expect(rendered_text).to include("*********")
+      expect(rendered_text).not_to include("sk-secret")
     end
   end
 end
