@@ -133,7 +133,7 @@ module Clacky
 
       private def connection
         Faraday.new(url: normalized_base_url) do |f|
-          f.options.timeout      = 120
+          f.options.timeout      = 240
           f.options.open_timeout = 10
         end
       end

@@ -370,6 +370,11 @@ module Clacky
           30
         elsif path.end_with?("/benchmark")
           20
+        elsif path == "/api/media/image"
+          # Image generation routes through OpenRouter (chat completions
+          # with modalities:["image"]); end-to-end latency is commonly
+          # 20-60s and can exceed 2 minutes for or-gpt-image-2 under load.
+          300
         else
           10
         end
