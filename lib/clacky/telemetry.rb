@@ -23,6 +23,11 @@ module Clacky
   #   POST /api/v1/telemetry/startup
   #   POST /api/v1/telemetry/task
   module Telemetry
+    LAUNCH_SOURCES = {
+      "installer" => "installer",
+      nil         => "cli"
+    }.freeze
+
     class << self
       # Called on every CLI startup (agent and server mode).
       # No local dedup — the server deduplicates by device_hash for unique
@@ -32,11 +37,12 @@ module Clacky
 
         brand = Clacky::BrandConfig.load
         payload = {
-          device_id:    resolve_device_id(brand),
-          version:      Clacky::VERSION,
-          os:           RbConfig::CONFIG["host_os"],
-          ruby_version: RUBY_VERSION,
-          brand:        brand.branded? ? brand.package_name : nil
+          device_id:     resolve_device_id(brand),
+          version:       Clacky::VERSION,
+          os:            RbConfig::CONFIG["host_os"],
+          ruby_version:  RUBY_VERSION,
+          brand:         brand.branded? ? brand.package_name : nil,
+          launch_source: LAUNCH_SOURCES.fetch(ENV["CLACKY_LAUNCHED_BY"], "cli")
         }.compact
 
         fire_and_forget("/api/v1/telemetry/startup", payload)
