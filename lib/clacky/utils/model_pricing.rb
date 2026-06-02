@@ -350,6 +350,19 @@ module Clacky
         cache:  { write: 0.30, read: 0.03 }
       },
 
+      # M3 (released 2026-06-01) is MiniMax's multimodal flagship. Official
+      # pricing is tiered by context length (≤512K vs 512K–1M); per the
+      # project's "displayed ≤ actual" convention we record only the lowest
+      # (≤512K) tier as a flat rate — the global TIERED_PRICING_THRESHOLD is
+      # 200K, so applying the 512K–1M rate to the 200K–512K band would over-
+      # charge. Listed at original (non-promotional) prices: input $0.60,
+      # output $2.40, cache read $0.12 per 1M tokens.
+      "minimax-m3" => {
+        input:  { default: 0.60, over_200k: 0.60 },
+        output: { default: 2.40, over_200k: 2.40 },
+        cache:  { write: 0.60, read: 0.12 }
+      },
+
       "minimax-m2.7" => {
         input:  { default: 0.30, over_200k: 0.30 },
         output: { default: 1.20, over_200k: 1.20 },
@@ -583,6 +596,8 @@ module Clacky
           "glm-4.7"
         # MiniMax — model ids in providers.rb use capitalised "MiniMax-M2.x"
         # but we match case-insensitively and map to the lowercased table key.
+        when /^minimax-m3$/i
+          "minimax-m3"
         when /^minimax-m2\.5$/i
           "minimax-m2.5"
         when /^minimax-m2\.7$/i

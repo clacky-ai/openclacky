@@ -170,8 +170,8 @@ module Clacky
         "name" => "Minimax",
         "base_url" => "https://api.minimaxi.com/v1",
         "api" => "openai-completions",
-        "default_model" => "MiniMax-M2.7",
-        "models" => ["MiniMax-M2.5", "MiniMax-M2.7"],
+        "default_model" => "MiniMax-M3",
+        "models" => ["MiniMax-M3", "MiniMax-M2.7", "MiniMax-M2.5"],
         # MiniMax operates two regional endpoints with identical APIs & model
         # lineup — mainland China (.com) and international (.io). Listing both
         # lets find_by_base_url identify either one as provider "minimax",
@@ -182,7 +182,12 @@ module Clacky
           { "label" => "International",  "label_key" => "settings.models.baseurl.variant.international",  "base_url" => "https://api.minimax.io/v1",   "region" => "intl" }.freeze
         ].freeze,
         # MiniMax M2.x does not support multimodal/vision input on this endpoint.
+        # M3 (released 2026-06-01) is natively multimodal and accepts image
+        # input, so it overrides the provider-level vision=false below.
         "capabilities" => { "vision" => false }.freeze,
+        "model_capabilities" => {
+          "MiniMax-M3" => { "vision" => true }.freeze
+        }.freeze,
         "website_url" => "https://www.minimaxi.com/user-center/basic-information/interface-key"
       }.freeze,
 

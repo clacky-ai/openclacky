@@ -492,6 +492,32 @@ RSpec.describe Clacky::ModelPricing do
       )
       expect(result[:source]).to eq(:price)
     end
+
+    it "bills MiniMax-M3 at its flat ≤512K-tier rate" do
+      usage = {
+        prompt_tokens: 100_000,
+        completion_tokens: 50_000,
+        cache_read_input_tokens: 20_000
+      }
+      result = described_class.calculate_cost(model: "MiniMax-M3", usage: usage)
+      # Regular input: (100_000 - 20_000) / 1M * $0.60 = $0.048
+      # Cache read:     20_000 / 1M * $0.12            = $0.0024
+      # Output:         50_000 / 1M * $2.40            = $0.12
+      # Total: $0.1704
+      expect(result[:cost]).to be_within(0.0001).of(0.1704)
+      expect(result[:source]).to eq(:price)
+    end
+
+    it "keeps MiniMax-M3 flat above 200K (no tier bump)" do
+      # Records only the ≤512K tier; the global 200K threshold must NOT
+      # escalate it (would over-charge the 200K–512K band).
+      result = described_class.calculate_cost(
+        model: "MiniMax-M3",
+        usage: { prompt_tokens: 400_000, completion_tokens: 0 }
+      )
+      # 400_000 / 1M * $0.60 = $0.24 (flat, not the 512K–1M $1.20 rate)
+      expect(result[:cost]).to be_within(0.0001).of(0.24)
+    end
   end
 
   # Guards against accidentally billing unrelated model names at a
