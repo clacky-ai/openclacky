@@ -203,14 +203,14 @@ function Get-UbuntuRootfs {
     $tarPath    = "$safeTemp\ubuntu-wsl-$cpuArch.tar.gz"
     $installDir = $UBUNTU_WSL_DIR
 
-    # Disk space check (~2 GB needed: 350 MB download + ~1.5 GB imported)
+    # Disk space check (~4 GB needed: 350 MB download + ~1.5 GB imported + buffer)
     $drive     = Split-Path -Qualifier $installDir
     $freeBytes = (Get-PSDrive ($drive.TrimEnd(':'))).Free
-    if ($freeBytes -lt 2GB) {
+    if ($freeBytes -lt 4GB) {
         Write-Fail "Not enough disk space on $drive."
         Write-Fail "  Available : $([math]::Round($freeBytes / 1GB, 1)) GB"
-        Write-Fail "  Required  : ~2 GB"
-        exit 1
+        Write-Fail "  Required  : ~4 GB"
+        exit 3
     }
 
     # Check if a valid cached tarball exists (skip download if checksum passes)
