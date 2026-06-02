@@ -179,16 +179,17 @@ module Clacky
       deleted
     end
 
-    # Keep only the most recent N sessions by created_at; delete the rest.
-    # Returns count of deleted sessions.
+    # Keep only the most recent N non-pinned sessions by created_at; the rest
+    # are soft-deleted (moved to the session trash, recoverable). Pinned
+    # sessions are never deleted and do not count toward the cap.
+    # Returns count of soft-deleted sessions.
     def cleanup_by_count(keep:)
-      sessions = all_sessions # already sorted newest-first
-      return 0 if sessions.size <= keep
+      non_pinned = all_sessions.reject { |s| s[:pinned] } # already sorted newest-first
+      return 0 if non_pinned.size <= keep
 
-      sessions[keep..].each do |session|
-        filepath = File.join(@sessions_dir, generate_filename(session[:session_id], session[:created_at]))
-        _hard_delete_session_with_chunks(filepath) if File.exist?(filepath)
-      end.size
+      victims = non_pinned[keep..]
+      victims.each { |session| soft_delete(session[:session_id]) }
+      victims.size
     end
 
     # ── Session trash (delegates to Tools::TrashManager) ──────────────
