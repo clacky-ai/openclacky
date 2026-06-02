@@ -768,6 +768,35 @@ module Clacky
       }
     end
 
+    # Resolve the session-pinned sub-model into a virtual overlay hash, ready
+    # to feed Agent#fork_subagent → #apply_virtual_model_overlay!.
+    #
+    # Mirrors #lite_model_config_for_current: the sub-model reuses the current
+    # primary model's provider identity and credentials (api_key / base_url /
+    # anthropic_format), swapping only the "model" field. This keeps auxiliary
+    # subagents on the user-chosen cheaper model WITHOUT mutating @models or
+    # touching the main agent (whose #current_model ignores the sub-model).
+    #
+    # @return [Hash, nil] overlay fields, or nil when no sub-model is pinned
+    #   or the current model has no resolvable provider.
+    def sub_model_overlay_for_current
+      sub_name = session_model_overlay_name
+      return nil if sub_name.nil? || sub_name.to_s.strip.empty?
+
+      primary = current_model
+      return nil unless primary && primary["base_url"] && primary["model"]
+
+      # Don't bother overlaying when the sub-model equals the primary already.
+      return nil if sub_name == primary["model"]
+
+      {
+        "api_key"          => primary["api_key"],
+        "base_url"         => primary["base_url"],
+        "model"            => sub_name,
+        "anthropic_format" => primary["anthropic_format"] || false
+      }
+    end
+
     # How long to stay on the fallback model before probing the primary again.
     FALLBACK_COOLING_OFF_SECONDS = 30 * 60  # 30 minutes
 
@@ -858,14 +887,11 @@ module Clacky
       resolved = resolve_current_model_entry
       return nil unless resolved
 
-      # Merge order (low → high): base entry, session-level sub-model override,
-      # then short-lived subagent overlay. Both layers are kept separate so
-      # a subagent fork can stack its own credentials on top of an active
-      # sub-model pin without erasing it.
+      # The session-level sub-model (@session_model_overlay) deliberately does
+      # NOT participate here: it must never replace the main agent's model.
+      # It only routes auxiliary subagents (see Agent#fork_subagent) via the
+      # virtual overlay below. The main agent always runs on its card model.
       merged = resolved
-      if @session_model_overlay && !@session_model_overlay.empty?
-        merged = merged.merge(@session_model_overlay)
-      end
       if @virtual_model_overlay && !@virtual_model_overlay.empty?
         merged = merged.merge(@virtual_model_overlay)
       end

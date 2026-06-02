@@ -212,6 +212,69 @@ RSpec.describe Clacky::Agent, "#fork_subagent" do
           .to eq("abs-claude-opus-4-7")
       end
     end
+
+    context "with a session sub-model pinned (C-5632)" do
+      # Primary card is Opus on openclacky; user pins Haiku as the session
+      # sub-model. The sub-model must ONLY affect auxiliary subagents — never
+      # the main agent.
+      let(:config) do
+        Clacky::AgentConfig.new(
+          models: [
+            {
+              "id" => "opus-id",
+              "model" => "abs-claude-opus-4-7",
+              "base_url" => "https://api.openclacky.com",
+              "api_key" => "clacky-test-key",
+              "anthropic_format" => false,
+              "type" => "default"
+            }
+          ],
+          current_model_id: "opus-id"
+        )
+      end
+
+      before { agent.set_session_sub_model("abs-claude-haiku-4-5") }
+
+      it "keeps the MAIN agent on the card model (sub-model never replaces it)" do
+        expect(config.model_name).to eq("abs-claude-opus-4-7")
+        expect(config.current_model["model"]).to eq("abs-claude-opus-4-7")
+      end
+
+      it "routes an unspecified-model subagent through the pinned sub-model" do
+        subagent = agent.fork_subagent
+        expect(subagent.instance_variable_get(:@config).model_name)
+          .to eq("abs-claude-haiku-4-5")
+      end
+
+      it "lets an explicit model (including lite) win over the sub-model" do
+        subagent = agent.fork_subagent(model: "lite")
+        # "lite" maps Opus → Haiku here too, but the point is the explicit
+        # request drives it, not the sub-model overlay branch.
+        sub_config = subagent.instance_variable_get(:@config)
+        expect(sub_config.model_name).to eq("abs-claude-haiku-4-5")
+        # Parent still on Opus regardless.
+        expect(config.model_name).to eq("abs-claude-opus-4-7")
+      end
+
+      it "isolates the sub-model between sessions (no leakage to a sibling)" do
+        # A sibling session built from a fresh config must not inherit this
+        # session's sub-model pin.
+        sibling_config = Clacky::AgentConfig.new(
+          models: [config.models.first.dup],
+          current_model_id: "opus-id"
+        )
+        expect(sibling_config.sub_model_overlay_for_current).to be_nil
+
+        sibling = described_class.new(
+          client, sibling_config, working_dir: Dir.pwd, ui: nil,
+          profile: "coding", session_id: Clacky::SessionManager.generate_id,
+          source: :manual
+        )
+        sub = sibling.fork_subagent
+        expect(sub.instance_variable_get(:@config).model_name)
+          .to eq("abs-claude-opus-4-7")
+      end
+    end
   end
 
   describe "#generate_subagent_summary" do

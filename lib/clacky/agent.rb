@@ -175,15 +175,21 @@ module Clacky
       true
     end
 
-    # Pin this session to a sub-model name without changing its underlying
-    # card (credentials / base_url stay put). Pass nil or "" to clear and
-    # fall back to the card's default model. Validation that the name is
-    # listed under the current provider is the caller's job.
+    # Pin this session to a sub-model name. This NEVER changes the main
+    # agent's model — the sub-model only routes auxiliary subagents (skills,
+    # memory updates, task tool, ...) through a cheaper model to save cost
+    # (see #fork_subagent). The card / credentials / base_url stay put, and
+    # so does the main agent's client. Pass nil or "" to clear.
+    # Validation that the name is listed under the current provider is the
+    # caller's job.
     # @param model_name [String, nil]
     # @return [Boolean]
     def set_session_sub_model(model_name)
       @config.session_model_overlay = model_name
-      rebuild_client_for_current_model!
+      # Re-inject session context so the UI/AI notice the sub-model change.
+      # We intentionally do NOT rebuild the main client: the main agent keeps
+      # running on its card model regardless of the pinned sub-model.
+      inject_session_context
       true
     end
 
@@ -1276,6 +1282,21 @@ module Clacky
           else
             raise AgentError, "Model '#{model}' not found in config. Available models: #{subagent_config.model_names.join(', ')}"
           end
+        end
+      else
+        # No explicit model requested by the caller. If this session has a
+        # pinned sub-model, route the subagent through it to save cost. This
+        # is the ONLY place the session sub-model takes effect — the main
+        # agent's #current_model deliberately ignores it. An explicitly
+        # requested model (including "lite") always wins over the sub-model.
+        sub_cfg = subagent_config.sub_model_overlay_for_current
+        if sub_cfg
+          subagent_config.apply_virtual_model_overlay!(
+            "api_key"          => sub_cfg["api_key"],
+            "base_url"         => sub_cfg["base_url"],
+            "model"            => sub_cfg["model"],
+            "anthropic_format" => sub_cfg["anthropic_format"]
+          )
         end
       end
 
