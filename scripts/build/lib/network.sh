@@ -104,7 +104,7 @@ _resolve_cdn_base_url() {
     _print_probe_result "CN CDN fallback" "$result"
     if _is_slow_or_unreachable "$result"; then
         print_error "CN CDN and fallback both unreachable — cannot install."
-        exit 1
+        exit 2
     fi
     CN_CDN_BASE_URL="$CN_CDN_FALLBACK_URL"
 }
@@ -152,7 +152,7 @@ detect_network_region() {
         print_success "Region: china"
     else
         print_error "Region: unknown (all unreachable) — cannot install."
-        exit 1
+        exit 2
     fi
     echo ""
 
@@ -177,7 +177,7 @@ detect_network_region() {
             print_info "CN mirrors applied"
         else
             print_error "CN mirrors unreachable — cannot install."
-            exit 1
+            exit 2
         fi
     else
         USE_CN_MIRRORS=false
