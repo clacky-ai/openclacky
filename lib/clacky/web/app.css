@@ -9069,11 +9069,14 @@ body.setup-mode[data-theme="dark"] {
 .tooltip-date {
   font-weight: 600;
   color: var(--color-text-primary);
+  white-space: nowrap;
 }
-.tooltip-total {
+.tooltip-total-value {
   font-size: 0.875rem;
   color: var(--color-accent);
-  font-weight: 500;
+  font-weight: 600;
+  white-space: nowrap;
+  margin-left: 0.75rem;
 }
 .tooltip-row {
   display: flex;
