@@ -272,6 +272,17 @@ function Install-UbuntuRootfs {
     Write-Success "Ubuntu (WSL$WslVersion) imported successfully."
 }
 
+function Test-WslNetwork {
+    Write-Info "Checking WSL network connectivity..."
+    wsl.exe -d Ubuntu -u root -- bash -c "curl -fsSL --max-time 3 --retry 1 $INSTALL_SCRIPT_URL -o /dev/null 2>/dev/null" | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        Write-Fail "WSL cannot reach $CLACKY_CDN_PRIMARY_HOST (curl exit $LASTEXITCODE)."
+        Write-Fail "Please fix the network inside WSL and re-run this installer."
+        exit 2
+    }
+    Write-Success "WSL network OK."
+}
+
 # Install OpenClacky inside the Ubuntu WSL distro.
 function Run-InstallInWsl {
     Write-Step "Installing $DisplayName inside WSL..."
@@ -288,6 +299,7 @@ function Run-InstallInWsl {
         Write-Info "Local mode: using $wslPath"
         wsl.exe -d Ubuntu -u root -- bash $wslPath --brand-name=$BrandName --command=$CommandName
     } else {
+        Test-WslNetwork
         wsl.exe -d Ubuntu -u root -- bash -c "cd ~ && curl -fsSL $INSTALL_SCRIPT_URL | bash -s -- --brand-name=$BrandName --command=$CommandName"
     }
 
