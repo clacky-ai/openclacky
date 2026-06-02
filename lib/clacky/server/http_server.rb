@@ -4,6 +4,7 @@ require "webrick"
 require "websocket"
 require "socket"
 require "json"
+require "net/http"
 require "thread"
 require "fileutils"
 require "tmpdir"
@@ -107,6 +108,8 @@ module Clacky
     #   GET  /**                     → static files served from lib/clacky/web/ directory
     class HttpServer
       WEB_ROOT = File.expand_path("../web", __dir__)
+      EXCHANGE_RATE_PRIMARY_BASE_URL = "https://open.er-api.com/v6/latest"
+      EXCHANGE_RATE_FALLBACK_URL = "https://api.frankfurter.app/latest"
 
       # Default SOUL.md written when the user skips the onboard conversation.
       # A richer version is created by the Agent during the soul_setup phase.
@@ -368,6 +371,8 @@ module Clacky
           90
         elsif path == "/api/tool/browser"
           30
+        elsif path == "/api/exchange-rate"
+          20
         elsif path.end_with?("/benchmark")
           20
         elsif path == "/api/media/image"
@@ -401,6 +406,7 @@ module Clacky
         when ["GET",    "/api/skills"]         then api_list_skills(res)
         when ["GET",    "/api/config"]        then api_get_config(res)
         when ["GET",    "/api/config/settings"]  then api_get_settings(res)
+        when ["GET",    "/api/exchange-rate"]    then api_exchange_rate(req, res)
         when ["PATCH",  "/api/config/settings"]  then api_update_settings(req, res)
         when ["POST",   "/api/config/models"] then api_add_model(req, res)
         when ["POST",   "/api/config/test"]   then api_test_config(req, res)
@@ -654,6 +660,103 @@ module Clacky
           FileUtils.mkdir_p(working_dir) unless Dir.exist?(working_dir)
           build_session(name: "Session 1", working_dir: working_dir)
         end
+      end
+
+      # GET /api/exchange-rate?from=USD&to=CNY
+      # Fetches the latest exchange rate on demand. The browser still owns the
+      # saved preference in localStorage; this API is only a lightweight proxy
+      # that avoids CORS issues and normalizes provider responses.
+      def api_exchange_rate(req, res)
+        query = URI.decode_www_form(req.query_string.to_s).to_h
+        from  = normalize_currency_code(query["from"], fallback: "USD")
+        to    = normalize_currency_code(query["to"], fallback: "CNY")
+
+        unless from && to
+          return json_response(res, 400, { error: "from and to must be 3-letter currency codes" })
+        end
+
+        data = fetch_exchange_rate(from, to)
+        json_response(res, 200, data)
+      rescue StandardError => e
+        Clacky::Logger.warn("[ExchangeRate] failed: #{e.class}: #{e.message}")
+        json_response(res, 502, { error: "Failed to fetch exchange rate" })
+      end
+
+      def normalize_currency_code(value, fallback:)
+        code = value.to_s.strip.upcase
+        code = fallback if code.empty?
+        code.match?(/\A[A-Z]{3}\z/) ? code : nil
+      end
+
+      def fetch_exchange_rate(from, to)
+        fetch_open_exchange_rate(from, to)
+      rescue StandardError => primary_error
+        Clacky::Logger.warn("[ExchangeRate] primary source failed: #{primary_error.message}")
+        fetch_frankfurter_exchange_rate(from, to)
+      end
+
+      def fetch_open_exchange_rate(from, to)
+        data = fetch_exchange_rate_json("#{EXCHANGE_RATE_PRIMARY_BASE_URL}/#{URI.encode_www_form_component(from)}")
+        raise "open.er-api.com returned #{data["result"] || "unknown"}" unless data["result"] == "success"
+
+        rate = positive_float(data.dig("rates", to))
+        raise "open.er-api.com missing #{to} rate" unless rate
+
+        updated_at = data["time_last_update_utc"].to_s
+        {
+          from: from,
+          to: to,
+          rate: rate,
+          date: parse_exchange_rate_date(updated_at),
+          updated_at: updated_at,
+          source: "open.er-api.com"
+        }
+      end
+
+      def fetch_frankfurter_exchange_rate(from, to)
+        query = URI.encode_www_form("from" => from, "to" => to)
+        data  = fetch_exchange_rate_json("#{EXCHANGE_RATE_FALLBACK_URL}?#{query}")
+
+        rate = positive_float(data.dig("rates", to))
+        raise "frankfurter.app missing #{to} rate" unless rate
+
+        {
+          from: from,
+          to: to,
+          rate: rate,
+          date: data["date"].to_s,
+          updated_at: data["date"].to_s,
+          source: "frankfurter.app"
+        }
+      end
+
+      def fetch_exchange_rate_json(url)
+        uri = URI(url)
+        http = Net::HTTP.new(uri.host, uri.port)
+        http.use_ssl = uri.scheme == "https"
+        http.open_timeout = 5
+        http.read_timeout = 8
+
+        req = Net::HTTP::Get.new(uri.request_uri, "Accept" => "application/json")
+        response = http.request(req)
+        raise "HTTP #{response.code}" unless response.is_a?(Net::HTTPSuccess)
+
+        JSON.parse(response.body.to_s)
+      end
+
+      def positive_float(value)
+        rate = Float(value)
+        rate.positive? ? rate : nil
+      rescue ArgumentError, TypeError
+        nil
+      end
+
+      def parse_exchange_rate_date(value)
+        return "" if value.to_s.strip.empty?
+
+        Date.parse(value.to_s).iso8601
+      rescue ArgumentError
+        ""
       end
 
       # ── Onboard API ───────────────────────────────────────────────────────────

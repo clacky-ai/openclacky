@@ -9571,6 +9571,53 @@ body.setup-mode[data-theme="dark"] {
   color: var(--color-text-secondary);
   font-weight: 500;
 }
+.settings-exchange-rate-refresh {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  min-height: 34px;
+  padding: 0.45rem 0.8rem;
+  border: 1px solid color-mix(in srgb, var(--color-accent-primary) 28%, var(--color-border));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-accent-primary) 8%, var(--color-bg-secondary));
+  color: var(--color-accent-primary);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+}
+.settings-exchange-rate-refresh svg {
+  flex: 0 0 auto;
+}
+.settings-exchange-rate-refresh:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--color-accent-primary) 52%, var(--color-border));
+  background: color-mix(in srgb, var(--color-accent-primary) 12%, var(--color-bg-secondary));
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--color-accent-primary) 16%, transparent);
+  transform: translateY(-1px);
+}
+.settings-exchange-rate-refresh:active:not(:disabled) {
+  transform: translateY(0);
+}
+.settings-exchange-rate-refresh:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+}
+.settings-exchange-rate-status {
+  min-height: 1.1rem;
+  margin-top: 0.4rem;
+  font-size: 0.8125rem;
+  color: var(--color-text-secondary);
+}
+.settings-exchange-rate-status.success {
+  color: var(--color-success, #2e7d32);
+}
+.settings-exchange-rate-status.error {
+  color: var(--color-error, #d33);
+}
 
 /* ── Sessions List ───────────────────────────────────────────────────── */
 .billing-sessions-row {

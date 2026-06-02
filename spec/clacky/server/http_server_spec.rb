@@ -118,6 +118,60 @@ RSpec.describe Clacky::Server::HttpServer do
     end
   end
 
+  # ── GET /api/exchange-rate ─────────────────────────────────────────────────
+
+  describe "GET /api/exchange-rate" do
+    it "returns normalized exchange rate data from the primary source" do
+      with_server(agent_config: agent_config) do |server|
+        allow(server).to receive(:fetch_open_exchange_rate).with("USD", "CNY").and_return({
+          from: "USD", to: "CNY", rate: 6.772555, date: "2026-06-01",
+          updated_at: "Mon, 01 Jun 2026 00:02:31 +0000", source: "open.er-api.com"
+        })
+
+        req = fake_req(method: "GET", path: "/api/exchange-rate", query_string: "from=usd&to=cny")
+        res = fake_res
+        dispatch(server, req, res)
+
+        body = parsed_body(res)
+        expect(res.status).to eq(200)
+        expect(body["from"]).to eq("USD")
+        expect(body["to"]).to eq("CNY")
+        expect(body["rate"]).to eq(6.772555)
+        expect(body["source"]).to eq("open.er-api.com")
+      end
+    end
+
+    it "falls back when the primary source fails" do
+      with_server(agent_config: agent_config) do |server|
+        allow(server).to receive(:fetch_open_exchange_rate).and_raise(StandardError, "primary down")
+        allow(server).to receive(:fetch_frankfurter_exchange_rate).with("USD", "CNY").and_return({
+          from: "USD", to: "CNY", rate: 6.7668, date: "2026-05-29",
+          updated_at: "2026-05-29", source: "frankfurter.app"
+        })
+
+        req = fake_req(method: "GET", path: "/api/exchange-rate")
+        res = fake_res
+        dispatch(server, req, res)
+
+        body = parsed_body(res)
+        expect(res.status).to eq(200)
+        expect(body["rate"]).to eq(6.7668)
+        expect(body["source"]).to eq("frankfurter.app")
+      end
+    end
+
+    it "rejects invalid currency codes" do
+      with_server(agent_config: agent_config) do |server|
+        req = fake_req(method: "GET", path: "/api/exchange-rate", query_string: "from=USDD&to=CNY")
+        res = fake_res
+        dispatch(server, req, res)
+
+        expect(res.status).to eq(400)
+        expect(parsed_body(res)["error"]).to include("3-letter")
+      end
+    end
+  end
+
   # ── GET /api/sessions ─────────────────────────────────────────────────────
 
   describe "GET /api/sessions" do
