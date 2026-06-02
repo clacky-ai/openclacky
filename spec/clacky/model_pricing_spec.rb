@@ -494,11 +494,11 @@ RSpec.describe Clacky::ModelPricing do
     end
   end
 
-  # Qwen (Alibaba DashScope) pricing — international list price, discounted
-  # where a "限时X折" promo applies. cache.write/read map to the official
-  # explicit-cache create/hit prices.
+  # Qwen (Alibaba DashScope) pricing - international list price (promo discounts
+  # are intentionally ignored for cost estimation). cache.write/read map to the
+  # official explicit-cache create/hit prices.
   describe "Qwen pricing" do
-    it "bills qwen3.6-plus at official prices (no promo)" do
+    it "bills qwen3.6-plus at official list prices" do
       usage = {
         prompt_tokens: 1_000_000,
         completion_tokens: 1_000_000,
@@ -513,16 +513,16 @@ RSpec.describe Clacky::ModelPricing do
       expect(result[:source]).to eq(:price)
     end
 
-    it "bills qwen3.7-max at the discounted (5折) rate, not tiered" do
+    it "bills qwen3.7-max at the flat list rate, not tiered" do
       result = described_class.calculate_cost(
         model: "qwen3.7-max",
         usage: { prompt_tokens: 1_000_000, completion_tokens: 1_000_000 }
       )
-      # input 1M * $1.25 + output 1M * $3.75 = $5.00 (flat, no tier bump)
-      expect(result[:cost]).to be_within(0.0001).of(5.00)
+      # input 1M * $2.5 + output 1M * $7.5 = $10.00 (flat, no tier bump)
+      expect(result[:cost]).to be_within(0.0001).of(10.00)
     end
 
-    it "bills qwen3.7-plus explicit cache create/hit at discounted (8折) rates" do
+    it "bills qwen3.7-plus explicit cache create/hit at list rates" do
       usage = {
         prompt_tokens: 100_000,
         completion_tokens: 0,
@@ -530,11 +530,11 @@ RSpec.describe Clacky::ModelPricing do
         cache_read_input_tokens: 50_000
       }
       result = described_class.calculate_cost(model: "qwen3.7-plus", usage: usage)
-      # Regular input: (100_000 - 50_000)/1M * $0.32  = $0.016
-      # Cache write:    100_000 / 1M * $0.40          = $0.04
-      # Cache read:      50_000 / 1M * $0.032          = $0.0016
-      # Total: $0.0576
-      expect(result[:cost]).to be_within(0.0001).of(0.0576)
+      # Regular input: (100_000 - 50_000)/1M * $0.4  = $0.020
+      # Cache write:    100_000 / 1M * $0.5          = $0.050
+      # Cache read:      50_000 / 1M * $0.04         = $0.002
+      # Total: $0.072
+      expect(result[:cost]).to be_within(0.0001).of(0.072)
     end
 
     it "falls back to input rate for models without explicit-cache pricing" do

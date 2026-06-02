@@ -356,40 +356,39 @@ module Clacky
         cache:  { write: 0.30, read: 0.06 }
       },
 
-      # Qwen (Alibaba DashScope) — USD per 1M tokens, international (Singapore) list price.
-      # Source: Alibaba Cloud Model Studio international console (国际站) per-model pages.
+      # Qwen (Alibaba DashScope) - USD per 1M tokens, international (Singapore) list price.
+      # Source: Alibaba Cloud Model Studio international console per-model pages.
       #
       # Pricing convention:
-      #   - We record the model's LOWEST context tier (e.g. input≤256k / ≤128k) as a
+      #   - These rates are used for user-facing cost ESTIMATION, so we always use
+      #     the standard LIST price and intentionally ignore any limited-time promo
+      #     discounts. A promo lowers the user's actual bill, never raises it, so
+      #     estimating at list price keeps the estimate a safe upper bound and avoids
+      #     churn whenever a promo starts or ends.
+      #   - We record the model's LOWEST context tier (e.g. input<=256k / <=128k) as a
       #     flat rate, since the global TIERED_PRICING_THRESHOLD is 200K and does not
       #     match Qwen's per-model breakpoints.
-      #   - cache.write  = official "显式缓存创建" (explicit cache create) price.
-      #   - cache.read   = official "显式缓存命中" (explicit cache hit) price.
+      #   - cache.write = official explicit-cache-create price.
+      #   - cache.read  = official explicit-cache-hit price.
       #   - When a model has NO published explicit-cache price (e.g. qwen3.6-27b,
       #     qwen-plus-latest), cache.write/read fall back to the input rate.
-      #
-      # ⚠️  PROMO PRICES: several models carry a "限时X折" (limited-time discount).
-      #     The values below are the DISCOUNTED prices. When a promo ends or changes,
-      #     these MUST be updated to the new effective price. Each model notes its
-      #     current discount factor so future maintainers can recompute from list price.
       # qwen3.7-max: NOT tiered (single flat tier per Alibaba's definition).
-      # Promo: 限时5折 (50% off). List → discounted:
-      #   input 2.5→1.25, output 7.5→3.75, explicit write 3.125→1.5625, explicit read 0.25→0.125
+      #   List price: input 2.5, output 7.5, explicit write 3.125, explicit read 0.25.
       "qwen3.7-max" => {
-        input:  { default: 1.25, over_200k: 1.25 },
-        output: { default: 3.75, over_200k: 3.75 },
-        cache:  { write: 1.5625, read: 0.125 }
+        input:  { default: 2.5, over_200k: 2.5 },
+        output: { default: 7.5, over_200k: 7.5 },
+        cache:  { write: 3.125, read: 0.25 }
       },
 
-      # qwen3.7-plus: 限时8折 (20% off). List → discounted (≤256k tier):
-      #   input 0.4→0.32, output 1.6→1.28, explicit write 0.5→0.40, explicit read 0.04→0.032
+      # qwen3.7-plus: list price (<=256k tier):
+      #   input 0.4, output 1.6, explicit write 0.5, explicit read 0.04.
       "qwen3.7-plus" => {
-        input:  { default: 0.32, over_200k: 0.32 },
-        output: { default: 1.28, over_200k: 1.28 },
-        cache:  { write: 0.40, read: 0.032 }
+        input:  { default: 0.4, over_200k: 0.4 },
+        output: { default: 1.6, over_200k: 1.6 },
+        cache:  { write: 0.5, read: 0.04 }
       },
 
-      # qwen3.6-plus: no active promo (≤256k tier). Official explicit-cache prices.
+      # qwen3.6-plus: list price (<=256k tier). Official explicit-cache prices.
       #   input 0.50, output 3.00, explicit write 0.625, explicit read 0.05
       "qwen3.6-plus" => {
         input:  { default: 0.50, over_200k: 0.50 },
@@ -397,7 +396,7 @@ module Clacky
         cache:  { write: 0.625, read: 0.05 }
       },
 
-      # qwen3.6-max (qwen3.6-max-preview): no active promo (≤128k tier).
+      # qwen3.6-max (qwen3.6-max-preview): list price (<=128k tier).
       #   input 1.30, output 7.80, explicit write 1.625, explicit read 0.13
       "qwen3.6-max" => {
         input:  { default: 1.30, over_200k: 1.30 },
@@ -405,7 +404,7 @@ module Clacky
         cache:  { write: 1.625, read: 0.13 }
       },
 
-      # qwen3.6-27b: no active promo, no explicit-cache pricing published.
+      # qwen3.6-27b: list price, no explicit-cache pricing published.
       #   Cache write/read fall back to the input rate (no cache discount).
       "qwen3.6-27b" => {
         input:  { default: 0.60, over_200k: 0.60 },
@@ -413,7 +412,7 @@ module Clacky
         cache:  { write: 0.60, read: 0.60 }
       },
 
-      # qwen3.6-flash: no active promo (≤256k tier).
+      # qwen3.6-flash: list price (<=256k tier).
       #   input 0.25, output 1.50, explicit write 0.3125, explicit read 0.025
       "qwen3.6-flash" => {
         input:  { default: 0.25, over_200k: 0.25 },
@@ -421,7 +420,7 @@ module Clacky
         cache:  { write: 0.3125, read: 0.025 }
       },
 
-      # qwen-plus-latest: no active promo (≤256k tier), no explicit-cache pricing.
+      # qwen-plus-latest: list price (<=256k tier), no explicit-cache pricing.
       #   Cache write/read fall back to the input rate (no cache discount).
       "qwen-plus-latest" => {
         input:  { default: 0.40, over_200k: 0.40 },
@@ -429,8 +428,8 @@ module Clacky
         cache:  { write: 0.40, read: 0.40 }
       },
 
-      # qwen3-vl-plus: replaces the retiring qwen-vl-plus. No active promo
-      #   (128k<input≤256k tier). input 0.60, output 4.80,
+      # qwen3-vl-plus: replaces the retiring qwen-vl-plus. List price
+      #   (128k<input<=256k tier). input 0.60, output 4.80,
       #   explicit write 0.75, explicit read 0.06.
       "qwen3-vl-plus" => {
         input:  { default: 0.60, over_200k: 0.60 },
