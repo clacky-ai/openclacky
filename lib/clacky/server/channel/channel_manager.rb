@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative "channel_ui_controller"
+require_relative "group_message_buffer"
 
 module Clacky
   module Channel
@@ -46,6 +47,7 @@ module Clacky
         @running           = false
         @mutex             = Mutex.new
         @session_counters  = Hash.new(0)  # platform => count, for short session names
+        @group_buffer      = GroupMessageBuffer.new
       end
 
       # Start all enabled adapters in background threads. Non-blocking.
@@ -78,6 +80,15 @@ module Clacky
       # @return [Array<Symbol>] platforms currently running
       def running_platforms
         @mutex.synchronize { @adapters.map(&:platform_id) }
+      end
+
+      # Return all buffered group chat messages for a given chat.
+      # @param chat_id [String]
+      # @return [Array<Hash>] each entry has :user_id, :user_name, :text
+      def group_history(chat_id)
+        @group_buffer.peek(chat_id).map do |e|
+          { user_id: e.user_id, user_name: e.user_name, text: e.text }
+        end
       end
 
       # Proactively send a message to a user on the given platform.
@@ -232,6 +243,16 @@ module Clacky
       end
 
       def route_message(adapter, event)
+        if event[:observe_only]
+          @group_buffer.push(event[:chat_id], user_id: event[:user_id], user_name: event[:user_name], text: event[:text].to_s)
+          return
+        end
+
+        if event[:unsupported]
+          adapter.send_text(event[:chat_id], "Sorry, this message type is not supported.")
+          return
+        end
+
         text  = event[:text]&.strip
         files = event[:files] || []
         return if (text.nil? || text.empty?) && files.empty?
@@ -283,6 +304,11 @@ module Clacky
         # source: :channel prevents the message from being echoed back to the IM channel.
         web_ui&.show_user_message(text, source: :channel) unless text.nil? || text.empty?
 
+        # Prepend buffered group history so the agent knows what was discussed
+        # before it was @-mentioned. Buffer is cleared atomically on take.
+        # WebUI always receives the raw user text — context is agent-only.
+        prompt = build_prompt_with_context(event[:chat_id], text)
+
         # Start typing keepalive BEFORE sending any message.
         # sendmessage cancels the typing indicator in WeChat protocol,
         # so keepalive must be running when "Thinking..." is sent so it
@@ -297,7 +323,7 @@ module Clacky
         @run_agent_task.call(session_id, agent) do
           begin
             Clacky::Logger.info("[ChannelManager] agent.run START session=#{session_id[0, 8]} text=#{text.inspect}")
-            agent.run(text, files: files)
+            agent.run(prompt, files: files, display_text: text)
             Clacky::Logger.info("[ChannelManager] agent.run END   session=#{session_id[0, 8]} text=#{text.inspect}")
           rescue StandardError => e
             Clacky::Logger.error("[ChannelManager] agent.run RAISED session=#{session_id[0, 8]} #{e.class}: #{e.message}\n#{e.backtrace.first(8).join("\n")}")
@@ -695,6 +721,25 @@ module Clacky
         adapter.stop
       rescue StandardError => e
         Clacky::Logger.warn("[ChannelManager] Error stopping #{adapter.platform_id}: #{e.message}")
+      end
+
+      # Prepend recent group chat history to the user's message so the agent
+      # has context for questions like "what were we just discussing?".
+      # Returns the original text unchanged when there is no buffered history.
+      private def build_prompt_with_context(chat_id, text)
+        entries = @group_buffer.peek(chat_id, limit: GroupMessageBuffer::PROMPT_LIMIT)
+        return text if entries.empty?
+
+        total = @group_buffer.peek(chat_id).size
+        lines = entries.map { |e| "#{e.user_name || e.user_id}: #{e.text}" }.join("\n")
+
+        partial = total > entries.size
+        header = partial ? "[Group chat partial history]" : "[Group chat history]"
+        footer = if partial
+                   "[INSTRUCTION: If the above partial history is insufficient to answer, MUST web_fetch http://#{ENV["CLACKY_SERVER_HOST"]}:#{ENV["CLACKY_SERVER_PORT"]}/api/channels/group_history/#{chat_id} for full context.]"
+                 end
+
+        [header, lines, footer, "---", text].compact.join("\n")
       end
     end
   end

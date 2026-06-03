@@ -78,10 +78,14 @@ module Clacky
           def handle_raw_message(raw)
             msgtype = raw["msgtype"]
             Clacky::Logger.info("[wecom] msgtype=#{msgtype} raw=#{raw.to_s[0..300]}")
-            return unless %w[text image file mixed].include?(msgtype)
 
             chat_id = raw["chatid"] || raw.dig("from", "userid")
             return unless chat_id
+
+            unless %w[text image file mixed].include?(msgtype)
+              @on_message&.call({ type: :message, platform: :wecom, chat_id: chat_id, unsupported: true })
+              return
+            end
 
             user_id = raw.dig("from", "userid")
             chat_type = raw["chattype"] == "group" ? :group : :direct

@@ -196,7 +196,8 @@ RSpec.describe Clacky::Channel::Adapters::DingTalk::Adapter do
         "content" => { "downloadCode" => "X" }
       )))
 
-      expect(captured).to be_nil
+      expect(captured).not_to be_nil
+      expect(captured[:unsupported]).to be true
     end
   end
 

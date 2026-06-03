@@ -146,7 +146,8 @@ RSpec.describe Clacky::Channel::Adapters::Telegram::Adapter do
         }
       }
       adapter.process_update(update)
-      expect(events).to be_empty
+      expect(events.size).to eq(1)
+      expect(events.first[:observe_only]).to be true
     end
 
     it "accepts group messages when @bot_username is mentioned, and strips the mention" do

@@ -56,8 +56,16 @@ module Clacky
             msg_type = message["message_type"]
             Clacky::Logger.info("[feishu] msg_type=#{msg_type} content=#{message["content"].to_s[0..300]}")
             unless %w[text image file post].include?(msg_type)
-              Clacky::Logger.info("[feishu] dropping unsupported msg_type=#{msg_type}")
-              return nil
+              Clacky::Logger.info("[feishu] unsupported msg_type=#{msg_type}")
+              chat_type = message["chat_type"] == "p2p" ? :direct : :group
+              return {
+                type:               :message,
+                platform:           :feishu,
+                chat_id:            message["chat_id"],
+                chat_type:          chat_type,
+                mentioned_open_ids: Array(message["mentions"]).filter_map { |m| m.dig("id", "open_id") },
+                unsupported:        true
+              }
             end
 
             content_raw = message["content"]
@@ -70,7 +78,7 @@ module Clacky
 
             case msg_type
             when "text"
-              text = strip_mentions(content["text"].to_s.strip)
+              text = resolve_mentions(content["text"].to_s.strip, message["mentions"])
               return nil if text.empty?
             when "image"
               image_keys = [content["image_key"]].compact
@@ -129,6 +137,18 @@ module Clacky
           def strip_mentions(text)
             # Feishu mentions are formatted as <at user_id="...">Name</at>
             text.gsub(/<at[^>]*>.*?<\/at>/, "").strip
+          end
+
+          # Replace @_user_N placeholders in text with real display names from mentions array.
+          # Falls back to stripping unresolved placeholders via strip_mentions.
+          def resolve_mentions(text, mentions)
+            mapping = Array(mentions).each_with_object({}) do |m, h|
+              key  = m["key"].to_s
+              name = m.dig("name").to_s
+              h[key] = name unless key.empty? || name.empty?
+            end
+            result = text.gsub(/@_user_\d+/) { |k| mapping[k] ? "@#{mapping[k]}" : k }
+            strip_mentions(result).strip
           end
 
           # Parse a Feishu post content body into text and image_keys.

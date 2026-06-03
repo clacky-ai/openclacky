@@ -266,7 +266,7 @@ module Clacky
 
         page.each do |round|
           msg = round[:user_msg]
-          raw_text    = extract_text_from_content(msg[:content])
+          raw_text    = msg[:display_text] || extract_text_from_content(msg[:content])
           # Images: recovered from inline image_url blocks in content (carry data_url for <img> rendering)
           image_files = extract_image_files_from_content(msg[:content])
           # Disk files (PDF, doc, etc.): stored in display_files on the user message at send time

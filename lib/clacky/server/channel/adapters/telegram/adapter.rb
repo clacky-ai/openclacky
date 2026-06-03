@@ -243,7 +243,13 @@ module Clacky
             text      = msg["text"].to_s
 
             if is_group
-              return unless group_mention?(msg, text)
+              unless group_mention?(msg, text)
+                observe_text = text.strip
+                unless observe_text.empty?
+                  @on_message&.call({ type: :message, platform: :telegram, chat_id: chat_id.to_s, user_id: user_id.to_s, text: observe_text, observe_only: true })
+                end
+                return
+              end
               text = strip_bot_mention(text)
             end
 
@@ -255,7 +261,11 @@ module Clacky
             files = collect_files(msg)
             caption = msg["caption"].to_s
             text = caption if text.empty? && !caption.empty?
-            return if text.strip.empty? && files.empty?
+
+            if text.strip.empty? && files.empty?
+              @on_message&.call({ type: :message, platform: :telegram, chat_id: chat_id.to_s, unsupported: true })
+              return
+            end
 
             event = {
               type:       :message,

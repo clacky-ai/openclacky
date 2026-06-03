@@ -42,6 +42,7 @@ module Clacky
             @domain = domain
             @token_cache = nil
             @token_expires_at = nil
+            @user_name_cache = {}
           end
 
           # Send plain text message
@@ -234,6 +235,17 @@ module Clacky
           rescue => e
             Clacky::Logger.warn("[feishu] Failed to fetch bot_open_id: #{e.message}")
             nil
+          end
+
+          def fetch_user_name(open_id)
+            return @user_name_cache[open_id] if @user_name_cache.key?(open_id)
+
+            name = get("/open-apis/contact/v3/users/#{open_id}", params: { user_id_type: "open_id" })
+                     .dig("data", "user", "name")
+            @user_name_cache[open_id] = name.to_s.strip.then { |n| n.empty? ? open_id : n }
+          rescue => e
+            Clacky::Logger.warn("[feishu] Failed to fetch user name for #{open_id}: #{e.message}")
+            @user_name_cache[open_id] = open_id
           end
 
           # Get tenant access token (cached)

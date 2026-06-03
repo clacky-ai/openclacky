@@ -181,6 +181,10 @@ module Clacky
               at_users = Array(data.dig("atUsers")).map { |u| u.dig("dingtalkId") || u.dig("staffId") || "" }
               bot_id   = data.dig("chatbotUserId").to_s
               unless at_users.include?(bot_id) || content.include?("@")
+                observe_text = content.strip
+                unless observe_text.empty?
+                  @on_message&.call({ platform: :dingtalk, chat_id: chat_id, user_id: sender_id, text: observe_text, observe_only: true })
+                end
                 return
               end
             end
@@ -188,7 +192,11 @@ module Clacky
             allowed = @config[:allowed_users]
             return if allowed && !allowed.empty? && !allowed.include?(sender_id)
 
-            text, files = extract_payload(data, robot_code)
+            text, files, unsupported = extract_payload(data, robot_code)
+            if unsupported
+              @on_message&.call({ platform: :dingtalk, chat_id: chat_id, unsupported: true })
+              return
+            end
             return if text.strip.empty? && files.empty?
 
             event = {
@@ -242,6 +250,7 @@ module Clacky
               end
             else
               Clacky::Logger.info("[dingtalk] unsupported msgtype=#{msgtype}, ignoring")
+              return ["", [], true]
             end
 
             [text, files]

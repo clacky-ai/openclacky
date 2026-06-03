@@ -484,6 +484,9 @@ module Clacky
           if method == "POST" && path.match?(%r{^/api/channels/[^/]+/send$})
             platform = path.sub("/api/channels/", "").sub("/send", "")
             api_send_channel_message(platform, req, res)
+          elsif method == "GET" && path.match?(%r{^/api/channels/group_history/})
+            chat_id = URI.decode_www_form_component(path.sub("/api/channels/group_history/", ""))
+            api_group_history(chat_id, res)
           elsif method == "GET" && path.match?(%r{^/api/channels/[^/]+/users$})
             platform = path.sub("/api/channels/", "").sub("/users", "")
             api_list_channel_users(platform, res)
@@ -2298,6 +2301,13 @@ module Clacky
         platform = platform.to_sym
         users    = @channel_manager.known_users(platform)
         json_response(res, 200, { platform: platform, users: users })
+      rescue StandardError => e
+        json_response(res, 500, { ok: false, error: e.message })
+      end
+
+      def api_group_history(chat_id, res)
+        messages = @channel_manager.group_history(chat_id)
+        json_response(res, 200, { chat_id: chat_id, messages: messages })
       rescue StandardError => e
         json_response(res, 500, { ok: false, error: e.message })
       end

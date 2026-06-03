@@ -177,12 +177,21 @@ module Clacky
                 Clacky::Logger.warn("[feishu] bot_open_id unavailable; dropping group message to avoid spam")
                 return
               end
-              return unless Array(event[:mentioned_open_ids]).include?(bot_id)
+              unless Array(event[:mentioned_open_ids]).include?(bot_id)
+                user_name = @bot.fetch_user_name(event[:user_id])
+                @on_message&.call(event.merge(observe_only: true, user_name: user_name))
+                return
+              end
             end
 
             allowed_users = @config[:allowed_users]
             if allowed_users && !allowed_users.empty?
               return unless allowed_users.include?(event[:user_id])
+            end
+
+            if event[:unsupported]
+              @on_message&.call(event)
+              return
             end
 
             # Download images and attach as file hashes

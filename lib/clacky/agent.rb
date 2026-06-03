@@ -251,7 +251,7 @@ module Clacky
       @name = new_name.to_s.strip
     end
 
-    def run(user_input, files: [])
+    def run(user_input, files: [], display_text: nil)
       # Show the "thinking" indicator as early as possible so the user gets
       # immediate feedback after sending a message. Without this the UI stays
       # silent during synchronous setup work (system prompt assembly, file
@@ -348,6 +348,7 @@ module Clacky
       end
 
       @history.append({ role: "user", content: user_content, task_id: task_id, created_at: Time.now.to_f,
+                        display_text: display_text,
                         display_files: display_files.empty? ? nil : display_files })
       @total_tasks += 1
 

@@ -142,7 +142,10 @@ module Clacky
                 Clacky::Logger.warn("[DiscordAdapter] bot_user_id unavailable; dropping group message")
                 return
               end
-              return unless mentioned_ids.include?(@bot_user_id)
+              unless mentioned_ids.include?(@bot_user_id)
+                @on_message&.call(event.merge(observe_only: true))
+                return
+              end
             end
 
             allowed_users = @config[:allowed_users]
@@ -153,7 +156,10 @@ module Clacky
             text  = strip_bot_mention(msg["content"].to_s, @bot_user_id)
             files = process_attachments(Array(msg["attachments"]), chat_id)
 
-            return if text.strip.empty? && files.empty?
+            if text.strip.empty? && files.empty?
+              @on_message&.call({ type: :message, platform: :discord, chat_id: chat_id, unsupported: true })
+              return
+            end
 
             event = {
               type: :message,
