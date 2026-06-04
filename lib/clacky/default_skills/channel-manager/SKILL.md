@@ -99,90 +99,95 @@ Ask:
 
 ### Feishu setup
 
-Feishu now offers a one-click **Agent App** (智能体应用) that auto-configures all
-required permissions, events, and publishing for you — no Bot capability toggle,
-no permission JSON, no event subscription, no version/release steps. Just create
-the app and copy the credentials. The connection mode is unchanged (long
-connection / WebSocket), handled entirely by the server.
+Use the setup script to create the Feishu app automatically via OAuth 2.0 Device Authorization Grant.
+The user only needs to scan a QR code once.
 
-#### Step 1 — Open the Agent App creation page
+#### Step 1 — Run setup script as a background session
 
-1. Navigate: `open https://open.feishu.cn/page/launcher?from=backend_oneclick`. Pass `isolated: true`. If the browser is not configured (the `open` call fails), just give the user the URL and ask them to open it manually in any browser — the rest of the flow is fully manual and does not need browser automation.
-2. If a login page or QR code is shown, tell the user to scan/log in and wait for "done".
+```
+terminal(command: "ruby SKILL_DIR/feishu_setup.rb", background: true)
+```
 
-#### Step 2 — Create the Agent App
+Keep polling the session. The script will print:
+- `SCAN_URL:<url>` — the QR code URL
+- `EXPIRE_IN:<seconds>` — how long the URL is valid
 
-3. After login, the page lands on **创建飞书智能体应用 (Create Feishu Agent App)**.
-   Guide the user: "Enter an app name (e.g. Open Clacky), then click **立即创建 (Create Now)**. Reply done."
-   (The avatar is auto-assigned at random and can be changed anytime — it does not affect setup.)
-   Wait for "done".
+Once you see these lines, tell the user immediately:
+- zh: "请在飞书中打开以下链接（或扫码）完成授权，链接 <expire_in> 秒内有效：\n<url>"
+- en: "Open this link in Feishu (or scan the QR code) to authorize. Valid for <expire_in>s:\n<url>"
 
-#### Step 3 — Copy credentials
+Continue polling until the response contains an `exit_code`. When the session ends successfully, stdout will contain:
+- `APP_ID:<app_id>`
+- `APP_SECRET:<app_secret>`
 
-4. The page jumps to **创建成功 (Created Successfully)**, showing `App ID` and `App Secret`.
-   The Secret is masked by default. Guide the user: "Click the eye icon next to **App Secret** to reveal it,
-   then copy both values and paste here. Reply with: App ID: xxx, App Secret: xxx"
-   Wait for the reply. Parse `app_id` (starts with `cli_`) and `app_secret`. Trim whitespace and
-   make sure the two values are not swapped.
+Parse both values.
 
-#### Step 4 — Save credentials
+#### Step 2 — Save credentials
 
-5. Run:
-   ```bash
-   curl -X POST http://${CLACKY_SERVER_HOST}:${CLACKY_SERVER_PORT}/api/channels/feishu \
-     -H "Content-Type: application/json" \
-     -d '{"app_id":"<APP_ID>","app_secret":"<APP_SECRET>","domain":"https://open.feishu.cn"}'
-   ```
-   **CRITICAL: This curl call is the ONLY way to save credentials. NEVER write `~/.clacky/channels.yml`
-   or any file under `~/.clacky/channels/` directly. The server API handles persistence, hot-reload,
-   and establishing the long connection.**
+```bash
+curl -X POST http://${CLACKY_SERVER_HOST}:${CLACKY_SERVER_PORT}/api/channels/feishu \
+  -H "Content-Type: application/json" \
+  -d '{"app_id":"<APP_ID>","app_secret":"<APP_SECRET>","domain":"https://open.feishu.cn"}'
+```
 
-On success: tell the user "✅ Feishu channel configured!" and **continue to Step 5 (Feishu CLI)**.
+**CRITICAL: This curl call is the ONLY way to save credentials. NEVER write `~/.clacky/channels.yml`
+or any file under `~/.clacky/channels/` directly. The server API handles persistence, hot-reload,
+and establishing the long connection.**
+
+On success: tell the user the following (zh), then **continue to Step 3 (Feishu CLI)**:
+
+zh: "✅ 飞书通道已配置成功！现在你可以通过飞书与智能助手进行私聊和群聊，也支持阅读飞书文档。"
+en: "✅ Feishu channel configured! You can now chat with the assistant via Feishu DMs or group chats, and read Feishu Docs."
 
 ---
 
-#### Step 5 — Optional: install Feishu CLI
+#### Step 3 — Optional: install Feishu CLI
 
-Reach here after the channel is configured (Step 4 succeeded). Read `app_id` and `app_secret` from `~/.clacky/channels.yml` (under `channels.feishu`) for the install commands below.
+Reach here after the channel is configured (Step 2 succeeded). Read `app_id` and `app_secret` from `~/.clacky/channels.yml` (under `channels.feishu`) for the install commands below.
 
 Call `request_user_feedback`:
 
 zh:
 ```json
 {
-  \"question\": \"是否要安装「飞书 CLI」？装好之后 AI 可以帮你操作飞书云文档等能力。不装也 OK。\",
-  "options": ["启用", "跳过"]
+  \"question\": \"是否安装飞书 CLI？安装后将解锁更多飞书能力，例如创建、编辑、删除云文档。\",
+  "options": ["安装", "跳过"]
 }
 ```
 
 en:
 ```json
 {
-  "question": "Install Feishu CLI? With it, the AI can help you work with Feishu Docs and more. Skipping is fine.",
-  "options": ["Enable", "Skip"]
+  "question": "Install Feishu CLI? It unlocks more Feishu capabilities, such as creating, editing, and deleting Docs.",
+  "options": ["Install", "Skip"]
 }
 ```
 
 If the user picks Skip, stop — setup is complete.
 
-If the user picks Enable, run:
+If the user picks Enable, run the following **in order**:
 
+**Step 3a** — Install and configure (single terminal call):
 ```bash
 lark-cli --version > /dev/null 2>&1 || npm install -g @larksuite/cli
 echo -n "<APP_SECRET>" | lark-cli config init --app-id <APP_ID> --app-secret-stdin --brand feishu
 ruby "SKILL_DIR/install_feishu_skills.rb"
-lark-cli auth login --recommend
 ```
 
-The last command blocks up to 10 minutes waiting for browser authorization — make sure the runner's timeout is ≥ 600s.
+**Step 3b** — Start authorization as a background session:
+```
+terminal(command: "lark-cli auth login --recommend", background: true)
+```
 
-Once you see the authorization URL in the command's stdout, tell the user (do **not** wait for a reply — the CLI's blocking poll will return on its own when authorization completes):
+This returns a `session_id`. Keep polling with `terminal(session_id: <id>, input: "")` every few seconds.
+
+Once you see the authorization URL appear in the output, tell the user immediately (do **not** wait for their reply):
 - zh: "请在浏览器中打开下方链接完成授权：\n<URL>"
 - en: "Open this URL in your browser to authorize:\n<URL>"
 
-**Do not kill and restart this command** — restarting invalidates the device code and breaks the link the user already opened. The "hang" is just polling; wait it out.
+Continue polling until the response contains an `exit_code` (meaning the session has ended). **Do not kill the session** — restarting invalidates the device code.
 
-When `lark-cli auth login` returns successfully, tell the user:
+When the session ends with `exit_code: 0`, tell the user:
 - zh: "✅ 飞书 CLI 已就绪。"
 - en: "✅ Feishu CLI is ready."
 
