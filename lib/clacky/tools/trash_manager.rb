@@ -514,7 +514,7 @@ module Clacky
           end
 
           session.merge(file_size: total)
-        end.sort_by { |s| s[:created_at] || "" }.reverse
+        end.sort_by { |s| s[:deleted_at] || s[:created_at] || "" }.reverse
       end
       private_class_method :_trash_sessions
     end
