@@ -303,6 +303,9 @@ function Run-InstallInWsl {
         wsl.exe -d Ubuntu -u root -- bash -c "cd ~ && curl -fsSL $INSTALL_SCRIPT_URL | bash -s -- --brand-name=$BrandName --command=$CommandName"
     }
 
+    if ($LASTEXITCODE -eq 2) {
+        exit 2
+    }
     if ($LASTEXITCODE -ne 0) {
         Write-Fail "Installation failed inside WSL (exit $LASTEXITCODE)."
         Write-Fail "You can retry manually:"
