@@ -21,7 +21,7 @@ load_brand() {
     [ -f "$brand_file" ] || return 0
     BRAND_NAME=$(awk -F': ' '/^product_name:/{gsub(/^"|"$/, "", $2); gsub(/^ +| +$/, "", $2); print $2}' "$brand_file") || true
     BRAND_COMMAND=$(awk -F': ' '/^package_name:/{gsub(/^"|"$/, "", $2); gsub(/^ +| +$/, "", $2); print $2}' "$brand_file") || true
-    [ -n "$BRAND_NAME" ] && DISPLAY_NAME="$BRAND_NAME"
+    if [ -n "$BRAND_NAME" ]; then DISPLAY_NAME="$BRAND_NAME"; fi
 }
 
 check_installation() {
