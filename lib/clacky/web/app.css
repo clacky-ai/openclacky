@@ -1763,7 +1763,7 @@ body {
 
 .msg-user      { background: var(--color-accent-primary); color: var(--color-button-primary-text); align-self: flex-end; white-space: pre-wrap; }
 [data-theme="dark"] .msg-user { background: var(--color-accent-hover); }
-.msg-assistant { background: var(--color-bg-tertiary); border: 1px solid var(--color-border-primary); align-self: flex-start; }
+.msg-assistant { background: var(--color-bg-tertiary); border: 1px solid var(--color-border-primary); align-self: flex-start; padding-right: 2.25rem; }
 
 /* ── Copy button on assistant messages ────────────────────────────────────
    Hidden by default, revealed on bubble hover (same pattern as .msg-time).
