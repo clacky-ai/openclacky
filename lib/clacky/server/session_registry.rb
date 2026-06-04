@@ -143,7 +143,15 @@ module Clacky
       #            nil = no source filter (all sessions)
       #   profile: "general"|"coding"|nil
       #            nil = no agent_profile filter
-      #   limit:   max sessions to return (applies to NON-PINNED only; see below)
+      #   limit:   max NON-CRON sessions to return (applies to NON-PINNED only;
+      #             see below). Cron sessions encountered while filling the page
+      #             are returned too but DO NOT count against `limit` — they are
+      #             folded into a single virtual entry on the frontend, so
+      #             counting them would starve manual sessions of the page
+      #             budget (C-5647). The page is filled by walking newest-first
+      #             until `limit` non-cron rows are collected, carrying along
+      #             every cron row passed on the way (a contiguous time range,
+      #             no gaps — so the `before` cursor stays correct).
       #   before:  ISO8601 cursor — only sessions with created_at < before
       #             (also applies to NON-PINNED only; pinned items are a separate
       #             logical section, they should never be paginated away)
@@ -157,8 +165,12 @@ module Clacky
       # Ordering of the returned array:
       #   [ ...all_pinned_matching (newest-first), ...non_pinned (newest-first, limited) ]
       #
+      # page_info: optional Hash — when given, list writes page_info[:has_more]
+      #            (true when more NON-CRON non-pinned rows exist beyond `limit`).
+      #            Lets callers learn has_more without re-counting / overfetching.
+      #
       # source and profile are orthogonal — either can be nil independently.
-      def list(limit: nil, before: nil, q: nil, date: nil, type: nil, include_pinned: true)
+      def list(limit: nil, before: nil, q: nil, date: nil, type: nil, include_pinned: true, page_info: nil)
         return [] unless @session_manager
 
         live = @mutex.synchronize do
@@ -214,7 +226,36 @@ module Clacky
 
         # `before` cursor ONLY applies to non-pinned (paginated) sessions.
         non_pinned = non_pinned.select { |s| (s[:created_at] || "") < before } if before
-        non_pinned = non_pinned.first(limit) if limit
+
+        # Fill the page by NON-CRON count: walk newest-first and collect up to
+        # `limit` non-cron rows, carrying along every cron row passed on the way
+        # (cron is "free" — it doesn't consume the page budget). This stops cron
+        # sessions from starving manual ones out of the first page (C-5647).
+        # The cron type sub-view (type == "cron") wants real cron pagination, so
+        # it keeps the plain first(limit) behaviour.
+        if limit
+          if type == "cron"
+            page_info[:has_more] = non_pinned.size > limit if page_info
+            non_pinned = non_pinned.first(limit)
+          else
+            result = []
+            non_cron_seen = 0
+            more = false
+            non_pinned.each do |s|
+              if s_source(s) == "cron"
+                result << s                  # carried along, not counted
+              elsif non_cron_seen >= limit
+                more = true                  # one more non-cron exists → has_more
+                break                        # ...but don't include it
+              else
+                result << s
+                non_cron_seen += 1
+              end
+            end
+            page_info[:has_more] = more if page_info
+            non_pinned = result
+          end
+        end
 
         # Pinned section: only included on the first page (before == nil) so
         # "load more" responses don't re-send them. On first page, return ALL

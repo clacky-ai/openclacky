@@ -613,17 +613,14 @@ module Clacky
         type ||= query["profile"].to_s.strip.then { |v| v.empty? ? nil : v }
         type ||= query["source"].to_s.strip.then  { |v| v.empty? ? nil : v }
 
-        # Fetch one extra NON-PINNED row to detect has_more without a separate count query.
-        # `registry.list` always returns ALL matching pinned rows first (on the
-        # first page; `before` == nil), followed by non-pinned rows up to `limit+1`.
-        # So has_more is determined by whether the non-pinned section overflowed.
-        sessions = @registry.list(limit: limit + 1, before: before, q: q, date: date, type: type)
-
-        # Split pinned vs non-pinned to apply has_more only to the non-pinned tail.
-        pinned_part, non_pinned_part = sessions.partition { |s| s[:pinned] }
-        has_more = non_pinned_part.size > limit
-        non_pinned_part = non_pinned_part.first(limit)
-        sessions = pinned_part + non_pinned_part
+        # Fill the page by NON-CRON count (cron is folded into one virtual entry
+        # on the frontend, so it must not eat the page budget — C-5647).
+        # `registry.list` collects `limit` non-cron non-pinned rows, carries
+        # along any cron rows passed on the way, and reports has_more via
+        # page_info. ALL matching pinned rows are still returned first.
+        page_info = {}
+        sessions  = @registry.list(limit: limit, before: before, q: q, date: date, type: type, page_info: page_info)
+        has_more  = page_info[:has_more]
 
         json_response(res, 200, { sessions: sessions, has_more: has_more, cron_count: @registry.cron_count })
       end
@@ -4390,11 +4387,12 @@ module Clacky
           interrupt_session(session_id)
 
         when "list_sessions"
-          # Initial load: newest 20 sessions regardless of source/profile.
-          # Single unified query — frontend shows all in one time-sorted list.
-          page = @registry.list(limit: 21)
-          has_more = page.size > 20
-          all_sessions = page.first(20)
+          # Initial load: newest page of sessions in one time-sorted list.
+          # Page is filled by non-cron count (cron is folded into one virtual
+          # entry on the frontend and must not eat the page budget — C-5647).
+          page_info = {}
+          all_sessions = @registry.list(limit: 20, page_info: page_info)
+          has_more = page_info[:has_more]
           conn.send_json(type: "session_list", sessions: all_sessions, has_more: has_more, cron_count: @registry.cron_count)
 
         when "run_task"
