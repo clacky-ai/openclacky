@@ -104,6 +104,7 @@ module Clacky
       @pending_injections = []     # Pending inline skill injections to flush after observe()
       @pending_script_tmpdirs = [] # Decrypted-script tmpdirs to shred when agent.run completes
       @pending_error_rollback = false  # Deferred rollback flag set by restore_session on error
+      @last_run_interrupted = false    # Set when run() exits via AgentInterrupted; tells the next run() to keep the task-start snapshot (continuation of the same task across a relay, not a brand-new task)
 
       # Compression tracking
       @compression_level = 0  # Tracks how many times we've compressed (for progressive summarization)
@@ -263,24 +264,33 @@ module Clacky
       # Start new task for Time Machine
       task_id = start_new_task
 
-      @start_time = Time.now
-      @task_truncation_count = 0  # Reset truncation counter for each task
-      @task_timeout_hint_injected = false  # Reset read-timeout hint injection (see LlmCaller)
-      @task_upstream_truncation_hint_injected = false  # Reset upstream-truncation hint injection (see LlmCaller)
-      @task_cost_source = :estimated  # Reset for new task
-      # Note: Do NOT reset @previous_total_tokens here - it should maintain the value from the last iteration
-      # across tasks to correctly calculate delta tokens in each iteration
-      @task_start_iterations = @iterations  # Track starting iterations for this task
-      @task_start_cost = @total_cost  # Track starting cost for this task
-      # Track cache stats for current task
-      @task_cache_stats = {
-        cache_creation_input_tokens: 0,
-        cache_read_input_tokens: 0,
-        prompt_tokens: 0,
-        completion_tokens: 0,
-        total_requests: 0,
-        cache_hit_requests: 0
-      }
+      # Continuation of a previously-interrupted task (e.g. user sent a
+      # supplementary message without stopping the running task) keeps the
+      # existing task-start snapshot so the completion summary accumulates
+      # iterations/cost/duration across the relay, instead of resetting and
+      # only counting the post-interrupt portion.
+      if @last_run_interrupted
+        @last_run_interrupted = false
+      else
+        @start_time = Time.now
+        @task_truncation_count = 0  # Reset truncation counter for each task
+        @task_timeout_hint_injected = false  # Reset read-timeout hint injection (see LlmCaller)
+        @task_upstream_truncation_hint_injected = false  # Reset upstream-truncation hint injection (see LlmCaller)
+        @task_cost_source = :estimated  # Reset for new task
+        # Note: Do NOT reset @previous_total_tokens here - it should maintain the value from the last iteration
+        # across tasks to correctly calculate delta tokens in each iteration
+        @task_start_iterations = @iterations  # Track starting iterations for this task
+        @task_start_cost = @total_cost  # Track starting cost for this task
+        # Track cache stats for current task
+        @task_cache_stats = {
+          cache_creation_input_tokens: 0,
+          cache_read_input_tokens: 0,
+          prompt_tokens: 0,
+          completion_tokens: 0,
+          total_requests: 0,
+          cache_hit_requests: 0
+        }
+      end
 
       # Deferred error rollback: if the previous session ended with an error,
       # trim history back to just before that failed user message now — at the
@@ -595,6 +605,11 @@ module Clacky
         @hooks.trigger(:on_complete, result)
         result
       rescue Clacky::AgentInterrupted
+        # Mark this run as interrupted so the next run() (e.g. user's
+        # supplementary message during a running task) keeps the existing
+        # task-start snapshot — the completion summary should reflect the
+        # entire task across the relay, not just the post-interrupt portion.
+        @last_run_interrupted = true
         # Let CLI handle the interrupt message
         raise
       rescue StandardError => e
