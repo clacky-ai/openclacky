@@ -734,7 +734,7 @@ module Clacky
         lines = entries.map { |e| "#{e.user_name || e.user_id}: #{e.text}" }.join("\n")
 
         partial = total > entries.size
-        header = partial ? "[Group chat partial history]" : "[Group chat history]"
+        header = partial ? "[Group chat partial history (latest #{entries.size} of #{total}, max buffer #{GroupMessageBuffer::MAX_MESSAGES} messages)]" : "[Group chat history (#{total} messages, max buffer #{GroupMessageBuffer::MAX_MESSAGES})]"
         footer = if partial
                    "[INSTRUCTION: If the above partial history is insufficient to answer, MUST web_fetch http://#{ENV["CLACKY_SERVER_HOST"]}:#{ENV["CLACKY_SERVER_PORT"]}/api/channels/group_history/#{chat_id} for full context.]"
                  end

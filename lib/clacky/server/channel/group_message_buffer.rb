@@ -6,7 +6,7 @@ module Clacky
     # @-mentioned it can inject prior conversation context into the agent prompt.
     # Thread-safe; bounded to MAX_MESSAGES per chat to limit memory growth.
     class GroupMessageBuffer
-      MAX_MESSAGES = 30
+      MAX_MESSAGES = 15
       PROMPT_LIMIT = 5
 
       Entry = Struct.new(:user_id, :user_name, :text, keyword_init: true)
