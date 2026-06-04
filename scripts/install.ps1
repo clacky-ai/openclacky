@@ -10,6 +10,7 @@
 #   Parameters:
 #     -BrandName    Display name shown in prompts    (default: OpenClacky)
 #     -CommandName  CLI command name after install   (default: openclacky)
+#     -Region       CDN region: china (default) or global  (use global for non-China networks)
 #
 # WSL1 is preferred (shares Windows network stack — no mirrored networking needed).
 # If WSL1 import fails, the script falls back to WSL2 with mirrored networking.
@@ -22,7 +23,9 @@
 param(
     [switch]$Local,
     [string]$BrandName   = "",
-    [string]$CommandName = ""
+    [string]$CommandName = "",
+    [ValidateSet("china", "global")]
+    [string]$Region = "china"
 )
 
 Set-StrictMode -Version Latest
@@ -32,11 +35,19 @@ $env:WSL_UTF8 = "1"
 $global:DisplayName = if ($BrandName)   { $BrandName }   else { "OpenClacky" }
 $global:DisplayCmd  = if ($CommandName) { $CommandName } else { "openclacky" }
 
-$CLACKY_CDN_BASE_URL   = "https://oss.1024code.com"
-$CLACKY_CDN_PRIMARY_HOST = "oss.1024code.com"
+Write-Host "==> Region: $Region"
+
+$CLACKY_CDN_BASE_URL   = if ($Region -eq "global") { "https://sg.oss.1024code.com" } else { "https://oss.1024code.com" }
+$CLACKY_INSTALL_SCRIPT_BASE_URL = if ($Region -eq "global") { "https://raw.githubusercontent.com" } else { "https://oss.1024code.com" }
+$CLACKY_CDN_PRIMARY_HOST = if ($Region -eq "global") { "sg.oss.1024code.com" } else { "oss.1024code.com" }
+
+Write-Host "==> CDN_BASE_URL: $CLACKY_CDN_BASE_URL"
+Write-Host "==> INSTALL_SCRIPT_BASE_URL: $CLACKY_INSTALL_SCRIPT_BASE_URL"
+Write-Host "==> CDN_PRIMARY_HOST: $CLACKY_CDN_PRIMARY_HOST"
+
 $CLACKY_CDN_BACKUP_HOST  = "clackyai-1258723534.cos.ap-guangzhou.myqcloud.com"
-$INSTALL_PS1_COMMAND   = "powershell -c `"irm $CLACKY_CDN_BASE_URL/clacky-ai/openclacky/main/scripts/install.ps1 | iex`""
-$INSTALL_SCRIPT_URL    = "$CLACKY_CDN_BASE_URL/clacky-ai/openclacky/main/scripts/install.sh"
+$INSTALL_PS1_COMMAND   = "powershell -c `"irm $CLACKY_INSTALL_SCRIPT_BASE_URL/clacky-ai/openclacky/main/scripts/install.ps1 | iex`""
+$INSTALL_SCRIPT_URL    = "$CLACKY_INSTALL_SCRIPT_BASE_URL/clacky-ai/openclacky/main/scripts/install.sh"
 $UBUNTU_WSL_AMD64_URL        = "$CLACKY_CDN_BASE_URL/ubuntu-jammy-wsl-amd64-ubuntu22.04lts.rootfs.tar.gz"
 $UBUNTU_WSL_AMD64_SHA256_URL = "$CLACKY_CDN_BASE_URL/ubuntu-jammy-wsl-amd64-ubuntu22.04lts.rootfs.tar.gz.sha256"
 $UBUNTU_WSL_ARM64_URL        = "$CLACKY_CDN_BASE_URL/ubuntu-jammy-wsl-arm64-ubuntu22.04lts.rootfs.tar.gz"
