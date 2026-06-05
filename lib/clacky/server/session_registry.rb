@@ -214,6 +214,17 @@ module Clacky
 
         # `before` cursor ONLY applies to non-pinned (paginated) sessions.
         non_pinned = non_pinned.select { |s| (s[:created_at] || "") < before } if before
+
+        # Main list view (type == nil) excludes cron sessions from the
+        # paginated tail: cron sessions are folded into a single virtual
+        # "group entry" rendered by the frontend, so letting them consume the
+        # page `limit` would starve the visible quota (e.g. 15 cron + 5 real
+        # → only 6 rows shown). Cron sessions still reach the frontend via the
+        # dedicated cron sub-view (type == "cron"), where this guard is a no-op
+        # and normal pagination applies. cron metadata is computed separately
+        # (see #cron_summary) and is unaffected by this exclusion.
+        non_pinned = non_pinned.reject { |s| s_source(s) == "cron" } if type.nil?
+
         non_pinned = non_pinned.first(limit) if limit
 
         # Pinned section: only included on the first page (before == nil) so
@@ -315,10 +326,40 @@ module Clacky
 
       public
 
-      # Count all cron sessions on disk (not filtered by pagination).
-      def cron_count
-        return 0 unless @session_manager
-        @session_manager.all_sessions.count { |s| s_source(s) == "cron" }
+      # Aggregate cron-session metadata for the folded "group entry" in ONE
+      # disk scan, returning { count:, has_running:, latest_created_at: }:
+      #   • count             — total cron sessions on disk
+      #   • has_running       — any cron session currently :running (joins the
+      #                         on-disk `source` with the in-memory live status
+      #                         on session_id; disk rows have no live status,
+      #                         the in-memory map has no source)
+      #   • latest_created_at — newest cron created_at (ISO8601) or nil
+      #
+      # The main list view folds all cron sessions into a single virtual group
+      # entry (cron rows are excluded from the paginated list — see `list`), so
+      # its label count, running dot and time-sort anchor can no longer be
+      # derived from per-session rows. We compute them here.
+      #
+      # Performance: a single `all_sessions` pass covers all three values
+      # (previously three separate methods scanned disk three times per
+      # request). `list` keeps its array shape so every caller is unchanged.
+      def cron_summary
+        return { count: 0, has_running: false, latest_created_at: nil } unless @session_manager
+
+        live = @mutex.synchronize { @sessions.transform_values { |s| s[:status] } }
+
+        count = 0
+        has_running = false
+        latest_created_at = nil
+        @session_manager.all_sessions.each do |s|
+          next unless s_source(s) == "cron"
+          count += 1
+          has_running ||= live[s[:session_id]] == :running
+          ca = s[:created_at]
+          latest_created_at = ca if ca && (latest_created_at.nil? || ca > latest_created_at)
+        end
+
+        { count: count, has_running: has_running, latest_created_at: latest_created_at }
       end
 
       # Delete a session from registry (and interrupt its thread).

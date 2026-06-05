@@ -12,14 +12,14 @@ require "clacky/server/session_registry"
 RSpec.describe Clacky::Server::SessionRegistry do
   let(:default_config) { Clacky::AgentConfig.new }
 
-  def write_session_file(dir, session_id:, name:, created_at:, pinned: false)
+  def write_session_file(dir, session_id:, name:, created_at:, pinned: false, source: "manual")
     data = {
       session_id:    session_id,
       name:          name,
       created_at:    created_at,
       updated_at:    created_at,
       working_dir:   "/tmp",
-      source:        "manual",
+      source:        source,
       agent_profile: "general",
       pinned:        pinned,
       messages:      [],
@@ -227,6 +227,130 @@ RSpec.describe Clacky::Server::SessionRegistry do
       registry.each_live_agent { |id, agent, thread| seen << [id, agent, thread] }
 
       expect(seen).to be_empty
+    end
+  end
+
+  describe "cron folding (C-5647)" do
+    it "#list excludes cron sessions from the main view (type == nil)" do
+      Dir.mktmpdir("clacky_cron_spec") do |dir|
+        write_session_file(dir, session_id: "sess_manual1", name: "m1",
+                           created_at: "2026-04-01T00:00:00+00:00", source: "manual")
+        write_session_file(dir, session_id: "sess_cron0001", name: "c1",
+                           created_at: "2026-04-02T00:00:00+00:00", source: "cron")
+        write_session_file(dir, session_id: "sess_cron0002", name: "c2",
+                           created_at: "2026-04-03T00:00:00+00:00", source: "cron")
+
+        manager  = Clacky::SessionManager.new(sessions_dir: dir)
+        registry = described_class.new(session_manager: manager, agent_config: default_config)
+
+        ids = registry.list.map { |s| s[:id] }
+        expect(ids).to eq(["sess_manual1"])
+        expect(ids).not_to include("sess_cron0001", "sess_cron0002")
+      end
+    end
+
+    it "#list still returns cron sessions in the cron sub-view (type == 'cron')" do
+      Dir.mktmpdir("clacky_cron_spec") do |dir|
+        write_session_file(dir, session_id: "sess_manual1", name: "m1",
+                           created_at: "2026-04-01T00:00:00+00:00", source: "manual")
+        write_session_file(dir, session_id: "sess_cron0001", name: "c1",
+                           created_at: "2026-04-02T00:00:00+00:00", source: "cron")
+
+        manager  = Clacky::SessionManager.new(sessions_dir: dir)
+        registry = described_class.new(session_manager: manager, agent_config: default_config)
+
+        ids = registry.list(type: "cron").map { |s| s[:id] }
+        expect(ids).to eq(["sess_cron0001"])
+      end
+    end
+
+    it "#cron_summary[:count] counts cron sessions regardless of the main-view exclusion" do
+      Dir.mktmpdir("clacky_cron_spec") do |dir|
+        write_session_file(dir, session_id: "sess_manual1", name: "m1",
+                           created_at: "2026-04-01T00:00:00+00:00", source: "manual")
+        write_session_file(dir, session_id: "sess_cron0001", name: "c1",
+                           created_at: "2026-04-02T00:00:00+00:00", source: "cron")
+        write_session_file(dir, session_id: "sess_cron0002", name: "c2",
+                           created_at: "2026-04-03T00:00:00+00:00", source: "cron")
+
+        manager  = Clacky::SessionManager.new(sessions_dir: dir)
+        registry = described_class.new(session_manager: manager, agent_config: default_config)
+
+        expect(registry.cron_summary[:count]).to eq(2)
+      end
+    end
+
+    it "#cron_summary[:latest_created_at] returns the newest cron created_at" do
+      Dir.mktmpdir("clacky_cron_spec") do |dir|
+        write_session_file(dir, session_id: "sess_manual1", name: "m1",
+                           created_at: "2026-04-10T00:00:00+00:00", source: "manual")
+        write_session_file(dir, session_id: "sess_cron0001", name: "c1",
+                           created_at: "2026-04-02T00:00:00+00:00", source: "cron")
+        write_session_file(dir, session_id: "sess_cron0002", name: "c2",
+                           created_at: "2026-04-03T00:00:00+00:00", source: "cron")
+
+        manager  = Clacky::SessionManager.new(sessions_dir: dir)
+        registry = described_class.new(session_manager: manager, agent_config: default_config)
+
+        # newest cron, NOT the newer manual session
+        expect(registry.cron_summary[:latest_created_at]).to eq("2026-04-03T00:00:00+00:00")
+      end
+    end
+
+    it "#cron_summary[:latest_created_at] returns nil when there are no cron sessions" do
+      Dir.mktmpdir("clacky_cron_spec") do |dir|
+        write_session_file(dir, session_id: "sess_manual1", name: "m1",
+                           created_at: "2026-04-01T00:00:00+00:00", source: "manual")
+
+        manager  = Clacky::SessionManager.new(sessions_dir: dir)
+        registry = described_class.new(session_manager: manager, agent_config: default_config)
+
+        expect(registry.cron_summary[:latest_created_at]).to be_nil
+      end
+    end
+
+    it "#cron_summary[:has_running] is false when no cron agent is live" do
+      Dir.mktmpdir("clacky_cron_spec") do |dir|
+        write_session_file(dir, session_id: "sess_cron0001", name: "c1",
+                           created_at: "2026-04-02T00:00:00+00:00", source: "cron")
+
+        manager  = Clacky::SessionManager.new(sessions_dir: dir)
+        registry = described_class.new(session_manager: manager, agent_config: default_config)
+
+        expect(registry.cron_summary[:has_running]).to be(false)
+      end
+    end
+
+    it "#cron_summary[:has_running] is true when a cron session's in-memory status is running" do
+      Dir.mktmpdir("clacky_cron_spec") do |dir|
+        write_session_file(dir, session_id: "sess_cron0001", name: "c1",
+                           created_at: "2026-04-02T00:00:00+00:00", source: "cron")
+
+        manager  = Clacky::SessionManager.new(sessions_dir: dir)
+        registry = described_class.new(session_manager: manager, agent_config: default_config)
+
+        registry.create(session_id: "sess_cron0001")
+        registry.update("sess_cron0001", status: :running)
+
+        expect(registry.cron_summary[:has_running]).to be(true)
+      end
+    end
+
+    it "#cron_summary[:has_running] is false when only a NON-cron session is running" do
+      Dir.mktmpdir("clacky_cron_spec") do |dir|
+        write_session_file(dir, session_id: "sess_manual1", name: "m1",
+                           created_at: "2026-04-01T00:00:00+00:00", source: "manual")
+        write_session_file(dir, session_id: "sess_cron0001", name: "c1",
+                           created_at: "2026-04-02T00:00:00+00:00", source: "cron")
+
+        manager  = Clacky::SessionManager.new(sessions_dir: dir)
+        registry = described_class.new(session_manager: manager, agent_config: default_config)
+
+        registry.create(session_id: "sess_manual1")
+        registry.update("sess_manual1", status: :running)
+
+        expect(registry.cron_summary[:has_running]).to be(false)
+      end
     end
   end
 end
