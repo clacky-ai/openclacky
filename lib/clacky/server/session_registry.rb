@@ -214,6 +214,17 @@ module Clacky
 
         # `before` cursor ONLY applies to non-pinned (paginated) sessions.
         non_pinned = non_pinned.select { |s| (s[:created_at] || "") < before } if before
+
+        # Main list view (type == nil) excludes cron sessions from the
+        # paginated tail: cron sessions are folded into a single virtual
+        # "group entry" rendered by the frontend, so letting them consume the
+        # page `limit` would starve the visible quota (e.g. 15 cron + 5 real
+        # → only 6 rows shown). Cron sessions still reach the frontend via the
+        # dedicated cron sub-view (type == "cron"), where this guard is a no-op
+        # and normal pagination applies. cron_count is computed separately and
+        # unaffected.
+        non_pinned = non_pinned.reject { |s| s_source(s) == "cron" } if type.nil?
+
         non_pinned = non_pinned.first(limit) if limit
 
         # Pinned section: only included on the first page (before == nil) so
@@ -318,6 +329,36 @@ module Clacky
       def cron_count
         return 0 unless @session_manager
         @session_manager.all_sessions.count { |s| s_source(s) == "cron" }
+      end
+
+      # Whether ANY cron session is currently running. The main list view folds
+      # all cron sessions into one virtual "group entry"; its running dot can no
+      # longer be derived from per-session rows in the paginated list (cron rows
+      # are excluded from that list — see `list`). So we compute it here:
+      # take cron sessions from disk and look up their live status in memory
+      # (disk rows carry `source` but no live status; the in-memory map carries
+      # live status but no source — they join on session_id). Short-circuits on
+      # the first running cron, like a SQL EXISTS.
+      def cron_has_running
+        return false unless @session_manager
+        live = @mutex.synchronize { @sessions.transform_values { |s| s[:status] } }
+        @session_manager.all_sessions.any? do |s|
+          s_source(s) == "cron" && live[s[:session_id]] == :running
+        end
+      end
+
+      # Newest created_at among all cron sessions on disk (ISO8601 string), or
+      # nil when there are none. The main list folds cron into one virtual group
+      # entry; the frontend uses this timestamp to place that entry at the right
+      # slot in the time-sorted list — without it, removing cron rows from the
+      # paginated list would leave the entry no anchor to sort against.
+      def cron_latest_created_at
+        return nil unless @session_manager
+        @session_manager.all_sessions
+                        .select { |s| s_source(s) == "cron" }
+                        .map { |s| s[:created_at] }
+                        .compact
+                        .max
       end
 
       # Delete a session from registry (and interrupt its thread).

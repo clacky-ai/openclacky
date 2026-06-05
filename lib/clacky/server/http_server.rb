@@ -628,7 +628,7 @@ module Clacky
         non_pinned_part = non_pinned_part.first(limit)
         sessions = pinned_part + non_pinned_part
 
-        json_response(res, 200, { sessions: sessions, has_more: has_more, cron_count: @registry.cron_count })
+        json_response(res, 200, { sessions: sessions, has_more: has_more, cron_count: @registry.cron_count, cron_has_running: @registry.cron_has_running, cron_latest_created_at: @registry.cron_latest_created_at })
       end
 
       def api_create_session(req, res)
@@ -4405,7 +4405,7 @@ module Clacky
           page = @registry.list(limit: 21)
           has_more = page.size > 20
           all_sessions = page.first(20)
-          conn.send_json(type: "session_list", sessions: all_sessions, has_more: has_more, cron_count: @registry.cron_count)
+          conn.send_json(type: "session_list", sessions: all_sessions, has_more: has_more, cron_count: @registry.cron_count, cron_has_running: @registry.cron_has_running, cron_latest_created_at: @registry.cron_latest_created_at)
 
         when "run_task"
           # Client sends this after subscribing to guarantee it's ready to receive
