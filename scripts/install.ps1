@@ -333,6 +333,7 @@ function Set-Wsl2MirroredNetworking {
         $build = [System.Environment]::OSVersion.Version.Build
         if ($build -lt 22621) {
             Write-Warn "Windows Build $build < 22621, skipping WSL2 mirrored networking."
+            Write-Warn "Please update Windows 11 to 22H2 (Build 22621) or later to enable this feature."
             return
         }
 
@@ -404,11 +405,26 @@ function Remove-InstallReg {
 # WSL2 Path — preferred, requires hardware virtualisation
 # ===========================================================================
 
+function Ensure-HypervisorLaunch {
+    try {
+        $result = bcdedit /enum | findstr /i "hypervisorlaunchtype"
+        if ($result -match "Off") {
+            Write-Step "Hypervisor launch is disabled, enabling..."
+            bcdedit /set hypervisorlaunchtype Auto | Out-Null
+            Write-Success "Hypervisor launch enabled."
+            Prompt-Reboot
+        }
+    } catch {
+        Write-Warn "Failed to check/configure hypervisor: $_"
+    }
+}
+
 # Returns $true if WSL2 can import the real Ubuntu rootfs.
 function Test-VirtualisationSupported {
     param([string]$TarPath)
 
     Write-Info "Probing WSL2 availability..."
+    Ensure-HypervisorLaunch
 
     $safeTemp = Get-SafeTempDir
     $probeName = "Wsl2Probe-$([guid]::NewGuid().ToString('N'))"
@@ -418,8 +434,9 @@ function Test-VirtualisationSupported {
         New-Item -ItemType Directory -Force -Path $probeDir | Out-Null
 
         Write-Info "[probe] Running: wsl --import $probeName $probeDir $TarPath --version 2"
-        wsl.exe --import $probeName $probeDir $TarPath --version 2 >$null 2>$null
+        $probeOutput = wsl.exe --import $probeName $probeDir $TarPath --version 2 2>&1
         $importExit = $LASTEXITCODE
+        if ($probeOutput) { Write-Info "[probe] output: $probeOutput" }
         Write-Info "[probe] wsl --import exit code: $importExit"
         $ok = ($importExit -eq 0)
     } catch {
@@ -567,7 +584,7 @@ if (Test-UbuntuInstalled) {
                 # Always exits (prompts reboot)
             }
             Write-Fail "Failed to import Ubuntu into both WSL1 and WSL2."
-            Write-Fail "Please ensure Windows Subsystem for Linux is enabled and try again."
+            Write-Fail "Please enable CPU virtualisation (Intel VT-x / AMD-V) in your BIOS/UEFI settings, then re-run the installer."
             exit 1
         }
     }
