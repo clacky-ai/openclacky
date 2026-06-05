@@ -325,6 +325,13 @@ body {
 .theme-toggle-btn:active {
   background: var(--color-bg-hover);
 }
+/* Sound-notification toggle shares .theme-toggle-btn; highlight when ON. */
+#notify-toggle-header.notify-on {
+  color: var(--color-accent-primary, var(--color-text-primary));
+}
+#notify-toggle-header.notify-on:hover {
+  color: var(--color-accent-primary, var(--color-text-primary));
+}
 
 /* ── Content Row (Sidebar + Main) ───────────────────────────────────────── */
 #app > aside,

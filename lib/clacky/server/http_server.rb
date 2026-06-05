@@ -4676,6 +4676,11 @@ module Clacky
           task.call
           @registry.update(session_id, status: :idle, error: nil)
           broadcast_session_update(session_id)
+          # Transient global signal for the optional task-complete sound. Sent to
+          # all clients (broadcast_all) so a browser viewing another session — or
+          # with the tab/window in the background — can still chime. Not part of
+          # session history: a chime is a live cue, never replayed on refresh.
+          broadcast_all(type: "task_finished", session_id: session_id)
           @session_manager.save(agent.to_session_data(status: :success))
           # Start idle compression timer now that the agent is idle
           idle_timer&.start
