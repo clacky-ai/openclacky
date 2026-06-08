@@ -458,9 +458,11 @@ function Install-WslKernel {
         Write-Fail "Failed to download WSL kernel update. Check your network and try again."
         exit 1
     }
-    Write-Info "Installing WSL kernel..."
-    Start-Process msiexec -Wait -ArgumentList "/i", $msiPath, "/quiet", "/norestart"
-    Write-Success "WSL kernel installed."
+    Write-Info "Installing WSL..."
+    # /fa = force repair all files; handles corrupt/partial installs where /i silently no-ops.
+    Start-Process msiexec -Wait -ArgumentList "/fa", $msiPath, "/quiet", "/norestart"
+    Start-Process msiexec -Wait -ArgumentList "/i",  $msiPath, "/quiet", "/norestart"
+    Write-Success "WSL installed."
     Remove-Item -Force -ErrorAction SilentlyContinue $msiPath
 }
 
