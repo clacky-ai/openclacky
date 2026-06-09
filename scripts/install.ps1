@@ -442,6 +442,8 @@ function Test-VirtualisationSupported {
 
 # Download and install the WSL2 kernel MSI from our CDN.
 function Install-WslKernel {
+    param([switch]$Repair)
+
     $cpuArch = Get-CpuArch
 
     # Select the correct MSI for this CPU architecture.
@@ -458,9 +460,18 @@ function Install-WslKernel {
         Write-Fail "Failed to download WSL kernel update. Check your network and try again."
         exit 1
     }
+    if ($Repair) {
+        # /fa = force repair all files; handles corrupt/partial installs where /i silently no-ops.
+        $proc = Start-Process msiexec -Wait -PassThru -ArgumentList "/fa", $msiPath, "/quiet", "/norestart"
+        Remove-Item -Force -ErrorAction SilentlyContinue $msiPath
+        if ($proc.ExitCode -ne 0) {
+            Write-Warn "WSL kernel repair failed (exit $($proc.ExitCode))."
+            return $false
+        }
+        Write-Success "WSL kernel repaired."
+        return $true
+    }
     Write-Info "Installing WSL..."
-    # /fa = force repair all files; handles corrupt/partial installs where /i silently no-ops.
-    Start-Process msiexec -Wait -ArgumentList "/fa", $msiPath, "/quiet", "/norestart"
     Start-Process msiexec -Wait -ArgumentList "/i",  $msiPath, "/quiet", "/norestart"
     Write-Success "WSL installed."
     Remove-Item -Force -ErrorAction SilentlyContinue $msiPath
@@ -518,12 +529,15 @@ if ($installPhase -eq "" -and $wslCode -ne 0) {
     # Always exits (prompts reboot)
 }
 
-# phase == wsl-pending + code 1: reboot happened but WSL still not ready.
+# phase == wsl-pending + code 1: reboot happened but WSL still not ready; try repair.
 if ($installPhase -eq "wsl-pending" -and $wslCode -eq 1) {
-    Write-Warn "WSL features were enabled but WSL is still not ready."
-    Write-Warn "Please reboot your computer and run the installer again."
-    Write-Warn "If this keeps happening, please contact our support team."
-    exit 1
+    Write-Warn "WSL features were enabled but WSL is still not ready. Attempting repair..."
+    $repairOk = Install-WslKernel -Repair
+    if (-not $repairOk) {
+        Write-Warn "Please reboot your computer and run the installer again."
+        Write-Warn "If this keeps happening, please contact our support team."
+        exit 1
+    }
 }
 
 # wslCode != 1 (0, -1, -444, 50, etc.): WSL is functional, continue.
