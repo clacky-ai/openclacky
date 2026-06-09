@@ -418,7 +418,8 @@ function Test-VirtualisationSupported {
         New-Item -ItemType Directory -Force -Path $probeDir | Out-Null
 
         Write-Info "[probe] Running: wsl --import $probeName $probeDir $TarPath --version 2"
-        wsl.exe --import $probeName $probeDir $TarPath --version 2 >$null 2>$null
+        $probeOutput = wsl.exe --import $probeName $probeDir $TarPath --version 2 2>&1
+        if ($probeOutput) { Write-Info "WSL2 probe: $probeOutput" }
         $importExit = $LASTEXITCODE
         Write-Info "[probe] wsl --import exit code: $importExit"
         $ok = ($importExit -eq 0)
