@@ -473,7 +473,7 @@ function Install-WslKernel {
         return $true
     }
     Write-Info "Installing WSL kernel..."
-    Start-Process msiexec -Wait -ArgumentList "/i",  $msiPath, "/quiet", "/norestart"
+    Start-Process msiexec -Wait -ArgumentList "/i", $msiPath, "/quiet", "/norestart"
     Write-Success "WSL kernel installed."
     Remove-Item -Force -ErrorAction SilentlyContinue $msiPath
 }
