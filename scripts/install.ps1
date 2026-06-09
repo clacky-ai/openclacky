@@ -242,7 +242,7 @@ function Get-UbuntuRootfs {
             Write-Step "Downloading Ubuntu rootfs (~350 MB)..."
             if (-not (Invoke-Download -Url $wslUrl -OutFile $tarPath)) {
                 Write-Fail "Failed to download Ubuntu rootfs. Check your network and try again."
-                exit 1
+                exit 2
             }
             Write-Success "Download complete."
 
@@ -459,7 +459,7 @@ function Install-WslKernel {
     Write-Step "Downloading WSL kernel update ($cpuArch)..."
     if (-not (Invoke-Download -Url $url -OutFile $msiPath)) {
         Write-Fail "Failed to download WSL kernel update. Check your network and try again."
-        exit 1
+        exit 2
     }
     if ($Repair) {
         # /fa = force repair all files; handles corrupt/partial installs where /i silently no-ops.
