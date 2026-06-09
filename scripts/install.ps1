@@ -66,6 +66,10 @@ function Write-Warn    { param($msg) Write-Host "  [!] $msg" -ForegroundColor Ye
 function Write-Fail    { param($msg) Write-Host "  [x] $msg" -ForegroundColor Red }
 function Write-Step    { param($msg) Write-Host "`n==> $msg" -ForegroundColor Blue }
 
+# Emits a machine-readable marker line for the GUI installer to parse.
+# Format: ::CLACKY_ERROR::<REASON>
+function Write-ErrorMarker { param($reason) Write-Host "::CLACKY_ERROR::$reason" }
+
 function Test-IsAdmin {
     return ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(
         [Security.Principal.WindowsBuiltInRole]::Administrator)
@@ -502,6 +506,7 @@ if (-not (Test-IsAdmin)) {
     Write-Host ""
     Write-Host "  Right-click PowerShell -> 'Run as administrator', then:" -ForegroundColor Yellow
     Write-Host "  $INSTALL_PS1_COMMAND" -ForegroundColor Yellow
+    Write-ErrorMarker "NOT_ADMINISTRATOR"
     exit 1
 }
 
@@ -511,6 +516,7 @@ if ($osBuild -lt 16215) {
     Write-Fail "Unsupported Windows version (Build $osBuild)."
     Write-Fail "WSL requires Windows 10 Build 16215 (version 1709) or later."
     Write-Fail "Please update Windows and try again."
+    Write-ErrorMarker "UNSUPPORTED_WINDOWS_VERSION"
     exit 1
 }
 Write-Info "Windows Build $osBuild — OK."
