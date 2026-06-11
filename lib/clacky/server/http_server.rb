@@ -45,7 +45,12 @@ module Clacky
           if url
             url
           elsif type.to_s == "image" && path && File.exist?(path.to_s)
-            Utils::FileProcessor.image_path_to_data_url(path) rescue "expired:#{name}"
+            # Serve via the /api/local-image proxy instead of inlining a base64
+            # data URL. Inlining forced a synchronous disk-read + full base64
+            # encode + downscale on every history replay (2-3s lag for sessions
+            # with downgraded text-model images). The proxy lets the browser
+            # lazy-load + cache the image, keeping the replay response tiny.
+            "/api/local-image?path=#{CGI.escape(path.to_s)}"
           elsif name
             type.to_s == "image" ? "expired:#{name}" : "pdf:#{name}"
           end
