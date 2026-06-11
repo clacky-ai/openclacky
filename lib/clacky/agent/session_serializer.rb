@@ -201,8 +201,11 @@ module Clacky
             if msg[:content].is_a?(String)
               !msg[:content].start_with?("[SYSTEM]")
             elsif msg[:content].is_a?(Array)
-              # Must contain at least one text or image block (not a tool_result array)
-              msg[:content].any? { |b| b.is_a?(Hash) && %w[text image].include?(b[:type].to_s) }
+              # Must contain at least one text or image block (not a tool_result array).
+              # "image_url" covers image-only messages (user sent a picture with no
+              # accompanying text); without it such messages start no round and get
+              # dropped on replay, making the image vanish on session reopen.
+              msg[:content].any? { |b| b.is_a?(Hash) && %w[text image image_url].include?(b[:type].to_s) }
             else
               false
             end
