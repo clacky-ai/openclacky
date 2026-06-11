@@ -104,7 +104,13 @@ module Clacky
       @pending_injections = []     # Pending inline skill injections to flush after observe()
       @pending_script_tmpdirs = [] # Decrypted-script tmpdirs to shred when agent.run completes
       @pending_error_rollback = false  # Deferred rollback flag set by restore_session on error
-      @last_run_interrupted = false    # Set when run() exits via AgentInterrupted; tells the next run() to keep the task-start snapshot (continuation of the same task across a relay, not a brand-new task)
+      @last_run_interrupted = false    # Set when run() exits via AgentInterrupted; tells the next run() the new message is a continuation of the same task across a relay (not a brand-new task), so the whole-task anchors (@task_total_*/@task_start_cost/@task_cache_stats) are kept instead of refreshed.
+      # Whole-task anchors: snapshot of iterations/start-time at the very start
+      # of a task, kept across relays so the completion summary spans the WHOLE
+      # task. Separate from @task_start_iterations/@start_time, which reset every
+      # relay and feed the evolution/memory gates + UI progress clock.
+      @task_total_start_iterations = 0
+      @task_total_start_time = nil
 
       # Compression tracking
       @compression_level = 0  # Tracks how many times we've compressed (for progressive summarization)
@@ -264,24 +270,37 @@ module Clacky
       # Start new task for Time Machine
       task_id = start_new_task
 
-      # Continuation of a previously-interrupted task (e.g. user sent a
-      # supplementary message without stopping the running task) keeps the
-      # existing task-start snapshot so the completion summary accumulates
-      # iterations/cost/duration across the relay, instead of resetting and
-      # only counting the post-interrupt portion.
+      # Reset transient per-relay state on EVERY run() (including supplementary
+      # message relays of an interrupted task).
+      @task_truncation_count = 0  # Reset truncation counter for each task
+      @task_timeout_hint_injected = false  # Reset read-timeout hint injection (see LlmCaller)
+      @task_upstream_truncation_hint_injected = false  # Reset upstream-truncation hint injection (see LlmCaller)
+      @task_cost_source = :estimated  # Reset for new task
+      # Note: Do NOT reset @previous_total_tokens here - it should maintain the value from the last iteration
+      # across tasks to correctly calculate delta tokens in each iteration
+
+      # Per-relay iteration anchor: ALWAYS reset every run(), including across
+      # supplementary-message relays of an interrupted task. This feeds the
+      # evolution/memory gates (skill_auto_creator, memory_updater), which must
+      # measure "this real relay only" and must NOT accumulate across relays —
+      # otherwise high-frequency supplementary messages inflate the iteration
+      # count and repeatedly mis-trigger the (expensive) evolution evaluation.
+      @task_start_iterations = @iterations  # Track starting iterations for this relay
+      @start_time = Time.now                # Per-relay clock for UI progress
+
+      # Whole-task anchors: snapshot at the very start of a brand-new task, kept
+      # across relays so the completion summary reflects iterations/cost/
+      # duration/cache over the WHOLE task (including supplementary-message
+      # continuations) rather than only the post-interrupt portion. Refreshed
+      # ONLY for a brand-new task; on a relay (@last_run_interrupted) they are
+      # preserved. @task_start_cost / @task_cache_stats are read only by the
+      # summary (the gates don't read them), so they live here too.
       if @last_run_interrupted
         @last_run_interrupted = false
       else
-        @start_time = Time.now
-        @task_truncation_count = 0  # Reset truncation counter for each task
-        @task_timeout_hint_injected = false  # Reset read-timeout hint injection (see LlmCaller)
-        @task_upstream_truncation_hint_injected = false  # Reset upstream-truncation hint injection (see LlmCaller)
-        @task_cost_source = :estimated  # Reset for new task
-        # Note: Do NOT reset @previous_total_tokens here - it should maintain the value from the last iteration
-        # across tasks to correctly calculate delta tokens in each iteration
-        @task_start_iterations = @iterations  # Track starting iterations for this task
-        @task_start_cost = @total_cost  # Track starting cost for this task
-        # Track cache stats for current task
+        @task_total_start_iterations = @iterations
+        @task_total_start_time = @start_time
+        @task_start_cost = @total_cost
         @task_cache_stats = {
           cache_creation_input_tokens: 0,
           cache_read_input_tokens: 0,
@@ -1236,7 +1255,17 @@ module Clacky
     end
 
     private def build_result(status = :success, error: nil)
-      task_iterations = @iterations - (@task_start_iterations || 0)
+      # Completion summary reflects the WHOLE task, accumulating across relays
+      # (supplementary-message continuations). Iterations/duration read the
+      # whole-task anchors (@task_total_start_*, kept across relays); cost and
+      # cache read @task_start_cost / @task_cache_stats, which are also kept
+      # across relays (the gates don't read them). Fall back to the per-relay
+      # @task_start_iterations / @start_time for safety if a result is built
+      # before any whole-task anchor was set.
+      total_start_iter = @task_total_start_iterations || @task_start_iterations || 0
+      total_start_time = @task_total_start_time || @start_time
+
+      task_iterations = @iterations - total_start_iter
       task_cost = @total_cost - (@task_start_cost || 0)
 
       {
@@ -1245,7 +1274,7 @@ module Clacky
         model: current_model,
         provider: current_provider,
         iterations: task_iterations,
-        duration_seconds: Time.now - @start_time,
+        duration_seconds: total_start_time ? (Time.now - total_start_time) : 0,
         total_cost_usd: task_cost.round(4),
         cost_source: @task_cost_source,
         cache_stats: @task_cache_stats || @cache_stats,
