@@ -734,7 +734,7 @@ module Clacky
             say "Error: Rich UI requires Ruby >= 2.6. Use --ui ui2 on Ruby #{RUBY_VERSION}.", :red
             exit 1
           end
-          require_relative "rich_ui_controller"
+          require_relative "rich_ui"
           RichUIController.new(
             working_dir: working_dir,
             mode: agent_config.permission_mode.to_s,
