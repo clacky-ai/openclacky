@@ -3,6 +3,7 @@
 require "json"
 require "uri"
 require "base64"
+require "set"
 require_relative "ui_interface"
 require_relative "providers"
 require_relative "ui2/components/welcome_banner"
@@ -317,80 +318,57 @@ module RubyRich
       end
     end
   end
+
 end
 
 module Clacky
-  class RichTodoSidebar
+  # ── Sidebar panels ──────────────────────────────────────────
+
+  class RichWorkPanel
     attr_accessor :width, :height
-    attr_reader :tasks
 
-    def initialize(tasks: [])
-      @tasks = tasks
-      @width = 0
-      @height = 0
+    def initialize
+      @plan = ""
+      @activities = []
+      @tasks = 0
+      @cost = 0.0
     end
 
-    def update_plan(_text)
-      self
+    def update_plan(text)
+      @plan = text.to_s
     end
 
-    def set_tasks(tasks)
-      @tasks = Array(tasks)
-      self
+    def update_activities(activities)
+      @activities = Array(activities).last(8)
     end
 
-    def add_task(label, status: :pending)
-      @tasks << { label: label, status: status }
-      self
+    def update_stats(tasks, cost)
+      @tasks = tasks.to_i
+      @cost = cost.to_f
     end
 
     def render
-      panel = RubyRich::Panel.new(render_tasks, title: "Todos", border_style: :blue, title_align: :left)
-      panel.width = @width
-      panel.height = @height
-      panel.render
-    end
-
-    def render_tasks
-      return muted("No active todos") if @tasks.empty?
-
-      @tasks.map do |task|
-        label = task_label(task)
-        status = task_status(task)
-        "#{status_marker(status)} #{label}"
-      end.join("\n")
-    end
-
-    def task_label(task)
-      case task
-      when Hash
-        (task[:label] ||
-          task["label"] ||
-          task[:title] ||
-          task["title"] ||
-          task[:content] ||
-          task["content"] ||
-          task[:task] ||
-          task["task"]).to_s
-      else
-        task.to_s
+      lines = []
+      lines << @plan unless @plan.empty?
+      unless @activities.empty?
+        lines << "" unless lines.empty?
+        @activities.each do |a|
+          marker = status_marker(a[:status] || :pending)
+          lines << "#{marker} #{a[:label]}"
+        end
       end
+      lines << "" unless lines.empty?
+      lines << muted("#{@tasks} tasks · $#{@cost.round(4)}")
+      lines.join("\n")
     end
 
-    def task_status(task)
-      case task
-      when Hash
-        (task[:status] || task["status"] || :pending).to_sym
-      else
-        :pending
-      end
-    end
+    private
 
     def status_marker(status)
       case status
       when :done, :completed
         "#{RubyRich::AnsiCode.color(:green, true)}✓#{RubyRich::AnsiCode.reset}"
-      when :running, :in_progress, :active, :executing
+      when :running, :in_progress, :active
         "#{RubyRich::AnsiCode.color(:blue, true)}●#{RubyRich::AnsiCode.reset}"
       when :failed, :error
         "#{RubyRich::AnsiCode.color(:red, true)}!#{RubyRich::AnsiCode.reset}"
@@ -402,17 +380,353 @@ module Clacky
     def muted(text)
       "#{RubyRich::AnsiCode.color(:black, true)}#{text}#{RubyRich::AnsiCode.reset}"
     end
+  end
 
-    private :render_tasks,
-            :task_label,
-            :task_status,
-            :status_marker,
-            :muted
+  class RichTasksPanel
+    attr_accessor :width, :height
+
+    def initialize
+      @tasks = []
+    end
+
+    def set_tasks(tasks)
+      @tasks = Array(tasks)
+    end
+
+    def render
+      return muted("No active tasks") if @tasks.empty?
+
+      lines = []
+      done_count = 0
+      total = @tasks.length
+      @tasks.each do |task|
+        label = task_label(task)
+        status = task_status(task)
+        done_count += 1 if %i[done completed].include?(status)
+        lines << "#{status_marker(status)} #{label}"
+      end
+      lines << "" unless lines.empty?
+      lines << muted("#{done_count}/#{total} done")
+      lines.join("\n")
+    end
+
+    private
+
+    def task_label(task)
+      case task
+      when Hash
+        (task[:label] || task["label"] || task[:title] || task["title"] ||
+         task[:content] || task["content"] || task[:task] || task["task"]).to_s
+      else
+        task.to_s
+      end
+    end
+
+    def task_status(task)
+      case task
+      when Hash then (task[:status] || task["status"] || :pending).to_sym
+      else :pending
+      end
+    end
+
+    def status_marker(status)
+      case status
+      when :done, :completed
+        "#{RubyRich::AnsiCode.color(:green, true)}✓#{RubyRich::AnsiCode.reset}"
+      when :running, :in_progress
+        "#{RubyRich::AnsiCode.color(:blue, true)}●#{RubyRich::AnsiCode.reset}"
+      when :failed, :error
+        "#{RubyRich::AnsiCode.color(:red, true)}!#{RubyRich::AnsiCode.reset}"
+      else
+        "#{RubyRich::AnsiCode.color(:black, true)}○#{RubyRich::AnsiCode.reset}"
+      end
+    end
+
+    def muted(text)
+      "#{RubyRich::AnsiCode.color(:black, true)}#{text}#{RubyRich::AnsiCode.reset}"
+    end
+  end
+
+  class RichContextPanel
+    attr_accessor :width, :height
+
+    def initialize
+      @token_usage = nil
+    end
+
+    def update_tokens(data)
+      @token_usage = data
+    end
+
+    def render
+      return muted("No token data") unless @token_usage
+
+      input  = @token_usage[:prompt_tokens] || @token_usage[:input]  || 0
+      output = @token_usage[:completion_tokens] || @token_usage[:output] || 0
+      total  = @token_usage[:total_tokens] || @token_usage[:total] || (input + output)
+      cost   = @token_usage[:cost]
+
+      lines = []
+      lines << "#{muted("prompt:")}   #{input} tok"
+      lines << "#{muted("output:")}  #{output} tok"
+      lines << "#{muted("total:")}   #{total} tok"
+      if cost
+        lines << ""
+        lines << "#{muted("cost:")}    $#{cost.round(4)}"
+      end
+      lines.join("\n")
+    end
+
+    private
+
+    def muted(text)
+      "#{RubyRich::AnsiCode.color(:black, true)}#{text}#{RubyRich::AnsiCode.reset}"
+    end
+  end
+
+  # ── RichSidebar ─────────────────────────────────────────────
+
+  class RichSidebar
+    MODES = %i[work tasks context auto hidden].freeze
+    PANEL_HEIGHT_RATIOS = { 1 => [1.0], 2 => [0.5, 0.5], 3 => [0.34, 0.33, 0.33] }.freeze
+    PANEL_NAMES = { work: "Work", tasks: "Tasks", context: "Context" }.freeze
+
+    attr_accessor :width, :height
+    attr_reader :mode
+
+    def initialize
+      @mode = :auto
+      @panels = {
+        work: RichWorkPanel.new,
+        tasks: RichTasksPanel.new,
+        context: RichContextPanel.new
+      }
+      @width = 0
+      @height = 0
+    end
+
+    def update_plan(text)
+      @panels[:work].update_plan(text)
+      self
+    end
+
+    def set_tasks(tasks)
+      @panels[:tasks].set_tasks(tasks)
+      self
+    end
+
+    def update_context(token_data)
+      @panels[:context].update_tokens(token_data)
+      self
+    end
+
+    def update_work_activities(activities)
+      @panels[:work].update_activities(activities)
+      self
+    end
+
+    def update_work_stats(tasks, cost)
+      @panels[:work].update_stats(tasks, cost)
+    end
+
+    def set_mode(mode)
+      @mode = MODES.include?(mode) ? mode : :auto
+    end
+
+    def render
+      visible = visible_panels
+      return [""] if visible.empty?
+
+      heights = panel_heights(visible)
+      panel_lines = visible.each_with_index.flat_map do |key, i|
+        panel = @panels[key]
+        panel.width = [@width - 2, 1].max
+        panel.height = heights[i]
+        p = RubyRich::Panel.new(panel.render, title: PANEL_NAMES[key], border_style: :blue, title_align: :left)
+        p.width = @width
+        p.height = heights[i]
+        p.render
+      end
+      panel_lines.first(@height)
+    end
+
+    private
+
+    def visible_panels
+      case @mode
+      when :work then [:work]
+      when :tasks then [:tasks]
+      when :context then [:context]
+      when :hidden then []
+      when :auto
+        @panels.select { |_key, panel| panel_has_content?(panel) }.keys
+      else
+        []
+      end
+    end
+
+    def panel_heights(visible)
+      max_h = [@height, 1].max
+      # Context panel gets exactly 6 lines; remaining space split among others
+      ctx_idx = visible.index(:context)
+      if ctx_idx
+        ctx_h = [6, max_h / [visible.length, 1].max].min
+        other_count = visible.length - 1
+        other_h = other_count > 0 ? (max_h - ctx_h) / other_count : 0
+        visible.each_with_index.map { |_, i| i == ctx_idx ? ctx_h : [other_h, 1].max }
+      else
+        h = max_h / visible.length
+        visible.map { [h, 1].max }
+      end
+    end
+
+    def panel_has_content?(panel)
+      case panel
+      when RichWorkPanel
+        true  # Always show — shows "0 tasks · $0.0000" when empty
+      when RichTasksPanel
+        !panel.instance_variable_get(:@tasks).empty?
+      when RichContextPanel
+        true  # Always show — shows "No token data" when empty
+      else
+        false
+      end
+    end
+  end
+
+  # Fixed 6-line thinking area between transcript and composer.
+  # Shows a spinner + elapsed time during thinking, streams content live.
+  class ThinkingLiveView
+    SPINNER = ['|', '/', '-', '\\'].freeze
+
+    attr_accessor :width, :height
+
+    def initialize(shell)
+      @shell = shell
+      @status = :idle     # :idle, :thinking, :done
+      @text = +""
+      @start_time = nil
+      @spinner_index = 0
+      @width = 0
+      @height = 0
+    end
+
+    def desired_height
+      @status == :idle ? 0 : 6
+    end
+
+    def start_thinking
+      @status = :thinking
+      @start_time = Time.now
+      @text = +""
+      @shell.live&.refresh
+    end
+
+    def append_text(delta)
+      @text << delta.to_s
+      @shell.live&.refresh
+    end
+
+    def finish_thinking
+      @status = :done
+      @shell.live&.refresh
+    end
+
+    def idle!
+      @status = :idle
+      @text = +""
+      @start_time = nil
+      @shell.live&.refresh
+    end
+
+    def render
+      theme = @shell.theme
+      case @status
+      when :idle
+        [""]
+      when :thinking
+        elapsed = @start_time ? (Time.now - @start_time).round(1) : 0.0
+        @spinner_index = (@spinner_index + 1) % SPINNER.length
+        spinner = theme.style(SPINNER[@spinner_index], :thinking)
+        time_str = theme.style("#{elapsed}s", :accent)
+        header = " #{spinner} #{theme.style("Thinking", :thinking)}  #{time_str}"
+        lines = [header]
+        visible = @text.to_s.split("\n").last(5)
+        visible.each { |l| lines << "  #{theme.style(l, :thinking)}" }
+        (5 - visible.length).times { lines << "" }
+        lines
+      when :done
+        elapsed = @start_time ? (Time.now - @start_time).round(1) : 0.0
+        header = " #{theme.style("Thinking done", :thinking)}  #{theme.style("#{elapsed}s", :accent)}"
+        lines = [header]
+        visible = @text.to_s.split("\n").last(4)
+        visible.each { |l| lines << "  #{theme.style(l, :muted)}" }
+        (4 - visible.length).times { lines << "" }
+        lines
+      end
+    end
+  end
+
+  # Enhanced status bar with spinner, work labels, and Ctrl+C hint.
+  class RichStatusView
+    SPINNER = ['|', '/', '-', '\\'].freeze
+
+    attr_accessor :width, :height
+
+    def initialize(shell)
+      @shell = shell
+      @spinner_index = 0
+      @width = 0
+      @height = 1
+    end
+
+    def render
+      theme = @shell.theme
+      clacky = @shell.instance_variable_get(:@clacky_controller)
+      return [""] unless clacky
+
+      status = clacky.instance_variable_get(:@status) || "idle"
+      tasks = clacky.instance_variable_get(:@tasks_count) || 0
+      cost  = clacky.instance_variable_get(:@total_cost) || 0.0
+      turn  = clacky.instance_variable_get(:@turn_active)
+      ctrlc = clacky.instance_variable_get(:@ctrl_c_warning)
+
+      mode    = clacky.instance_variable_get(:@config)&.dig(:mode) || "agent"
+      model   = clacky.instance_variable_get(:@config)&.dig(:model) || "—"
+      latency = clacky.instance_variable_get(:@latest_latency)
+      model_str = latency ? "#{model} (#{latency})" : model
+      meta_right = "#{mode} · #{model_str}"
+
+      if ctrlc
+        line = "#{theme.style("⏎", :error)} #{theme.style(ctrlc, :error)}"
+      elsif turn
+        @spinner_index = (@spinner_index + 1) % SPINNER.length
+        spinner = theme.style(SPINNER[@spinner_index], :accent)
+        label  = clacky.instance_variable_get(:@work_label) || "working…"
+        right  = "#{meta_right} · #{tasks} tasks · $#{cost.round(4)}"
+        left   = "#{spinner} #{theme.style(label, :body)}"
+      else
+        right = "#{meta_right} · #{tasks} tasks · $#{cost.round(4)} · Ctrl+C quit"
+        left  = theme.style(status || "idle", :accent)
+      end
+      space = [@width - visible_len(left) - visible_len(right) - 2, 1].max
+      line  = "#{left}#{" " * space}#{theme.style(right, :muted)}"
+      [line]
+    end
+
+    private
+
+    def visible_len(text)
+      text.to_s.gsub(/\e\[[0-9;:]*m/, "").length
+    end
   end
 
   class RichAgentShell < RubyRich::AgentShell
+    attr_reader :thinking_live, :sidebar
+
     def build_layout
-      @sidebar = RichTodoSidebar.new
+      @sidebar = RichSidebar.new
+      @thinking_live = ThinkingLiveView.new(self)
       @viewport.instance_variable_set(:@scrollbar, false)
       root = RubyRich::Layout.new(name: :root)
       root.split_column(
@@ -422,16 +736,23 @@ module Clacky
         RubyRich::Layout.new(name: :status, size: 1)
       )
 
-      root[:body].split_row(
+      main_area = RubyRich::Layout.new(name: :main, ratio: 1)
+      main_area.split_column(
         RubyRich::Layout.new(name: :transcript, ratio: 1),
+        RubyRich::Layout.new(name: :thinking_live, size: 0)
+      )
+
+      root[:body].split_row(
+        main_area,
         RubyRich::Layout.new(name: :todos, size: 36)
       )
 
       root[:header].content = RubyRich::AppShell::HeaderView.new(self)
       root[:transcript].content = @viewport
       root[:todos].content = @sidebar
+      root[:thinking_live].content = @thinking_live
       root[:composer].content = RubyRich::AppShell::FramedView.new(@composer, title: "Composer", theme: @theme) { @composer.focused? }
-      root[:status].content = RubyRich::AppShell::StatusView.new(self)
+      root[:status].content = RichStatusView.new(self)
       root
     end
 
@@ -454,6 +775,26 @@ module Clacky
 
     def attach_agent_controls
       @composer.instance_variable_set(:@on_interrupt, nil)
+      # Register /model command
+      shell_ref = self
+      @composer.register_command(name: "/model", description: "Switch LLM model",
+        handler: -> { shell_ref.instance_variable_get(:@callbacks)[:model_switch]&.call })
+      # Wire vim scroll callback: j/k in single-line normal mode scrolls transcript
+      @composer.instance_variable_set(:@on_vim_scroll, ->(delta) { @viewport.scroll_by(delta) })
+      # Inject Esc cancellation stack via singleton method on the Composer instance.
+      # This avoids both the Layout @event_intercepted bug and monkey-patch complexity.
+      native_escape = @composer.method(:escape)
+      shell = self
+      @composer.define_singleton_method(:escape) do
+        handled = shell.instance_variable_get(:@callbacks)[:esc]&.call || false
+        handled ? nil : native_escape.call
+      end
+      # Clear Ctrl+C warning as soon as the user starts typing
+      native_insert = @composer.method(:insert_text)
+      @composer.define_singleton_method(:insert_text) do |text|
+        shell.instance_variable_get(:@callbacks)[:clear_ctrlc]&.call
+        native_insert.call(text)
+      end
 
       @layout.key(:ctrl_c, 2_000) do |_event, live|
         handle_interrupt(live, self)
@@ -461,7 +802,39 @@ module Clacky
       end
 
       @layout.key(:ctrl_m, 2_000) do |_event, _live|
-        toggle_mode
+        toggle_permission_mode
+        false
+      end
+
+      # Tab toggles permission mode (overrides FocusManager's focus cycling)
+      @layout.key(:tab, 600) do |_event, _live|
+        toggle_permission_mode
+        false
+      end
+      # Re-focus composer AFTER FocusManager (priority 500) has cycled focus.
+      # Also suppress Composer's own tab handler (priority 200) which would
+      # otherwise fire open_menu_if_available.
+      @layout.key(:tab, 100) do |_event, _live|
+        @composer.instance_variable_set(:@ignore_next_tab, true)
+        @focus_manager.focus(:composer)
+        false
+      end
+
+      # Sidebar panel shortcuts (F1-F4)
+      @layout.key(:f1, 1_500) do |_event, _live|
+        @sidebar.set_mode(:work)
+        false
+      end
+      @layout.key(:f2, 1_500) do |_event, _live|
+        @sidebar.set_mode(:tasks)
+        false
+      end
+      @layout.key(:f3, 1_500) do |_event, _live|
+        @sidebar.set_mode(:auto)
+        false
+      end
+      @layout.key(:f4, 1_500) do |_event, _live|
+        @sidebar.set_mode(:context)
         false
       end
     end
@@ -470,6 +843,21 @@ module Clacky
       input_was_empty = @composer.value.to_s.empty?
       @callbacks[:interrupt]&.call(input_was_empty: input_was_empty)
       false
+    end
+
+    def toggle_permission_mode
+      current = @callbacks[:mode_toggle] ? @mode : :confirm_safes
+      # Toggle between confirm_safes and confirm_all
+      new_mode = current.to_s == "confirm_all" ? "confirm_safes" : "confirm_all"
+      @mode = new_mode.to_sym
+      @callbacks[:mode_toggle]&.call(@mode)
+      @status = "mode · #{@mode}"
+      @focus_manager.focus(:composer)
+    end
+
+    def on_esc(&block)
+      @callbacks[:esc] = block
+      self
     end
 
     private :build_layout,
@@ -499,7 +887,7 @@ module Clacky
     ].freeze
 
     attr_reader :layout, :shell, :running
-    attr_accessor :config
+    attr_accessor :config, :available_models
 
     def initialize(config = {})
       @config = {
@@ -509,20 +897,29 @@ module Clacky
         theme: config[:theme]
       }
       @welcome_banner = Clacky::UI2::Components::WelcomeBanner.new
+      @available_models = config[:model_names] || [config[:model] || "unknown"]
       @shell = RichAgentShell.new(
         title: "OpenClacky",
         subtitle: config[:working_dir].to_s,
         model: config[:model].to_s,
+        theme: RubyRich::Theme.whale_dark,
         commands: COMMANDS
       )
+      @shell.instance_variable_set(:@clacky_controller, self)
       @layout = LayoutAdapter.new(@shell)
       @input_callback = nil
       @interrupt_callback = nil
+      @work_label = nil
+      @ctrl_c_warning = nil
+      @latest_latency = nil
+      @always_allow_fingerprints = Set.new
       @mode_toggle_callback = nil
+      @model_switch_callback = nil
       @time_machine_callback = nil
       @tasks_count = 0
       @total_cost = 0.0
       @running = false
+      @turn_active = false
       @tool_ids = []
       @todo_items = []
       @explicit_todo_cycle = false
@@ -565,7 +962,29 @@ module Clacky
       RubyRich::Terminal.clear if clear_screen
     end
 
-    def set_skill_loader(_skill_loader, _agent_profile = nil); end
+    # Max description length for slash-menu display. Skill descriptions can be
+    # hundreds of chars; RubyRich Composer renders each command as a single line
+    # and long lines wrap or clip unpredictably. Truncating at registration is
+    # simpler and more reliable than patching the gem's render_command.
+    SKILL_DESC_MAX = 50
+
+    def set_skill_loader(skill_loader, agent_profile = nil)
+      return unless skill_loader
+
+      skills = skill_loader.user_invocable_skills
+      skills = skills.select { |s| s.allowed_for_agent?(agent_profile.name) } if agent_profile
+
+      skills.each do |skill|
+        desc = skill.description.to_s
+        desc = desc.length > SKILL_DESC_MAX ? "#{desc[0, SKILL_DESC_MAX - 1]}…" : desc
+        @shell.composer.register_command(
+          name: skill.slash_command,
+          description: desc
+          # No handler — text falls through to submit callback → CLI → agent
+        )
+      end
+    end
+
     def set_agent(_agent, _agent_profile = nil); end
 
     def on_input(&block)
@@ -578,6 +997,10 @@ module Clacky
 
     def on_mode_toggle(&block)
       @mode_toggle_callback = block
+    end
+
+    def on_model_switch(&block)
+      @model_switch_callback = block
     end
 
     def on_time_machine(&block)
@@ -600,7 +1023,20 @@ module Clacky
     end
 
     def show_assistant_message(content, files:)
-      text = filter_thinking_tags(content)
+      thinking_text, clean_text = extract_thinking_and_content(content)
+      unless thinking_text.to_s.strip.empty?
+        # Show live thinking with spinner + timer in fixed area
+        @shell.thinking_live.start_thinking
+        stream_thinking_live(thinking_text.strip)
+        elapsed = @shell.thinking_live.instance_variable_get(:@start_time)
+        elapsed = elapsed ? (Time.now - elapsed).round(1) : 0.0
+        @shell.thinking_live.finish_thinking
+        # Also add collapsed thinking block for reference (Ctrl+O to expand)
+        @shell.add_thinking(thinking_text.strip, status: "#{elapsed}s", collapsed: true)
+        # Hide the live area so transcript expands back to full height
+        @shell.thinking_live.idle!
+      end
+      text = clean_text
       stream_thread = nil
       stream_thread = add_conversation_markdown(text) unless text.nil? || text.strip.empty?
       if stream_thread.is_a?(Thread)
@@ -610,17 +1046,29 @@ module Clacky
       end
     end
 
+    # Stream thinking text into the live area character by character.
+    # After streaming completes, the finished state shows for ~1 second.
+    def stream_thinking_live(text, chunk_size: 3, delay: 0.008)
+      text.each_char.each_slice(chunk_size) do |chars|
+        @shell.thinking_live.append_text(chars.join)
+        sleep(delay)
+      end
+      # Brief pause to show "Thinking done" before next content renders
+      sleep(0.6)
+    end
+
     def show_tool_call(name, args)
       id = @shell.start_tool_call(name: name.to_s, input: format_args(args), status: :running)
       if id
         @tool_ids << id
         track_tool_activity(id, tool_activity_label(name, args), :running)
+        @work_label = "#{name}…"
       end
     end
 
     def show_tool_result(result)
       if (id = @tool_ids.pop)
-        @shell.finish_tool_call(id, status: :done, output: result.to_s)
+        @shell.finish_tool_call(id, status: :done, output: tool_output_text(result.to_s, :done))
         update_tool_activity(id, :done)
       else
         @shell.add_markdown(result.to_s)
@@ -634,11 +1082,18 @@ module Clacky
     def show_tool_error(error)
       message = error.is_a?(Exception) ? error.message : error.to_s
       if (id = @tool_ids.pop)
-        @shell.finish_tool_call(id, status: :error, output: message)
+        @shell.finish_tool_call(id, status: :error, output: tool_output_text(message, :error))
         update_tool_activity(id, :error)
       else
         @shell.add_error_message(message)
       end
+    end
+
+    def tool_output_text(text, status = :done)
+      marker = status == :error ? "[Error]" : "[OK]"
+      color = status == :error ? :red : :green
+      clean = text.to_s.sub(/\A\[(?:OK|Error)\]\s*/, "")
+      "#{RubyRich::AnsiCode.color(color, true)}#{marker}#{RubyRich::AnsiCode.reset} #{clean}"
     end
 
     def show_tool_args(formatted_args)
@@ -663,14 +1118,34 @@ module Clacky
 
     def show_diff(old_content, new_content, max_lines: 50)
       require "diffy"
-      diff = Diffy::Diff.new(old_content, new_content, context: 3).to_s(:color)
+      diff = Diffy::Diff.new(old_content, new_content, context: 3).to_s
+      stats = parse_diff_stats(diff)
+      header = "─── Diff#{stats}#{" " unless stats.empty?}───"
       lines = diff.lines
       visible = lines.take(max_lines).join
       hidden = lines.length - max_lines
-      visible += "\n... (#{hidden} more lines hidden)" if hidden.positive?
-      @shell.add_diff(content: visible)
+      trailer = hidden.positive? ? "\n... (#{hidden} more lines hidden)" : ""
+      @shell.add_diff(content: "#{header}\n#{visible}#{trailer}")
     rescue LoadError
       append_output("Old size: #{old_content.bytesize} bytes\nNew size: #{new_content.bytesize} bytes")
+    end
+
+    def parse_diff_stats(diff_text)
+      adds = 0
+      dels = 0
+      hunks = 0
+      diff_text.each_line do |line|
+        adds += 1 if line.start_with?("+") && !line.start_with?("+++")
+        dels += 1 if line.start_with?("-") && !line.start_with?("---")
+        hunks += 1 if line.start_with?("@@")
+      end
+      return "" if adds.zero? && dels.zero?
+
+      parts = []
+      parts << "+#{adds}" if adds.positive?
+      parts << "-#{dels}" if dels.positive?
+      parts << "#{hunks} hunks" if hunks.positive?
+      " (#{parts.join(", ")})"
     end
 
     def show_token_usage(token_data)
@@ -680,6 +1155,7 @@ module Clacky
         total: token_data[:total_tokens],
         cost: token_data[:cost]
       )
+      @shell.sidebar.update_context(token_data) if @shell.sidebar
     end
 
     def show_complete(iterations:, cost:, duration: nil, cache_stats: nil, awaiting_user_feedback: false, cost_source: nil)
@@ -740,7 +1216,11 @@ module Clacky
 
     def update_sessionbar(tasks: nil, cost: nil, cost_source: nil, status: nil, latency: nil, session_id: nil)
       _ = cost_source
-      _ = latency
+      @latest_latency = nil
+      if latency.is_a?(Hash)
+        ms = latency[:ttft_ms] || latency[:duration_ms]
+        @latest_latency = ms ? "#{(ms / 1000.0).round(1)}s" : nil
+      end
       @tasks_count = tasks if tasks
       @total_cost = cost if cost
       @status = status if status
@@ -754,21 +1234,132 @@ module Clacky
     end
 
     def set_working_status
+      @turn_active = true
+      @work_label ||= "working…"
       update_sessionbar(status: "working")
     end
 
     def set_idle_status
+      @turn_active = false
+      @work_label = nil
       update_sessionbar(status: "idle")
     end
 
     def request_confirmation(message, default: true)
+      tool_name, params = parse_tool_info(message)
+      risk = tool_risk_level(tool_name)
+      category = tool_category(tool_name)
+
+      fingerprint = build_fingerprint(tool_name, params)
+      return true if @always_allow_fingerprints.include?(fingerprint)
+
       show_info(message)
-      @shell.confirm(
-        title: "Confirm",
+      dialog = ApprovalDialog.new(
+        tool_name: tool_name || "unknown",
         message: message,
-        choices: [{ key: true, label: "Yes" }, { key: false, label: "No" }],
-        default: default
+        params: params,
+        risk: risk,
+        category: category
       )
+      result = show_blocking_dialog(dialog)
+
+      case result
+      when :approve
+        true
+      when :always_allow
+        @always_allow_fingerprints.add(fingerprint)
+        true
+      when :deny
+        false
+      else
+        default
+      end
+    end
+
+    # ── Approval helpers ──────────────────────────────────────
+
+    def parse_tool_info(message)
+      return [nil, {}] unless message
+
+      tool_name = message[/\A\w+/]&.downcase
+      params = {}
+
+      case tool_name
+      when "edit", "write"
+        path = message[/\((.+?)\)/, 1]
+        params[:path] = path if path
+      when "terminal", "shell", "exec"
+        cmd = message[/"(.+?)"/, 1]
+        params[:command] = cmd if cmd
+      when "web_search", "web_fetch"
+        params[:query] = message[(message.index("(")&.+(1) || 0)..]&.chomp(")")&.strip
+      when "execute", "run"
+        params[:command] = message[(message.index("(")&.+(1) || 0)..]&.chomp(")")&.strip
+      end
+
+      params.reject! { |_, v| v.to_s.empty? }
+      [tool_name, params]
+    end
+
+    def tool_risk_level(tool_name)
+      case tool_name
+      when "read", "grep", "list", "search", "web_search", "web_fetch", "fetch_url"
+        :low
+      when "edit", "write", "patch", "apply_patch"
+        :medium
+      when "shell", "terminal", "exec", "execute", "run"
+        :high
+      when "install", "remove", "delete", "rm", "force"
+        :critical
+      else
+        :medium
+      end
+    end
+
+    def tool_category(tool_name)
+      case tool_name
+      when "read", "write", "edit", "patch", "apply_patch", "grep", "list"
+        :file
+      when "shell", "terminal", "exec", "execute", "run"
+        :shell
+      when "web_search", "web_fetch", "fetch_url"
+        :network
+      when "install", "billing", "payment"
+        :paid
+      else
+        :file
+      end
+    end
+
+    def show_model_switch_dialog
+      models = @available_models || [@config[:model] || "unknown"]
+      choices = models.each_with_index.map do |name, i|
+        current = name == @config[:model]
+        { label: "#{current ? "● " : "  "}#{name}", value: name }
+      end
+
+      selected = show_menu_dialog(
+        title: "Switch Model",
+        choices: choices,
+        selected_index: models.index(@config[:model]) || 0
+      )
+      return nil if selected.nil?
+
+      persist_choice = show_menu_dialog(
+        title: "Apply Scope",
+        choices: [
+          { label: "This session only", value: false },
+          { label: "Save permanently",  value: true  }
+        ],
+        selected_index: 0
+      )
+      return nil if persist_choice.nil?
+
+      { model: selected, persist: persist_choice }
+    end
+
+    def build_fingerprint(tool_name, params)
+      "#{tool_name}:#{params.sort.to_s}"
     end
 
     def clear_input
@@ -844,10 +1435,22 @@ module Clacky
       end
     end
 
-    def filter_thinking_tags(content)
-      return content if content.nil?
+    # Returns [thinking_text, clean_content] by extracting <thinking>...</thinking>
+    # and <think>...</think> blocks from the content.
+    def extract_thinking_and_content(content)
+      return ["", content.to_s] if content.nil?
 
-      content.gsub(%r{<think(?:ing)?>[\s\S]*?</think(?:ing)?>}mi, "").gsub(/\n{3,}/, "\n\n").strip
+      thinking_parts = []
+      clean = content.to_s.dup
+
+      # Collect all thinking blocks and remove them from clean text
+      clean.gsub!(%r{<think(?:ing)?>\s*([\s\S]*?)\s*</think(?:ing)?>}mi) do
+        thinking_parts << Regexp.last_match(1).strip
+        ""
+      end
+
+      clean = clean.gsub(/\n{3,}/, "\n\n").strip
+      [thinking_parts.join("\n\n"), clean]
     end
 
     def track_tool_activity(id, label, status)
@@ -867,12 +1470,9 @@ module Clacky
     end
 
     def refresh_sidebar_tasks
-      tasks = if @todo_items.empty?
-        @explicit_todo_cycle ? [] : @tool_activities
-      else
-        @todo_items
-      end
-      @shell.update_tasks(tasks)
+      @shell.update_tasks(@todo_items)
+      @shell.sidebar.update_work_activities(@tool_activities)
+      @shell.sidebar.update_work_stats(@tasks_count, @total_cost)
     end
 
     def reset_task_sidebar_tracking
@@ -1016,12 +1616,14 @@ module Clacky
     def wire_shell_callbacks
       @shell.on_submit do |text, attachments|
         reset_task_sidebar_tracking
+        @ctrl_c_warning = nil
         files = Array(attachments).map { |attachment| attachment.respond_to?(:to_h) ? attachment.to_h : attachment }
         @shell.add_user_message(text)
         run_callback_async { @input_callback&.call(text, files, display: text) }
       end
 
       @shell.on_interrupt do |input_was_empty:|
+        @ctrl_c_warning = "Press Ctrl+C again to exit"
         @interrupt_callback&.call(input_was_empty: input_was_empty)
       end
 
@@ -1029,6 +1631,55 @@ module Clacky
         @config[:mode] = mode.to_s
         @mode_toggle_callback&.call(mode.to_s)
       end
+
+      @shell.on_esc do
+        handle_esc
+      end
+
+      @shell.instance_variable_get(:@callbacks)[:clear_ctrlc] = -> { @ctrl_c_warning = nil }
+
+      @shell.instance_variable_get(:@callbacks)[:model_switch] = -> {
+        Thread.new do
+          result = show_model_switch_dialog
+          if result
+            @config[:model] = result[:model]
+            @latest_latency = nil
+            @shell.update_status(session_status)
+            @model_switch_callback&.call(result[:model], result[:persist])
+          end
+        rescue => e
+          $stderr.puts "[model_switch] #{e.class}: #{e.message}"
+        end
+      }
+    end
+
+    # Esc cancellation stack (tui_design.md §2.8).
+    # Called from Composer's @on_escape callback (before native escape).
+    # Returns true when handled (skip native), false to fall through.
+    def handle_esc
+      # Layer 1: Close any open dialog or slash menu
+      if @shell.layout.dialog
+        dialog = @shell.layout.dialog
+        dialog.finish(nil) if dialog.respond_to?(:finish)
+        @shell.layout.hide_dialog
+        return true
+      end
+      if @shell.composer.menu_open?
+        @shell.composer.send(:close_menu)
+        return true
+      end
+
+      # Layer 2: Interrupt running turn
+      if @turn_active
+        @interrupt_callback&.call(input_was_empty: false)
+        return true
+      end
+
+      # Layer 3: Discard queued draft (future; return true when done)
+
+      # Layer 4+5: Fall through to Composer's native escape —
+      #   editor with text → clear, empty editor → focus/no-op
+      false
     end
 
     def session_status
@@ -1236,7 +1887,13 @@ module Clacky
 
     def format_args(args)
       data = args.is_a?(String) ? (JSON.parse(args) rescue args) : args
-      data.is_a?(Hash) ? JSON.pretty_generate(data) : data.to_s
+      return data.to_s unless data.is_a?(Hash) && !data.empty?
+
+      data.map { |k, v| "#{k}: #{format_tool_value(v)}" }.join("\n")
+    end
+
+    def format_tool_value(v)
+      v.is_a?(String) ? v : JSON.generate(v)
     end
 
     def normalize_todo(todo)
@@ -1272,6 +1929,9 @@ module Clacky
             :add_file_summary_after,
             :add_plain_block,
             :expand_ansi_multiline_spans,
+            :extract_thinking_and_content,
+            :stream_thinking_live,
+            :parse_diff_stats,
             :normalize_markdown_for_terminal,
             :add_file_summary,
             :wire_shell_callbacks,
@@ -1288,9 +1948,16 @@ module Clacky
             :show_provider_selection,
             :merge_model_form_values,
             :validate_model_form,
-            :format_args,
-            :normalize_todo,
-            :mask_api_key
+             :format_args,
+             :format_tool_value,
+             :tool_output_text,
+             :normalize_todo,
+             :mask_api_key,
+             :parse_tool_info,
+             :tool_risk_level,
+             :tool_category,
+             :build_fingerprint,
+             :show_model_switch_dialog
 
     class LayoutAdapter
       def initialize(shell)
@@ -1544,6 +2211,148 @@ module Clacky
               :render_content,
               :render_field_value,
               :muted
+    end
+
+    class ApprovalDialog
+      RISK_LEVELS = {
+        low:      { label: "Low",      color: :green,  bar: "●○○○" },
+        medium:   { label: "Medium",   color: :yellow, bar: "●●○○" },
+        high:     { label: "High",     color: :yellow, bar: "●●●○" },
+        critical: { label: "Critical", color: :red,    bar: "●●●●" }
+      }.freeze
+
+      CATEGORY_COLORS = {
+        file: :blue, shell: :yellow, network: :cyan, paid: :magenta
+      }.freeze
+
+      CHOICES = [
+        { key: :approve,       label: "Approve",       color: :green  },
+        { key: :deny,          label: "Deny",           color: :red    },
+        { key: :always_allow,  label: "Always allow",   color: :cyan   }
+      ].freeze
+
+      attr_accessor :width, :height
+
+      def initialize(tool_name:, message:, params: {}, risk: :medium, category: :file)
+        @tool_name = tool_name
+        @message = message
+        @params = params
+        @risk = RISK_LEVELS[risk] || RISK_LEVELS[:medium]
+        @category = category
+        @category_color = CATEGORY_COLORS[category] || :blue
+        @selected_index = 0
+        @width = 72
+        @height = [params.length + 10, 12].max
+        @event_listeners = {}
+        @mutex = Mutex.new
+        @condition = ConditionVariable.new
+        @finished = false
+        @result = nil
+        @panel = RubyRich::Panel.new("", title: "Approval", border_style: @risk[:color], title_align: :center)
+        @layout = RubyRich::Layout.new(name: :approval_dialog, width: @width, height: @height)
+        @layout.update_content(@panel)
+        @layout.calculate_dimensions(@width, @height)
+        wire_keys
+      end
+
+      def finish(value)
+        @mutex.synchronize do
+          @result = value
+          @finished = true
+          @condition.signal
+        end
+        true
+      end
+
+      def wait
+        @mutex.synchronize { @condition.wait(@mutex) until @finished }
+        @result
+      end
+
+      def key(event_name, priority = 0, &block)
+        @event_listeners[event_name] ||= []
+        @event_listeners[event_name] << { priority: priority, block: block }
+        @event_listeners[event_name].sort_by! { |l| -l[:priority] }
+      end
+
+      def notify_listeners(event_data)
+        Array(@event_listeners[event_data[:name]]).each { |l| l[:block].call(event_data, nil) }
+      end
+
+      def render_to_buffer
+        @panel.content = render_content
+        @layout.calculate_dimensions(@width, @height)
+        @layout.render_to_buffer
+      end
+
+      private
+
+      def wire_keys
+        key(:left,  100) { move_selection(-1); true }
+        key(:right, 100) { move_selection(1);  true }
+        key(:string, 100) do |event, _live|
+          case event[:value]
+          when "h" then move_selection(-1)
+          when "l" then move_selection(1)
+          end
+          true
+        end
+        key(:enter, 100) do
+          sel = CHOICES[@selected_index]
+          finish(sel ? sel[:key] : :deny)
+        end
+        key(:escape, 100) { finish(:deny) }
+        key(:ctrl_c, 100) { finish(:deny) }
+      end
+
+      def move_selection(delta)
+        @selected_index = (@selected_index + delta) % CHOICES.length
+      end
+
+      def render_content
+        risk = @risk
+        lines = []
+        lines << ""
+        lines << "  #{colored("Tool:",  :body)}  #{colored(@tool_name, :accent)}  #{category_badge}"
+        lines << "  #{colored("Risk:",  :body)}  #{colored(risk[:label], risk[:color])} #{colored(risk[:bar], risk[:color])}"
+        lines << "  #{colored("Info:",  :body)}  #{colored(@message, :body)}"
+
+        unless @params.empty?
+          lines << ""
+          @params.each do |key, value|
+            val = value.to_s
+            val = "#{val[0..50]}..." if val.length > 54
+            lines << "  #{muted("#{key}:")}  #{colored(val, :body)}"
+          end
+        end
+
+        lines << ""
+        lines << render_choices
+        lines << ""
+        lines.join("\n")
+      end
+
+      def render_choices
+        CHOICES.each_with_index.map do |choice, i|
+          selected = i == @selected_index
+          prefix = selected ? "#{RubyRich::AnsiCode.color(:cyan, true)}➜#{RubyRich::AnsiCode.reset}" : " "
+          label = selected ? colored(choice[:label], choice[:color]) : muted(choice[:label])
+          "#{prefix} [#{label}]"
+        end.join("  ")
+      end
+
+      def category_badge
+        label = @category.to_s.capitalize
+        colored("[#{label}]", @category_color)
+      end
+
+      def colored(text, color)
+        "#{RubyRich::AnsiCode.color(color, true)}#{text}#{RubyRich::AnsiCode.reset}"
+      end
+
+      def muted(text)
+        "#{RubyRich::AnsiCode.color(:black, true)}#{text}#{RubyRich::AnsiCode.reset}"
+      end
     end
   end
 end

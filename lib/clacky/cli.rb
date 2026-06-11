@@ -264,8 +264,9 @@ module Clacky
           config.save
         end
 
-        # Refresh UI bar
+        # Refresh UI bar and model list
         ui_controller.config[:model] = config.model_name
+        ui_controller.available_models = config.model_names
         ui_controller.update_sessionbar(
           tasks: agent.total_tasks,
           cost: agent.total_cost
@@ -738,6 +739,7 @@ module Clacky
             working_dir: working_dir,
             mode: agent_config.permission_mode.to_s,
             model: agent_config.model_name,
+            model_names: agent_config.model_names,
             theme: options[:theme]
           )
         else
@@ -796,6 +798,21 @@ module Clacky
         # Set up mode toggle handler
         ui_controller.on_mode_toggle do |new_mode|
           agent_config.permission_mode = new_mode.to_sym
+        end
+
+        # Set up model switch handler (from /model slash command)
+        ui_controller.on_model_switch do |model, persist|
+          next unless agent_config.switch_model_by_name(model)
+
+          id = agent_config.current_model_id
+          agent.switch_model_by_id(id)
+          if persist
+            agent_config.set_default_model_by_id(id)
+            agent_config.save
+            ui_controller.show_success("Model switched to #{model} (saved)")
+          else
+            ui_controller.show_success("Model switched to #{model} (session only)")
+          end
         end
 
         # Set up time machine handler (ESC key)
