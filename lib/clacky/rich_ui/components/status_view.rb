@@ -17,18 +17,18 @@ module Clacky
 
     def render
       theme = @shell.theme
-      clacky = @shell.instance_variable_get(:@clacky_controller)
+      clacky = @shell.clacky_controller
       return [""] unless clacky
 
-      status = clacky.instance_variable_get(:@status) || "idle"
-      tasks = clacky.instance_variable_get(:@tasks_count) || 0
-      cost  = clacky.instance_variable_get(:@total_cost) || 0.0
-      turn  = clacky.instance_variable_get(:@turn_active)
-      ctrlc = clacky.instance_variable_get(:@ctrl_c_warning)
+      status = clacky.status || "idle"
+      tasks = clacky.tasks_count || 0
+      cost  = clacky.total_cost || 0.0
+      turn  = clacky.turn_active
+      ctrlc = clacky.ctrl_c_warning
 
-      mode    = clacky.instance_variable_get(:@config)&.dig(:mode) || "agent"
-      model   = clacky.instance_variable_get(:@config)&.dig(:model) || "—"
-      latency = clacky.instance_variable_get(:@latest_latency)
+      mode    = clacky.config&.dig(:mode) || "agent"
+      model   = clacky.config&.dig(:model) || "—"
+      latency = clacky.latest_latency
       model_str = latency ? "#{model} (#{latency})" : model
       meta_right = "#{mode} · #{model_str}"
 
@@ -37,7 +37,7 @@ module Clacky
       elsif turn
         @spinner_index = (@spinner_index + 1) % SPINNER.length
         spinner = theme.style(SPINNER[@spinner_index], :accent)
-        label  = clacky.instance_variable_get(:@work_label) || "working…"
+        label  = clacky.work_label || "working…"
         right  = "#{meta_right} · #{tasks} tasks · $#{cost.round(4)}"
         left   = "#{spinner} #{theme.style(label, :body)}"
       else
@@ -49,9 +49,7 @@ module Clacky
       [line]
     end
 
-    private
-
-    def visible_len(text)
+    private def visible_len(text)
       text.to_s.gsub(/\e\[[0-9;:]*m/, "").length
     end
   end

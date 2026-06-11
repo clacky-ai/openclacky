@@ -1,9 +1,12 @@
 # frozen_string_literal: true
 
 require "ruby_rich"
+require_relative "base_component"
 
 module Clacky
   class RichWorkPanel
+    include Clacky::RichUI::Components::BaseComponent
+
     attr_accessor :width, :height
 
     def initialize
@@ -40,28 +43,11 @@ module Clacky
       lines << muted("#{@tasks} tasks · $#{@cost.round(4)}")
       lines.join("\n")
     end
-
-    private
-
-    def status_marker(status)
-      case status
-      when :done, :completed
-        "#{RubyRich::AnsiCode.color(:green, true)}✓#{RubyRich::AnsiCode.reset}"
-      when :running, :in_progress, :active
-        "#{RubyRich::AnsiCode.color(:blue, true)}●#{RubyRich::AnsiCode.reset}"
-      when :failed, :error
-        "#{RubyRich::AnsiCode.color(:red, true)}!#{RubyRich::AnsiCode.reset}"
-      else
-        "#{RubyRich::AnsiCode.color(:black, true)}○#{RubyRich::AnsiCode.reset}"
-      end
-    end
-
-    def muted(text)
-      "#{RubyRich::AnsiCode.color(:black, true)}#{text}#{RubyRich::AnsiCode.reset}"
-    end
   end
 
   class RichTasksPanel
+    include Clacky::RichUI::Components::BaseComponent
+
     attr_accessor :width, :height
 
     def initialize
@@ -70,6 +56,10 @@ module Clacky
 
     def set_tasks(tasks)
       @tasks = Array(tasks)
+    end
+
+    def has_tasks?
+      !@tasks.empty?
     end
 
     def render
@@ -89,9 +79,7 @@ module Clacky
       lines.join("\n")
     end
 
-    private
-
-    def task_label(task)
+    private def task_label(task)
       case task
       when Hash
         (task[:label] || task["label"] || task[:title] || task["title"] ||
@@ -107,26 +95,11 @@ module Clacky
       else :pending
       end
     end
-
-    def status_marker(status)
-      case status
-      when :done, :completed
-        "#{RubyRich::AnsiCode.color(:green, true)}✓#{RubyRich::AnsiCode.reset}"
-      when :running, :in_progress
-        "#{RubyRich::AnsiCode.color(:blue, true)}●#{RubyRich::AnsiCode.reset}"
-      when :failed, :error
-        "#{RubyRich::AnsiCode.color(:red, true)}!#{RubyRich::AnsiCode.reset}"
-      else
-        "#{RubyRich::AnsiCode.color(:black, true)}○#{RubyRich::AnsiCode.reset}"
-      end
-    end
-
-    def muted(text)
-      "#{RubyRich::AnsiCode.color(:black, true)}#{text}#{RubyRich::AnsiCode.reset}"
-    end
   end
 
   class RichContextPanel
+    include Clacky::RichUI::Components::BaseComponent
+
     attr_accessor :width, :height
 
     def initialize
@@ -154,12 +127,6 @@ module Clacky
         lines << "#{muted("cost:")}    $#{cost.round(4)}"
       end
       lines.join("\n")
-    end
-
-    private
-
-    def muted(text)
-      "#{RubyRich::AnsiCode.color(:black, true)}#{text}#{RubyRich::AnsiCode.reset}"
     end
   end
 end

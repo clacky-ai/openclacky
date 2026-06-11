@@ -1,9 +1,12 @@
 # frozen_string_literal: true
 
 require "ruby_rich"
+require_relative "../base_component"
 
 module Clacky
     class ApprovalDialog
+      include Clacky::RichUI::Components::BaseComponent
+
       RISK_LEVELS = {
         low:      { label: "Low",      color: :green,  bar: "●○○○" },
         medium:   { label: "Medium",   color: :yellow, bar: "●●○○" },
@@ -75,9 +78,7 @@ module Clacky
         @layout.render_to_buffer
       end
 
-      private
-
-      def wire_keys
+      private def wire_keys
         key(:left,  100) { move_selection(-1); true }
         key(:right, 100) { move_selection(1);  true }
         key(:string, 100) do |event, _live|
@@ -134,14 +135,6 @@ module Clacky
       def category_badge
         label = @category.to_s.capitalize
         colored("[#{label}]", @category_color)
-      end
-
-      def colored(text, color)
-        "#{RubyRich::AnsiCode.color(color, true)}#{text}#{RubyRich::AnsiCode.reset}"
-      end
-
-      def muted(text)
-        "#{RubyRich::AnsiCode.color(:black, true)}#{text}#{RubyRich::AnsiCode.reset}"
       end
     end
 end

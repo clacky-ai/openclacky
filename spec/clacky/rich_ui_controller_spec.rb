@@ -9,7 +9,7 @@ if Gem::Version.new(RUBY_VERSION) < Gem::Version.new("2.6.0")
     end
   end
 else
-require_relative "../../lib/clacky/rich_ui_controller"
+require_relative "../../lib/clacky/rich_ui"
 
 RSpec.describe Clacky::RichUIController do
   describe "layout" do
@@ -23,7 +23,7 @@ RSpec.describe Clacky::RichUIController do
       expect(ui.shell.layout[:todos].width).to eq(36)
       expect(ui.shell.layout[:transcript].width).to eq(64)
       rendered_text = strip_ansi(ui.shell.layout.render)
-      expect(rendered_text).to include("Todos")
+      expect(rendered_text).to include("Work")
       expect(rendered_text).not_to include("Plan")
     end
 
@@ -38,7 +38,7 @@ RSpec.describe Clacky::RichUIController do
       ui.shell.layout.calculate_dimensions(100, 30)
 
       rendered_text = strip_ansi(ui.shell.layout.render)
-      expect(rendered_text).to include("Todos")
+      expect(rendered_text).to include("Work")
       expect(rendered_text).to include("Research DeepSeek v4")
       expect(rendered_text).to include("Write weather scraper")
       expect(rendered_text).to include("Optimize SQL query")
@@ -55,12 +55,10 @@ RSpec.describe Clacky::RichUIController do
       ui.shell.layout.calculate_dimensions(100, 30)
 
       rendered_text = strip_ansi(ui.shell.layout.render)
-      expect(rendered_text).to include("Todos")
-      expect(ui.shell.sidebar.tasks.map { |task| task[:label] }).to include(
-        'web_search("普京访华 2025最新消息")',
-        "web_fetch(www.chinadaily.com.cn)"
-      )
-      expect(rendered_text).not_to include("No active todos")
+      expect(rendered_text).to include("Work")
+      # Tool activity items appear in the Work panel when no explicit todos exist
+      expect(rendered_text).to include("web_search")
+      expect(rendered_text).to include("web_fetch")
     end
 
     it "keeps explicit todo_manager tasks ahead of tool activity" do
@@ -85,7 +83,6 @@ RSpec.describe Clacky::RichUIController do
 
       rendered_text = strip_ansi(ui.shell.layout.render)
       expect(ui.shell.sidebar.tasks).to eq([])
-      expect(rendered_text).to include("No active todos")
     end
   end
 
@@ -360,13 +357,13 @@ RSpec.describe Clacky::RichUIController do
 
     it "wraps markdown table cells to fit the transcript content width" do
       ui = described_class.new(working_dir: Dir.pwd, mode: "confirm_safes", model: "test-model")
+      ui.shell.transcript.width = 40
       ui.show_assistant_message(<<~MARKDOWN, files: [])
         | Column A | Column B | Column C |
         | --- | --- | --- |
         | veryveryveryveryveryverylong | another very very very long value | 中文中文中文中文中文中文 |
       MARKDOWN
 
-      ui.shell.transcript.width = 40
       lines = ui.shell.transcript.render
       table_lines = lines.select { |line| line.gsub(/\e\[[0-9;:]*m/, "").include?("│") }
 
@@ -423,7 +420,7 @@ RSpec.describe Clacky::RichUIController do
     text.gsub(/\e\[[0-9;]*m/, "")
   end
 
-  describe Clacky::RichUIController::ConfigMenuDialog do
+  describe Clacky::ConfigMenuDialog do
     it "renders a selectable model configuration menu" do
       dialog = described_class.new(
         choices: [
@@ -463,7 +460,7 @@ RSpec.describe Clacky::RichUIController do
     end
   end
 
-  describe Clacky::RichUIController::FormDialog do
+  describe Clacky::FormDialog do
     it "edits fields and returns keyed values" do
       dialog = described_class.new(
         title: "Edit Model",

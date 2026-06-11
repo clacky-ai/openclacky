@@ -22,6 +22,7 @@ RSpec.describe Clacky::CLI, "UI2 slash commands" do
   let(:ui_controller) do
     double("UIController").tap do |ui|
       allow(ui).to receive(:on_mode_toggle)
+      allow(ui).to receive(:on_model_switch)
       allow(ui).to receive(:on_time_machine)
       allow(ui).to receive(:on_interrupt)
       allow(ui).to receive(:on_input) { |&block| @input_handler = block }

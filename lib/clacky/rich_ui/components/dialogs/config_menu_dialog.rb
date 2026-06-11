@@ -1,9 +1,12 @@
 # frozen_string_literal: true
 
 require "ruby_rich"
+require_relative "../base_component"
 
 module Clacky
     class ConfigMenuDialog
+      include Clacky::RichUI::Components::BaseComponent
+
       attr_accessor :width, :height
 
       def initialize(choices:, selected_index: 0, title: "Model Configuration", width: 86)
@@ -94,13 +97,8 @@ module Clacky
         "#{prefix}#{label}"
       end
 
-      def muted(text)
-        "#{RubyRich::AnsiCode.color(:black, true)}#{text}#{RubyRich::AnsiCode.reset}"
-      end
-
       private :move,
               :render_content,
-              :choice_line,
-              :muted
+              :choice_line
     end
 end

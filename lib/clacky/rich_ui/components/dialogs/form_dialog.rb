@@ -1,9 +1,12 @@
 # frozen_string_literal: true
 
 require "ruby_rich"
+require_relative "../base_component"
 
 module Clacky
     class FormDialog
+      include Clacky::RichUI::Components::BaseComponent
+
       attr_accessor :width, :height
 
       def initialize(title:, fields:, width: 92)
@@ -113,16 +116,11 @@ module Clacky
         "#{RubyRich::AnsiCode.color(color, true)}#{text}#{RubyRich::AnsiCode.reset}"
       end
 
-      def muted(text)
-        "#{RubyRich::AnsiCode.color(:black, true)}#{text}#{RubyRich::AnsiCode.reset}"
-      end
-
       private :wire_default_keys,
               :current_editor,
               :move_field,
               :values,
               :render_content,
-              :render_field_value,
-              :muted
+              :render_field_value
     end
 end

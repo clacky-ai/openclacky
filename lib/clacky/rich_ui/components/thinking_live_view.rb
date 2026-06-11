@@ -7,6 +7,7 @@ module Clacky
     SPINNER = ['|', '/', '-', '\\'].freeze
 
     attr_accessor :width, :height
+    attr_reader :start_time
 
     def initialize(shell)
       @shell = shell

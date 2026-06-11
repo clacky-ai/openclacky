@@ -8,7 +8,6 @@ require "ruby_rich"
 require_relative "../ui_interface"
 require_relative "../providers"
 require_relative "../ui2/components/welcome_banner"
-require_relative "extensions/ruby_rich_patches"
 require_relative "shell/rich_agent_shell"
 require_relative "components/sidebar"
 require_relative "components/thinking_live_view"
@@ -17,11 +16,13 @@ require_relative "layout_adapter"
 require_relative "progress_handle_adapter"
 require_relative "components/dialogs/config_menu_dialog"
 require_relative "components/dialogs/form_dialog"
+require_relative "entry_tracker"
 require_relative "components/dialogs/approval_dialog"
 
 module Clacky
   class RichUIController
     include Clacky::UIInterface
+    include Clacky::RichUI::ViewRenderer
 
     STREAMING_MARKDOWN_THRESHOLD = 240
     STREAMING_MARKDOWN_CHUNK_SIZE = 6
@@ -36,6 +37,7 @@ module Clacky
     ].freeze
 
     attr_reader :layout, :shell, :running
+    attr_reader :status, :tasks_count, :total_cost, :turn_active, :ctrl_c_warning, :work_label, :latest_latency
     attr_accessor :config, :available_models
 
     def initialize(config = {})
@@ -54,7 +56,7 @@ module Clacky
         theme: RubyRich::Theme.agent_dark,
         commands: COMMANDS
       )
-      @shell.instance_variable_set(:@clacky_controller, self)
+      @shell.clacky_controller = self
       @layout = LayoutAdapter.new(@shell)
       @input_callback = nil
       @interrupt_callback = nil
@@ -69,7 +71,7 @@ module Clacky
       @total_cost = 0.0
       @running = false
       @turn_active = false
-      @tool_ids = []
+      @tracker = RichUI::EntryTracker.new
       @todo_items = []
       @explicit_todo_cycle = false
       @tool_activities = []
@@ -177,7 +179,7 @@ module Clacky
         # Show live thinking with spinner + timer in fixed area
         @shell.thinking_live.start_thinking
         stream_thinking_live(thinking_text.strip)
-        elapsed = @shell.thinking_live.instance_variable_get(:@start_time)
+        elapsed = @shell.thinking_live.start_time
         elapsed = elapsed ? (Time.now - elapsed).round(1) : 0.0
         @shell.thinking_live.finish_thinking
         # Also add collapsed thinking block for reference (Ctrl+O to expand)
@@ -209,14 +211,14 @@ module Clacky
     def show_tool_call(name, args)
       id = @shell.start_tool_call(name: name.to_s, input: format_args(args), status: :running)
       if id
-        @tool_ids << id
+        @tracker.register_tool(id)
         track_tool_activity(id, tool_activity_label(name, args), :running)
         @work_label = "#{name}…"
       end
     end
 
     def show_tool_result(result)
-      if (id = @tool_ids.pop)
+      if (id = @tracker.pop_tool_id)
         @shell.finish_tool_call(id, status: :done, output: tool_output_text(result.to_s, :done))
         update_tool_activity(id, :done)
       else
@@ -230,19 +232,12 @@ module Clacky
 
     def show_tool_error(error)
       message = error.is_a?(Exception) ? error.message : error.to_s
-      if (id = @tool_ids.pop)
+      if (id = @tracker.pop_tool_id)
         @shell.finish_tool_call(id, status: :error, output: tool_output_text(message, :error))
         update_tool_activity(id, :error)
       else
         @shell.add_error_message(message)
       end
-    end
-
-    def tool_output_text(text, status = :done)
-      marker = status == :error ? "[Error]" : "[OK]"
-      color = status == :error ? :red : :green
-      clean = text.to_s.sub(/\A\[(?:OK|Error)\]\s*/, "")
-      "#{RubyRich::AnsiCode.color(color, true)}#{marker}#{RubyRich::AnsiCode.reset} #{clean}"
     end
 
     def show_tool_args(formatted_args)
@@ -277,24 +272,6 @@ module Clacky
       @shell.add_diff(content: "#{header}\n#{visible}#{trailer}")
     rescue LoadError
       append_output("Old size: #{old_content.bytesize} bytes\nNew size: #{new_content.bytesize} bytes")
-    end
-
-    def parse_diff_stats(diff_text)
-      adds = 0
-      dels = 0
-      hunks = 0
-      diff_text.each_line do |line|
-        adds += 1 if line.start_with?("+") && !line.start_with?("+++")
-        dels += 1 if line.start_with?("-") && !line.start_with?("---")
-        hunks += 1 if line.start_with?("@@")
-      end
-      return "" if adds.zero? && dels.zero?
-
-      parts = []
-      parts << "+#{adds}" if adds.positive?
-      parts << "-#{dels}" if dels.positive?
-      parts << "#{hunks} hunks" if hunks.positive?
-      " (#{parts.join(", ")})"
     end
 
     def show_token_usage(token_data)
@@ -395,11 +372,11 @@ module Clacky
     end
 
     def request_confirmation(message, default: true)
-      tool_name, params = parse_tool_info(message)
-      risk = tool_risk_level(tool_name)
-      category = tool_category(tool_name)
+      tool_name, params = ViewRenderer.parse_tool_info(message)
+      risk = ViewRenderer.tool_risk_level(tool_name)
+      category = ViewRenderer.tool_category(tool_name)
 
-      fingerprint = build_fingerprint(tool_name, params)
+      fingerprint = ViewRenderer.build_fingerprint(tool_name, params)
       return true if @always_allow_fingerprints.include?(fingerprint)
 
       show_info(message)
@@ -422,61 +399,6 @@ module Clacky
         false
       else
         default
-      end
-    end
-
-    # ── Approval helpers ──────────────────────────────────────
-
-    def parse_tool_info(message)
-      return [nil, {}] unless message
-
-      tool_name = message[/\A\w+/]&.downcase
-      params = {}
-
-      case tool_name
-      when "edit", "write"
-        path = message[/\((.+?)\)/, 1]
-        params[:path] = path if path
-      when "terminal", "shell", "exec"
-        cmd = message[/"(.+?)"/, 1]
-        params[:command] = cmd if cmd
-      when "web_search", "web_fetch"
-        params[:query] = message[(message.index("(")&.+(1) || 0)..]&.chomp(")")&.strip
-      when "execute", "run"
-        params[:command] = message[(message.index("(")&.+(1) || 0)..]&.chomp(")")&.strip
-      end
-
-      params.reject! { |_, v| v.to_s.empty? }
-      [tool_name, params]
-    end
-
-    def tool_risk_level(tool_name)
-      case tool_name
-      when "read", "grep", "list", "search", "web_search", "web_fetch", "fetch_url"
-        :low
-      when "edit", "write", "patch", "apply_patch"
-        :medium
-      when "shell", "terminal", "exec", "execute", "run"
-        :high
-      when "install", "remove", "delete", "rm", "force"
-        :critical
-      else
-        :medium
-      end
-    end
-
-    def tool_category(tool_name)
-      case tool_name
-      when "read", "write", "edit", "patch", "apply_patch", "grep", "list"
-        :file
-      when "shell", "terminal", "exec", "execute", "run"
-        :shell
-      when "web_search", "web_fetch", "fetch_url"
-        :network
-      when "install", "billing", "payment"
-        :paid
-      else
-        :file
       end
     end
 
@@ -505,10 +427,6 @@ module Clacky
       return nil if persist_choice.nil?
 
       { model: selected, persist: persist_choice }
-    end
-
-    def build_fingerprint(tool_name, params)
-      "#{tool_name}:#{params.sort.to_s}"
     end
 
     def clear_input
@@ -584,24 +502,6 @@ module Clacky
       end
     end
 
-    # Returns [thinking_text, clean_content] by extracting <thinking>...</thinking>
-    # and <think>...</think> blocks from the content.
-    def extract_thinking_and_content(content)
-      return ["", content.to_s] if content.nil?
-
-      thinking_parts = []
-      clean = content.to_s.dup
-
-      # Collect all thinking blocks and remove them from clean text
-      clean.gsub!(%r{<think(?:ing)?>\s*([\s\S]*?)\s*</think(?:ing)?>}mi) do
-        thinking_parts << Regexp.last_match(1).strip
-        ""
-      end
-
-      clean = clean.gsub(/\n{3,}/, "\n\n").strip
-      [thinking_parts.join("\n\n"), clean]
-    end
-
     def track_tool_activity(id, label, status)
       activity = { id: id, label: label.to_s, status: status }
       @tool_activities << activity
@@ -630,66 +530,6 @@ module Clacky
       @tool_activities = []
       @tool_activity_by_id = {}
       refresh_sidebar_tasks
-    end
-
-    def tool_activity_label(name, args)
-      tool_name = name.to_s
-      data = normalize_tool_args(args)
-
-      case tool_name
-      when "web_search"
-        query = data["query"].to_s
-        return tool_name if query.empty?
-
-        %(web_search("#{escape_tool_label(truncate_tool_label(query))}"))
-      when "web_fetch"
-        url = data["url"].to_s
-        return tool_name if url.empty?
-
-        "web_fetch(#{truncate_tool_label(tool_url_host(url))})"
-      else
-        compact = compact_tool_arg(data)
-        compact ? "#{tool_name}(#{compact})" : tool_name
-      end
-    end
-
-    def normalize_tool_args(args)
-      parsed = if args.is_a?(String)
-        JSON.parse(args)
-      else
-        args
-      end
-      return {} unless parsed.is_a?(Hash)
-
-      parsed.each_with_object({}) { |(key, value), hash| hash[key.to_s] = value }
-    rescue JSON::ParserError
-      {}
-    end
-
-    def compact_tool_arg(data)
-      key = %w[query url path file command pattern task].find { |candidate| data.key?(candidate) && !data[candidate].to_s.empty? }
-      return nil unless key
-
-      value = key == "url" ? tool_url_host(data[key].to_s) : data[key].to_s
-      escaped = escape_tool_label(truncate_tool_label(value))
-      value.match?(/\A[\w.-]+\z/) ? escaped : %("#{escaped}")
-    end
-
-    def tool_url_host(url)
-      URI.parse(url).host || url
-    rescue URI::InvalidURIError
-      url
-    end
-
-    def truncate_tool_label(text, limit = 40)
-      chars = text.to_s.each_char.to_a
-      return text.to_s if chars.length <= limit
-
-      "#{chars.first(limit - 3).join}..."
-    end
-
-    def escape_tool_label(text)
-      text.to_s.gsub("\\", "\\\\\\").gsub('"', '\"')
     end
 
     def add_conversation_markdown(text)
@@ -730,26 +570,6 @@ module Clacky
       @shell.viewport.scroll_to_bottom
     end
 
-    def expand_ansi_multiline_spans(text)
-      active = +""
-      text.to_s.lines.map do |line|
-        body = line.chomp
-        prefix = body.start_with?("\e[") || active.empty? ? "" : active
-        body.scan(/\e\[[0-9;:]*m/).each do |code|
-          active = code == RubyRich::AnsiCode.reset ? +"" : code
-        end
-        suffix = !active.empty? && !body.end_with?(RubyRich::AnsiCode.reset) ? RubyRich::AnsiCode.reset : ""
-        "#{prefix}#{body}#{suffix}"
-      end.join("\n")
-    end
-
-    def normalize_markdown_for_terminal(text)
-      text.to_s
-        .gsub(/\r\n?/, "\n")
-        .gsub(/\A[ \t]*\n+/, "")
-        .gsub(/\n+[ \t]*\z/, "")
-    end
-
     def add_file_summary(files)
       items = Array(files).filter_map do |file|
         path = file[:path] || file["path"] || file[:name] || file["name"]
@@ -785,9 +605,9 @@ module Clacky
         handle_esc
       end
 
-      @shell.instance_variable_get(:@callbacks)[:clear_ctrlc] = -> { @ctrl_c_warning = nil }
+      @shell.callbacks[:clear_ctrlc] = -> { @ctrl_c_warning = nil }
 
-      @shell.instance_variable_get(:@callbacks)[:model_switch] = -> {
+      @shell.callbacks[:model_switch] = -> {
         Thread.new do
           result = show_model_switch_dialog
           if result
@@ -866,33 +686,6 @@ module Clacky
       end
     rescue StandardError
       120
-    end
-
-    def config_menu_choices(current_config)
-      choices = current_config.models.each_with_index.map do |model, index|
-        type_badge = case model["type"]
-                     when "default" then "[default] "
-                     when "lite" then "[lite] "
-                     else ""
-                     end
-        {
-          label: "#{type_badge}#{model["model"] || "unnamed"} (#{mask_api_key(model["api_key"])})",
-          value: { action: :switch, model_id: model["id"] },
-          current: index == current_config.current_model_index
-        }
-      end
-
-      choices + [
-        { label: "─" * 50, disabled: true },
-        { label: "[+] Add New Model", value: { action: :add } },
-        { label: "[*] Edit Current Model", value: { action: :edit } },
-        (current_config.models.length > 1 ? { label: "[-] Delete Model", value: { action: :delete } } : nil),
-        { label: "[X] Close", value: { action: :close } }
-      ].compact
-    end
-
-    def config_initial_selection(choices)
-      choices.index { |choice| choice[:current] } || choices.index { |choice| !choice[:disabled] } || 0
     end
 
     def show_menu_dialog(title:, choices:, selected_index: nil)
@@ -1005,107 +798,26 @@ module Clacky
       show_menu_dialog(title: "Select Provider", choices: choices, selected_index: 0)
     end
 
-    def merge_model_form_values(result, model:, default_model:, default_base_url:)
-      {
-        api_key: result[:api_key].to_s.empty? ? model["api_key"] : result[:api_key],
-        model: result[:model].to_s.empty? ? (model["model"] || default_model) : result[:model],
-        base_url: result[:base_url].to_s.empty? ? (model["base_url"] || default_base_url) : result[:base_url]
-      }
-    end
-
-    def validate_model_form(values, is_new:, existing_model:, test_callback:)
-      if is_new
-        return { success: false, error: "API Key is required for new model" } if values[:api_key].to_s.empty?
-        return { success: false, error: "Model name is required" } if values[:model].to_s.empty?
-        return { success: false, error: "Base URL is required" } if values[:base_url].to_s.empty?
-      end
-
-      return { success: true } unless test_callback
-
-      temp_config = Clacky::AgentConfig.new(
-        models: [{
-          "api_key" => values[:api_key],
-          "model" => values[:model],
-          "base_url" => values[:base_url],
-          "anthropic_format" => existing_model["anthropic_format"]
-        }],
-        current_model_index: 0
-      )
-      test_callback.call(temp_config)
-    end
-
-    def format_args(args)
-      data = args.is_a?(String) ? (JSON.parse(args) rescue args) : args
-      return data.to_s unless data.is_a?(Hash) && !data.empty?
-
-      data.map { |k, v| "#{k}: #{format_tool_value(v)}" }.join("\n")
-    end
-
-    def format_tool_value(v)
-      v.is_a?(String) ? v : JSON.generate(v)
-    end
-
-    def normalize_todo(todo)
-      case todo
-      when Hash
-        title = todo[:content] || todo["content"] || todo[:title] || todo["title"] || todo[:task] || todo["task"]
-        status = todo[:status] || todo["status"] || :pending
-        { label: title.to_s, title: title.to_s, status: status.to_sym }
-      else
-        { label: todo.to_s, title: todo.to_s, status: :pending }
-      end
-    end
-
-    def mask_api_key(api_key)
-      key = api_key.to_s
-      return "not set" if key.empty?
-
-      "#{key[0..5]}...#{key[-4..]}"
-    end
-
     private :track_tool_activity,
             :update_tool_activity,
             :refresh_sidebar_tasks,
             :reset_task_sidebar_tracking,
-            :tool_activity_label,
-            :normalize_tool_args,
-            :compact_tool_arg,
-            :tool_url_host,
-            :truncate_tool_label,
-            :escape_tool_label,
             :add_conversation_markdown,
             :stream_markdown?,
             :add_file_summary_after,
             :add_plain_block,
-            :expand_ansi_multiline_spans,
-            :extract_thinking_and_content,
             :stream_thinking_live,
-            :parse_diff_stats,
-            :normalize_markdown_for_terminal,
             :add_file_summary,
             :wire_shell_callbacks,
             :session_status,
             :run_callback_async,
             :render_welcome_banner,
             :terminal_width,
-            :config_menu_choices,
-            :config_initial_selection,
             :show_menu_dialog,
             :show_form_dialog,
             :show_blocking_dialog,
             :show_model_edit_form,
             :show_provider_selection,
-            :merge_model_form_values,
-            :validate_model_form,
-             :format_args,
-             :format_tool_value,
-             :tool_output_text,
-             :normalize_todo,
-             :mask_api_key,
-             :parse_tool_info,
-             :tool_risk_level,
-             :tool_category,
-             :build_fingerprint,
              :show_model_switch_dialog
 
   end

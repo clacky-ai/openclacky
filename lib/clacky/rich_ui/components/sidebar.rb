@@ -47,6 +47,11 @@ module Clacky
       @panels[:work].update_stats(tasks, cost)
     end
 
+    # Returns the tasks list from the tasks panel (for tests/assertions)
+    def tasks
+      @panels[:tasks].instance_variable_get(:@tasks)
+    end
+
     def set_mode(mode)
       @mode = MODES.include?(mode) ? mode : :auto
     end
@@ -68,9 +73,7 @@ module Clacky
       panel_lines.first(@height)
     end
 
-    private
-
-    def visible_panels
+    private def visible_panels
       case @mode
       when :work then [:work]
       when :tasks then [:tasks]
@@ -103,7 +106,7 @@ module Clacky
       when RichWorkPanel
         true  # Always show — shows "0 tasks · $0.0000" when empty
       when RichTasksPanel
-        !panel.instance_variable_get(:@tasks).empty?
+        panel.has_tasks?
       when RichContextPanel
         true  # Always show — shows "No token data" when empty
       else

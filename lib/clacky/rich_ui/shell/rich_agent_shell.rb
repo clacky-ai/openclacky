@@ -8,6 +8,8 @@ require_relative "../components/status_view"
 module Clacky
   class RichAgentShell < RubyRich::AgentShell
     attr_reader :thinking_live, :sidebar
+    attr_accessor :clacky_controller
+    attr_reader :callbacks
 
     def build_layout
       @sidebar = RichSidebar.new
@@ -63,7 +65,7 @@ module Clacky
       # Register /model command
       shell_ref = self
       @composer.register_command(name: "/model", description: "Switch LLM model",
-        handler: -> { shell_ref.instance_variable_get(:@callbacks)[:model_switch]&.call })
+        handler: -> { shell_ref.callbacks[:model_switch]&.call })
       # Wire vim scroll callback: j/k in single-line normal mode scrolls transcript
       @composer.instance_variable_set(:@on_vim_scroll, ->(delta) { @viewport.scroll_by(delta) })
       # Inject Esc cancellation stack via singleton method on the Composer instance.
@@ -71,13 +73,13 @@ module Clacky
       native_escape = @composer.method(:escape)
       shell = self
       @composer.define_singleton_method(:escape) do
-        handled = shell.instance_variable_get(:@callbacks)[:esc]&.call || false
+        handled = shell.callbacks[:esc]&.call || false
         handled ? nil : native_escape.call
       end
       # Clear Ctrl+C warning as soon as the user starts typing
       native_insert = @composer.method(:insert_text)
       @composer.define_singleton_method(:insert_text) do |text|
-        shell.instance_variable_get(:@callbacks)[:clear_ctrlc]&.call
+        shell.callbacks[:clear_ctrlc]&.call
         native_insert.call(text)
       end
 
