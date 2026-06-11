@@ -253,13 +253,15 @@ browser(action="navigate", url="<qr_page_url>")
 >
 > `http://${CLACKY_SERVER_HOST}:${CLACKY_SERVER_PORT}/weixin-qr.html?url=<URL-encoded qrcode_url>`
 >
-> Scan the QR code with WeChat, confirm in the app, then reply "done".
+> Scan the QR code with WeChat and confirm in the app. I'm already watching for your scan — no need to reply.
+
+**Do NOT wait for the user to reply "done".** Immediately proceed to Step 3 and start polling — exactly as in the browser-succeeds path. The polling script must already be running while the user scans, so it can observe the `scaned → confirmed` transition; otherwise a real scan can be misread as a stale session.
 
 The page renders a proper scannable QR code image. Do NOT open the raw `qrcode_url` directly — that page shows "请使用微信扫码打开" with no actual QR image.
 
 #### Step 3 — Wait for scan and save credentials
 
-Once the browser shows the QR page, immediately run the polling script in the background:
+As soon as the QR page has been presented to the user — whether you opened it via the browser tool **or** gave the user the manual link — immediately run the polling script in the background. **In both cases, do NOT wait for the user to confirm or reply "done" before starting the poll** — the script must already be running while the user scans:
 
 ```bash
 ruby "SKILL_DIR/weixin_setup.rb" --qrcode-id "$QRCODE_ID"
