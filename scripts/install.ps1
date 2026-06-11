@@ -74,6 +74,7 @@ $EXIT_DISK_ERROR       = 3
 $EXIT_UNSUPPORTED_OS   = 4
 $EXIT_NOT_ADMIN        = 5
 $EXIT_REBOOT_REQUIRED  = 6
+$EXIT_WSL_ERROR        = 7
 
 function Test-IsAdmin {
     return ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(
@@ -258,7 +259,7 @@ function Get-UbuntuRootfs {
             Write-Step "Verifying checksum..."
             if (-not (Test-Sha256 -FilePath $tarPath -Sha256Url $sha256Url)) {
                 Write-Fail "The downloaded file is corrupted. Please try again."
-                exit $EXIT_GENERIC_ERROR
+                exit $EXIT_NETWORK_ERROR
             }
         }
 
@@ -287,7 +288,7 @@ function Install-UbuntuRootfs {
         Write-Fail "wsl --import failed (exit $LASTEXITCODE)."
         if ($wslOutput) { Write-Fail "$wslOutput" }
         Write-Fail "Try removing $UBUNTU_WSL_DIR and running the script again."
-        exit $EXIT_GENERIC_ERROR
+        exit $EXIT_WSL_ERROR
     }
     Write-Success "Ubuntu (WSL$WslVersion) imported successfully."
 }
@@ -472,14 +473,10 @@ function Install-WslKernel {
     }
     if ($Repair) {
         # /fa = force repair all files; handles corrupt/partial installs where /i silently no-ops.
-        $proc = Start-Process msiexec -Wait -PassThru -ArgumentList "/fa", $msiPath, "/quiet", "/norestart"
+        Start-Process msiexec -Wait -ArgumentList "/fa", $msiPath, "/quiet", "/norestart"
         Remove-Item -Force -ErrorAction SilentlyContinue $msiPath
-        if ($proc.ExitCode -ne 0) {
-            Write-Warn "WSL kernel repair failed (exit $($proc.ExitCode))."
-            return $false
-        }
-        Write-Success "WSL kernel repaired."
-        return $true
+        Write-Success "WSL kernel repair attempted."
+        return
     }
     Write-Info "Installing WSL kernel..."
     Start-Process msiexec -Wait -ArgumentList "/i", $msiPath, "/quiet", "/norestart"
@@ -528,10 +525,12 @@ Write-Info "Windows Build $osBuild — OK."
 Write-Step "Checking WSL status..."
 $wslCode = Invoke-WslStatusExitCode
 Write-Info "WSL --status exit code: $wslCode"
-$installPhase       = Get-InstallReg -Name "InstallPhase"       -Default ""
-$wslFeaturesEnabled = Get-InstallReg -Name "WslFeaturesEnabled" -Default ""
+$installPhase       = Get-InstallReg -Name "InstallPhase"         -Default ""
+$wslFeaturesEnabled = Get-InstallReg -Name "WslFeaturesEnabled"   -Default ""
+$kernelRepairAttempted = Get-InstallReg -Name "KernelRepairAttempted" -Default ""
 Write-Info "InstallPhase: '$installPhase'"
 Write-Info "WslFeaturesEnabled: '$wslFeaturesEnabled'"
+Write-Info "KernelRepairAttempted: '$kernelRepairAttempted'"
 
 if ($installPhase -eq "" -and $wslCode -ne 0) {
     # First run and WSL not ready: enable WSL features and reboot.
@@ -539,14 +538,16 @@ if ($installPhase -eq "" -and $wslCode -ne 0) {
     # Always exits (prompts reboot)
 }
 
-# phase == wsl-pending + code 1: reboot happened but WSL still not ready; try repair.
+# phase == wsl-pending + code 1: reboot happened but WSL still not ready; try kernel repair once.
 if ($installPhase -eq "wsl-pending" -and $wslCode -eq 1) {
-    Write-Warn "WSL features were enabled but WSL is still not ready. Attempting repair..."
-    $repairOk = Install-WslKernel -Repair
-    if (-not $repairOk) {
-        Write-Warn "Please reboot your computer and run the installer again."
-        Write-Warn "If this keeps happening, please contact our support team."
-        exit $EXIT_GENERIC_ERROR
+    if ($kernelRepairAttempted -ne "1") {
+        Write-Warn "WSL features were enabled but WSL is still not ready. Attempting kernel repair..."
+        Set-InstallReg -Name "KernelRepairAttempted" -Value "1"
+        Install-WslKernel -Repair
+        Prompt-Reboot
+    } else {
+        Write-Warn "WSL kernel repair was already attempted but WSL is still not ready."
+        exit $EXIT_WSL_ERROR
     }
 }
 
@@ -594,7 +595,7 @@ if (Test-UbuntuInstalled) {
             }
             Write-Fail "Failed to import Ubuntu into both WSL1 and WSL2."
             Write-Fail "Please ensure Windows Subsystem for Linux is enabled and try again."
-            exit $EXIT_GENERIC_ERROR
+            exit $EXIT_WSL_ERROR
         }
     }
 }
