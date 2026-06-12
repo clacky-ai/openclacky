@@ -219,7 +219,7 @@ module Clacky
 
     def show_tool_result(result)
       if (id = @tracker.pop_tool_id)
-        @shell.finish_tool_call(id, status: :done, output: tool_output_text(result.to_s, :done))
+        @shell.finish_tool_call(id, status: :done, output: format_tool_output(result.to_s, :done))
         update_tool_activity(id, :done)
       else
         @shell.add_markdown(result.to_s)
@@ -233,7 +233,7 @@ module Clacky
     def show_tool_error(error)
       message = error.is_a?(Exception) ? error.message : error.to_s
       if (id = @tracker.pop_tool_id)
-        @shell.finish_tool_call(id, status: :error, output: tool_output_text(message, :error))
+        @shell.finish_tool_call(id, status: :error, output: format_tool_output(message, :error))
         update_tool_activity(id, :error)
       else
         @shell.add_error_message(message)
