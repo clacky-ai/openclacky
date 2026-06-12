@@ -4,7 +4,8 @@ require "ruby_rich"
 require_relative "../base_component"
 
 module Clacky
-    class ConfigMenuDialog
+    module RichUI
+      class ConfigMenuDialog
       include Clacky::RichUI::Components::BaseComponent
 
       attr_accessor :width, :height
@@ -101,4 +102,5 @@ module Clacky
               :render_content,
               :choice_line
     end
+  end
 end

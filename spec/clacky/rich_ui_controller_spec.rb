@@ -420,7 +420,7 @@ RSpec.describe Clacky::RichUIController do
     text.gsub(/\e\[[0-9;]*m/, "")
   end
 
-  describe Clacky::ConfigMenuDialog do
+  describe Clacky::RichUI::ConfigMenuDialog do
     it "renders a selectable model configuration menu" do
       dialog = described_class.new(
         choices: [
@@ -460,7 +460,7 @@ RSpec.describe Clacky::RichUIController do
     end
   end
 
-  describe Clacky::FormDialog do
+  describe Clacky::RichUI::FormDialog do
     it "edits fields and returns keyed values" do
       dialog = described_class.new(
         title: "Edit Model",

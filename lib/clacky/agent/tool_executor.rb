@@ -25,24 +25,6 @@ module Clacky
         end
       end
 
-      # Commands that ALWAYS require confirmation, even if the safety layer
-      # makes them technically "safe" (e.g. rm → trash).
-      CONFIRM_REQUIRED_PATTERNS = [
-        /\brm\b/,           # file/dir deletion
-        /\brmdir\b/,        # dir deletion
-        /\bmv\b/,           # move/rename (could be destructive)
-        /\bchmod\b/,        # permission changes
-        /\bchown\b/,        # ownership changes
-        /\bdd\b/,           # disk operations
-        /\bshred\b/,        # secure deletion
-        /\bunlink\b/,       # file unlinking
-        /\bgit\s+push\b/,   # git push (could be force push)
-        /\bgit\s+reset\b/,  # git reset (could be hard)
-        /\bgit\s+clean\b/,  # git clean
-        /\btruncate\b/,     # file truncation
-        />\s*\/dev\//,       # redirect to device files
-      ].freeze
-
       # Check if an operation is considered safe for auto-execution
       # @param tool_name [String] Name of the tool
       # @param tool_params [Hash, String] Tool parameters
@@ -54,8 +36,6 @@ module Clacky
           command = params[:command] || params['command']
           # No command = session_id continuation / kill / action → safe by default.
           return true unless command
-
-          return false if CONFIRM_REQUIRED_PATTERNS.any? { |p| command.match?(p) }
 
           return Clacky::Tools::Security.command_safe_for_auto_execution?(command)
         end

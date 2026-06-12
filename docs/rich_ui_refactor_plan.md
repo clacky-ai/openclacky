@@ -1,133 +1,133 @@
-# RichUI Controller 重构方案
+# RichUI Controller Refactoring Plan
 
-> 目标：向 UI2 的 MVC 分层、组件化、id-based 内容管理经验学习，将 `lib/clacky/rich_ui_controller.rb`（2336 行，12+ 个类）重构为结构清晰、职责单一、可维护的模块化架构。
+> Goal: Learn from UI2's MVC layering, componentization, and id-based content management to refactor `lib/clacky/rich_ui_controller.rb` (2336 lines, 12+ classes) into a clear, single-responsibility, maintainable modular architecture.
 
 ---
 
-## 一、现状诊断
+## I. Current State Diagnosis
 
-### 1.1 核心问题
+### 1.1 Core Problems
 
-| 问题 | 现状 | 影响 |
-|------|------|------|
-| **单文件过大** | 2336 行，12+ 个类（Shell、Sidebar、3 个 Panel、StatusView、ThinkingLiveView、UIController、3 个 Dialog、2 个 Adapter） | 代码冲突率高、代码审查困难、新人上手成本大 |
-| **无 MVC 分层** | 渲染逻辑、布局坐标、业务状态、事件回调全部混在一起 | 无法单元测试渲染逻辑，改一处可能牵全身 |
-| **无组件系统** | 所有输出都是内联字符串拼接（`"#{AnsiCode.color(:green)}✓#{reset}"`） | 样式泄漏、难以统一维护、无法复用 |
-| **Monkey Patch 集中** | `RubyRich::Viewport`、`RubyRich::Transcript`、`RubyRich::Markdown::TerminalRenderer` 的 patch 挤在文件顶部 | Patch 与业务代码纠缠，升级 gem 时风险集中 |
-| **深度耦合 gem 内部** | 大量 `instance_variable_get(:@callbacks)`、`instance_variable_set(:@on_interrupt, nil)` | RubyRich 内部重构即崩溃，属于脆弱的外部依赖 |
-| **对话框内嵌** | `ConfigMenuDialog`、`FormDialog`、`ApprovalDialog` 定义在同一个文件 | 对话框逻辑膨胀会进一步加剧文件体积 |
-| **无 id-based 内容管理** | 依赖 `ruby_rich` 的 `transcript.store.entries`，没有自己的 OutputBuffer | 无法精确 `replace`/`remove` 非尾部内容，缺少 commit 防重复机制 |
-| **主题硬编码** | `RubyRich::Theme.whale_dark` 写死在 `RichUIController#initialize` | 用户无法切换主题，与 UI2 的主题系统不互通 |
-| **Progress 是适配器** | `ProgressHandleAdapter` 只是包装 ruby_rich 原生 handle，没有 UI2 的 v2 语义（owned handle、stack、quiet_on_fast_finish） | 并发 progress 竞争、fast-finish 不支持 |
+| Problem | Current State | Impact |
+|---------|---------------|--------|
+| **Single file too large** | 2336 lines, 12+ classes (Shell, Sidebar, 3 Panels, StatusView, ThinkingLiveView, UIController, 3 Dialogs, 2 Adapters) | High code conflict rate, difficult code review, steep onboarding cost |
+| **No MVC layering** | Rendering logic, layout coordinates, business state, and event callbacks all mixed together | Cannot unit-test rendering logic; changing one part may ripple through everything |
+| **No component system** | All output is inline string concatenation (`"#{AnsiCode.color(:green)}✓#{reset}"`) | Style leakage, hard to maintain uniformly, not reusable |
+| **Centralized monkey patches** | Patches for `RubyRich::Viewport`, `RubyRich::Transcript`, `RubyRich::Markdown::TerminalRenderer` crammed at the top of the file | Patches entangled with business code; concentrated risk when upgrading the gem |
+| **Deep coupling with gem internals** | Extensive `instance_variable_get(:@callbacks)`, `instance_variable_set(:@on_interrupt, nil)` | RubyRich internal refactoring causes breakage — fragile external dependency |
+| **Dialogs embedded inline** | `ConfigMenuDialog`, `FormDialog`, `ApprovalDialog` defined in the same file | Dialog logic growth further bloats file size |
+| **No id-based content management** | Relies on `ruby_rich`'s `transcript.store.entries`; no custom OutputBuffer | Cannot precisely `replace`/`remove` non-tail content; lacks commit dedup mechanism |
+| **Theme hardcoded** | `RubyRich::Theme.whale_dark` hardwired in `RichUIController#initialize` | Users cannot switch themes; not interoperable with UI2's theme system |
+| **Progress is an adapter wrapper** | `ProgressHandleAdapter` just wraps ruby_rich native handles; no UI2 v2 semantics (owned handle, stack, quiet_on_fast_finish) | Concurrent progress contention; fast-finish unsupported |
 
-### 1.2 与 UI2 的关键差距
+### 1.2 Key Gaps vs. UI2
 
 ```
-UI2 架构（已成熟）                    RichUI 架构（待重构）
-─────────────────────────────────    ─────────────────────────────────
-UIController  （协调层，薄）           RichUIController （协调+渲染+布局，厚）
-  ├── ViewRenderer  （视图调度）       └── 无对应层，直接操作字符串
-  │     ├── MessageComponent           └── 无组件，内联拼接
-  │     ├── ToolComponent              └── 无组件，内联拼接
-  │     └── CommonComponent            └── 无组件，内联拼接
-  ├── LayoutManager  （布局引擎）      └── 无对应层，依赖 RubyRich::Layout
-  │     └── OutputBuffer  （id-based） └── 无对应层，依赖 transcript.entries
-  ├── ScreenBuffer   （ANSI 原语）     └── 无对应层，由 ruby_rich 封装
-  ├── InputArea      （输入编辑器）     └── RubyRich::Composer（外部，但通过 ivar 侵入）
-  └── ThemeManager   （主题系统）       └── 硬编码 Theme.whale_dark
+UI2 Architecture (mature)                RichUI Architecture (to be refactored)
+─────────────────────────────────        ─────────────────────────────────
+UIController  (coordination, thin)        RichUIController (coordination + rendering + layout, thick)
+  ├── ViewRenderer  (view dispatch)       └── no counterpart, directly manipulates strings
+  │     ├── MessageComponent              └── no component, inline concatenation
+  │     ├── ToolComponent                 └── no component, inline concatenation
+  │     └── CommonComponent               └── no component, inline concatenation
+  ├── LayoutManager  (layout engine)      └── no counterpart, relies on RubyRich::Layout
+  │     └── OutputBuffer  (id-based)      └── no counterpart, relies on transcript.entries
+  ├── ScreenBuffer   (ANSI primitives)    └── no counterpart, encapsulated by ruby_rich
+  ├── InputArea      (input editor)       └── RubyRich::Composer (external, but intruded via ivar)
+  └── ThemeManager   (theme system)       └── hardcoded Theme.whale_dark
 ```
 
 ---
 
-## 二、重构目标
+## II. Refactoring Goals
 
-1. **文件拆分**：单文件 → 多文件模块化，每个类独立文件
-2. **MVC 分层**：引入 `ViewRenderer` + `Components` + `LayoutAdapter` 层
-3. **组件化**：提取 Panel、Dialog、Status 为独立 Component
-4. **解耦 gem**：将 monkey patch 移入 `extensions/`；减少 `instance_variable_get`
-5. **id-based 内容管理**（可选增强）：在 RubyRich Transcript 之上封装轻量 id 追踪层
-6. **主题互通**：复用或桥接 UI2 的 `ThemeManager`，允许 `--theme` 生效
+1. **File splitting**: Single file → multi-file modular, each class in its own file
+2. **MVC layering**: Introduce `ViewRenderer` + `Components` + `LayoutAdapter` layers
+3. **Componentization**: Extract Panel, Dialog, Status as independent Components
+4. **Decouple from gem**: Move monkey patches into `extensions/`; reduce `instance_variable_get`
+5. **id-based content management** (optional enhancement): Wrap a lightweight id tracking layer on top of RubyRich Transcript
+6. **Theme interoperability**: Reuse or bridge UI2's `ThemeManager` so `--theme` takes effect
 
 ---
 
-## 三、目标目录结构
+## III. Target Directory Structure
 
 ```
 lib/clacky/
-├── rich_ui.rb                              # 入口文件（类似 ui2.rb）
+├── rich_ui.rb                              # Entry file (similar to ui2.rb)
 ├── rich_ui/
-│   ├── rich_ui_controller.rb               # 薄 Controller（原 2336 行 → 目标 < 300 行）
-│   ├── layout_adapter.rb                   # 布局协调（替代原 LayoutAdapter）
-│   ├── progress_handle_adapter.rb          # Progress 适配（已有，保留）
+│   ├── rich_ui_controller.rb               # Thin Controller (from 2336 lines → target < 300 lines)
+│   ├── layout_adapter.rb                   # Layout coordination (replaces original LayoutAdapter)
+│   ├── progress_handle_adapter.rb          # Progress adapter (existing, retained)
 │   │
-│   ├── components/                         # 视图组件（类似 ui2/components/）
-│   │   ├── base_component.rb               # 基类：提供 muted、colored、truncate 等
-│   │   ├── message_component.rb            # 消息渲染（user/assistant/system）
-│   │   ├── tool_component.rb               # 工具调用/结果/错误渲染
-│   │   ├── common_component.rb             # 进度/成功/错误/警告渲染
-│   │   ├── welcome_banner.rb               # 欢迎横幅（复用 UI2 或独立实现）
-│   │   ├── thinking_live_view.rb           # 思考区（原 ThinkingLiveView）
-│   │   ├── status_view.rb                  # 底部状态栏（原 RichStatusView）
-│   │   ├── sidebar.rb                      # 侧边栏容器（原 RichSidebar）
+│   ├── components/                         # View components (similar to ui2/components/)
+│   │   ├── base_component.rb               # Base class: provides muted, colored, truncate, etc.
+│   │   ├── message_component.rb            # Message rendering (user/assistant/system)
+│   │   ├── tool_component.rb               # Tool call/result/error rendering
+│   │   ├── common_component.rb             # Progress/success/error/warning rendering
+│   │   ├── welcome_banner.rb               # Welcome banner (reuse UI2 or independent impl)
+│   │   ├── thinking_live_view.rb           # Thinking area (original ThinkingLiveView)
+│   │   ├── status_view.rb                  # Bottom status bar (original RichStatusView)
+│   │   ├── sidebar.rb                      # Sidebar container (original RichSidebar)
 │   │   ├── sidebar_panels.rb               # WorkPanel/TasksPanel/ContextPanel
-│   │   └── dialogs/                        # 对话框组件
-│   │       ├── base_dialog.rb              # 公共 wait/finish/key 协议
-│   │       ├── config_menu_dialog.rb       # 模型配置菜单
-│   │       ├── form_dialog.rb              # 表单输入
-│   │       └── approval_dialog.rb          # 审批确认
+│   │   └── dialogs/                        # Dialog components
+│   │       ├── base_dialog.rb              # Shared wait/finish/key protocol
+│   │       ├── config_menu_dialog.rb       # Model configuration menu
+│   │       ├── form_dialog.rb              # Form input
+│   │       └── approval_dialog.rb          # Approval confirmation
 │   │
-│   ├── extensions/                         # 对 ruby_rich 的扩展（替代顶部 monkey patch）
-│   │   ├── viewport_selection.rb           # Viewport 文本选择与剪贴板
-│   │   ├── transcript_plain.rb             # Transcript plain 模式
-│   │   └── markdown_table_adapter.rb       # TerminalRenderer 表格适配
+│   ├── extensions/                         # Extensions to ruby_rich (replaces top-level monkey patches)
+│   │   ├── viewport_selection.rb           # Viewport text selection and clipboard
+│   │   ├── transcript_plain.rb             # Transcript plain mode
+│   │   └── markdown_table_adapter.rb       # TerminalRenderer table adapter
 │   │
-│   └── shell/                              # RichAgentShell 及其配置
-│       └── rich_agent_shell.rb             # 继承 RubyRich::AgentShell
+│   └── shell/                              # RichAgentShell and its configuration
+│       └── rich_agent_shell.rb             # Inherits RubyRich::AgentShell
 │
-└── cli.rb                                  # 修改 require 路径
+└── cli.rb                                  # Update require paths
 ```
 
 ---
 
-## 四、分阶段实施计划
+## IV. Phased Implementation Plan
 
-### Phase 1：文件拆分与目录搭建（低风险，纯移动）
+### Phase 1: File Splitting and Directory Setup (Low Risk, Pure Movement)
 
-**目标**：将 2336 行的单文件按类拆分到多个文件，行为零变化。
+**Goal**: Split the 2336-line single file into multiple files by class, with zero behavioral change.
 
-| 步骤 | 操作 |
-|------|------|
-| 1.1 | 新建 `lib/clacky/rich_ui/` 目录及子目录 |
-| 1.2 | 将 `RichAgentShell` 移入 `rich_ui/shell/rich_agent_shell.rb` |
-| 1.3 | 将 `RichSidebar` + 3 个 Panel 移入 `rich_ui/components/sidebar.rb` 和 `sidebar_panels.rb` |
-| 1.4 | 将 `ThinkingLiveView` 移入 `rich_ui/components/thinking_live_view.rb` |
-| 1.5 | 将 `RichStatusView` 移入 `rich_ui/components/status_view.rb` |
-| 1.6 | 将 3 个 Dialog 移入 `rich_ui/components/dialogs/*.rb`，提取 `BaseDialog` |
-| 1.7 | 将 `LayoutAdapter`、`ProgressHandleAdapter` 移入 `rich_ui/` 根目录 |
-| 1.8 | 新建 `lib/clacky/rich_ui.rb` 入口文件，统一 require |
-| 1.9 | 修改 `cli.rb`：`require_relative "rich_ui_controller"` → `require_relative "rich_ui"` |
+| Step | Action |
+|------|--------|
+| 1.1 | Create `lib/clacky/rich_ui/` directory and subdirectories |
+| 1.2 | Move `RichAgentShell` into `rich_ui/shell/rich_agent_shell.rb` |
+| 1.3 | Move `RichSidebar` + 3 Panels into `rich_ui/components/sidebar.rb` and `sidebar_panels.rb` |
+| 1.4 | Move `ThinkingLiveView` into `rich_ui/components/thinking_live_view.rb` |
+| 1.5 | Move `RichStatusView` into `rich_ui/components/status_view.rb` |
+| 1.6 | Move 3 Dialogs into `rich_ui/components/dialogs/*.rb`, extract `BaseDialog` |
+| 1.7 | Move `LayoutAdapter`, `ProgressHandleAdapter` into `rich_ui/` root directory |
+| 1.8 | Create `lib/clacky/rich_ui.rb` entry file, unify requires |
+| 1.9 | Update `cli.rb`: `require_relative "rich_ui_controller"` → `require_relative "rich_ui"` |
 
-**验证**：运行 `--ui=rich`，功能完全一致。
+**Verification**: Run `--ui=rich`; all functionality identical.
 
 ---
 
-### Phase 2：Monkey Patch 外移与解耦（中风险）
+### Phase 2: Monkey Patch Extraction and Decoupling (Medium Risk)
 
-**目标**：将文件顶部的 monkey patch 转为显式扩展模块，降低耦合。
+**Goal**: Convert file-top monkey patches into explicit extension modules, reducing coupling.
 
-#### 2.1 Viewport 选择扩展
+#### 2.1 Viewport Selection Extension
 
-**现状**：
+**Current state**:
 ```ruby
 class RubyRich::Viewport
   alias_method :clacky_handle_event_without_text_selection, :handle_event
   def handle_event(event_data, layout = nil)
-    # ... 30+ 行 ...
+    # ... 30+ lines ...
   end
 end
 ```
 
-**重构后**：`lib/clacky/rich_ui/extensions/viewport_selection.rb`
+**After refactoring**: `lib/clacky/rich_ui/extensions/viewport_selection.rb`
 ```ruby
 module Clacky::RichUI::Extensions::ViewportSelection
   def self.apply!
@@ -137,28 +137,28 @@ module Clacky::RichUI::Extensions::ViewportSelection
   end
 end
 
-# 在 rich_ui.rb 入口显式调用：
+# Explicitly invoked in rich_ui.rb entry point:
 Clacky::RichUI::Extensions::ViewportSelection.apply!
 ```
 
-好处：
-- Patch 代码与业务逻辑物理隔离
-- `apply!` 显式调用，升级 gem 时一目了然哪里可能冲突
-- 可添加 `apply?` 检查（`method_defined?`）避免重复加载
+Benefits:
+- Patch code physically isolated from business logic
+- `apply!` is explicit — when upgrading the gem you can see at a glance where conflicts might arise
+- Can add `apply?` check (`method_defined?`) to avoid double loading
 
-#### 2.2 Markdown 表格扩展
+#### 2.2 Markdown Table Extension
 
-同样移入 `extensions/markdown_table_adapter.rb`，显式 `apply!`。
+Similarly moved into `extensions/markdown_table_adapter.rb`, with explicit `apply!`.
 
-#### 2.3 减少 `instance_variable_get`
+#### 2.3 Reducing `instance_variable_get`
 
-**现状**（多处）：
+**Current state** (multiple locations):
 ```ruby
 clacky = @shell.instance_variable_get(:@clacky_controller)
 status = clacky.instance_variable_get(:@status)
 ```
 
-**重构后**：在 `RichAgentShell` 中提供正式的 accessor：
+**After refactoring**: Provide formal accessors in `RichAgentShell`:
 ```ruby
 class RichAgentShell < RubyRich::AgentShell
   attr_accessor :clacky_controller, :status, :work_label
@@ -166,7 +166,7 @@ class RichAgentShell < RubyRich::AgentShell
 end
 ```
 
-`RichStatusView` 改为：
+`RichStatusView` updated to:
 ```ruby
 def render
   clacky = @shell.clacky_controller
@@ -178,11 +178,11 @@ end
 
 ---
 
-### Phase 3：引入 ViewRenderer 组件层（中风险）
+### Phase 3: Introduce ViewRenderer Component Layer (Medium Risk)
 
-**目标**：仿照 UI2 的 `ViewRenderer` + `Components`，将字符串拼接逻辑提取为可测试的组件。
+**Goal**: Following UI2's `ViewRenderer` + `Components` pattern, extract string concatenation logic into testable components.
 
-#### 3.1 新建 BaseComponent
+#### 3.1 Create BaseComponent
 
 ```ruby
 # lib/clacky/rich_ui/components/base_component.rb
@@ -203,9 +203,9 @@ module Clacky::RichUI::Components
 end
 ```
 
-#### 3.2 提取 Sidebar Panels 为组件
+#### 3.2 Extract Sidebar Panels as Components
 
-原 `RichWorkPanel#render` 内联拼接：
+Original `RichWorkPanel#render` inline concatenation:
 ```ruby
 def render
   lines = []
@@ -215,7 +215,7 @@ def render
 end
 ```
 
-重构后：
+After refactoring:
 ```ruby
 class SidebarWorkPanel < BaseComponent
   def render(plan:, activities:, tasks:, cost:)
@@ -228,33 +228,33 @@ class SidebarWorkPanel < BaseComponent
 end
 ```
 
-Panel 类只保留 **状态存储**，渲染委托给 Component。
+Panel classes only retain **state storage**; rendering is delegated to Components.
 
-#### 3.3 提取 Dialog 渲染为组件
+#### 3.3 Extract Dialog Rendering as Components
 
-`ApprovalDialog` 的 `render_content`、`render_choices`、`category_badge`、`colored`、`muted` 全部使用 `BaseComponent` 方法。
+`ApprovalDialog`'s `render_content`, `render_choices`, `category_badge`, `colored`, `muted` all use `BaseComponent` methods.
 
-重构后结构：
+After refactoring structure:
 ```ruby
 class ApprovalDialog
-  # 保留：事件循环、wait/finish、key binding（这些是交互逻辑）
-  # 移除：render_content 中的字符串拼接 → 交给 ApprovalDialogRenderer
+  # Retain: event loop, wait/finish, key binding (these are interaction logic)
+  # Remove: string concatenation in render_content → delegate to ApprovalDialogRenderer
 end
 
 class ApprovalDialogRenderer < BaseComponent
   def render(tool_name:, message:, params:, risk:, category:, selected_index:)
-    # 纯渲染逻辑，无副作用，可单元测试
+    # Pure rendering logic, no side effects, unit-testable
   end
 end
 ```
 
 ---
 
-### Phase 4：Controller 瘦身与主题互通（中风险）
+### Phase 4: Controller Slimming and Theme Interoperability (Medium Risk)
 
-#### 4.1 Controller 只保留协调逻辑
+#### 4.1 Controller Retains Only Coordination Logic
 
-目标：
+Goal:
 ```ruby
 class RichUIController
   include Clacky::UIInterface
@@ -262,26 +262,26 @@ class RichUIController
   def initialize(config = {})
     @config = config
     @shell = RichAgentShell.new(...)
-    @renderer = ViewRenderer.new        # ← 新增
-    @sidebar = @shell.sidebar            # ← 由 Shell 提供
-    @progress_stack = []                 # ← 为未来 v2 做准备
+    @renderer = ViewRenderer.new        # ← New
+    @sidebar = @shell.sidebar            # ← Provided by Shell
+    @progress_stack = []                 # ← Prepare for future v2
     wire_callbacks
   end
 
   def show_tool_call(name, args)
     output = @renderer.render_tool_call(name: name, args: args)
-    # ... 交给 ruby_rich 展示
+    # ... delegate to ruby_rich for display
   end
 end
 ```
 
-#### 4.2 复用 UI2 ThemeManager（可选）
+#### 4.2 Reuse UI2 ThemeManager (Optional)
 
-**方案 A（桥接）**：RichUI 继续使用 `RubyRich::Theme`，但将 `whale_dark` 等主题映射到 UI2 的 theme name。
+**Approach A (bridge)**: RichUI continues using `RubyRich::Theme`, but maps names like `whale_dark` to UI2 theme names.
 
-**方案 B（统一）**：RichUI 的组件接受 UI2 的 `ThemeManager.current_theme`，在渲染时调用 `theme.format_symbol(:user)` 而非直接使用 `RubyRich::AnsiCode`。
+**Approach B (unified)**: RichUI components accept UI2's `ThemeManager.current_theme`, calling `theme.format_symbol(:user)` instead of directly using `RubyRich::AnsiCode`.
 
-推荐 **方案 A**（低侵入），在 `BaseComponent` 中提供主题桥接：
+Recommend **Approach A** (low intrusion), providing theme bridging in `BaseComponent`:
 ```ruby
 def theme
   @theme ||= RubyRich::Theme.whale_dark
@@ -290,107 +290,107 @@ end
 
 ---
 
-### Phase 5：id-based 内容管理（可选增强，高风险）
+### Phase 5: id-based Content Management (Optional Enhancement, High Risk)
 
-UI2 的 `OutputBuffer` 是其架构精髓，但 RichUI 依赖 `ruby_rich` 的 `Transcript` + `Viewport`，强行替换成本高。
+UI2's `OutputBuffer` is the essence of its architecture, but RichUI relies on `ruby_rich`'s `Transcript` + `Viewport`; forcibly replacing them is costly.
 
-**推荐做法**：在 RichUI 中引入轻量 **EntryTracker** 而非完整 OutputBuffer。
+**Recommended approach**: Introduce a lightweight **EntryTracker** in RichUI instead of a full OutputBuffer.
 
 ```ruby
 # lib/clacky/rich_ui/entry_tracker.rb
 class EntryTracker
-  # 追踪 ruby_rich 返回的 message_id / block_id
-  # 提供：
-  # - register(id, type:) → 记录 id
-  # - update(id, content) → 调用 @shell.append_to_message(id, content)
-  # - remove(id) → 调用 @shell.transcript.remove_entry(id)
-  # - current_tool_id → 栈顶 tool_call id
+  # Tracks message_id / block_id returned by ruby_rich
+  # Provides:
+  # - register(id, type:) → record id
+  # - update(id, content) → call @shell.append_to_message(id, content)
+  # - remove(id) → call @shell.transcript.remove_entry(id)
+  # - current_tool_id → top-of-stack tool_call id
 end
 ```
 
-这样 `show_tool_call` / `show_tool_result` 不再依赖 `@tool_ids.pop`（栈语义脆弱），而是显式通过 id 追踪。
+Thus `show_tool_call` / `show_tool_result` no longer rely on `@tool_ids.pop` (fragile stack semantics), but instead explicitly track by id.
 
 ---
 
-## 五、关键设计决策
+## V. Key Design Decisions
 
-### 决策 1：是否保留 Monkey Patch？
+### Decision 1: Should Monkey Patches Be Retained?
 
-**结论**：保留功能，但移入 `extensions/` 目录并显式 `apply!`。
+**Conclusion**: Retain functionality, but move into `extensions/` directory with explicit `apply!`.
 
-理由：
-- RubyRich gem 未提供扩展点，不 patch 无法实现选择复制
-- 集中管理后，升级 gem 时只需检查 `extensions/` 目录
+Rationale:
+- The RubyRich gem does not provide extension points; without patching, selection/copy cannot be implemented
+- Centralized management means only `extensions/` needs checking when upgrading the gem
 
-### 决策 2：Dialog 是否使用 RubyRich 原生 Dialog？
+### Decision 2: Should Dialogs Use RubyRich Native Dialog?
 
-**结论**：继续使用自研 Dialog（`ConfigMenuDialog` 等），但渲染层提取为 Component。
+**Conclusion**: Continue using custom Dialogs (`ConfigMenuDialog` etc.), but extract rendering layer into Components.
 
-理由：
-- RubyRich 原生 Dialog 能力有限，当前自研 Dialog 已实现阻塞 wait、自定义 key binding
-- 提取 Renderer 后，Dialog 的交互逻辑与渲染样式解耦
+Rationale:
+- RubyRich native Dialog capabilities are limited; current custom Dialogs already implement blocking wait and custom key bindings
+- Extracting Renderer decouples Dialog interaction logic from rendering styles
 
-### 决策 3：Sidebar 面板是否拆分为独立文件？
+### Decision 3: Should Sidebar Panels Be Split into Separate Files?
 
-**结论**：3 个 Panel（Work/Tasks/Context）合并为 `sidebar_panels.rb`，但各自为独立类。
+**Conclusion**: 3 Panels (Work/Tasks/Context) merged into `sidebar_panels.rb`, but each as an independent class.
 
-理由：
-- 每个 Panel 只有 ~50 行，独立文件过于细碎
-- 合并后仍保持类级独立，便于后续提取 Component
+Rationale:
+- Each Panel is only ~50 lines; separate files would be overly granular
+- Merged while maintaining class-level independence, facilitating later Component extraction
 
-### 决策 4：是否引入 ProgressHandle v2？
+### Decision 4: Should ProgressHandle v2 Be Introduced?
 
-**结论**：当前先保留 `ProgressHandleAdapter` 桥接，但为未来预留接口。
+**Conclusion**: Keep `ProgressHandleAdapter` bridging for now, but reserve interfaces for the future.
 
-理由：
-- ruby_rich 的 `start_progress` / `update` / `finish` 语义与 UI2 不同，强行对齐改动面大
-- 可在 `RichUIController` 中预留 `@progress_stack`，后续再实现真正的 stack 语义
-
----
-
-## 六、验证清单
-
-重构完成后，以下功能必须 1:1 保留：
-
-- [ ] `--ui=rich` 正常启动，显示欢迎横幅
-- [ ] 用户输入 → Agent 响应 完整流程
-- [ ] 工具调用卡片（开始/结束/错误）
-- [ ] Thinking 思考区实时流式显示
-- [ ] 右侧 Sidebar（Work/Tasks/Context 面板及 F1-F4 切换）
-- [ ] 底部状态栏（spinner、mode、model、任务数、花费）
-- [ ] 鼠标选择 + 右键复制
-- [ ] Markdown 表格自适应宽度
-- [ ] `/config` 对话框（菜单 + 表单）
-- [ ] 工具审批对话框（ApprovalDialog）
-- [ ] 模型切换对话框
-- [ ] Ctrl+C 中断、Esc 取消层级、Tab 切换 mode
-- [ ] `--theme` 参数生效（或至少不报错）
+Rationale:
+- ruby_rich's `start_progress` / `update` / `finish` semantics differ from UI2; forcing alignment has a wide blast radius
+- Can reserve `@progress_stack` in `RichUIController` and implement true stack semantics later
 
 ---
 
-## 七、估算工作量
+## VI. Verification Checklist
 
-| Phase | 工作量 | 风险 |
+After refactoring, the following functionality must be preserved 1:1:
+
+- [ ] `--ui=rich` starts normally, displays welcome banner
+- [ ] Full flow: user input → Agent response
+- [ ] Tool call cards (start/complete/error)
+- [ ] Thinking area real-time streaming
+- [ ] Right sidebar (Work/Tasks/Context panels and F1-F4 switching)
+- [ ] Bottom status bar (spinner, mode, model, task count, cost)
+- [ ] Mouse selection + right-click copy
+- [ ] Markdown table adaptive width
+- [ ] `/config` dialog (menu + form)
+- [ ] Tool approval dialog (ApprovalDialog)
+- [ ] Model switch dialog
+- [ ] Ctrl+C interrupt, Esc cancel stack, Tab switch mode
+- [ ] `--theme` parameter takes effect (or at least does not error)
+
+---
+
+## VII. Estimated Effort
+
+| Phase | Effort | Risk |
 |-------|--------|------|
-| Phase 1：文件拆分 | 2-3 小时 | 低（纯移动，加 require） |
-| Phase 2：Patch 外移 + 解耦 | 3-4 小时 | 中（需仔细验证 ivar 替换） |
-| Phase 3：ViewRenderer + Components | 4-6 小时 | 中（渲染逻辑提取，需逐条对比输出） |
-| Phase 4：Controller 瘦身 + 主题 | 2-3 小时 | 中 |
-| Phase 5：EntryTracker（可选） | 4-6 小时 | 高（涉及 ruby_rich 内部 id 机制） |
-| **合计（不含 Phase 5）** | **11-16 小时** | |
+| Phase 1: File splitting | 2-3 hours | Low (pure movement + requires) |
+| Phase 2: Patch extraction + decoupling | 3-4 hours | Medium (carefully verify ivar replacements) |
+| Phase 3: ViewRenderer + Components | 4-6 hours | Medium (rendering logic extraction, compare output line by line) |
+| Phase 4: Controller slimming + themes | 2-3 hours | Medium |
+| Phase 5: EntryTracker (optional) | 4-6 hours | High (involves ruby_rich internal id mechanisms) |
+| **Total (excluding Phase 5)** | **11-16 hours** | |
 
 ---
 
-## 八、立即可以动手的第一步
+## VIII. Immediate First Step
 
-如果现在就启动重构，建议按以下顺序：
+If starting the refactoring now, recommended order:
 
-1. **新建目录结构**：`mkdir -p lib/clacky/rich_ui/{components/dialogs,extensions,shell}`
-2. **Phase 1 文件拆分**：将类逐个剪切到新文件，原文件保留为兼容 shim（`require_relative "rich_ui"`）
-3. **跑通测试**：`bundle exec ruby ./bin/openclacky agent --ui=rich`，确认无 require 错误
-4. **逐步替换**：每移一个类，验证一次，不积压
+1. **Create directory structure**: `mkdir -p lib/clacky/rich_ui/{components/dialogs,extensions,shell}`
+2. **Phase 1 file splitting**: Cut classes one by one into new files, keep original file as compatibility shim (`require_relative "rich_ui"`)
+3. **Run smoke test**: `bundle exec ruby ./bin/openclacky agent --ui=rich`, confirm no require errors
+4. **Gradual replacement**: Verify after each class move; don't let changes pile up
 
 ---
 
-*方案制定日期：2026-06-11*
-*参考基准：UI2 架构（`lib/clacky/ui2/` 目录，docs/ui2-architecture.md）*
+*Plan date: 2026-06-11*
+*Reference baseline: UI2 architecture (`lib/clacky/ui2/` directory, docs/ui2-architecture.md)*

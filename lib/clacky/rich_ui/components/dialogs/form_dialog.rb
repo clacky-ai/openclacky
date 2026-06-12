@@ -4,7 +4,8 @@ require "ruby_rich"
 require_relative "../base_component"
 
 module Clacky
-    class FormDialog
+    module RichUI
+      class FormDialog
       include Clacky::RichUI::Components::BaseComponent
 
       attr_accessor :width, :height
@@ -123,4 +124,5 @@ module Clacky
               :render_content,
               :render_field_value
     end
+  end
 end

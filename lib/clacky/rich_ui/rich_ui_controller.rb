@@ -380,7 +380,7 @@ module Clacky
       return true if @always_allow_fingerprints.include?(fingerprint)
 
       show_info(message)
-      dialog = ApprovalDialog.new(
+      dialog = RichUI::ApprovalDialog.new(
         tool_name: tool_name || "unknown",
         message: message,
         params: params,
@@ -690,7 +690,7 @@ module Clacky
 
     def show_menu_dialog(title:, choices:, selected_index: nil)
       selected_index ||= config_initial_selection(choices)
-      dialog = ConfigMenuDialog.new(title: title, choices: choices, selected_index: selected_index)
+      dialog = RichUI::ConfigMenuDialog.new(title: title, choices: choices, selected_index: selected_index)
 
       dialog.key(:up, 1_000) { dialog.move_up; true }
       dialog.key(:down, 1_000) { dialog.move_down; true }
@@ -712,7 +712,7 @@ module Clacky
     end
 
     def show_form_dialog(title:, fields:)
-      dialog = FormDialog.new(title: title, fields: fields)
+      dialog = RichUI::FormDialog.new(title: title, fields: fields)
       dialog.key(:escape, 1_000) { dialog.finish(nil) }
       show_blocking_dialog(dialog)
     end

@@ -4,7 +4,8 @@ require "ruby_rich"
 require_relative "../base_component"
 
 module Clacky
-    class ApprovalDialog
+    module RichUI
+      class ApprovalDialog
       include Clacky::RichUI::Components::BaseComponent
 
       RISK_LEVELS = {
@@ -137,4 +138,5 @@ module Clacky
         colored("[#{label}]", @category_color)
       end
     end
+  end
 end
