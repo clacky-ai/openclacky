@@ -102,7 +102,34 @@ module Clacky
 
     def start_input_loop
       @running = true
-      @shell.start
+      begin
+        @shell.start
+      rescue AgentInterrupted
+        # Ctrl+C (SIGINT via intr:true) raised AgentInterrupted.
+        # Check viewport selection FIRST: when text is selected
+        # (program-level drag-select), copy it to the clipboard and
+        # clear the highlight, then retry the shell WITHOUT calling
+        # the interrupt callback.  Otherwise route through the
+        # normal interrupt callback (interrupt task / double-tap
+        # warning / exit).
+        vp = @shell.viewport
+        selecting = vp.instance_variable_get(:@selecting)
+        has_selection = selecting || vp.selected_text.to_s != ""
+
+        if has_selection
+          vp.send(:stop_selection) if selecting
+          vp.instance_variable_set(:@selection_start, nil)
+          vp.instance_variable_set(:@selection_end, nil)
+          vp.instance_variable_set(:@selected_text, "")
+          retry
+        end
+
+        # No selection — route through the interrupt callback.
+        # The double-tap exit logic lives in the callback (cli.rb).
+        input_was_empty = @shell.composer.value.to_s.empty?
+        @interrupt_callback&.call(input_was_empty: input_was_empty)
+        retry
+      end
     ensure
       @running = false
     end
@@ -540,9 +567,20 @@ module Clacky
       return @shell.add_markdown(markdown) unless id
 
       thread = Thread.new do
-        markdown.each_char.each_slice(STREAMING_MARKDOWN_CHUNK_SIZE) do |chars|
-          @shell.append_to_message(id, chars.join)
-          sleep(STREAMING_MARKDOWN_DELAY)
+        Thread.current.report_on_exception = false
+        begin
+          markdown.each_char.each_slice(STREAMING_MARKDOWN_CHUNK_SIZE) do |chars|
+            @shell.append_to_message(id, chars.join)
+            sleep(STREAMING_MARKDOWN_DELAY)
+          end
+        rescue => e
+          Clacky::Logger.warn("[stream_markdown] chunk append failed: #{e.class}: #{e.message}")
+          # Fallback: replace the partial stream with the full markdown
+          begin
+            @shell.replace_message(id, markdown)
+          rescue
+            nil
+          end
         end
       end
       @stream_threads << thread
@@ -558,8 +596,13 @@ module Clacky
       return if Array(files).empty?
 
       thread = Thread.new do
-        stream_thread.join
-        add_file_summary(files)
+        Thread.current.report_on_exception = false
+        begin
+          stream_thread.join
+          add_file_summary(files)
+        rescue => e
+          Clacky::Logger.warn("[file_summary] thread failed: #{e.class}: #{e.message}")
+        end
       end
       @stream_threads << thread
       @stream_threads.reject! { |item| !item.alive? }
@@ -592,7 +635,6 @@ module Clacky
       end
 
       @shell.on_interrupt do |input_was_empty:|
-        @ctrl_c_warning = "Press Ctrl+C again to exit"
         @interrupt_callback&.call(input_was_empty: input_was_empty)
       end
 

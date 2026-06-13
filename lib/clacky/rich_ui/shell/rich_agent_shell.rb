@@ -15,6 +15,24 @@ module Clacky
       @sidebar = RichSidebar.new
       @thinking_live = ThinkingLiveView.new(self)
       @viewport.instance_variable_set(:@scrollbar, false)
+      @viewport.instance_variable_set(:@auto_copy, false)
+      @viewport.instance_variable_set(:@drag_mode, :selection)
+
+      # Patch Viewport#copy_selection to also clear the visual selection
+      # highlight.  The upstream copy_selection copies text to the clipboard
+      # but leaves @selection_start / @selection_end intact, so the
+      # inverted-colour highlight survives both right-click and Ctrl+C.
+      vp = @viewport
+      vp.define_singleton_method(:copy_selection) do
+        text = @selected_text.to_s
+        return false if text.empty?
+
+        copy_to_clipboard(text)
+        @selection_start = nil
+        @selection_end   = nil
+        @selected_text   = ""
+        true
+      end
       root = RubyRich::Layout.new(name: :root)
       root.split_column(
         RubyRich::Layout.new(name: :header, size: 1),
@@ -127,9 +145,19 @@ module Clacky
     end
 
     def handle_interrupt(_live = nil, _source = nil)
+      return false if copy_viewport_selection
+
       input_was_empty = @composer.value.to_s.empty?
       @callbacks[:interrupt]&.call(input_was_empty: input_was_empty)
       false
+    end
+
+    def copy_viewport_selection
+      if @viewport.instance_variable_get(:@selecting)
+        @viewport.send(:stop_selection)
+      end
+
+      @viewport.copy_selection
     end
 
     def toggle_permission_mode
@@ -150,6 +178,7 @@ module Clacky
     private :build_layout,
             :attach_components,
             :attach_agent_controls,
-            :handle_interrupt
+            :handle_interrupt,
+            :copy_viewport_selection
   end
 end

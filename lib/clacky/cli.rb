@@ -835,6 +835,16 @@ module Clacky
           end
 
           if (not current_task_thread&.alive?) && input_was_empty
+            # Rich UI: require double-tap Ctrl+C to exit.  When the user
+            # just copied terminal-native text selection, the viewport
+            # has no knowledge of the selection, yet Ctrl+C must not exit.
+            # First press only sets the warning; second press exits.
+            if ui_controller.respond_to?(:ctrl_c_warning) && !ui_controller.ctrl_c_warning
+              ui_controller.instance_variable_set(:@ctrl_c_warning, "Press Ctrl+C again to exit")
+              ui_controller.set_input_tips("Press Ctrl+C again to exit.", type: :info)
+              next
+            end
+
             # Save final session state before exit
             if session_manager && agent.total_tasks > 0
               session_data = agent.to_session_data(status: :exited)
@@ -948,7 +958,13 @@ module Clacky
               # Update session bar with agent's cumulative stats
               ui_controller.update_sessionbar(tasks: agent.total_tasks, cost: agent.total_cost)
             rescue Clacky::AgentInterrupted, StandardError => e
-              handle_agent_exception(ui_controller, agent, session_manager, e)
+              begin
+                handle_agent_exception(ui_controller, agent, session_manager, e)
+              rescue StandardError => ex
+                # If handle_agent_exception itself raises (e.g. UI in bad state),
+                # prevent the thread from dying with an unhandled exception.
+                $stderr.puts "[cli] handle_agent_exception failed: #{ex.class}: #{ex.message}"
+              end
             ensure
               current_task_thread = nil
               # Start idle timer after agent completes

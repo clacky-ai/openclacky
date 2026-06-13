@@ -269,6 +269,28 @@ RSpec.describe Clacky::RichUIController do
   end
 
   describe "Ctrl+C handling" do
+    it "copies selected transcript text instead of interrupting" do
+      ui = described_class.new(working_dir: Dir.pwd, mode: "confirm_safes", model: "test-model")
+      interrupts = []
+
+      ui.shell.transcript.add_block(:markdown, (0...80).map { |index| "line #{index}" }.join("\n"), metadata: { plain: true })
+      ui.shell.layout.calculate_dimensions(100, 30)
+      ui.shell.viewport.scroll_to(20)
+      ui.on_interrupt { |input_was_empty:| interrupts << input_was_empty }
+
+      expect(ui.shell.viewport).to receive(:copy_to_clipboard).with("line 29").once.and_return(true)
+
+      ui.shell.layout.notify_listeners(type: :mouse, name: :mouse_down, x: 0, y: 10, button: :left)
+      ui.shell.layout.notify_listeners(type: :mouse, name: :mouse_drag, x: 7, y: 10, button: :left)
+      ui.shell.layout.notify_listeners(type: :mouse, name: :mouse_up, x: 7, y: 10, button: :left)
+
+      ui.shell.layout.notify_listeners(type: :key, name: :ctrl_c)
+
+      expect(interrupts).to eq([])
+      expect(ui.shell.viewport.selected_text).to eq("")
+      expect(ui.shell.viewport.scroll_top).to eq(20)
+    end
+
     it "consumes one keypress so non-empty input clears before the next Ctrl+C exits" do
       ui = described_class.new(working_dir: Dir.pwd, mode: "confirm_safes", model: "test-model")
       live = instance_double("RubyRich::Live")
@@ -291,6 +313,20 @@ RSpec.describe Clacky::RichUIController do
       ui.shell.layout.notify_listeners(type: :key, name: :ctrl_c)
 
       expect(interrupts).to eq([false, true])
+    end
+
+    it "preserves the double Ctrl+C exit warning until the callback can observe it" do
+      ui = described_class.new(working_dir: Dir.pwd, mode: "confirm_safes", model: "test-model")
+      warning_seen_by_callback = []
+
+      ui.instance_variable_set(:@ctrl_c_warning, "Press Ctrl+C again to exit")
+      ui.on_interrupt do |input_was_empty:|
+        warning_seen_by_callback << [input_was_empty, ui.ctrl_c_warning]
+      end
+
+      ui.shell.layout.notify_listeners(type: :key, name: :ctrl_c)
+
+      expect(warning_seen_by_callback).to eq([[true, "Press Ctrl+C again to exit"]])
     end
   end
 
