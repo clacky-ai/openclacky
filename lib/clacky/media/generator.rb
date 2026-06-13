@@ -2,6 +2,7 @@
 
 require_relative "openai_compat"
 require_relative "gemini"
+require_relative "dashscope"
 
 module Clacky
   module Media
@@ -20,6 +21,17 @@ module Clacky
       GOOGLE_NATIVE_HOSTS = [
         "generativelanguage.googleapis.com",
         "aiplatform.googleapis.com"
+      ].freeze
+
+      # Hosts that speak Alibaba's native DashScope (Qwen-Image) API instead
+      # of an OpenAI-compatible facade. Matched as a substring so every
+      # regional variant (dashscope / dashscope-intl / dashscope-us, and the
+      # Singapore *.maas.aliyuncs.com workspace hosts) is caught. Third-party
+      # aggregators (SiliconFlow, OpenRouter, …) that re-expose qwen-image
+      # behind an OpenAI-compatible endpoint are NOT under aliyuncs.com, so
+      # they correctly keep going through OpenAICompat.
+      DASHSCOPE_NATIVE_HOSTS = [
+        "aliyuncs.com"
       ].freeze
 
       # @param agent_config [Clacky::AgentConfig]
@@ -60,6 +72,10 @@ module Clacky
       # Routing rules:
       #   • base_url points directly at a Google AI Studio host → Gemini
       #     (native /v1beta/models/<m>:generateContent schema).
+      #   • base_url points at an Alibaba DashScope host (*.aliyuncs.com) →
+      #     DashScope (native /api/v1/.../multimodal-generation schema for
+      #     Qwen-Image). Third-party aggregators re-exposing qwen-image behind
+      #     an OpenAI-compatible facade are NOT on aliyuncs.com and fall through.
       #   • everything else → OpenAICompat. This covers OpenAI itself, the
       #     openclacky gateway, OpenRouter, and any third-party proxy that
       #     re-exposes Gemini / Imagen / DALL-E behind /v1/images/generations.
@@ -69,6 +85,8 @@ module Clacky
         url = entry["base_url"].to_s
         if GOOGLE_NATIVE_HOSTS.any? { |host| url.include?(host) }
           Gemini.new(entry)
+        elsif DASHSCOPE_NATIVE_HOSTS.any? { |host| url.include?(host) }
+          DashScope.new(entry)
         else
           OpenAICompat.new(entry)
         end

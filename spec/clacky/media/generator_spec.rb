@@ -45,6 +45,39 @@ RSpec.describe Clacky::Media::Generator do
         )
         expect(result["success"]).to be true
       end
+
+      it "routes an aliyuncs.com base_url to DashScope" do
+        image_entry = {
+          "model"    => "qwen-image-2.0-pro",
+          "type"     => "image",
+          "base_url" => "https://dashscope.aliyuncs.com/compatible-mode/v1",
+          "api_key"  => "sk-test"
+        }
+        config = Clacky::AgentConfig.new(models: [image_entry])
+
+        fake_provider = instance_double(Clacky::Media::DashScope)
+        expect(Clacky::Media::DashScope).to receive(:new).and_return(fake_provider)
+        expect(fake_provider).to receive(:generate_image).and_return({ "success" => true })
+
+        described_class.new(config).generate_image(prompt: "a cat", output_dir: "/tmp/work")
+      end
+
+      it "routes a third-party aggregator (non-aliyuncs) qwen-image to OpenAICompat, not DashScope" do
+        image_entry = {
+          "model"    => "Qwen/Qwen-Image",
+          "type"     => "image",
+          "base_url" => "https://api.siliconflow.cn/v1",
+          "api_key"  => "sk-test"
+        }
+        config = Clacky::AgentConfig.new(models: [image_entry])
+
+        fake_provider = instance_double(Clacky::Media::OpenAICompat)
+        expect(Clacky::Media::DashScope).not_to receive(:new)
+        expect(Clacky::Media::OpenAICompat).to receive(:new).and_return(fake_provider)
+        expect(fake_provider).to receive(:generate_image).and_return({ "success" => true })
+
+        described_class.new(config).generate_image(prompt: "a cat", output_dir: "/tmp/work")
+      end
     end
   end
 end
