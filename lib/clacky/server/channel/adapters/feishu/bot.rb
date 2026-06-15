@@ -51,6 +51,7 @@ module Clacky
           ERR_SCOPE_MISSING = 99991672
           ERR_SCOPE_MISSING_2 = 230027
           GROUP_HISTORY_LIMIT = 15
+          SCOPE_GROUP_MSG = "im:message.group_msg"
 
           def initialize(app_id:, app_secret:, domain: DEFAULT_DOMAIN)
             @app_id = app_id

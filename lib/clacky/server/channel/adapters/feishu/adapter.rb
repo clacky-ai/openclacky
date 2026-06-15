@@ -186,7 +186,7 @@ module Clacky
                 Clacky::Logger.info("[feishu] fetch_chat_history chat=#{event[:chat_id]} got #{history.size} messages")
                 event = event.merge(group_history: history) unless history.empty?
               rescue FeishuScopeError => e
-                scopes_text = e.required_scopes.any? ? e.required_scopes.join(", ") : "im:message.group_msg"
+                scopes_text = e.required_scopes.any? ? e.required_scopes.join(", ") : Bot::SCOPE_GROUP_MSG
                 scope_hint = e.auth_url ? "The developer can grant access here: #{e.auth_url}" : "Please enable the following scopes for this app in Feishu Open Platform: #{scopes_text}"
                 event = event.merge(text: "#{event[:text]}\n\n[System Notice] This app is missing the scope to read group message history. #{scope_hint} Do NOT mention this proactively — only inform the user if they ask about chat history or context.")
               end
