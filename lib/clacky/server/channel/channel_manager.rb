@@ -360,17 +360,28 @@ module Clacky
           else
             arg
           end
-          unless session_id && @registry.get(session_id)
+          unless session_id && @registry.ensure(session_id)
             adapter.send_text(chat_id, "Session not found. Use /list to see available sessions.")
             return
           end
 
           # Detach channel_ui from the old session's web_ui, reattach to the new one.
+          # Also clear the old session's persisted agent.channel_info if it still
+          # matches this key — keeping channel_keys and channel_info strictly in sync
+          # so resolve_session never sees two sessions claim the same key via different
+          # sources (see comment in resolve_session).
           old_session_id = resolve_session(event)
           channel_ui = old_session_id ? channel_ui_for_session(old_session_id) : nil
 
           if channel_ui
-            @registry.with_session(old_session_id) { |s| s[:ui]&.unsubscribe_channel(channel_ui); s.delete(:channel_ui) }
+            @registry.with_session(old_session_id) do |s|
+              s[:ui]&.unsubscribe_channel(channel_ui)
+              s.delete(:channel_ui)
+              if s[:agent]&.respond_to?(:channel_info=) && s[:agent].respond_to?(:channel_info) &&
+                 s[:agent].channel_info && channel_key_from_info(s[:agent].channel_info) == key
+                s[:agent].channel_info = nil
+              end
+            end
           else
             channel_ui = ChannelUIController.new(event, -> { adapter_for(event[:platform]) })
           end
@@ -397,7 +408,17 @@ module Clacky
           unbound = false
           @registry.list.each do |summary|
             @registry.with_session(summary[:id]) do |s|
-              unbound = true if s[:channel_keys]&.delete(key)
+              if s[:channel_keys]&.delete(key)
+                unbound = true
+                # Keep agent.channel_info in sync with channel_keys (see resolve_session).
+                # Without this, after process restart + eviction, the fallback path would
+                # silently re-bind this key back to the unbinded session via stale
+                # channel_info, defeating /unbind.
+                if s[:agent]&.respond_to?(:channel_info=) && s[:agent].respond_to?(:channel_info) &&
+                   s[:agent].channel_info && channel_key_from_info(s[:agent].channel_info) == key
+                  s[:agent].channel_info = nil
+                end
+              end
             end
           end
           adapter.send_text(chat_id, unbound ? "Unbound." : "No binding found.")
@@ -615,12 +636,20 @@ module Clacky
 
       def resolve_session(event)
         key = channel_key(event)
+
+        # Resolve order per session:
+        #   1. explicit in-memory channel_keys (set by /bind or auto_create_session)
+        #   2. fallback to persisted agent.channel_info for evicted channel sessions
+        #      (process restart with in-memory channel_keys lost)
+        #
+        # /bind and /unbind keep agent.channel_info strictly in sync with channel_keys
+        # (see handle_bind / handle_unbind), so the two sources never disagree on the
+        # same key for two different sessions — a single pass is sufficient.
         @registry.list.each do |summary|
           found = nil
           @registry.with_session(summary[:id]) { |s| found = s[:channel_keys]&.include?(key) }
           return summary[:id] if found
 
-          # Check evicted channel sessions via persisted channel_info
           next unless summary[:source] == "channel"
           next unless @registry.ensure(summary[:id])
           agent = nil
@@ -630,6 +659,7 @@ module Clacky
           bind_key_to_session(key, summary[:id])
           return summary[:id]
         end
+
         nil
       rescue StandardError => e
         Clacky::Logger.error("[ChannelManager] Session resolve failed: #{e.message}")
