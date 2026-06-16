@@ -166,23 +166,78 @@ html { font-size: 16px; }
 /* ── Reset & Base ────────────────────────────────────────────────────────── */
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
+/* ── Global Tooltip ──────────────────────────────────────────────────────
+   JS-driven: Tooltip.init() in utils.js mounts a single <div id="tooltip">
+   on body and positions it via getBoundingClientRect, so it is never clipped
+   by any ancestor's overflow or z-index.
+   Usage: add data-tooltip="text" (+ optionally data-tooltip-pos="top|bottom|left|right")
+   to any element. Default direction is top.
+────────────────────────────────────────────────────────────────────────── */
+#tooltip {
+  position: fixed;
+  z-index: 99999;
+  pointer-events: none;
+  padding: 0.3125rem 0.5625rem;
+  background: var(--color-bg-inverse, #1a1a1a);
+  color: var(--color-text-inverse, #f5f5f5);
+  font-size: 0.75rem;
+  line-height: 1.5;
+  border-radius: 6px;
+  white-space: pre-wrap;
+  max-width: 18rem;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+#tooltip.visible { opacity: 1; }
+#tooltip::after {
+  content: "";
+  position: absolute;
+  border: 5px solid transparent;
+}
+#tooltip[data-pos="top"]::after {
+  top: 100%; left: 50%; transform: translateX(-50%);
+  border-top-color: var(--color-bg-inverse, #1a1a1a);
+}
+#tooltip[data-pos="bottom"]::after {
+  bottom: 100%; left: 50%; transform: translateX(-50%);
+  border-bottom-color: var(--color-bg-inverse, #1a1a1a);
+}
+#tooltip[data-pos="left"]::after {
+  left: 100%; top: 50%; transform: translateY(-50%);
+  border-left-color: var(--color-bg-inverse, #1a1a1a);
+}
+#tooltip[data-pos="right"]::after {
+  right: 100%; top: 50%; transform: translateY(-50%);
+  border-right-color: var(--color-bg-inverse, #1a1a1a);
+}
+
 /* ── Skeleton screen — reusable shimmer utility ──────────────────────────
    Usage: add class="skel" plus a size variant class to any placeholder el.
    Size variants are defined per-component below this block.
 ────────────────────────────────────────────────────────────────────────── */
 @keyframes skel-shimmer {
-  0%   { background-position: -400px 0; }
-  100% { background-position:  400px 0; }
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
 }
 .skel {
   border-radius: 6px;
   background: linear-gradient(90deg,
-    var(--color-bg-tertiary) 25%,
-    var(--color-border-primary) 50%,
-    var(--color-bg-tertiary) 75%
+    #e8e8e8 25%,
+    #d0d0d0 50%,
+    #e8e8e8 75%
   );
-  background-size: 800px 100%;
-  animation: skel-shimmer 1.4s infinite linear;
+  background-size: 200% 100%;
+  animation: skel-shimmer 1.8s infinite linear;
+}
+[data-theme="dark"] .skel {
+  background: linear-gradient(90deg,
+    #2a2d34 25%,
+    #3a3e47 50%,
+    #2a2d34 75%
+  );
+  background-size: 200% 100%;
+  animation: skel-shimmer 1.8s infinite linear;
 }
 /* Generic size helpers */
 .skel-icon     { width: 2rem;   height: 2rem;    border-radius: 50%; flex-shrink: 0; }
@@ -197,12 +252,8 @@ html { font-size: 16px; }
 .skel-block-sm { height: 5rem;  width: 100%; }
 .skel-heatmap  { height: 7rem;  width: 100%; }
 
-/* Loading overlay: dims existing DOM without destroying it (used on Tab switch) */
-.billing-loading-overlay {
-  opacity: 0.45;
-  pointer-events: none;
-  transition: opacity 0.1s;
-}
+
+
 
 
 body {
@@ -314,12 +365,24 @@ body {
   letter-spacing: -0.02em;
   -webkit-font-smoothing: antialiased;
 }
+@keyframes logo-shake {
+  0%   { transform: translateY(0); }
+  20%  { transform: translateY(-6px); }
+  40%  { transform: translateY(0); }
+  60%  { transform: translateY(-3px); }
+  80%  { transform: translateY(0); }
+  100% { transform: translateY(0); }
+}
+
 .header-logo-img {
   height: 2.3rem;
   object-fit: contain;
   display: block;
   flex-shrink: 0;
   border-radius: var(--radius-xs);
+}
+.header-logo-img:hover {
+  animation: none;
 }
 /* Subtle divider between logo image and brand name text */
 #header-brand.has-logo .header-logo-divider {
@@ -436,9 +499,6 @@ body {
   background: var(--color-bg-hover);
 }
 /* Sound-notification toggle shares .theme-toggle-btn; highlight when ON. */
-#notify-toggle-header.notify-on {
-  color: var(--color-accent-primary, var(--color-text-primary));
-}
 #notify-toggle-header.notify-on:hover {
   color: var(--color-accent-primary, var(--color-text-primary));
 }
@@ -1123,7 +1183,6 @@ body {
   border-radius: var(--radius-sm);
   cursor: pointer;
   margin-bottom: 1px;
-  border: 1px solid transparent;
   transition: background var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast);
 }
 /* Two-row text block next to dot */
@@ -1350,7 +1409,7 @@ body {
   font-family: var(--font-mono);
   font-size: 0.625rem;
   letter-spacing: 0.01em;
-  color: var(--color-text-secondary);
+  color: var(--color-text-muted);
   white-space: nowrap;
   opacity: 0.7;
   margin-top: 2px;
@@ -5867,29 +5926,6 @@ body {
   cursor: help;
   flex-shrink: 0;
 }
-.skill-warn-icon::after {
-  content: attr(data-tooltip);
-  position: absolute;
-  left: 0;
-  top: calc(100% + 0.375rem);
-  width: 16.25rem;
-  background: var(--color-bg-elevated, #fff);
-  color: var(--color-text, #333);
-  border: 1px solid var(--color-border, #e0e0e0);
-  border-radius: 6px;
-  padding: 0.5rem 0.625rem;
-  font-size: 0.7188rem;
-  line-height: 1.6;
-  white-space: pre-wrap;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-  z-index: 100;
-  pointer-events: none;
-  opacity: 0;
-  transition: opacity 0.15s;
-}
-.skill-warn-icon:hover::after {
-  opacity: 1;
-}
 
 /* ── Toggle Switch ───────────────────────────────────────────────────────── */
 .skill-toggle {
@@ -5899,41 +5935,9 @@ body {
   cursor: pointer;
   flex-shrink: 0;
 }
-.skill-toggle::after {
-  content: attr(data-tooltip);
-  position: absolute;
-  right: 0;
-  bottom: calc(100% + 0.5rem);
-  width: max-content;
-  max-width: 17.5rem;
-  background: var(--color-bg-elevated, #fff);
-  color: var(--color-text, #333);
-  border: 1px solid var(--color-border, #e0e0e0);
-  border-radius: 6px;
-  padding: 0.5rem 0.625rem;
-  font-size: 0.7188rem;
-  line-height: 1.6;
-  white-space: pre-wrap;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-  z-index: 100;
-  pointer-events: none;
-  opacity: 0;
-  transition: opacity 0.15s;
-}
-.skill-toggle:hover::after {
-  opacity: 1;
-}
-/* Flip tooltip below when near top of scroll container */
-.skill-toggle-flip::after {
-  bottom: auto;
-  top: calc(100% + 8px);
-}
 .skill-toggle-disabled {
   cursor: not-allowed;
   opacity: 0.4;
-}
-.skill-toggle-disabled:hover::after {
-  opacity: 1; /* Still show tooltip for disabled toggles */
 }
 .skill-toggle-input {
   opacity: 0;
@@ -8732,322 +8736,6 @@ body.setup-mode[data-theme="dark"] {
 
 
 /* ── Mobile responsive (≤48rem) ─────────────────────────────────────────── */
-@media (max-width: 768px) {
-  /* Sidebar becomes a fixed drawer on top of content */
-  #sidebar {
-    position: fixed;
-    top: 0;
-    left: 0;
-    height: 100%;
-    z-index: 200;
-    box-shadow: 4px 0 24px rgba(0,0,0,0.18);
-    transition: transform 0.3s ease, background-color 0.3s ease;
-    transform: translateX(0);
-    margin-left: 0 !important;
-  }
-  /* active session: always show ⋯ button (no hover on touch) */
-  .session-item.active .session-actions-btn { display: flex; }
-  #sidebar.hidden {
-    transform: translateX(-100%);
-    margin-left: 0 !important;
-  }
-
-  /* Overlay backdrop */
-  #sidebar-overlay {
-    display: none;
-    position: fixed;
-    inset: 0;
-    z-index: 199;
-    background: rgba(0,0,0,0.4);
-  }
-  #sidebar-overlay.active {
-    display: block;
-  }
-
-  /* Main takes full width since sidebar is no longer in flow */
-  #main {
-    width: 100%;
-    min-width: 0;
-    overflow: visible;
-  }
-
-  /* Tighten header padding */
-  #top-header {
-    padding: 0 0.75rem;
-  }
-
-  /* Session info bar: single-line, no hover-expand, font smaller */
-  #session-info-bar {
-    padding: 0.1875rem 0.75rem;
-    font-size: 0.625rem;
-    overflow: hidden;
-    white-space: nowrap;
-  }
-  /* Always show detail fields on mobile (no hover) */
-  #session-info-bar .sib-detail {
-    display: contents;
-  }
-  /* Hide less-important fields and their separators (element + sib-sep-after-element pattern) */
-  #sib-id,
-  .sib-sep-after-id,
-  #sib-dir,
-  .sib-sep-after-dir,
-  #sib-mode,
-  .sib-sep-after-mode,
-  #sib-reasoning-wrap,
-  .sib-sep-after-reasoning {
-    display: none;
-  }
-  .sib-sep {
-    margin: 0 0.25rem;
-  }
-
-  /* Input bar: proportional spacing, touch-friendly */
-  #input-bar {
-    padding: 0.5rem 0.625rem;
-    gap: 0.25rem;
-  }
-
-  /* Attach & slash buttons: slightly smaller touch target */
-  #btn-attach {
-    padding: 0.25rem;
-  }
-  #btn-slash {
-    padding: 0.25rem 0.375rem;
-    font-size: 0.875rem;
-  }
-
-  /* Textarea: prevent iOS auto-zoom (must be ≥1rem) */
-  #user-input {
-    font-size: 1rem;
-    padding: 0.4375rem 0.625rem;
-  }
-
-  /* Send button: bigger tap target */
-  #btn-send, #btn-interrupt {
-    padding: 0.4375rem 0.875rem;
-    font-size: 0.875rem;
-  }
-
-  /* Welcome page: vertically centered but shifted up, add horizontal padding */
-  #welcome {
-    justify-content: center;
-    padding-bottom: 30vh;
-    padding-left: 1.5rem;
-    padding-right: 1.5rem;
-  }
-
-  /* ── Tasks page ── */
-  #task-detail-panel {
-    overflow: visible;
-    height: auto;
-    flex: 1;
-    min-height: 0;
-  }
-  #task-detail-body {
-    padding: 1rem 1rem 5rem;
-    gap: 0.75rem;
-    overflow-y: auto;
-    -webkit-overflow-scrolling: touch;
-    overscroll-behavior: contain;
-    flex: 1;
-    min-height: 0;
-  }
-  /* btn-create-task: move below title instead of absolute top-right */
-  .task-page-header {
-    flex-direction: column;
-    padding-right: 0;
-  }
-  .btn-create-task {
-    position: static;
-    align-self: flex-start;
-    margin-top: 0.25rem;
-  }
-  /* Table: let it scroll horizontally, keep columns readable */
-  #task-list-table {
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
-  }
-
-  /* ── Skills page ── */
-  #skills-panel {
-    overflow: visible;
-    height: auto;
-    flex: 1;
-    min-height: 0;
-  }
-  #skills-body {
-    padding: 1rem 1rem 5rem;
-    gap: 0.75rem;
-    overflow-y: auto;
-    -webkit-overflow-scrolling: touch;
-    overscroll-behavior: contain;
-    flex: 1;
-    min-height: 0;
-  }
-  /* action buttons: move below title, inline row */
-  .skills-page-header {
-    padding-right: 0;
-  }
-  .skill-action-btns {
-    position: static;
-    margin-top: 0.5rem;
-  }
-  /* Show system skills toggle: give right margin */
-  #label-show-system {
-    margin-right: 0.5rem;
-  }
-  /* Skills tab bar: stack tabs and controls vertically */
-  #skills-tabs {
-    flex-direction: row;
-    align-items: center;
-    gap: 0.5rem;
-  }
-  .skills-tabs-left {
-    display: flex;
-    flex-shrink: 0;
-  }
-  .skills-tab {
-    padding: 0.5rem 0.5rem;
-  }
-  .skills-tabs-controls {
-    padding-right: 0;
-    flex-shrink: 0;
-    margin-bottom: 0.25rem;
-  }
-
-  /* ── Settings page ── */
-  #settings-header {
-    padding: 0.75rem 1rem;
-    font-size: 0.9375rem;
-  }
-  #settings-body {
-    padding: 1rem 1rem 5rem;
-    gap: 1.5rem;
-    overflow-y: auto;
-    -webkit-overflow-scrolling: touch;
-    overscroll-behavior: contain;
-  }
-  #settings-panel {
-    overflow: visible;
-    height: auto;
-    flex: 1;
-    min-height: 0;
-  }
-  .settings-section-title {
-    font-size: 0.9375rem;
-    flex-wrap: wrap;
-    gap: 0.5rem;
-  }
-  /* Add Model button: full width on mobile */
-  .btn-settings-add {
-    width: 100%;
-    justify-content: center;
-  }
-  /* Model card: tighter, stack actions */
-  .model-card {
-    padding: 0.75rem 0.875rem;
-    gap: 0.625rem;
-  }
-  .model-card-header {
-    flex-wrap: wrap;
-    gap: 0.5rem;
-  }
-  .model-card-actions {
-    flex-wrap: wrap;
-  }
-
-  /* ── Channels page ── */
-  #channels-panel {
-    overflow: visible;
-    height: auto;
-    flex: 1;
-    min-height: 0;
-  }
-  #channels-body {
-    padding: 1rem 1rem 5rem;
-    gap: 1rem;
-    overflow-y: auto;
-    -webkit-overflow-scrolling: touch;
-    overscroll-behavior: contain;
-  }
-  /* Channel card: tighter padding, stack footer buttons */
-  .channel-card {
-    padding: 0.875rem 1rem;
-    gap: 0.75rem;
-  }
-
-  /* ── MCP page ── */
-  #mcp-panel {
-    overflow: visible;
-    height: auto;
-    flex: 1;
-    min-height: 0;
-  }
-  #mcp-body {
-    padding: 1rem 1rem 5rem;
-    gap: 1rem;
-    overflow-y: auto;
-    -webkit-overflow-scrolling: touch;
-    overscroll-behavior: contain;
-  }
-  .channel-card-footer {
-    flex-wrap: wrap;
-    gap: 0.5rem;
-  }
-  .channel-card-actions {
-    flex-wrap: wrap;
-    gap: 0.375rem;
-  }
-
-  /* ── Profile / My Data page ── */
-  #profile-body            { padding: 1rem 0.875rem; }
-  .profile-tab             { padding: 0.5625rem 0.75rem; font-size: 0.75rem; }
-  .profile-section-head    { flex-wrap: wrap; }
-  .profile-path            { max-width: 100%; }
-  .memory-card-head        { flex-wrap: wrap; }
-  .memory-card-actions     { margin-top: 0.375rem; flex-wrap: wrap; }
-  .btn-memory-curate span,
-  .btn-memory-delete span  { display: none; }  /* icon-only on narrow screens */
-
-  /* ── File Recall page ── */
-  .trash-toolbar {
-    flex-wrap: wrap;
-    gap: 0.5rem;
-  }
-  .trash-summary {
-    width: 100%;
-  }
-  .trash-actions {
-    flex-wrap: wrap;
-    margin-left: 0;
-    gap: 0.375rem;
-  }
-  .btn-trash-action {
-    white-space: nowrap;
-    flex-shrink: 0;
-  }
-
-  /* Latency signal popup (tap to show on mobile, replaces native title tooltip) */
-  .sib-signal-popup {
-    position: fixed;
-    z-index: 500;
-    background: var(--color-bg-secondary);
-    border: 1px solid var(--color-border-primary);
-    border-radius: 6px;
-    padding: 0.5rem 0.75rem;
-    font-size: 0.75rem;
-    color: var(--color-text-primary);
-    white-space: pre-line;
-    box-shadow: 0 4px 16px rgba(0,0,0,0.18);
-    max-width: 80vw;
-    pointer-events: none;
-  }
-  /* Make signal icon look tappable on mobile */
-  .sib-signal-clickable {
-    cursor: pointer;
-  }
-}
 
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -9747,6 +9435,16 @@ body.setup-mode[data-theme="dark"] {
   display: flex;
   flex-direction: column;
   gap: 1.25rem;
+  position: relative;
+}
+.billing-skel-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  background: var(--color-bg-secondary);
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
 }
 .billing-top-bar {
   display: flex;
@@ -9843,6 +9541,9 @@ body.setup-mode[data-theme="dark"] {
   color: #ef4444;
 }
 .billing-share-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
   padding: 0.4375rem 0.75rem;
   border: 1px solid var(--color-border-primary);
   border-radius: 8px;
@@ -10203,9 +9904,6 @@ body.setup-mode[data-theme="dark"] {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
   gap: 1rem;
-}
-@media (max-width: 768px) {
-  .billing-bottom-grid { grid-template-columns: 1fr; }
 }
 .billing-section {
   background: var(--color-bg-secondary);
@@ -10623,14 +10321,6 @@ body.setup-mode[data-theme="dark"] {
   background: rgba(221, 51, 51, 0.06);
 }
 
-@media (max-width: 768px) {
-  .mcp-cta {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 0.75rem;
-  }
-  .btn-mcp-cta { justify-content: center; }
-}
 
 /* Exchange Rate Settings */
 .settings-exchange-rate {
@@ -10726,6 +10416,8 @@ body.setup-mode[data-theme="dark"] {
   border: 1px solid var(--color-border-primary);
   border-radius: 12px;
   padding: 1.25rem;
+  overflow: hidden;
+  min-width: 0;
 }
 .billing-sessions-section h3 {
   font-size: 0.9375rem;
@@ -10741,9 +10433,9 @@ body.setup-mode[data-theme="dark"] {
 }
 .billing-sessions-header {
   display: grid;
-  grid-template-columns: 36px 1.5fr 0.8fr 0.8fr 0.8fr 0.8fr 0.8fr 1fr;
+  grid-template-columns: 36px 1.5fr 0.8fr 0.8fr 0.8fr 0.8fr 0.9fr 1.4fr;
   gap: 0.5rem;
-  padding: 0.75rem 1rem;
+  padding: 0.75rem 0rem;
   background: var(--color-bg-tertiary);
   border-radius: 8px;
   font-size: 0.75rem;
@@ -10760,12 +10452,16 @@ body.setup-mode[data-theme="dark"] {
 }
 .billing-session-row {
   display: grid;
-  grid-template-columns: 36px 1.5fr 0.8fr 0.8fr 0.8fr 0.8fr 0.8fr 1fr;
+  grid-template-columns: 36px 1.5fr 0.8fr 0.8fr 0.8fr 0.8fr 0.9fr 1.4fr;
   gap: 0.5rem;
-  padding: 0.75rem 1rem;
+  padding: 0.75rem 0rem;
   border-radius: 8px;
   transition: background 0.15s;
   align-items: center;
+  border-bottom: 1px solid color-mix(in srgb, var(--color-border-primary) 50%, transparent);
+}
+.billing-session-row:last-child {
+  border-bottom: none;
 }
 .billing-session-row:hover {
   background: var(--color-bg-tertiary);
@@ -10830,36 +10526,11 @@ body.setup-mode[data-theme="dark"] {
 .billing-cell-time {
   font-size: 0.75rem;
   color: var(--color-text-secondary);
+  text-align: right;
 }
-@media (max-width: 768px) {
-  .billing-sessions-header {
-    display: none;
-  }
-  .billing-session-row {
-    grid-template-columns: 1fr 1fr;
-    gap: 0.5rem;
-    padding: 1rem;
-  }
-  .billing-cell-index {
-    display: none;
-  }
-  .billing-cell-session {
-    grid-column: 1 / -1;
-  }
-  .billing-cell-number {
-    text-align: left;
-  }
-  .billing-cell-number::before {
-    font-size: 0.625rem;
-    color: var(--color-text-secondary);
-    text-transform: uppercase;
-    display: block;
-  }
-  .billing-cell-time {
-    grid-column: 1 / -1;
-    text-align: right;
-  }
-}
+/* Mobile-only summary row — hidden on desktop */
+.billing-session-numbers-row { display: none; }
+
 
 /* ════ Media generation (Settings → Models tab) ════ */
 .settings-section-desc {
@@ -10925,6 +10596,7 @@ body.setup-mode[data-theme="dark"] {
   cursor: not-allowed;
 }
 .media-row-status {
+  flex: 1;
   margin-left: auto;
   font-size: 0.75rem;
   color: var(--color-text-secondary);
@@ -11382,3 +11054,402 @@ body.setup-mode[data-theme="dark"] {
 .share-btn-secondary:hover { background: var(--color-bg-hover); }
 
 #share-toggle-header svg { display: block; }
+
+@media (max-width: 768px) {
+  /* Sidebar becomes a fixed drawer on top of content */
+  #sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    height: 100%;
+    z-index: 200;
+    box-shadow: 4px 0 24px rgba(0,0,0,0.18);
+    transition: transform 0.3s ease, background-color 0.3s ease;
+    transform: translateX(0);
+    margin-left: 0 !important;
+  }
+  /* active session: always show ⋯ button (no hover on touch) */
+  .session-item.active .session-actions-btn { display: flex; }
+  #sidebar.hidden {
+    transform: translateX(-100%);
+    margin-left: 0 !important;
+  }
+
+  /* Overlay backdrop */
+  #sidebar-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    z-index: 199;
+    background: rgba(0,0,0,0.4);
+  }
+  #sidebar-overlay.active {
+    display: block;
+  }
+
+  /* Main takes full width since sidebar is no longer in flow */
+  #main {
+    width: 100%;
+    min-width: 0;
+    overflow: visible;
+  }
+
+  /* Tighten header padding */
+  #top-header {
+    padding: 0 0.75rem;
+  }
+
+  /* Hide brand name and divider on mobile, keep only the logo icon */
+  .header-logo,
+  #header-brand .header-logo-divider,
+  #header-brand.has-logo .header-logo-divider {
+    display: none;
+  }
+
+  /* Tighten right-side icon gap on mobile */
+  #header-right {
+    gap: 0.125rem;
+  }
+
+  /* Session info bar: single-line, no hover-expand, font smaller */
+  #session-info-bar {
+    padding: 0.1875rem 0.75rem;
+    font-size: 0.625rem;
+    overflow: hidden;
+    white-space: nowrap;
+    flex-wrap: nowrap;
+  }
+  /* Always show detail fields on mobile (no hover) */
+  #session-info-bar .sib-detail {
+    display: contents;
+  }
+  /* Hide less-important fields and their separators (element + sib-sep-after-element pattern) */
+  #sib-id,
+  .sib-sep-after-id,
+  #sib-dir,
+  .sib-sep-after-dir,
+  #sib-mode,
+  .sib-sep-after-mode,
+  #sib-reasoning-wrap,
+  .sib-sep-after-reasoning,
+  #sib-signal-wrap,
+  .sib-sep-after-signal {
+    display: none;
+  }
+  .sib-sep {
+    margin: 0 0.25rem;
+  }
+
+  /* Input bar: proportional spacing, touch-friendly */
+  #input-bar {
+    padding: 0.5rem 0.625rem;
+    gap: 0.25rem;
+  }
+
+  /* Attach & slash buttons: slightly smaller touch target */
+  #btn-attach {
+    padding: 0.25rem;
+  }
+  #btn-slash {
+    padding: 0.25rem 0.375rem;
+    font-size: 0.875rem;
+  }
+
+  /* Textarea: prevent iOS auto-zoom (must be ≥1rem) */
+  #user-input {
+    font-size: 1rem;
+    padding: 0.4375rem 0.625rem;
+  }
+
+  /* Send button: bigger tap target */
+  #btn-send, #btn-interrupt {
+    padding: 0.4375rem 0.875rem;
+    font-size: 0.875rem;
+  }
+
+  /* Welcome page: vertically centered but shifted up, add horizontal padding */
+  #welcome {
+    justify-content: center;
+    padding-bottom: 30vh;
+    padding-left: 1.5rem;
+    padding-right: 1.5rem;
+  }
+
+  /* ── Tasks page ── */
+  #task-detail-panel {
+    overflow: visible;
+    height: auto;
+    flex: 1;
+    min-height: 0;
+  }
+  #task-detail-body {
+    padding: 1rem 1rem 5rem;
+    gap: 0.75rem;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+    flex: 1;
+    min-height: 0;
+  }
+  /* btn-create-task: move below title instead of absolute top-right */
+  .task-page-header {
+    flex-direction: column;
+    padding-right: 0;
+  }
+  .btn-create-task {
+    position: static;
+    align-self: flex-start;
+    margin-top: 0.25rem;
+  }
+  /* Task cards: stack info and actions vertically */
+  .task-card-main {
+    flex-wrap: wrap;
+  }
+  .task-card-actions {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+  /* Table: let it scroll horizontally, keep columns readable */
+  #task-list-table {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* ── Skills page ── */
+  #skills-panel {
+    overflow: visible;
+    height: auto;
+    flex: 1;
+    min-height: 0;
+  }
+  #skills-body {
+    padding: 1rem 1rem 5rem;
+    gap: 0.75rem;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+    flex: 1;
+    min-height: 0;
+  }
+  /* action buttons: move below title, inline row */
+  .skills-page-header {
+    padding-right: 0;
+  }
+  .skill-action-btns {
+    position: static;
+    margin-top: 0.5rem;
+  }
+  /* Show system skills toggle: give right margin */
+  #label-show-system {
+    margin-right: 0.5rem;
+  }
+  /* Skills tab bar: stack tabs and controls vertically */
+  #skills-tabs {
+    flex-direction: row;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  .skills-tabs-left {
+    display: flex;
+    flex-shrink: 0;
+  }
+  .skills-tab {
+    padding: 0.5rem 0.5rem;
+  }
+  .skills-tabs-controls {
+    padding-right: 0;
+    flex-shrink: 0;
+    margin-bottom: 0.25rem;
+  }
+
+  /* ── Settings page ── */
+  #settings-header {
+    padding: 0.75rem 1rem;
+    font-size: 0.9375rem;
+  }
+  #settings-body {
+    padding: 1rem 1rem 5rem;
+    gap: 1.5rem;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+  }
+  #settings-panel {
+    overflow: visible;
+    height: auto;
+    flex: 1;
+    min-height: 0;
+  }
+  .settings-section-title {
+    font-size: 0.9375rem;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+  /* Add Model button: full width on mobile */
+  .btn-settings-add {
+    width: 100%;
+    justify-content: center;
+  }
+  /* Model card: tighter, stack actions */
+  .model-card {
+    padding: 0.75rem 0.875rem;
+    gap: 0.625rem;
+  }
+  .model-card-header {
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+  .model-card-actions {
+    flex-wrap: wrap;
+  }
+
+  /* ── Channels page ── */
+  #channels-panel {
+    overflow: visible;
+    height: auto;
+    flex: 1;
+    min-height: 0;
+  }
+  #channels-body {
+    padding: 1rem 1rem 5rem;
+    gap: 1rem;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+  }
+  /* Channel card: tighter padding, stack footer buttons */
+  .channel-card {
+    padding: 0.875rem 1rem;
+    gap: 0.75rem;
+  }
+
+  /* ── Billing / Trash / Creator pages ── */
+  #billing-body { padding: 1rem 1rem 5rem; }
+  #trash-body   { padding: 1rem 1rem 5rem; }
+  #creator-body { padding: 1rem 1rem 5rem; }
+
+  /* ── MCP page ── */
+  #mcp-panel {
+    overflow: visible;
+    height: auto;
+    flex: 1;
+    min-height: 0;
+  }
+  #mcp-body {
+    padding: 1rem 1rem 5rem;
+    gap: 1rem;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+  }
+  .channel-card-footer {
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+  .channel-card-actions {
+    flex-wrap: wrap;
+    gap: 0.375rem;
+  }
+
+  /* ── Profile / My Data page ── */
+  #profile-body            { padding: 1rem 0.875rem; }
+  .profile-tab             { padding: 0.5625rem 0.75rem; font-size: 0.75rem; }
+  .profile-section-head    { flex-wrap: wrap; }
+  .profile-path            { max-width: 100%; }
+  .memory-card-head        { flex-wrap: wrap; }
+  .memory-card-actions     { margin-top: 0.375rem; flex-wrap: wrap; }
+  .btn-memory-curate span,
+  .btn-memory-delete span  { display: none; }  /* icon-only on narrow screens */
+
+  /* ── File Recall page ── */
+  .trash-toolbar {
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+  .trash-summary {
+    width: 100%;
+  }
+  .trash-actions {
+    flex-wrap: wrap;
+    margin-left: 0;
+    gap: 0.375rem;
+  }
+  .btn-trash-action {
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  /* Latency signal popup (tap to show on mobile, replaces native title tooltip) */
+  .sib-signal-popup {
+    position: fixed;
+    z-index: 500;
+    background: var(--color-bg-secondary);
+    border: 1px solid var(--color-border-primary);
+    border-radius: 6px;
+    padding: 0.5rem 0.75rem;
+    font-size: 0.75rem;
+    color: var(--color-text-primary);
+    white-space: pre-line;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.18);
+    max-width: 80vw;
+    pointer-events: none;
+  }
+  /* Make signal icon look tappable on mobile */
+  .sib-signal-clickable {
+    cursor: pointer;
+  }
+
+  .billing-bottom-grid { grid-template-columns: 1fr; }
+  .billing-section,
+  .billing-sessions-section { padding: 0.875rem; }
+  .billing-stats-row { gap: 0.5rem; }
+  .billing-stat-card { padding: 0.75rem; }
+  .mcp-cta {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.75rem;
+  }
+  .btn-mcp-cta { justify-content: center; }
+  .billing-sessions-header {
+    display: none;
+  }
+  .billing-session-row {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    padding: 0.75rem 1rem;
+    border: 1px solid var(--color-border-primary);
+    border-radius: 8px;
+    background: var(--color-bg-secondary);
+    min-width: 0;
+    overflow: hidden;
+  }
+  .billing-cell-session {
+    min-width: 0;
+    width: 100%;
+  }
+  .billing-cell-index,
+  .billing-session-row > .billing-cell-number,
+  .billing-session-row > .billing-cell-cost,
+  .billing-session-row > .billing-cell-time {
+    display: none;
+  }
+  .billing-session-numbers-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem 1rem;
+    font-size: 0.8125rem;
+    font-family: var(--font-mono);
+    color: var(--color-text-secondary);
+    margin-top: 0.125rem;
+  }
+  .billing-session-numbers-row .billing-cell-cost {
+    font-weight: 600;
+    color: var(--color-text-primary);
+  }
+  .billing-session-numbers-row .billing-cell-time {
+    flex: 1 0 100%;
+    font-size: 0.7rem;
+    color: var(--color-text-tertiary);
+  }
+}
