@@ -1140,7 +1140,8 @@ body {
   align-items: center;
   gap: 0.25rem;
   color: var(--color-text-primary);
-  font-weight: 500;
+  font-size: 0.8125rem;
+  font-weight: 400;
   transition: color var(--transition-fast), font-weight var(--transition-fast);
 }
 .session-item .session-name .session-name__text {
@@ -1160,7 +1161,7 @@ body {
 /* Active: soft brand tint (10% of brand color) + bold text + left rail.
    Using color-mix makes this safe for any theme_color injected via brand.yml. */
 .session-item.active {
-  background: var(--color-bg-hover);
+  background: var(--color-accent-soft);
 }
 /* Left indicator bar (0.1875rem) — brand color, the ONE place it shows up big */
 .session-item.active::before {
