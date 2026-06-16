@@ -29,9 +29,54 @@ module Clacky
         raise NotImplementedError, "#{self.class.name} must implement #generate_image"
       end
 
+      # @return [Hash] either video_success_response(...) or
+      #   video_error_response(...)
+      def generate_video(prompt:, aspect_ratio: "landscape", duration_seconds: nil, output_dir: nil, **_kwargs)
+        video_error_response(
+          error: "Video generation is not supported by #{self.class.name.split("::").last}. Use the openclacky gateway with a video model such as or-veo-3-1.",
+          error_type: "not_implemented",
+          provider: "",
+          prompt: prompt,
+          aspect_ratio: aspect_ratio
+        )
+      end
+
+      # @return [Hash] either audio_success_response(...) or audio_error_response(...)
+      def generate_speech(input:, voice: nil, output_dir: nil, **_kwargs)
+        audio_error_response(
+          error: "Speech synthesis is not supported by #{self.class.name.split("::").last}. Use the openclacky gateway with a TTS model such as or-tts-gemini-2-5-flash.",
+          error_type: "not_implemented",
+          provider: "",
+          input: input
+        )
+      end
+
       # Persist a base64-encoded image under <output_dir>/assets/generated/.
       # Returns the absolute path on disk.
       private def save_b64_image(b64_data, output_dir:, prefix: "img", extension: "png")
+        target_dir = File.join(output_dir, "assets", "generated")
+        FileUtils.mkdir_p(target_dir)
+        ts    = Time.now.strftime("%Y%m%d_%H%M%S")
+        short = SecureRandom.hex(4)
+        path  = File.join(target_dir, "#{prefix}_#{ts}_#{short}.#{extension}")
+        File.binwrite(path, Base64.decode64(b64_data))
+        path
+      end
+
+      # Persist a base64-encoded video under <output_dir>/assets/generated/.
+      # Returns the absolute path on disk. Mirrors #save_b64_image; the only
+      # difference is the default extension (mp4).
+      private def save_b64_video(b64_data, output_dir:, prefix: "vid", extension: "mp4")
+        target_dir = File.join(output_dir, "assets", "generated")
+        FileUtils.mkdir_p(target_dir)
+        ts    = Time.now.strftime("%Y%m%d_%H%M%S")
+        short = SecureRandom.hex(4)
+        path  = File.join(target_dir, "#{prefix}_#{ts}_#{short}.#{extension}")
+        File.binwrite(path, Base64.decode64(b64_data))
+        path
+      end
+
+      private def save_b64_audio(b64_data, output_dir:, prefix: "tts", extension: "wav")
         target_dir = File.join(output_dir, "assets", "generated")
         FileUtils.mkdir_p(target_dir)
         ts    = Time.now.strftime("%Y%m%d_%H%M%S")
@@ -93,6 +138,54 @@ module Clacky
           "prompt"       => prompt,
           "aspect_ratio" => aspect_ratio,
           "provider"     => provider
+        }
+      end
+
+      private def video_success_response(video:, prompt:, aspect_ratio:, provider:, extra: {})
+        {
+          "success"      => true,
+          "video"        => video,
+          "model"        => @model,
+          "prompt"       => prompt,
+          "aspect_ratio" => aspect_ratio,
+          "provider"     => provider
+        }.merge(extra)
+      end
+
+      private def video_error_response(error:, error_type: "provider_error", provider: "", prompt: "", aspect_ratio: "landscape")
+        {
+          "success"      => false,
+          "video"        => nil,
+          "error"        => error,
+          "error_type"   => error_type,
+          "model"        => @model,
+          "prompt"       => prompt,
+          "aspect_ratio" => aspect_ratio,
+          "provider"     => provider
+        }
+      end
+
+      private def audio_success_response(audio:, input:, voice:, provider:, extra: {})
+        {
+          "success"  => true,
+          "audio"    => audio,
+          "model"    => @model,
+          "input"    => input,
+          "voice"    => voice,
+          "provider" => provider
+        }.merge(extra)
+      end
+
+      private def audio_error_response(error:, error_type: "provider_error", provider: "", input: "", voice: "")
+        {
+          "success"    => false,
+          "audio"      => nil,
+          "error"      => error,
+          "error_type" => error_type,
+          "model"      => @model,
+          "input"      => input,
+          "voice"      => voice,
+          "provider"   => provider
         }
       end
     end

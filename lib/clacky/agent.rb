@@ -947,8 +947,11 @@ module Clacky
           end
         end
 
-        # Special handling for request_user_feedback: don't show as tool call
-        unless call[:name] == "request_user_feedback"
+        # Special handling for request_user_feedback
+        if call[:name] == "request_user_feedback"
+          # In auto_approve mode, give user time to see and cancel before auto-answering
+          auto_approve_countdown(seconds: 10) if @config.permission_mode == :auto_approve
+        else
           @ui&.show_tool_call(call[:name], redact_tool_args(call[:arguments]))
         end
 

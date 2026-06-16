@@ -80,4 +80,84 @@ RSpec.describe Clacky::Media::Generator do
       end
     end
   end
+
+  describe "#generate_video" do
+    context "when no type=video model is configured" do
+      it "returns a not_configured error response" do
+        config = Clacky::AgentConfig.new(models: [
+          { "model" => "some-chat-model", "type" => "default",
+            "base_url" => "https://example.invalid/v1", "api_key" => "k" }
+        ])
+        result = described_class.new(config).generate_video(prompt: "a clip")
+
+        expect(result["success"]).to be false
+        expect(result["error_type"]).to eq("not_configured")
+        expect(result["error"]).to include("type=video")
+      end
+    end
+
+    context "when video model is configured" do
+      it "delegates to OpenAICompat with the correct entry" do
+        video_entry = {
+          "model"    => "or-veo-3-1",
+          "type"     => "video",
+          "base_url" => "https://api.openclacky.com",
+          "api_key"  => "clacky-test"
+        }
+        config = Clacky::AgentConfig.new(models: [video_entry])
+
+        fake_provider = instance_double(Clacky::Media::OpenAICompat)
+        expect(Clacky::Media::OpenAICompat).to receive(:new).and_return(fake_provider)
+        expect(fake_provider).to receive(:generate_video).with(
+          prompt: "a clip", aspect_ratio: "landscape", duration_seconds: 8,
+          output_dir: "/tmp/work", image: nil
+        ).and_return({ "success" => true, "video" => "/tmp/work/assets/generated/vid.mp4" })
+
+        result = described_class.new(config).generate_video(
+          prompt: "a clip", aspect_ratio: "landscape", duration_seconds: 8,
+          output_dir: "/tmp/work", image: nil
+        )
+        expect(result["success"]).to be true
+      end
+    end
+  end
+
+  describe "#generate_speech" do
+    context "when no type=audio model is configured" do
+      it "returns a not_configured error response" do
+        config = Clacky::AgentConfig.new(models: [
+          { "model" => "some-chat-model", "type" => "default",
+            "base_url" => "https://example.invalid/v1", "api_key" => "k" }
+        ])
+        result = described_class.new(config).generate_speech(input: "hello")
+
+        expect(result["success"]).to be false
+        expect(result["error_type"]).to eq("not_configured")
+        expect(result["error"]).to include("type=audio")
+      end
+    end
+
+    context "when audio model is configured" do
+      it "delegates to OpenAICompat with the correct entry" do
+        audio_entry = {
+          "model"    => "or-tts-gemini-2-5-flash",
+          "type"     => "audio",
+          "base_url" => "https://api.openclacky.com",
+          "api_key"  => "clacky-test"
+        }
+        config = Clacky::AgentConfig.new(models: [audio_entry])
+
+        fake_provider = instance_double(Clacky::Media::OpenAICompat)
+        expect(Clacky::Media::OpenAICompat).to receive(:new).and_return(fake_provider)
+        expect(fake_provider).to receive(:generate_speech).with(
+          input: "hello", voice: "Kore", output_dir: "/tmp/work"
+        ).and_return({ "success" => true, "audio" => "/tmp/work/assets/generated/tts.wav" })
+
+        result = described_class.new(config).generate_speech(
+          input: "hello", voice: "Kore", output_dir: "/tmp/work"
+        )
+        expect(result["success"]).to be true
+      end
+    end
+  end
 end

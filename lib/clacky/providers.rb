@@ -60,6 +60,34 @@ module Clacky
           "or-gpt-image-2"             => "GPT Image 2"
         },
         "default_image_model" => "or-gpt-image-2",
+        # Video generation models served by the openclacky gateway, which
+        # routes them to Vertex AI Veo (async predictLongRunning under the
+        # hood; the gateway hides the polling and returns the MP4 inline).
+        "video_models" => [
+          "or-veo-3-1",
+          "or-veo-3-1-fast",
+          "or-veo-3",
+          "or-veo-3-fast"
+        ],
+        "video_model_aliases" => {
+          "or-veo-3-1"      => "Veo 3.1",
+          "or-veo-3-1-fast" => "Veo 3.1 Fast",
+          "or-veo-3"        => "Veo 3",
+          "or-veo-3-fast"   => "Veo 3 Fast"
+        },
+        "default_video_model" => "or-veo-3-1",
+        # Text-to-speech models served by the openclacky gateway, which
+        # routes them to Vertex AI Gemini 2.5 (responseModalities=["AUDIO"]).
+        # The gateway returns WAV inline as base64.
+        "audio_models" => [
+          "or-tts-gemini-2-5-flash",
+          "or-tts-gemini-2-5-pro"
+        ],
+        "audio_model_aliases" => {
+          "or-tts-gemini-2-5-flash" => "Gemini 2.5 Flash TTS",
+          "or-tts-gemini-2-5-pro"   => "Gemini 2.5 Pro TTS"
+        },
+        "default_audio_model" => "or-tts-gemini-2-5-flash",
         # Default OCR sidecar — used when the primary model is text-only.
         # Candidates are derived from the provider's vision-capable models;
         # this just picks the cheap+fast default to surface in "auto" mode.

@@ -44,6 +44,16 @@ module Clacky
         @agent_config.find_model_by_type("image")
       end
 
+      # @return [Hash, nil] the type=video model entry, or nil if not configured
+      def video_model_entry
+        @agent_config.find_model_by_type("video")
+      end
+
+      # @return [Hash, nil] the type=audio model entry, or nil if not configured
+      def audio_model_entry
+        @agent_config.find_model_by_type("audio")
+      end
+
       def generate_image(prompt:, aspect_ratio: "landscape", output_dir: nil, **kwargs)
         entry = image_model_entry
         if entry.nil?
@@ -62,6 +72,53 @@ module Clacky
         provider.generate_image(
           prompt: prompt,
           aspect_ratio: aspect_ratio,
+          output_dir: output_dir,
+          **kwargs
+        )
+      end
+
+      def generate_video(prompt:, aspect_ratio: "landscape", duration_seconds: nil, output_dir: nil, **kwargs)
+        entry = video_model_entry
+        if entry.nil?
+          return {
+            "success"    => false,
+            "video"      => nil,
+            "error"      => "No video model configured. Add a model with type=video in settings.",
+            "error_type" => "not_configured",
+            "provider"   => "",
+            "model"      => "",
+            "prompt"     => prompt
+          }
+        end
+
+        provider = build_provider_for(entry)
+        provider.generate_video(
+          prompt: prompt,
+          aspect_ratio: aspect_ratio,
+          duration_seconds: duration_seconds,
+          output_dir: output_dir,
+          **kwargs
+        )
+      end
+
+      def generate_speech(input:, voice: nil, output_dir: nil, **kwargs)
+        entry = audio_model_entry
+        if entry.nil?
+          return {
+            "success"    => false,
+            "audio"      => nil,
+            "error"      => "No audio model configured. Add a model with type=audio in settings.",
+            "error_type" => "not_configured",
+            "provider"   => "",
+            "model"      => "",
+            "input"      => input
+          }
+        end
+
+        provider = build_provider_for(entry)
+        provider.generate_speech(
+          input: input,
+          voice: voice,
           output_dir: output_dir,
           **kwargs
         )

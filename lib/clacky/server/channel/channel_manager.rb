@@ -1,7 +1,6 @@
 # frozen_string_literal: true
 
 require_relative "channel_ui_controller"
-require_relative "group_message_buffer"
 
 module Clacky
   module Channel
@@ -28,14 +27,11 @@ module Clacky
       # @param run_agent_task     [Proc] (session_id, agent, &task) — from HttpServer
       # @param interrupt_session  [Proc] (session_id) — from HttpServer
       # @param channel_config     [Clacky::ChannelConfig]
-      # @param binding_mode       [:user | :chat | :chat_user] how to map IM identities to sessions.
-      #   :chat_user (default) — one session per (chat, user) pair. Most natural:
-      #                          private chat = that user's session; in a group each
-      #                          user has their own session; the same user across
-      #                          different groups keeps those contexts separate.
-      #   :chat                — one session per chat (all users in a group share it).
-      #   :user                — one session per user (merges DMs and all groups).
-      def initialize(session_registry:, session_builder:, run_agent_task:, interrupt_session:, channel_config:, binding_mode: :chat_user)
+      # @param binding_mode       [:chat | :chat_user | :user] how to map IM identities to sessions.
+      #   :chat (default)      — one session per chat (all users in a chat share it).
+      #   :chat_user           — one session per (chat, user) pair.
+      #   :user                — one session per user (merges all chats).
+      def initialize(session_registry:, session_builder:, run_agent_task:, interrupt_session:, channel_config:, binding_mode: :chat)
         @registry          = session_registry
         @session_builder   = session_builder
         @run_agent_task    = run_agent_task
@@ -46,8 +42,7 @@ module Clacky
         @adapter_threads   = []
         @running           = false
         @mutex             = Mutex.new
-        @session_counters  = Hash.new(0)  # platform => count, for short session names
-        @group_buffer      = GroupMessageBuffer.new
+        @session_counters  = Hash.new(0)
       end
 
       # Start all enabled adapters in background threads. Non-blocking.
@@ -80,15 +75,6 @@ module Clacky
       # @return [Array<Symbol>] platforms currently running
       def running_platforms
         @mutex.synchronize { @adapters.map(&:platform_id) }
-      end
-
-      # Return all buffered group chat messages for a given chat.
-      # @param chat_id [String]
-      # @return [Array<Hash>] each entry has :user_id, :user_name, :text
-      def group_history(chat_id)
-        @group_buffer.peek(chat_id).map do |e|
-          { user_id: e.user_id, user_name: e.user_name, text: e.text }
-        end
       end
 
       # Proactively send a message to a user on the given platform.
@@ -244,7 +230,6 @@ module Clacky
 
       def route_message(adapter, event)
         if event[:observe_only]
-          @group_buffer.push(event[:chat_id], user_id: event[:user_id], user_name: event[:user_name], text: event[:text].to_s)
           return
         end
 
@@ -320,7 +305,7 @@ module Clacky
         # Prepend buffered group history so the agent knows what was discussed
         # before it was @-mentioned. Buffer is cleared atomically on take.
         # WebUI always receives the raw user text — context is agent-only.
-        prompt = build_prompt_with_context(event[:chat_id], text)
+        prompt = build_prompt_with_context(event, text)
 
         # Start typing keepalive BEFORE sending any message.
         # sendmessage cancels the typing indicator in WeChat protocol,
@@ -739,7 +724,7 @@ module Clacky
         case @binding_mode
         when :chat      then "#{platform}:chat:#{event[:chat_id]}"
         when :user      then "#{platform}:user:#{event[:user_id]}"
-        else # :chat_user (default)
+        else # :chat_user
           "#{platform}:chat:#{event[:chat_id]}:user:#{event[:user_id]}"
         end
       end
@@ -751,17 +736,16 @@ module Clacky
         case @binding_mode
         when :chat      then "#{platform}:chat:#{chat_id}"
         when :user      then "#{platform}:user:#{user_id}"
-        else # :chat_user (default)
+        else # :chat_user
           "#{platform}:chat:#{chat_id}:user:#{user_id}"
         end
       end
 
       private def extract_channel_info(event)
         {
-          platform:  event[:platform],
-          user_id:   event[:user_id],
-          user_name: event[:user_name],
-          chat_id:   event[:chat_id]
+          platform: event[:platform],
+          user_id:  event[:user_id],
+          chat_id:  event[:chat_id]
         }
       end
 
@@ -823,23 +807,20 @@ module Clacky
         Clacky::Logger.warn("[ChannelManager] Error stopping #{adapter.platform_id}: #{e.message}")
       end
 
-      # Prepend recent group chat history to the user's message so the agent
-      # has context for questions like "what were we just discussing?".
-      # Returns the original text unchanged when there is no buffered history.
-      private def build_prompt_with_context(chat_id, text)
-        entries = @group_buffer.peek(chat_id, limit: GroupMessageBuffer::PROMPT_LIMIT)
-        return text if entries.empty?
+      # Prepend sender identity and optional group chat history to the user's message.
+      # Returns the original text unchanged when there is no extra context.
+      private def build_prompt_with_context(event, text)
+        user_id = event[:user_id].to_s
+        sender  = user_id
 
-        total = @group_buffer.peek(chat_id).size
-        lines = entries.map { |e| "#{e.user_name || e.user_id}: #{e.text}" }.join("\n")
+        history = event[:group_history]
+        if history.nil? || history.empty?
+          return "[Sender: #{sender}]\n#{text}"
+        end
 
-        partial = total > entries.size
-        header = partial ? "[Group chat partial history (latest #{entries.size} of #{total}, max buffer #{GroupMessageBuffer::MAX_MESSAGES} messages)]" : "[Group chat history (#{total} messages, max buffer #{GroupMessageBuffer::MAX_MESSAGES})]"
-        footer = if partial
-                   "[INSTRUCTION: If the above partial history is insufficient to answer, MUST web_fetch http://#{ENV["CLACKY_SERVER_HOST"]}:#{ENV["CLACKY_SERVER_PORT"]}/api/channels/group_history/#{chat_id} for full context.]"
-                 end
-
-        [header, lines, footer, "---", text].compact.join("\n")
+        lines  = history.map { |e| "#{e[:user_id]}: #{e[:text]}" }.join("\n")
+        header = "[Group chat history (#{history.size} messages)]"
+        [header, lines, "---", "[Sender: #{sender}]", text].join("\n")
       end
     end
   end

@@ -1236,6 +1236,27 @@
           <button id="setup-device-cancel" class="setup-back-btn" data-i18n="onboard.device.cancel">Cancel</button>
         </div>
 
+        <!-- Success state: shown after approval, before launching onboard session -->
+        <div id="setup-device-success" style="display:none" class="setup-device-success">
+          <div class="setup-device-success-head">
+            <span class="setup-device-success-icon">✓</span>
+            <span class="setup-device-success-title" data-i18n="onboard.device.success.title">You're in!</span>
+          </div>
+          <p class="setup-device-success-lead" data-i18n="onboard.device.success.lead">Your account is connected. Here's what you got:</p>
+          <ul class="setup-device-success-points">
+            <li>
+              <strong data-i18n="onboard.device.success.credit.label">Free trial credit:</strong>
+              <span data-i18n="onboard.device.success.credit.value">$1.00 (one-time, on us)</span>
+            </li>
+            <li>
+              <strong data-i18n="onboard.device.success.model.label">Trial model:</strong>
+              <span id="setup-device-success-model">or-gemini-3-5-flash</span>
+            </li>
+            <li class="setup-device-success-note" data-i18n="onboard.device.success.note">During the trial only Gemini 3.5 Flash is available — top up any amount to unlock all frontier models on this same key.</li>
+          </ul>
+          <button id="setup-btn-device-continue" class="setup-submit-btn" data-i18n="onboard.device.success.btn">Start using Clacky →</button>
+        </div>
+
         <div id="setup-device-error" class="setup-test-result" style="min-height:0;"></div>
       </div>
 
@@ -1344,9 +1365,14 @@
 
       <div class="modal-field">
         <label class="modal-label" data-i18n="sessions.modal.directory">Working Directory</label>
-        <input id="new-session-directory" type="text" class="modal-input" 
-               data-i18n-placeholder="sessions.modal.directory.placeholder"
-               placeholder="~/workspace/my-project">
+        <div class="modal-input-row">
+          <input id="new-session-directory" type="text" class="modal-input" 
+                 data-i18n-placeholder="sessions.modal.directory.placeholder"
+                 placeholder="~/workspace/my-project">
+          <button id="new-session-browse-btn" type="button" class="modal-browse-btn" data-i18n-title="sessions.modal.directory.browse" title="Browse…" aria-label="Browse">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+          </button>
+        </div>
       </div>
 
       <div id="new-session-init-project-field" class="modal-field-checkbox" style="display:none">

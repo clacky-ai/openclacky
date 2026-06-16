@@ -31,6 +31,16 @@ module Clacky
           aspect_ratio: aspect_ratio
         )
       end
+
+      def generate_video(prompt:, aspect_ratio: "landscape", duration_seconds: nil, output_dir: nil, **_kwargs)
+        video_error_response(
+          error: "Direct Google AI Studio video generation is not supported. Use the openclacky gateway (base_url https://api.openclacky.com) with a video model such as or-veo-3-1.",
+          error_type: "not_implemented",
+          provider: "gemini-direct",
+          prompt: prompt,
+          aspect_ratio: aspect_ratio
+        )
+      end
     end
   end
 end

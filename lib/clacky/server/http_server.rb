@@ -423,6 +423,13 @@ module Clacky
           # with modalities:["image"]); end-to-end latency is commonly
           # 20-60s and can exceed 2 minutes for or-gpt-image-2 under load.
           300
+        elsif path == "/api/media/video"
+          # Video generation (Veo via the gateway) runs an async submit+poll
+          # cycle that routinely takes 1-3 minutes and can approach the
+          # gateway's 8-minute ceiling. Give the local handler headroom.
+          600
+        elsif path == "/api/media/audio/speech"
+          120
         elsif path.start_with?("/api/backup/download") || path == "/api/backup/run"
           # Building a tar.gz of ~/.clacky (with session history) can take a while.
           120
@@ -501,6 +508,8 @@ module Clacky
         when ["POST",   "/api/file-action"]       then api_file_action(req, res)
         when ["GET",    "/api/local-image"]       then api_serve_local_image(req, res)
         when ["POST",   "/api/media/image"]       then api_media_image(req, res)
+        when ["POST",   "/api/media/video"]       then api_media_video(req, res)
+        when ["POST",   "/api/media/audio/speech"] then api_media_audio_speech(req, res)
         when ["GET",    "/api/media/types"]       then api_media_types(res)
         when ["GET",    "/api/version"]           then api_get_version(res)
         when ["POST",   "/api/version/upgrade"]   then api_upgrade_version(req, res)
@@ -556,6 +565,8 @@ module Clacky
           elsif method == "GET" && path.match?(%r{^/api/sessions/[^/]+/skills$})
             session_id = path.sub("/api/sessions/", "").sub("/skills", "")
             api_session_skills(session_id, res)
+          elsif method == "GET" && path == "/api/dirs"
+            api_browse_dirs(req, res)
           elsif method == "GET" && path.match?(%r{^/api/sessions/[^/]+/files$})
             session_id = path.sub("/api/sessions/", "").sub("/files", "")
             api_session_files(session_id, req, res)
@@ -891,7 +902,11 @@ module Clacky
             base_url: data["base_url"],
             model:    data["default_model"]
           )
-          json_response(res, 200, { ok: true, status: "approved" })
+          json_response(res, 200, {
+            ok:            true,
+            status:        "approved",
+            default_model: data["default_model"]
+          })
         elsif status == "pending"
           json_response(res, 200, { ok: true, status: "pending" })
         else
@@ -1056,6 +1071,65 @@ module Clacky
         json_response(res, 500, { error: e.message })
       end
 
+      def api_media_video(req, res)
+        body = parse_json_body(req)
+        return json_response(res, 400, { error: "Invalid JSON" }) unless body
+
+        prompt = body["prompt"].to_s
+        if prompt.strip.empty?
+          return json_response(res, 422, { error: "prompt is required" })
+        end
+
+        aspect_ratio = body["aspect_ratio"].to_s
+        aspect_ratio = "landscape" if aspect_ratio.empty?
+        duration     = body["duration_seconds"]
+        image        = body["image"]
+        output_dir   = body["output_dir"].to_s
+        output_dir   = @agent_config.default_working_dir || Dir.pwd if output_dir.empty?
+
+        result = Clacky::Media::Generator.new(@agent_config).generate_video(
+          prompt: prompt,
+          aspect_ratio: aspect_ratio,
+          duration_seconds: duration,
+          output_dir: output_dir,
+          image: image
+        )
+        if result["success"]
+          log_media_usage(result, prompt: prompt)
+        end
+        status = result["success"] ? 200 : 422
+        json_response(res, status, result)
+      rescue StandardError => e
+        json_response(res, 500, { error: e.message })
+      end
+
+      def api_media_audio_speech(req, res)
+        body = parse_json_body(req)
+        return json_response(res, 400, { error: "Invalid JSON" }) unless body
+
+        input = body["input"].to_s
+        if input.strip.empty?
+          return json_response(res, 422, { error: "input is required" })
+        end
+
+        voice      = body["voice"]
+        output_dir = body["output_dir"].to_s
+        output_dir = @agent_config.default_working_dir || Dir.pwd if output_dir.empty?
+
+        result = Clacky::Media::Generator.new(@agent_config).generate_speech(
+          input: input,
+          voice: voice,
+          output_dir: output_dir
+        )
+        if result["success"]
+          log_media_usage(result, prompt: input)
+        end
+        status = result["success"] ? 200 : 422
+        json_response(res, status, result)
+      rescue StandardError => e
+        json_response(res, 500, { error: e.message })
+      end
+
       private def log_media_usage(result, prompt:)
         usage = result["usage"]
         cost  = result["cost_usd"]
@@ -1072,7 +1146,11 @@ module Clacky
         end
         parts << format("cost_usd=%.6f", cost.to_f) if cost
         parts << "prompt=#{prompt[0, 60].inspect}"
-        Clacky::Logger.info("[Media] image generated #{parts.join(" ")}")
+        kind = if result.key?("video") then "video"
+               elsif result.key?("audio") then "audio"
+               else "image"
+               end
+        Clacky::Logger.info("[Media] #{kind} generated #{parts.join(" ")}")
       end
 
       # GET /api/media/types
@@ -2856,19 +2934,38 @@ module Clacky
         # Convert it to the Linux-side path so File.exist? works.
         path = Utils::EnvironmentDetector.win_to_linux_path(path)
 
-        # Security: only serve image files
+        # Security: only serve media files (images + videos)
         ext = File.extname(path).downcase
-        unless Utils::FileProcessor::LOCAL_IMAGE_EXTENSIONS.include?(ext)
-          return json_response(res, 403, { error: "not an image file" })
+        unless Utils::FileProcessor::LOCAL_MEDIA_EXTENSIONS.include?(ext)
+          return json_response(res, 403, { error: "not a supported media file" })
         end
 
         return json_response(res, 404, { error: "file not found" }) unless File.exist?(path)
 
+        file_size = File.size(path)
         mime = Utils::FileProcessor::MIME_TYPES[ext] || "application/octet-stream"
-        res.status         = 200
-        res["Content-Type"] = mime
-        res["Cache-Control"] = "private, max-age=3600"
-        res.body = File.binread(path)
+
+        # Support HTTP Range requests for video seeking
+        range_header = req["Range"]
+        if range_header && range_header =~ /\Abytes=(\d*)-(\d*)\z/
+          start_byte = ($1.empty? ? 0 : $1.to_i)
+          end_byte   = ($2.empty? ? file_size - 1 : $2.to_i)
+          end_byte   = [end_byte, file_size - 1].min
+
+          res.status = 206
+          res["Content-Type"]  = mime
+          res["Content-Range"] = "bytes #{start_byte}-#{end_byte}/#{file_size}"
+          res["Accept-Ranges"] = "bytes"
+          res["Cache-Control"] = "private, max-age=3600"
+          res["Content-Length"] = (end_byte - start_byte + 1).to_s
+          IO.binread(path, end_byte - start_byte + 1, start_byte).then { |data| res.body = data }
+        else
+          res.status         = 200
+          res["Content-Type"] = mime
+          res["Accept-Ranges"] = "bytes"
+          res["Cache-Control"] = "private, max-age=3600"
+          res.body = File.binread(path)
+        end
       rescue => e
         json_response(res, 500, { error: e.message })
       end
@@ -3265,6 +3362,7 @@ module Clacky
         query = URI.decode_www_form(req.query_string.to_s).to_h
         rel = query["path"].to_s
         absolute_mode = query["absolute"] == "true"
+        show_hidden = query["show_hidden"] == "true"
 
         # Absolute mode: allow browsing outside working directory (e.g., root "/")
         if absolute_mode
@@ -3284,7 +3382,9 @@ module Clacky
         end
 
         return json_response(res, 404, { error: "Directory not found" }) unless Dir.exist?(target)
-        entries = Dir.children(target).reject { |name| IGNORED_FILE_ENTRIES.include?(name) }
+        entries = Dir.children(target).reject do |name|
+          IGNORED_FILE_ENTRIES.include?(name) || (!show_hidden && name.start_with?("."))
+        end
 
         items = entries.filter_map do |name|
           full = File.join(target, name)
@@ -3308,6 +3408,45 @@ module Clacky
       rescue StandardError => e
         json_response(res, 500, { error: e.message })
       end
+
+      # GET /api/dirs?path=<absolute-or-~-path>
+      # Session-independent directory browser used by the New Session modal,
+      # where no session (and thus no working_dir) exists yet. Always operates
+      # in absolute mode and lists directories only.
+      def api_browse_dirs(req, res)
+        query = URI.decode_www_form(req.query_string.to_s).to_h
+        rel   = query["path"].to_s.strip
+        show_hidden = query["show_hidden"] == "true"
+        rel   = Dir.home if rel.empty?
+        target = File.expand_path(rel.start_with?("~") ? rel.sub(/\A~/, Dir.home) : rel)
+
+        # The requested directory may not exist yet (e.g. the default
+        # ~/clacky_workspace before any session created it). Instead of 404,
+        # walk up to the nearest existing ancestor so the picker stays usable.
+        until Dir.exist?(target)
+          parent = File.dirname(target)
+          break if parent == target
+          target = parent
+        end
+        return json_response(res, 404, { error: "Directory not found" }) unless Dir.exist?(target)
+
+        entries = Dir.children(target).reject do |name|
+          IGNORED_FILE_ENTRIES.include?(name) || (!show_hidden && name.start_with?("."))
+        end
+        items = entries.filter_map do |name|
+          full = File.join(target, name)
+          next unless File.directory?(full) && File.exist?(full)
+          { name: name, path: full, type: "dir" }
+        rescue StandardError
+          nil
+        end
+        items.sort_by! { |it| it[:name].downcase }
+
+        json_response(res, 200, { root: target, path: target, parent: File.dirname(target), home: Dir.home, entries: items })
+      rescue StandardError => e
+        json_response(res, 500, { error: e.message })
+      end
+
       # Body: { enabled: true/false }
       def api_toggle_skill(name, req, res)
         body    = parse_json_body(req)
