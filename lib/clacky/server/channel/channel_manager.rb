@@ -819,11 +819,15 @@ module Clacky
 
           key = channel_key_from_info(info)
 
-          event = { platform: info[:platform], chat_id: info[:chat_id] }
-          ensure_channel_ui_subscribed(summary[:id], event)
-
+          # Arbitrate first: skip duplicate keys before attaching any channel_ui.
+          # Attaching channel_ui to a loser session would leave an orphan in its
+          # web_ui subscriber list (it cannot be detached later), which a subsequent
+          # /bind onto that session would then double up — causing duplicate broadcasts.
           next unless bound_keys.add?(key)
           bind_key_to_session(key, summary[:id])
+
+          event = { platform: info[:platform], chat_id: info[:chat_id] }
+          ensure_channel_ui_subscribed(summary[:id], event)
 
           Clacky::Logger.info("[ChannelManager] Restored channel binding #{key} -> session #{summary[:id][0, 8]}")
           restored_count += 1
