@@ -1421,7 +1421,7 @@ body {
   opacity: 1;
 }
 .task-item.active {
-  background: var(--color-bg-hover);
+  background: var(--color-accent-soft);
 }
 .task-item.active::before {
   content: "";
@@ -10108,13 +10108,13 @@ body.setup-mode[data-theme="dark"] {
   align-items: stretch;
 }
 .billing-cache-hit {
-  background: var(--color-accent-primary);
+  background: #3b82f6;
   width: 100%;
   border-radius: 2px 2px 0 0;
   transition: height 0.2s ease;
 }
 .billing-cache-miss {
-  background: color-mix(in srgb, var(--color-accent-primary) 25%, transparent);
+  background: #f59e0b;
   width: 100%;
   transition: height 0.2s ease;
 }
@@ -10135,9 +10135,9 @@ body.setup-mode[data-theme="dark"] {
 }
 
 /* Legend colors — indigo + emerald */
-.billing-legend-total     { background: var(--color-text-secondary); }
-.billing-legend-cache-hit { background: var(--color-accent-primary); }
-.billing-legend-cache-miss{ background: color-mix(in srgb, var(--color-accent-primary) 25%, transparent); }
+.billing-legend-total     { background: var(--color-accent-primary); }
+.billing-legend-cache-hit { background: #3b82f6; }
+.billing-legend-cache-miss{ background: #f59e0b; }
 .billing-legend-output    { background: #34d399; }
 
 /* ── Chart Tooltip ───────────────────────────────────────────────────── */
@@ -10186,9 +10186,9 @@ body.setup-mode[data-theme="dark"] {
   border-radius: 50%;
   flex-shrink: 0;
 }
-.tooltip-total     { background: var(--color-text-secondary); }
-.tooltip-cache-hit { background: var(--color-accent-primary); }
-.tooltip-cache-miss{ background: color-mix(in srgb, var(--color-accent-primary) 25%, transparent); }
+.tooltip-total     { background: var(--color-accent-primary); }
+.tooltip-cache-hit { background: #3b82f6; }
+.tooltip-cache-miss{ background: #f59e0b; }
 .tooltip-output    { background: #34d399; }.tooltip-label {
   flex: 1;
   color: var(--color-text-secondary);
@@ -10263,10 +10263,10 @@ body.setup-mode[data-theme="dark"] {
   background: #34d399;
 }
 .billing-bar-cache-read {
-  background: var(--color-accent-primary);
+  background: #3b82f6;
 }
 .billing-bar-cache-miss {
-  background: color-mix(in srgb, var(--color-accent-primary) 25%, transparent);
+  background: #f59e0b;
 }
 /* ── Model List ──────────────────────────────────────────────────────── */
 .billing-model-list {
@@ -10816,10 +10816,10 @@ body.setup-mode[data-theme="dark"] {
   color: var(--color-text-primary);
 }
 .billing-cell-hit {
-  color: var(--color-accent-primary);
+  color: #3b82f6;
 }
 .billing-cell-miss {
-  color: var(--color-text-secondary);
+  color: #f59e0b;
 }
 .billing-cell-cost {
   font-family: var(--font-mono);
