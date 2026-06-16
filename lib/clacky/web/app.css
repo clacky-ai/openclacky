@@ -600,7 +600,7 @@ body {
 }
 .sidebar-divider:first-child {
   margin-top: 0;
-  padding-top: 18px;
+  padding-top: 15px;
 }
 .sidebar-divider span {
   white-space: nowrap;
