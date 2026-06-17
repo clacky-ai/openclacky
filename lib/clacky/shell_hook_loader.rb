@@ -131,25 +131,14 @@ module Clacky
 
       out = +""
       status = nil
-      Open3.popen3(command) do |stdin, stdout, stderr, wait_thr|
-        stdout_reader = Thread.new { stdout.read.to_s }
-        stderr_reader = Thread.new { stderr.read.to_s }
-        begin
-          stdin.write(payload)
-        rescue Errno::EPIPE, IOError
-          # Hooks are allowed to ignore STDIN and exit immediately.  Keep
-          # collecting their stdout/status so exit 2 can still deny the tool.
-        ensure
-          stdin.close rescue nil
-        end
+      Open3.popen3(command) do |stdin, stdout, _stderr, wait_thr|
+        stdin.write(payload)
+        stdin.close
         if wait_thr.join(timeout)
+          out = stdout.read
           status = wait_thr.value
-          out = stdout_reader.value
-          stderr_reader.value
         else
           Process.kill("TERM", wait_thr.pid) rescue nil
-          stdout_reader.kill
-          stderr_reader.kill
           raise Timeout::Error
         end
       end
