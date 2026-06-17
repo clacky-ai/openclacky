@@ -57,7 +57,7 @@ module Clacky
         commands: COMMANDS
       )
       @shell.clacky_controller = self
-      @layout = LayoutAdapter.new(@shell)
+      @layout = RichUI::LayoutAdapter.new(@shell)
       @input_callback = nil
       @interrupt_callback = nil
       @work_label = nil
@@ -355,7 +355,7 @@ module Clacky
 
     def start_progress(message: nil, style: :primary, quiet_on_fast_finish: false)
       _ = quiet_on_fast_finish
-      ProgressHandleAdapter.new(@shell.start_progress(message || "Working", style: style))
+      RichUI::ProgressHandleAdapter.new(@shell.start_progress(message || "Working", style: style))
     end
 
     def with_progress(message: nil, style: :primary, quiet_on_fast_finish: false)

@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 module Clacky
+  module RichUI
     class LayoutAdapter
       def initialize(shell)
         @shell = shell
@@ -11,4 +12,5 @@ module Clacky
         @shell.viewport.scroll_to_bottom
       end
     end
+  end
 end

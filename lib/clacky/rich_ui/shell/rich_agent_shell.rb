@@ -12,8 +12,8 @@ module Clacky
     attr_reader :callbacks
 
     def build_layout
-      @sidebar = RichSidebar.new
-      @thinking_live = ThinkingLiveView.new(self)
+      @sidebar = RichUI::RichSidebar.new
+      @thinking_live = RichUI::ThinkingLiveView.new(self)
       @viewport.instance_variable_set(:@scrollbar, false)
       @viewport.instance_variable_set(:@auto_copy, false)
       @viewport.instance_variable_set(:@drag_mode, :selection)
@@ -57,7 +57,7 @@ module Clacky
       root[:todos].content = @sidebar
       root[:thinking_live].content = @thinking_live
       root[:composer].content = RubyRich::AppShell::FramedView.new(@composer, title: "Composer", theme: @theme) { @composer.focused? }
-      root[:status].content = RichStatusView.new(self)
+      root[:status].content = RichUI::RichStatusView.new(self)
       root
     end
 

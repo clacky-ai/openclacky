@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 module Clacky
+  module RichUI
     class ProgressHandleAdapter
       def initialize(handle)
         @handle = handle
@@ -19,4 +20,5 @@ module Clacky
         @handle.cancel
       end
     end
+  end
 end
