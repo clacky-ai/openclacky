@@ -206,7 +206,13 @@ module Clacky
           # Skip malformed tool calls where name or arguments is nil (broken API response)
           next if name.nil? || arguments.nil?
 
-          { id: call["id"], type: call["type"], name: name, arguments: arguments }
+          tc = { id: call["id"], type: call["type"], name: name, arguments: arguments }
+          # Vertex Gemini's OpenAI shim returns thought_signature inside
+          # tool_calls[i].extra_content.google and requires it echoed back on
+          # replay, otherwise the next turn 400s with "Function call is missing
+          # a thought_signature". Preserve it through the canonical layer.
+          tc[:extra_content] = call["extra_content"] if call["extra_content"]
+          tc
         end
       end
 

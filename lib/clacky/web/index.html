@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title id="page-title">{{BRAND_NAME}}</title>
-  <link rel="icon" href="/favicon.ico">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
   <link rel="apple-touch-icon" href="/apple-touch-icon-180.png">
   <link rel="stylesheet" href="/vendor/katex/katex.min.css">
   <link rel="stylesheet" href="/vendor/hljs/hljs-theme.css">
@@ -43,7 +43,24 @@
                 title="Creator / Owner" data-i18n-title="header.owner.tooltip">OWNER</button>
       </div>
     </div>
+    <div id="header-center">
+      <button id="header-cmdbar" type="button" title="Search sessions">
+        <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+        <span class="cmdbar-ph" data-i18n="header.cmdbar.placeholder">Search sessions…</span>
+        <span class="cmdbar-kbd">⌘K</span>
+      </button>
+    </div>
     <div id="header-right">
+      <button id="share-toggle-header" class="theme-toggle-btn" data-i18n-title="share.tooltip" title="Share">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon-sm">
+          <circle cx="18" cy="5" r="3"/>
+          <circle cx="6" cy="12" r="3"/>
+          <circle cx="18" cy="19" r="3"/>
+          <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/>
+          <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>
+        </svg>
+      </button>
+      <button id="notify-toggle-header" class="theme-toggle-btn" data-i18n-title="notify.tooltip.off" title="Sound on task complete"></button>
       <button id="theme-toggle-header" class="theme-toggle-btn" title="Toggle theme">
         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon-sm">
           <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/>
@@ -51,6 +68,42 @@
       </button>
     </div>
   </header>
+
+  <!-- ── Command-palette search overlay (⌘K / top cmdbar) ─────────────────── -->
+  <!-- Search lives here, decoupled from the sidebar list: results render in
+       #session-search-results and the left session list is never replaced. -->
+  <div id="session-search-overlay" class="cmd-palette-overlay" hidden>
+    <div class="cmd-palette" role="dialog" aria-modal="true" aria-label="Search sessions">
+      <div class="search-panel-card">
+        <!-- Input row -->
+        <div class="search-input-row">
+          <span class="search-icon">🔍</span>
+          <input id="session-search-q" type="text" class="search-input"
+                 data-i18n-placeholder="sessions.search.placeholder" placeholder="Search sessions…"
+                 autocomplete="off" />
+          <button id="btn-search-q-clear" class="btn-search-q-clear" aria-label="Clear text" hidden>✕</button>
+          <button id="btn-session-search-close" class="cmd-palette-esc" type="button" aria-label="Close">ESC</button>
+        </div>
+        <!-- Filter row -->
+        <div class="search-filter-row">
+          <select id="session-search-type" class="search-select">
+            <option value=""        data-i18n="sessions.search.typeAll">All types</option>
+            <option value="manual"  data-i18n="sessions.search.typeManual">Default</option>
+            <option value="cron"    data-i18n="sessions.search.typeCron">Scheduled</option>
+            <option value="channel" data-i18n="sessions.search.typeChannel">Channel</option>
+            <option value="setup"   data-i18n="sessions.search.typeSetup">Setup</option>
+            <option value="coding"  data-i18n="sessions.search.typeCoding">Coding</option>
+          </select>
+          <div class="search-date-wrap">
+            <button id="session-search-date" class="search-date datepicker-trigger" type="button" data-value="" data-i18n="sessions.search.datePlaceholder"></button>
+          </div>
+          <button id="btn-search-clear-all" class="btn-search-clear-all" aria-label="Clear filters" hidden>✕</button>
+        </div>
+      </div>
+      <!-- Results render here (independent from the sidebar session list) -->
+      <div id="session-search-results" class="cmd-palette-results"></div>
+    </div>
+  </div>
 
   <!-- ── Sidebar overlay (mobile only) ───────────────────────────────────── -->
   <div id="sidebar-overlay"></div>
@@ -64,17 +117,10 @@
     <div id="sidebar-list">
       <!-- Chat Group -->
       <div id="chat-section">
-        <!-- Header: "Sessions" label + 🔍 + [+ ▾] split button -->
+        <!-- Header: "Sessions" label + [+ ▾] split button -->
         <div class="sidebar-divider">
           <span data-i18n="sidebar.chat">Sessions</span>
           <div class="sidebar-divider-actions">
-            <!-- Magnifier toggle (shown when ≥10 sessions, managed by JS) -->
-            <button id="btn-session-search-toggle" class="btn-icon-sm" title="Search sessions" style="display:none" aria-label="Search sessions">
-              <svg width="13" height="13" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <circle cx="6.5" cy="6.5" r="4.5" stroke="currentColor" stroke-width="1.6"/>
-                <line x1="10.3" y1="10.3" x2="14" y2="14" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
-              </svg>
-            </button>
             <div class="btn-split-wrap">
               <button id="btn-new-session-inline" class="btn-split-main" title="New Session" data-i18n="sessions.newSession">+ New Session</button>
               <button id="btn-new-session-arrow" class="btn-split-arrow" title="Options">▾</button>
@@ -87,35 +133,6 @@
                   <span data-i18n="sessions.newSessionAdvanced">More Options</span>
                 </div>
               </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Search panel (hidden by default, toggled by magnifier button) -->
-        <div id="session-search-bar" class="session-search-panel" hidden>
-          <div class="search-panel-card">
-            <!-- Input row -->
-            <div class="search-input-row">
-              <span class="search-icon">🔍</span>
-              <input id="session-search-q" type="text" class="search-input"
-                     data-i18n-placeholder="sessions.search.placeholder" placeholder="Search sessions…"
-                     autocomplete="off" />
-              <button id="btn-search-q-clear" class="btn-search-q-clear" aria-label="Clear text" hidden>✕</button>
-            </div>
-            <!-- Filter row -->
-            <div class="search-filter-row">
-              <select id="session-search-type" class="search-select">
-                <option value=""        data-i18n="sessions.search.typeAll">All types</option>
-                <option value="manual"  data-i18n="sessions.search.typeManual">Default</option>
-                <option value="cron"    data-i18n="sessions.search.typeCron">Scheduled</option>
-                <option value="channel" data-i18n="sessions.search.typeChannel">Channel</option>
-                <option value="setup"   data-i18n="sessions.search.typeSetup">Setup</option>
-                <option value="coding"  data-i18n="sessions.search.typeCoding">Coding</option>
-              </select>
-              <div class="search-date-wrap">
-                <button id="session-search-date" class="search-date datepicker-trigger" type="button" data-value="" data-i18n="sessions.search.datePlaceholder"></button>
-              </div>
-              <button id="btn-search-clear-all" class="btn-search-clear-all" aria-label="Clear filters" hidden>✕</button>
             </div>
           </div>
         </div>
@@ -274,6 +291,7 @@
         </span>
       </div>
     </div>
+    <div id="sidebar-resize-handle"></div>
   </aside>
 
   <!-- ── MAIN ─────────────────────────────────────────────────────────── -->
@@ -285,10 +303,30 @@
 
     <!-- Welcome screen -->
     <div id="welcome" class="centered">
-      <div class="welcome-icon" style="display:none"></div>
-      <h2 id="welcome-title" data-i18n="welcome.title" data-i18n-vars="brand={{BRAND_NAME}}">Welcome to {{BRAND_NAME}}</h2>
-      <p data-i18n="welcome.body">Create a new session or select one from the sidebar.</p>
-      <button id="btn-welcome-new" data-i18n="welcome.btn">New Session</button>
+      <div class="ce-mark">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 2l2.4 6.6L21 11l-6.6 2.4L12 20l-2.4-6.6L3 11l6.6-2.4z"/>
+        </svg>
+      </div>
+      <div class="ce-head">
+        <h2 id="welcome-title" class="ce-title" data-i18n="welcome.title" data-i18n-vars="brand={{BRAND_NAME}}">What should we build?</h2>
+        <p class="ce-sub" data-i18n="welcome.body">Your agent is standing by. Pick a starting point or just type.</p>
+      </div>
+      <div class="chips">
+        <button class="chip" data-welcome-prompt="welcome.chip.code.prompt">
+          <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M16 18l6-6-6-6M8 6l-6 6 6 6"/></svg></span>
+          <span class="ct-wrap"><span class="ct" data-i18n="welcome.chip.code.title">Write code</span><span class="cd" data-i18n="welcome.chip.code.desc">build, refactor, debug</span></span>
+        </button>
+        <button class="chip" data-welcome-prompt="welcome.chip.task.prompt">
+          <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></span>
+          <span class="ct-wrap"><span class="ct" data-i18n="welcome.chip.task.title">Automate a task</span><span class="cd" data-i18n="welcome.chip.task.desc">schedule, run, repeat</span></span>
+        </button>
+        <button class="chip" data-welcome-prompt="welcome.chip.research.prompt">
+          <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5V6a2 2 0 0 1 2-2h12v16H6a2 2 0 0 1-2-2z"/><path d="M8 7h7"/></svg></span>
+          <span class="ct-wrap"><span class="ct" data-i18n="welcome.chip.research.title">Research</span><span class="cd" data-i18n="welcome.chip.research.desc">search, read, summarize</span></span>
+        </button>
+      </div>
+      <button id="btn-welcome-new" class="ce-blank" data-i18n="welcome.btn">Start a blank session</button>
     </div>
 
     <!-- Scheduled Tasks list panel (shown when user clicks "Scheduled Tasks") -->
@@ -316,7 +354,7 @@
 
       <!-- Chat column (messages + info bar + input) -->
       <div id="chat-main">
-      <div id="messages"></div>
+      <div id="messages" class="chat-messages-scroll"></div>
       <!-- New message notification banner -->
       <div id="new-message-banner" class="new-message-banner" style="display:none">
         <span data-i18n="chat.newMessageHint">New messages ↓</span>
@@ -396,15 +434,16 @@
           </button>
           <textarea id="user-input" rows="1"
             data-i18n-placeholder="chat.input.placeholder"
-            placeholder="Message… (Enter to send, Shift+Enter for newline)"></textarea>
-          <button id="btn-send" data-i18n="chat.btn.send">Send</button>
-          <button id="btn-interrupt" style="display:none" title="Stop"></button>
+            placeholder="Message… (Enter to send, Shift-Enter for newline)"></textarea>
+          <button id="btn-send" title="Send message"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"></polyline></svg></button>
+          <button id="btn-interrupt" style="display:none" title="Stop"><svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="1.5"/></svg></button>
         </div>
       </div>
       </div><!-- /#chat-main -->
 
       <!-- ── WORKSPACE PANEL (right) ──────────────────────────────────── -->
       <aside id="workspace-panel" class="collapsed">
+        <div id="workspace-resize-handle"></div>
         <div id="workspace-header">
           <span id="workspace-title" data-i18n="workspace.title">Workspace</span>
           <div class="workspace-header-actions">
@@ -767,7 +806,7 @@
           <!-- Models section -->
           <section class="settings-section">
             <div class="settings-section-title">
-              <span data-i18n="settings.models.title">AI Models</span>
+              <span data-i18n="settings.models.title">Primary Model</span>
               <button id="btn-add-model" class="btn-settings-add" data-i18n="settings.models.add">+ Add Model</button>
             </div>
             <div id="model-cards"></div>
@@ -776,10 +815,10 @@
           <!-- Media generation section -->
           <section class="settings-section" id="media-section">
             <div class="settings-section-title">
-              <span data-i18n="settings.media.title">Media Generation</span>
+              <span data-i18n="settings.media.title">Secondary Models</span>
             </div>
             <div class="settings-section-desc" data-i18n="settings.media.desc">
-              Generate images, video, and audio using your configured providers. "Auto" follows your default chat model.
+              Optional. Image / video / audio / vision models.
             </div>
             <div id="media-rows"></div>
           </section>
@@ -866,6 +905,52 @@
                 </label>
                 <button id="btn-browser-setup" class="btn-settings-action" data-i18n="settings.browser.btn">🌐 Configure Browser</button>
               </div>
+            </div>
+          </section>
+
+          <!-- Network / Proxy section -->
+          <section class="settings-section" id="network-section">
+            <div class="settings-section-title">
+              <span data-i18n="settings.network.title">Network</span>
+            </div>
+            <div class="settings-network">
+              <p class="settings-network-desc" data-i18n="settings.network.desc">Clacky always ignores HTTP_PROXY / HTTPS_PROXY from your shell. To route Clacky's outbound traffic through a proxy, set an explicit URL below.</p>
+              <div class="settings-network-url">
+                <label class="settings-network-url-label" for="settings-proxy-url" data-i18n="settings.network.proxyUrl">Proxy URL</label>
+                <div class="settings-network-url-row">
+                  <input type="text" id="settings-proxy-url" class="field-input" placeholder="http://user:pass@host:port" autocomplete="off" spellcheck="false">
+                  <button type="button" id="btn-save-proxy-url" class="btn-settings-action" data-i18n="settings.network.save">Save</button>
+                  <button type="button" id="btn-clear-proxy-url" class="btn-settings-action" data-i18n="settings.network.clear">Clear</button>
+                </div>
+                <div id="settings-proxy-url-status" class="model-test-result"></div>
+              </div>
+            </div>
+          </section>
+
+          <!-- Backup section -->
+          <section class="settings-section" id="backup-section">
+            <div class="settings-section-title">
+              <span data-i18n="settings.backup.title">Backup</span>
+            </div>
+            <p class="settings-section-desc" data-i18n="settings.backup.desc">Back up your ~/.clacky directory (config, skills, memories, tasks, sessions). Regenerable caches and logs are excluded.</p>
+
+            <div class="backup-auto-row">
+              <label class="toggle-switch">
+                <input type="checkbox" id="backup-auto-toggle">
+                <span class="toggle-slider"></span>
+              </label>
+              <span class="backup-auto-label" data-i18n="settings.backup.autoLabel">Automatic backup</span>
+              <span class="backup-auto-hint" data-i18n="settings.backup.autoHint">Daily at 03:00, keeps the latest 7</span>
+            </div>
+
+            <label class="backup-option">
+              <input type="checkbox" id="backup-include-sessions">
+              <span data-i18n="settings.backup.includeSessions">Include session history (larger archive)</span>
+            </label>
+
+            <div class="backup-actions">
+              <button id="btn-backup-now" class="btn-settings-action" data-i18n="settings.backup.runNow">💾 Download backup</button>
+              <span id="backup-status" class="model-test-result"></span>
             </div>
           </section>
 
@@ -1124,6 +1209,63 @@
     <div id="setup-phase-key" style="display:none">
       <p class="setup-phase-label" data-i18n="onboard.key.title">Connect your AI model</p>
 
+      <!-- Primary path: one-click device login -->
+      <div id="setup-device-block">
+        <div id="setup-device-card" class="setup-device-card">
+          <div class="setup-device-card-head">
+            <span class="setup-device-card-title" data-i18n="onboard.device.card.title">OpenClacky AI Keys</span>
+            <span class="setup-device-card-badge" data-i18n="provider.recommended">Recommended</span>
+          </div>
+          <p class="setup-device-card-lead" data-i18n="onboard.device.card.lead">Sign up and get $1 free credit · no subscription · pay as you go</p>
+          <ul class="setup-device-card-points">
+            <li data-i18n="onboard.device.card.point1">One key for all frontier models — Claude, Gemini, DeepSeek &amp; more</li>
+            <li data-i18n="onboard.device.card.point2">Same pricing as official APIs, switch models instantly</li>
+          </ul>
+          <button id="setup-btn-device-login" class="setup-submit-btn setup-device-btn">
+            <span data-i18n="onboard.device.btn">Get started free →</span>
+          </button>
+        </div>
+
+        <!-- Pending state: shown while waiting for browser approval -->
+        <div id="setup-device-pending" style="display:none">
+          <div class="setup-device-spinner"></div>
+          <p class="setup-device-pending-text" data-i18n="onboard.device.pending">Waiting for confirmation in your browser…</p>
+          <p class="setup-device-code">
+            <span data-i18n="onboard.device.code">Verification code:</span>
+            <strong id="setup-device-usercode">—</strong>
+          </p>
+          <a id="setup-device-link" href="#" target="_blank" rel="noopener" class="setup-device-reopen" data-i18n="onboard.device.reopen">Open browser again →</a>
+          <button id="setup-device-cancel" class="setup-back-btn" data-i18n="onboard.device.cancel">Cancel</button>
+        </div>
+
+        <!-- Success state: shown after approval, before launching onboard session -->
+        <div id="setup-device-success" style="display:none" class="setup-device-success">
+          <div class="setup-device-success-head">
+            <span class="setup-device-success-icon">✓</span>
+            <span class="setup-device-success-title" data-i18n="onboard.device.success.title">You're in!</span>
+          </div>
+          <p class="setup-device-success-lead" data-i18n="onboard.device.success.lead">Your account is connected. Here's what you got:</p>
+          <ul class="setup-device-success-points">
+            <li>
+              <strong data-i18n="onboard.device.success.credit.label">Free trial credit:</strong>
+              <span data-i18n="onboard.device.success.credit.value">$1.00 (one-time, on us)</span>
+            </li>
+            <li>
+              <strong data-i18n="onboard.device.success.model.label">Trial model:</strong>
+              <span id="setup-device-success-model">or-gemini-3-5-flash</span>
+            </li>
+            <li class="setup-device-success-note" data-i18n="onboard.device.success.note">During the trial only Gemini 3.5 Flash is available — top up any amount to unlock all frontier models on this same key.</li>
+          </ul>
+          <button id="setup-btn-device-continue" class="setup-submit-btn" data-i18n="onboard.device.success.btn">Start using Clacky →</button>
+        </div>
+
+        <div id="setup-device-error" class="setup-test-result" style="min-height:0;"></div>
+      </div>
+
+      <!-- Secondary path: manual key entry, collapsed by default -->
+      <details id="setup-manual-details">
+        <summary id="setup-manual-summary" data-i18n="onboard.manual.toggle">Configure manually with your own API key</summary>
+
       <div class="setup-field">
         <label class="setup-label" data-i18n="onboard.key.provider">Provider</label>
         <div class="custom-select-wrapper" id="setup-provider-wrapper">
@@ -1137,7 +1279,6 @@
             <div class="custom-select-option" data-value="" data-i18n="onboard.key.provider.placeholder">— Choose provider —</div>
           </div>
         </div>
-        <div id="setup-provider-promo" class="provider-promo-hint"></div>
       </div>
 
       <div class="setup-field">
@@ -1189,6 +1330,7 @@
         <button id="setup-btn-back" class="setup-back-btn" data-i18n="onboard.key.btn.back">← Back</button>
         <button id="setup-btn-test" class="setup-submit-btn" data-i18n="onboard.key.btn.test">Test & Continue →</button>
       </div>
+      </details>
     </div>
 
   </div>
@@ -1225,9 +1367,14 @@
 
       <div class="modal-field">
         <label class="modal-label" data-i18n="sessions.modal.directory">Working Directory</label>
-        <input id="new-session-directory" type="text" class="modal-input" 
-               data-i18n-placeholder="sessions.modal.directory.placeholder"
-               placeholder="~/workspace/my-project">
+        <div class="modal-input-row">
+          <input id="new-session-directory" type="text" class="modal-input" 
+                 data-i18n-placeholder="sessions.modal.directory.placeholder"
+                 placeholder="~/workspace/my-project">
+          <button id="new-session-browse-btn" type="button" class="modal-browse-btn" data-i18n-title="sessions.modal.directory.browse" title="Browse…" aria-label="Browse">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+          </button>
+        </div>
       </div>
 
       <div id="new-session-init-project-field" class="modal-field-checkbox" style="display:none">
@@ -1273,7 +1420,9 @@
 <!-- Rename Session Modal -->
 <div id="rename-modal-overlay" class="modal-overlay" style="display:none">
   <div class="modal-box sm">
-    <div class="modal-title" data-i18n="sessions.actions.rename">Rename</div>
+    <div class="modal-header">
+      <h3 class="modal-title" data-i18n="sessions.actions.rename">Rename</h3>
+    </div>
     <div class="modal-body">
       <div class="modal-field">
         <label class="modal-label" for="rename-modal-input">
@@ -1283,22 +1432,24 @@
         <input type="text" id="rename-modal-input" class="modal-input" autocomplete="off" spellcheck="false">
       </div>
     </div>
-    <div class="modal-actions">
+    <div class="modal-footer">
       <button id="rename-modal-cancel" class="btn-secondary" data-i18n="modal.cancel">Cancel</button>
       <button id="rename-modal-save" class="btn-primary" data-i18n="modal.ok">OK</button>
     </div>
   </div>
 </div>
 
-
+<div id="tooltip" style="display:none"></div>
 
 <script src="/marked.min.js"></script>
 <script src="/vendor/hljs/highlight.min.js"></script>
 <script src="/vendor/katex/katex.min.js"></script>
 <script src="/vendor/katex/auto-render.min.js"></script>
+<script src="/utils.js"></script>
 <script src="/i18n.js"></script>
 <script src="/auth.js"></script>
 <script src="/theme.js"></script>
+<script src="/notify.js"></script>
 <script src="/ws.js"></script>
 <script src="/ws-dispatcher.js"></script>
 <script src="/sessions.js"></script>
@@ -1308,6 +1459,7 @@
 <script src="/skills.js"></script>
 <script src="/channels.js"></script>
 <script src="/mcp.js"></script>
+<script src="/backup.js"></script>
 <script src="/model-tester.js"></script>
 <script src="/settings.js"></script>
 <script src="/billing.js"></script>
@@ -1318,6 +1470,9 @@
 <script src="/profile.js"></script>
 <script src="/version.js"></script>
 <script src="/sidebar.js"></script>
+<script src="/vendor/qrcode/qrcode.min.js"></script>
+<script src="/share.js"></script>
 <script src="/app.js"></script>
+<script>Tooltip.init();</script>
 </body>
 </html>

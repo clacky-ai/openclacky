@@ -150,7 +150,8 @@ module Clacky
         update_sessionbar
       end
 
-      # Stop the UI controller
+      # Stop the UI controller. Keeps the screen by default so any final
+      # output (e.g. the "clacky -a <id>" resume hint) survives in scrollback.
       def stop(clear_screen: false)
         @running = false
         @layout.cleanup_screen(clear_screen: clear_screen)
@@ -662,6 +663,7 @@ module Clacky
 
       # Called by ProgressHandle#finish.
       def unregister_progress(handle, final_frame:)
+        Clacky::Logger.warn("[ph_debug] unreg_entry", oid: handle.object_id, eid: handle.entry_id, top: @progress_stack.last == handle, stack_size: @progress_stack.size, ff: final_frame.to_s[0, 200])
         @progress_mutex.synchronize do
           # If this handle still holds its entry (it's currently top), we
           # render one last frame there and release the id. If it was
@@ -669,10 +671,14 @@ module Clacky
           # is already gone and the final_frame is simply dropped.
           if handle.entry_id
             if final_frame && !final_frame.to_s.strip.empty?
+              Clacky::Logger.warn("[ph_debug] unreg_update_entry", oid: handle.object_id, eid: handle.entry_id)
               update_entry(handle.entry_id, @renderer.render_progress(final_frame))
             else
+              Clacky::Logger.warn("[ph_debug] unreg_remove_entry", oid: handle.object_id, eid: handle.entry_id)
               remove_entry(handle.entry_id)
             end
+          else
+            Clacky::Logger.warn("[ph_debug] unreg_no_entry_id", oid: handle.object_id)
           end
 
           @progress_stack.delete(handle)
@@ -880,6 +886,28 @@ module Clacky
         append_output(output)
       end
 
+      def phase_start(kind:, label:)
+        phase_id = SecureRandom.uuid
+        @active_phases ||= {}
+        @active_phases[phase_id] = { kind: kind, label: label, started_at: Time.now }
+        Thread.current[:clacky_phase_id] = phase_id
+
+        banner = "──────── ▼ #{label} ────────"
+        append_output(@renderer.render_system_message(banner, prefix_newline: true))
+        phase_id
+      end
+
+      def phase_end(phase_id, summary: nil)
+        Thread.current[:clacky_phase_id] = nil
+        return unless @active_phases&.key?(phase_id)
+
+        info = @active_phases.delete(phase_id)
+        label = info[:label]
+        tail = summary && !summary.to_s.strip.empty? ? " — #{summary.to_s.strip}" : ""
+        banner = "──────── ▲ #{label} done#{tail} ────────"
+        append_output(@renderer.render_system_message(banner, prefix_newline: false))
+      end
+
       # Set workspace status to idle (called when agent stops working)
       def set_idle_status
         # Safety net: close any legacy progress slots that were opened via
@@ -939,6 +967,8 @@ module Clacky
           separator,
           "",
           theme.format_text("Commands:", :info),
+          "  #{theme.format_text("/model", :success)}       - Quickly switch the current model",
+          "  #{theme.format_text("/config", :success)}      - Configure models, API keys, settings",
           "  #{theme.format_text("/clear", :success)}       - Clear output and restart session",
           "  #{theme.format_text("/exit", :success)}        - Exit application",
           "",
@@ -1499,46 +1529,174 @@ module Clacky
         end
       end
 
+      # Quick model switcher — lists configured model cards and returns the
+      # picked card's stable id. Unlike show_config_modal this never mutates
+      # config; it's a pure picker. All side effects live in the CLI layer.
+      # @return [Hash, nil] { model_id: <id> } or nil if cancelled / no models
+      # Two-level drawer picker for /model.
+      #
+      # Level 1 (card list): Enter selects a card and uses its default model
+      # (clearing any sub-model overlay); → opens that card's sub-model drawer
+      # (only for cards whose provider exposes >= 2 sub-models, marked "›").
+      #
+      # Level 2 (sub-model list): Enter pins the chosen sub-model (or Default);
+      # ← / Esc returns to the card list.
+      #
+      # @param current_config [AgentConfig]
+      # @param submodels_for [Proc] called with a card hash, returns its provider
+      #   sub-model names (or [] if none / single).
+      # @return [Hash, nil] { model_id:, model_name: } where model_name is the
+      #   chosen sub-model (nil = the card's own default), or nil if cancelled.
+      public def show_model_switch_modal(current_config, submodels_for)
+        return nil if current_config.models.empty?
+
+        on_close = -> { @layout.rerender_all }
+
+        loop do
+          card = show_model_card_level(current_config, submodels_for, on_close)
+          return nil if card.nil?
+
+          # Plain card pick (Enter): use the card default, clear overlay.
+          return { model_id: card[:model_id], model_name: nil } unless card[:expand]
+
+          # → opened the drawer: let the user pick a sub-model for this card.
+          model = current_config.models.find { |m| m["id"] == card[:model_id] }
+          drawer = {
+            model_id: card[:model_id],
+            card_model: card[:card_model],
+            submodels: submodels_for.call(model) || [],
+            current_overlay: current_config.session_model_overlay_name
+          }
+          sub = show_model_submodel_level(drawer, on_close)
+          next if sub == :back  # ← / Esc: back to the card list
+
+          return { model_id: card[:model_id], model_name: sub }
+        end
+      end
+
+      # Level 1: card list. Returns { model_id:, expand: bool } on Enter/→,
+      # or nil if cancelled.
+      private def show_model_card_level(current_config, submodels_for, on_close)
+        current_overlay = current_config.session_model_overlay_name
+
+        choices = current_config.models.each_with_index.map do |model, idx|
+          is_current = (idx == current_config.current_model_index)
+          card_model = model["model"] || "unnamed"
+          type_badge = case model["type"]
+                       when "default" then " [default]"
+                       when "lite" then " [lite]"
+                       else ""
+                       end
+          expandable = (submodels_for.call(model) || []).length >= 2
+
+          marker = is_current ? "● " : "  "
+          arrow = expandable ? "  ›" : ""
+          {
+            name: "#{marker}#{card_model}#{type_badge}#{arrow}",
+            value: { model_id: model["id"], card_model: card_model },
+            expandable: expandable
+          }
+        end
+
+        result = Components::ModalComponent.new.show(
+          title: "Switch Model",
+          choices: choices,
+          nav_keys: true,
+          instructions: "↑↓ move • Enter select • → submodels • Esc cancel",
+          on_close: on_close
+        )
+
+        return nil if result.nil? || (result.is_a?(Hash) && result[:nav] == :back)
+
+        if result.is_a?(Hash) && result[:nav] == :expand
+          { model_id: result[:value][:model_id], card_model: result[:value][:card_model], expand: true }
+        else
+          { model_id: result[:model_id], card_model: result[:card_model], expand: false }
+        end
+      end
+
+      # Level 2: sub-model list for one card. Returns the chosen sub-model name,
+      # nil (the card default), or :back to return to the card list.
+      private def show_model_submodel_level(card, on_close)
+        submodels = card[:submodels]
+        current = card[:current_overlay]
+        card_model = card[:card_model]
+
+        choices = [{
+          name: "#{current.nil? ? '● ' : '  '}Default (#{card_model})",
+          value: { model_name: nil }
+        }]
+        submodels.each do |name|
+          choices << {
+            name: "#{name == current ? '● ' : '  '}#{name}",
+            value: { model_name: name }
+          }
+        end
+
+        result = Components::ModalComponent.new.show(
+          title: card_model,
+          choices: choices,
+          nav_keys: true,
+          instructions: "↑↓ move • Enter select • ←/Esc back",
+          on_close: on_close
+        )
+
+        return :back if result.nil? || (result.is_a?(Hash) && result[:nav] == :back)
+
+        result[:model_name]
+      end
+
       # Show time machine menu for task undo/redo
       # @param history [Array<Hash>] Task history with format: [{task_id, summary, status, has_branches}]
       # @return [Integer, nil] Selected task ID or nil if cancelled
       public def show_time_machine_menu(history)
         modal = Components::ModalComponent.new
-        
+
+        active_index = nil
+
         # Build menu choices from history
-        choices = history.map do |task|
-          # Build visual indicator
-          indicator = if task[:status] == :current
-            "→ "  # Current task
-          elsif task[:status] == :future
-            "↯ "  # Future task (after undo)
+        choices = history.each_with_index.map do |task, idx|
+          # Status marker. The cursor itself draws a "→", so use distinct
+          # glyphs here to avoid visual collision:
+          #   ● current   · on-path history   ✗ undone/abandoned branch
+          marker = case task[:status]
+          when :current
+            active_index = idx
+            "● "
+          when :undone
+            "✗ "
           else
-            "  "  # Past task
+            "· "
           end
-          
-          # Add branch indicator
-          indicator += "⎇ " if task[:has_branches]
-          
+
+          # Branch indicator
+          marker += "⎇ " if task[:has_branches]
+
           # Truncate summary to fit on screen
           max_summary_length = 60
           summary = task[:summary]
           if summary.length > max_summary_length
             summary = summary[0...max_summary_length] + "..."
           end
-          
+
+          label = "#{marker}Task #{task[:task_id]}: #{summary}"
+          label += "  (undone)" if task[:status] == :undone
+
           {
-            name: "#{indicator}Task #{task[:task_id]}: #{summary}",
-            value: task[:task_id]
+            name: label,
+            value: task[:task_id],
+            dim: task[:status] == :undone
           }
         end
-        
-        # Show modal
+
+        # Show modal, landing the cursor on the currently-active task.
         result = modal.show(
           title: "Time Machine - Select Task to Navigate",
           choices: choices,
+          initial_index: active_index,
           on_close: -> { @layout.rerender_all }
         )
-        
+
         result # Return selected task_id or nil
       end
       

@@ -3,6 +3,8 @@
 require "json"
 require "fileutils"
 require "securerandom"
+require "open3"
+require "set"
 
 module Clacky
   class SessionManager
@@ -49,6 +51,27 @@ module Clacky
     # Load a specific session by ID. Returns nil if not found.
     def load(session_id)
       all_sessions.find { |s| s[:session_id].to_s.start_with?(session_id.to_s) }
+    end
+
+    # Fork a session: create a copy with new id, "(copy)" name suffix, and reset stats.
+    # Returns the forked session data hash, or nil if the original is not found.
+    def fork(session_id)
+      original = load(session_id)
+      return nil unless original
+
+      forked = original.dup
+      forked[:session_id]  = self.class.generate_id
+      forked[:created_at]  = Time.now.iso8601
+      forked[:updated_at]  = Time.now.iso8601
+      forked[:pinned]      = false
+      forked[:name]        = "#{original[:name] || "Unnamed session"} (copy)"
+      forked[:stats] = (original[:stats] || {}).merge(
+        total_tasks: 0, total_iterations: 0, total_cost_usd: 0.0,
+        last_status: nil, last_error: nil
+      )
+
+      save(forked)
+      forked
     end
 
     # Soft-delete: move session JSON + chunks to the session trash directory.
@@ -140,14 +163,15 @@ module Clacky
       chunk_path
     end
 
-    # All sessions from disk, newest-first (sorted by created_at).
+    # All sessions from disk, newest-first (sorted by last activity / updated_at,
+    # falling back to created_at for legacy sessions without updated_at).
     # Optional filters:
     #   current_dir: (String) if given, sessions matching working_dir come first
     #   limit:       (Integer) max number of sessions to return
     def all_sessions(current_dir: nil, limit: nil)
       sessions = Dir.glob(File.join(@sessions_dir, "*.json")).filter_map do |filepath|
         load_session_file(filepath)
-      end.sort_by { |s| s[:created_at] || "" }.reverse
+      end.sort_by { |s| s[:updated_at] || s[:created_at] || "" }.reverse
 
       if current_dir
         current_sessions = sessions.select { |s| s[:working_dir] == current_dir }
@@ -156,6 +180,104 @@ module Clacky
       end
 
       limit ? sessions.first(limit) : sessions
+    end
+
+    # Full-text grep over session JSON + chunk MD files.
+    # Case-sensitive: BSD grep -i is ~30x slower; Chinese has no case.
+    # Returns Hash<short_id String => snippet String> (snippet around the first match).
+    def search_content(query, timeout: 5)
+      q = query.to_s
+      return {} if q.strip.length < 2
+
+      files = Dir.glob(File.join(@sessions_dir, "*.json")) +
+              Dir.glob(File.join(@sessions_dir, "*-chunk-*.md"))
+      return {} if files.empty?
+
+      result = {}
+      deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + timeout
+      each_grep_batch(files) do |batch|
+        remaining = deadline - Process.clock_gettime(Process::CLOCK_MONOTONIC)
+        break if remaining <= 0
+        out = run_with_timeout({ "LC_ALL" => "C" },
+                               "grep", "-H", "-F", "-m", "1", "--",
+                               q, *batch,
+                               timeout: remaining)
+        next unless out
+        out.each_line do |line|
+          path, _, rest = line.chomp.partition(":")
+          next if path.empty? || rest.empty?
+          sid = extract_short_id(File.basename(path))
+          next unless sid
+          next if result.key?(sid)
+          result[sid] = build_snippet(rest, q)
+        end
+      end
+      result
+    end
+
+    # Yield file batches whose joined argv length stays well under ARG_MAX.
+    # macOS ARG_MAX is ~256 KiB; we cap at 96 KiB to leave room for env.
+    private def each_grep_batch(files, max_bytes: 96 * 1024)
+      batch = []
+      size  = 0
+      files.each do |f|
+        len = f.bytesize + 1
+        if size + len > max_bytes && !batch.empty?
+          yield batch
+          batch = []
+          size  = 0
+        end
+        batch << f
+        size  += len
+      end
+      yield batch unless batch.empty?
+    end
+
+    private def build_snippet(line, query, radius: 80)
+      bytes = line.b
+      q = query.b
+      idx = bytes.index(q)
+      if idx.nil?
+        head = bytes.byteslice(0, radius * 2).to_s
+        return head.force_encoding("UTF-8").scrub("?").gsub(/\s+/, " ").strip
+      end
+
+      start_byte = [idx - radius, 0].max
+      stop_byte  = [idx + q.bytesize + radius, bytes.bytesize].min
+      snippet = bytes.byteslice(start_byte, stop_byte - start_byte).to_s
+      snippet = snippet.force_encoding("UTF-8").scrub("?")
+      snippet = "…" + snippet if start_byte > 0
+      snippet = snippet + "…" if stop_byte < bytes.bytesize
+      snippet.gsub(/\s+/, " ").strip
+    end
+
+    private def run_with_timeout(env, *cmd, timeout:)
+      Open3.popen3(env, *cmd) do |stdin, stdout, stderr, wait_thr|
+        stdin.close
+        out = +""
+        reader = Thread.new { out << stdout.read }
+        drain  = Thread.new { stderr.read }
+        deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + timeout
+        loop do
+          remaining = deadline - Process.clock_gettime(Process::CLOCK_MONOTONIC)
+          break if remaining <= 0
+          break if wait_thr.join(remaining)
+        end
+        if wait_thr.alive?
+          Process.kill("TERM", wait_thr.pid) rescue nil
+          wait_thr.join(0.5)
+          Process.kill("KILL", wait_thr.pid) rescue nil if wait_thr.alive?
+          reader.kill; drain.kill
+          return nil
+        end
+        reader.join; drain.join
+        out
+      end
+    end
+
+    private def extract_short_id(basename)
+      m = basename.match(/-([0-9a-f]{8})(?:-chunk-\d+)?\.(?:json|md)\z/)
+      m && m[1]
     end
 
     # Return the most recent session for a given working directory, or nil.
@@ -292,5 +414,41 @@ module Clacky
     rescue JSON::ParserError, Errno::ENOENT
       nil
     end
+
+    # Remove Time Machine snapshots that no longer belong to any known session.
+    # Snapshots are keyed by full session_id; session files are named by the
+    # 8-char id prefix, so a snapshot dir is an orphan when its prefix matches
+    # no active or trashed session file. Returns the count of removed dirs.
+    def self.cleanup_orphan_snapshots(sessions_dir: SESSIONS_DIR, snapshots_root: nil)
+      snapshots_root ||= File.join(Dir.home, ".clacky", "snapshots")
+      return 0 unless Dir.exist?(snapshots_root)
+
+      require_relative "utils/trash_directory"
+      known = _session_id_prefixes(File.join(sessions_dir, "*.json"))
+      trash_dir = Clacky::TrashDirectory.sessions_trash_dir
+      known += _session_id_prefixes(File.join(trash_dir, "*.json")) if Dir.exist?(trash_dir)
+      known = known.to_set
+
+      removed = 0
+      Dir.children(snapshots_root).each do |name|
+        dir = File.join(snapshots_root, name)
+        next unless File.directory?(dir)
+        next if known.include?(name[0, 8])
+
+        FileUtils.rm_rf(dir)
+        removed += 1
+      end
+      removed
+    end
+
+    # Session filenames look like "<datetime>-<8hexid>.json"; pull out the
+    # trailing 8-char id prefix, which matches a snapshot dir's name prefix.
+    def self._session_id_prefixes(glob)
+      Dir.glob(glob).filter_map do |p|
+        m = File.basename(p, ".json").match(/-([0-9a-f]{8})\z/)
+        m && m[1]
+      end
+    end
+    private_class_method :_session_id_prefixes
   end
 end

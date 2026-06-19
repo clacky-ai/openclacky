@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require "securerandom"
+
 module Clacky
   # UIInterface defines the standard interface between Agent/CLI and UI implementations.
   # All UI controllers (UIController, JsonUIController) must implement these methods.
@@ -136,5 +138,25 @@ module Clacky
     # === Path redaction (for encrypted brand skill tmpdirs) ===
     # === Lifecycle ===
     def stop(clear_screen: false); end
+
+    # === Phase grouping (optional, web UI uses this to fold subagent runs) ===
+    # Begin a logical phase. Events emitted between phase_start and phase_end
+    # carry the phase_id so the UI can group them visually.
+    # Returns the phase_id (caller is responsible for passing it to phase_end).
+    def phase_start(kind:, label: nil)
+      SecureRandom.uuid
+    end
+
+    def phase_end(phase_id, summary: nil); end
+
+    # Run block within a phase. Always closes via ensure.
+    def with_phase(kind:, label: nil)
+      pid = phase_start(kind: kind, label: label)
+      begin
+        yield pid
+      ensure
+        phase_end(pid)
+      end
+    end
   end
 end

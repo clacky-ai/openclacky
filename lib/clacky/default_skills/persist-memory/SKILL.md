@@ -48,10 +48,11 @@ Scan the list above:
 
 Use the `write` tool. Always include the YAML frontmatter shown above.
 
-## Hard constraints (CRITICAL)
+## Guidelines
 
-- Each file MUST stay under **4000 characters of content** (after the frontmatter).
-- If merging would exceed this limit, remove the least important information — do NOT split into multiple files for the same topic.
+- Aim for around 4000 characters of content (after the frontmatter). This is a soft target — moderate overshoot is fine, do NOT iterate writes just to shave characters.
+- If a file grows much larger than that (say, well past 8000), trim the least important information rather than splitting one topic across multiple files.
+- Prefer merging into an existing file over creating a new one. Only create a new file when no existing topic genuinely covers the area.
 - Write concise, factual Markdown — no fluff, no redundant headings.
 - One topic per file. Don't bundle unrelated facts together.
 - Do NOT use `terminal` or `file_reader` to list the memories directory — the list above is authoritative.

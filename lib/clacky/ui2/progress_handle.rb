@@ -127,6 +127,7 @@ module Clacky
         @start_time    = nil
         @ticker        = nil
         @state         = :fresh     # :fresh → :running → :closed
+        @unregistered  = false
         @metadata      = {}
         @last_chunk_at = nil
         @monitor       = Monitor.new
@@ -172,29 +173,38 @@ module Clacky
       end
 
       # Stop the ticker, render one final frame, and unregister from the
-      # owner. Idempotent — calling twice is a no-op.
+      # owner. Idempotent and crash-safe — if a previous finish was
+      # interrupted (e.g. Thread#raise(AgentInterrupted) hit between
+      # +stop_ticker+ and +unregister_progress+), a follow-up finish
+      # will still complete the unregister so the handle does not stay
+      # orphaned on the owner's progress stack.
       #
       # @param final_message [String, nil] Optional override for the last
       #   frame. If nil, the handle composes "<message>… (<elapsed>s)".
       def finish(final_message: nil)
+        Clacky::Logger.warn("[ph_debug] finish_entry", oid: object_id, state: @state, unreg: @unregistered, msg: @message, eid: @entry_id)
         snapshot = @monitor.synchronize do
-          return if @state != :running
-          @state = :closed
-          { message: final_message || @message, elapsed: elapsed_seconds }
+          return if @unregistered
+          first_close = @state == :running
+          @state = :closed if first_close
+          {
+            first_close: first_close,
+            message: final_message || @message,
+            elapsed: elapsed_seconds,
+          }
         end
 
         stop_ticker
-        # Collapse fast-finishers to a removed entry so tools that complete
-        # in under FAST_FINISH_THRESHOLD_SECONDS don't leave a permanent
-        # "Executing foo… (0s)" line. The owner interprets final_frame: nil
-        # as "remove the entry entirely".
         final_frame =
           if @quiet_on_fast_finish && snapshot[:elapsed] < FAST_FINISH_THRESHOLD_SECONDS
             nil
           else
             compose_final_frame(snapshot[:message], snapshot[:elapsed])
           end
+        Clacky::Logger.warn("[ph_debug] finish_unregister", oid: object_id, eid: @entry_id, first_close: snapshot[:first_close], final_frame: final_frame.to_s[0, 200])
         @owner.unregister_progress(self, final_frame: final_frame)
+        @monitor.synchronize { @unregistered = true }
+        Clacky::Logger.warn("[ph_debug] finish_done", oid: object_id)
       end
       alias_method :cancel, :finish
 

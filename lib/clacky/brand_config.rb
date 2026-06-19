@@ -961,7 +961,7 @@ module Clacky
     #
     # @param skill_name [String] The slug/name of the skill to remove.
     # @return [void]
-    private def delete_brand_skill!(skill_name)
+    def delete_brand_skill!(skill_name)
       # Remove files from disk.
       skill_dir = File.join(brand_skills_dir, skill_name)
       FileUtils.rm_rf(skill_dir) if Dir.exist?(skill_dir)

@@ -31,6 +31,7 @@ module Clacky
         "api" => "bedrock",
         "default_model" => "abs-claude-sonnet-4-6",
         "models" => [
+          "abs-claude-fable-5",
           "abs-claude-opus-4-8",
           "abs-claude-opus-4-7",
           "abs-claude-opus-4-6",
@@ -39,19 +40,58 @@ module Clacky
           "abs-claude-haiku-4-5",
           "dsk-deepseek-v4-pro",
           "dsk-deepseek-v4-flash",
-          "or-gemini-3-1-pro"
+          "or-gemini-3-1-pro",
+          "or-gemini-3-5-flash"
         ],
         # Image generation models served by the openclacky platform
         # gateway. The gateway exposes a standard OpenAI-compatible
         # /v1/images/generations endpoint, so the same OpenAICompat
-        # provider class handles them. `or-` prefix mirrors the chat
-        # model naming — these are routed through the OpenRouter
-        # backend by the platform.
+        # provider class handles them. `or-` prefix is a routing alias
+        # only — the platform may dispatch to OpenRouter or Vertex AI
+        # (Gemini Nano Banana family) depending on the model.
         "image_models" => [
           "or-gemini-3-pro-image",
+          "or-gemini-3-1-flash-image",
           "or-gpt-image-2"
         ],
-        "default_image_model" => "or-gpt-image-2",
+        "image_model_aliases" => {
+          "or-gemini-3-pro-image"      => "Nano Banana Pro",
+          "or-gemini-3-1-flash-image"  => "Nano Banana 2",
+          "or-gpt-image-2"             => "GPT Image 2"
+        },
+        "default_image_model" => "or-gemini-3-1-flash-image",
+        # Video generation models served by the openclacky gateway, which
+        # routes them to Vertex AI Veo (async predictLongRunning under the
+        # hood; the gateway hides the polling and returns the MP4 inline).
+        "video_models" => [
+          "or-veo-3-1",
+          "or-veo-3-1-fast",
+          "or-veo-3",
+          "or-veo-3-fast"
+        ],
+        "video_model_aliases" => {
+          "or-veo-3-1"      => "Veo 3.1",
+          "or-veo-3-1-fast" => "Veo 3.1 Fast",
+          "or-veo-3"        => "Veo 3",
+          "or-veo-3-fast"   => "Veo 3 Fast"
+        },
+        "default_video_model" => "or-veo-3-1",
+        # Text-to-speech models served by the openclacky gateway, which
+        # routes them to Vertex AI Gemini 2.5 (responseModalities=["AUDIO"]).
+        # The gateway returns WAV inline as base64.
+        "audio_models" => [
+          "or-tts-gemini-2-5-flash",
+          "or-tts-gemini-2-5-pro"
+        ],
+        "audio_model_aliases" => {
+          "or-tts-gemini-2-5-flash" => "Gemini 2.5 Flash TTS",
+          "or-tts-gemini-2-5-pro"   => "Gemini 2.5 Pro TTS"
+        },
+        "default_audio_model" => "or-tts-gemini-2-5-flash",
+        # Default OCR sidecar — used when the primary model is text-only.
+        # Candidates are derived from the provider's vision-capable models;
+        # this just picks the cheap+fast default to surface in "auto" mode.
+        "default_ocr_model" => "or-gemini-3-5-flash",
         # Provider-level default: the Claude family served here is vision-capable.
         "capabilities" => { "vision" => true }.freeze,
         # Model-level overrides: DeepSeek models routed through this provider
@@ -65,24 +105,23 @@ module Clacky
         # Per-primary lite pairing: keys are "strong" primary models, values
         # are the lite sidekick to auto-inject when that primary is the
         # default. Lite is consumed by some subagents for cheap/fast work;
-        # weak models (haiku / v4-flash) ARE the lite tier themselves, so
-        # they're intentionally not listed here — no injection happens when
-        # the default model is already lite-class.
-        #
-        # or-gemini-3-1-pro is intentionally absent: Gemini has no lite
-        # sibling wired up (yet) on this provider; subagents using the
-        # Gemini default will just reuse it for lite work until we add one.
+        # weak models (haiku / v4-flash / 3-5-flash) ARE the lite tier
+        # themselves, so they're intentionally not listed here as keys —
+        # no injection happens when the default model is already lite-class.
         "lite_models" => {
+          "abs-claude-fable-5"    => "abs-claude-haiku-4-5",
           "abs-claude-opus-4-8"   => "abs-claude-haiku-4-5",
           "abs-claude-opus-4-7"   => "abs-claude-haiku-4-5",
           "abs-claude-opus-4-6"   => "abs-claude-haiku-4-5",
           "abs-claude-sonnet-4-6" => "abs-claude-haiku-4-5",
           "abs-claude-sonnet-4-5" => "abs-claude-haiku-4-5",
-          "dsk-deepseek-v4-pro"   => "dsk-deepseek-v4-flash"
+          "dsk-deepseek-v4-pro"   => "dsk-deepseek-v4-flash",
+          "or-gemini-3-1-pro"     => "or-gemini-3-5-flash"
         },
         # Fallback chain: if a model is unavailable, try the next one in order.
         # Keys are primary model names; values are the fallback model to use instead.
         "fallback_models" => {
+          "abs-claude-fable-5"    => "abs-claude-opus-4-8",
           "abs-claude-sonnet-4-6" => "abs-claude-sonnet-4-5"
         },
         "website_url" => "https://www.openclacky.com/ai-keys"
@@ -141,6 +180,7 @@ module Clacky
         # until we ship a dedicated client-side adapter for that protocol.
         "image_models" => [],
         "default_image_model" => nil,
+        "default_ocr_model" => "google/gemini-2.5-flash",
         "website_url" => "https://openrouter.ai/keys"
       }.freeze,
 
@@ -188,6 +228,7 @@ module Clacky
         "model_capabilities" => {
           "MiniMax-M3" => { "vision" => true }.freeze
         }.freeze,
+        "default_ocr_model" => "MiniMax-M3",
         "website_url" => "https://www.minimaxi.com/user-center/basic-information/interface-key"
       }.freeze,
 
@@ -214,6 +255,7 @@ module Clacky
         ].freeze,
         # k2.5 / k2.6 are multimodal; legacy k2 text-only models need model_capabilities override if added.
         "capabilities" => { "vision" => true }.freeze,
+        "default_ocr_model" => "kimi-k2.5",
         "website_url" => "https://platform.moonshot.cn/console/api-keys"
       }.freeze,
 
@@ -261,6 +303,7 @@ module Clacky
         "api" => "anthropic-messages",
         "default_model" => "claude-sonnet-4-6",
         "models" => ["claude-opus-4-8", "claude-opus-4-7", "claude-opus-4-6", "claude-sonnet-4-6", "claude-haiku-4-5"],
+        "default_ocr_model" => "claude-haiku-4-5",
         "website_url" => "https://console.anthropic.com/settings/keys"
       }.freeze,
 
@@ -275,6 +318,7 @@ module Clacky
         "model_capabilities" => {
           "mimo-v2-omni" => { "vision" => true }.freeze
         }.freeze,
+        "default_ocr_model" => "mimo-v2-omni",
         "website_url" => "https://platform.xiaomimimo.com/"
       }.freeze,
 
@@ -304,6 +348,7 @@ module Clacky
         "model_capabilities" => {
           "glm-5v-turbo" => { "vision" => true }.freeze
         }.freeze,
+        "default_ocr_model" => "glm-5v-turbo",
         "website_url" => "https://open.bigmodel.cn/usercenter/apikeys"
       }.freeze,
 
@@ -334,6 +379,7 @@ module Clacky
           "gpt-image-2"
         ],
         "default_image_model" => "gpt-image-2",
+        "default_ocr_model" => "gpt-5.4-mini",
         "website_url" => "https://platform.openai.com/api-keys"
       }.freeze,
 
@@ -359,6 +405,7 @@ module Clacky
         "model_capabilities" => {
           "qwen3.7-max" => { "vision" => false }.freeze
         }.freeze,
+        "default_ocr_model" => "qwen3.6-flash",
         "lite_models" => {
           "qwen3.7-max"      => "qwen3.6-flash",
           "qwen3.6-plus"     => "qwen3.6-flash",
@@ -487,6 +534,30 @@ module Clacky
         preset&.dig("image_models") || []
       end
 
+      def image_model_aliases(provider_id)
+        preset = PRESETS[provider_id]
+        preset&.dig("image_model_aliases") || {}
+      end
+
+      def video_model_aliases(provider_id)
+        preset = PRESETS[provider_id]
+        preset&.dig("video_model_aliases") || {}
+      end
+
+      def audio_model_aliases(provider_id)
+        preset = PRESETS[provider_id]
+        preset&.dig("audio_model_aliases") || {}
+      end
+
+      def media_model_aliases(provider_id, kind)
+        case kind.to_s
+        when "image" then image_model_aliases(provider_id)
+        when "video" then video_model_aliases(provider_id)
+        when "audio" then audio_model_aliases(provider_id)
+        else {}
+        end
+      end
+
       # Video generation models — placeholder. No provider supports video
       # via Clacky yet; once they do, declare "video_models" alongside
       # "image_models" in the relevant PRESETS entry and this returns it.
@@ -499,6 +570,31 @@ module Clacky
       def audio_models(provider_id)
         preset = PRESETS[provider_id]
         preset&.dig("audio_models") || []
+      end
+
+      # OCR sidecar candidates: every chat model under this provider that's
+      # vision-capable. Derived from `vision` capability so we don't have
+      # to maintain a parallel list — a model that can see is by definition
+      # a candidate for "describe an image as text". Image-generation models
+      # are excluded (they take prompts and return pixels, not the other way).
+      # @param provider_id [String]
+      # @return [Array<String>]
+      def ocr_models(provider_id)
+        preset = PRESETS[provider_id]
+        return [] unless preset
+        (preset["models"] || []).select { |m| supports?(provider_id, :vision, model_name: m) }
+      end
+
+      # Default OCR sidecar model for a provider. Falls back to the first
+      # vision-capable model if the preset doesn't pin an explicit default.
+      # @param provider_id [String]
+      # @return [String, nil] nil when the provider has zero vision-capable models
+      def default_ocr_model(provider_id)
+        preset = PRESETS[provider_id]
+        return nil unless preset
+        explicit = preset["default_ocr_model"]
+        return explicit if explicit && ocr_models(provider_id).include?(explicit)
+        ocr_models(provider_id).first
       end
 
       # Unified entry for media model lookup by kind.

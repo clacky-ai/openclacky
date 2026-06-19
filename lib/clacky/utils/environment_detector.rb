@@ -36,6 +36,22 @@ module Clacky
         end
       end
 
+      # Reveal a file in the OS file manager (select/highlight it).
+      # macOS: open -R; Linux: xdg-open on parent dir; WSL: explorer /select
+      # @param path [String] Linux-side file path
+      # @return [Boolean, nil] true/false from system(), or nil on unsupported OS
+      def self.reveal_file(path)
+        case os_type
+        when :macos then system("open", "-R", path)
+        when :linux then system("xdg-open", File.dirname(path))
+        when :wsl
+          win_path = linux_to_win_path(path)
+          system("explorer.exe", "/select,#{win_path}")
+        else
+          nil
+        end
+      end
+
       # Convert a Windows-style path to a WSL/Linux-side path.
       # e.g. "C:/Users/foo/file.txt" → "/mnt/c/Users/foo/file.txt"
       # Returns the original path unchanged on non-WSL or if already a Linux path.

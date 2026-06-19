@@ -27,6 +27,17 @@ RSpec.describe Clacky::Agent::SkillEvolution do
       def maybe_create_skill_from_task
         @create_called += 1
       end
+
+      # Stubs for the gating predicates normally provided by SkillReflector /
+      # SkillAutoCreator. Default to true so the dispatch tests can assert
+      # which branch was reached.
+      def should_reflect_on_skill?
+        true
+      end
+
+      def should_auto_create_skill?
+        true
+      end
     end
   end
 
@@ -66,6 +77,36 @@ RSpec.describe Clacky::Agent::SkillEvolution do
         agent.run_skill_evolution_hooks
         expect(agent.reflect_called).to eq(0)
         expect(agent.create_called).to eq(1)
+      end
+    end
+
+    context "when there is no work to do (gating predicates return false)" do
+      let(:agent_no_work) do
+        Class.new(agent_class) do
+          def should_reflect_on_skill?
+            false
+          end
+
+          def should_auto_create_skill?
+            false
+          end
+        end.new
+      end
+
+      it "skips dispatch entirely (no banner) by default" do
+        agent_no_work.skill_execution_context = nil
+        agent_no_work.run_skill_evolution_hooks
+        expect(agent_no_work.reflect_called).to eq(0)
+        expect(agent_no_work.create_called).to eq(0)
+      end
+
+      it "still dispatches when verbose is enabled (so the user sees the no-op)" do
+        agent_no_work.config = double("config", verbose: true)
+        agent_no_work.skill_execution_context = nil
+        agent_no_work.run_skill_evolution_hooks
+        # Reaches the dispatch — maybe_create_skill_from_task is called,
+        # which in real code would early-return inside should_auto_create_skill?
+        expect(agent_no_work.create_called).to eq(1)
       end
     end
   end

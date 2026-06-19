@@ -3,6 +3,7 @@
 require "faraday"
 require "faraday/multipart"
 require "json"
+require "uri"
 
 module Clacky
   module Channel
@@ -30,11 +31,27 @@ module Clacky
           end
         end
 
+        # Raised when any API call fails with 99991672 (missing app scope).
+        # The admin needs to open auth_url to grant the required permissions.
+        class FeishuScopeError < StandardError
+          attr_reader :auth_url, :required_scopes
+
+          def initialize(auth_url, required_scopes: [])
+            @auth_url = auth_url
+            @required_scopes = required_scopes
+            super("App is missing required API scope")
+          end
+        end
+
         # Feishu Bot API client.
         # Handles authentication, message sending, and API calls.
         class Bot
           API_TIMEOUT = 10
           DOWNLOAD_TIMEOUT = 60
+          ERR_SCOPE_MISSING = 99991672
+          ERR_SCOPE_MISSING_2 = 230027
+          GROUP_HISTORY_LIMIT = 15
+          SCOPE_GROUP_MSG = "im:message.group_msg"
 
           def initialize(app_id:, app_secret:, domain: DEFAULT_DOMAIN)
             @app_id = app_id
@@ -42,7 +59,7 @@ module Clacky
             @domain = domain
             @token_cache = nil
             @token_expires_at = nil
-            @user_name_cache = {}
+
           end
 
           # Send plain text message
@@ -227,7 +244,50 @@ module Clacky
             }.join
           end
 
-          # Get this bot's own open_id (cached, fetched lazily on first use).
+          # Fetch recent messages from a chat via the message list API.
+          # Returns an array of { user_id, text } hashes, oldest first.
+          # @param chat_id [String]
+          # @param limit [Integer]
+          # @return [Array<Hash>]
+          def fetch_chat_history(chat_id, limit: GROUP_HISTORY_LIMIT)
+            response = get("/open-apis/im/v1/messages", params: {
+              container_id_type: "chat",
+              container_id:      chat_id,
+              sort_type:         "ByCreateTimeDesc",
+              page_size:         limit
+            })
+            unless response["code"] == 0
+              code = response["code"].to_i
+              Clacky::Logger.warn("[feishu] fetch_chat_history failed code=#{code} msg=#{response["msg"]}, ext=#{response.dig("error", "message") || response["msg"]}")
+              if code == ERR_SCOPE_MISSING || code == ERR_SCOPE_MISSING_2
+                auth_url = response.dig("error", "permission_violations", 0, "attach_url") ||
+                           extract_url(response["msg"].to_s)
+                scopes = (response.dig("error", "permission_violations") || []).map { |v| v["subject"] }.compact
+                raise FeishuScopeError.new(auth_url, required_scopes: scopes)
+              end
+              return []
+            end
+
+            items = response.dig("data", "items") || []
+            Clacky::Logger.info("[feishu] fetch_chat_history chat=#{chat_id} api_items=#{items.size} first=#{items.first&.inspect}")
+            items.reverse.filter_map do |item|
+              content = begin
+                body = JSON.parse(item.dig("body", "content").to_s)
+                body["text"].to_s.gsub(/@_user_\S+\s?/, "").gsub(/@\S+\s?/, "").strip
+              rescue JSON::ParserError
+                nil
+              end
+              next if content.nil? || content.empty?
+
+              sender_id = item.dig("sender", "id").to_s
+              { user_id: sender_id, text: content }
+            end
+          rescue FeishuScopeError
+            raise
+          rescue => e
+            Clacky::Logger.warn("[feishu] fetch_chat_history failed: #{e.message}")
+            []
+          end
           # Used to detect @bot mentions in group chats.
           # @return [String, nil] bot open_id, or nil if the API call fails
           def bot_open_id
@@ -235,17 +295,6 @@ module Clacky
           rescue => e
             Clacky::Logger.warn("[feishu] Failed to fetch bot_open_id: #{e.message}")
             nil
-          end
-
-          def fetch_user_name(open_id)
-            return @user_name_cache[open_id] if @user_name_cache.key?(open_id)
-
-            name = get("/open-apis/contact/v3/users/#{open_id}", params: { user_id_type: "open_id" })
-                     .dig("data", "user", "name")
-            @user_name_cache[open_id] = name.to_s.strip.then { |n| n.empty? ? open_id : n }
-          rescue => e
-            Clacky::Logger.warn("[feishu] Failed to fetch user name for #{open_id}: #{e.message}")
-            @user_name_cache[open_id] = open_id
           end
 
           # Get tenant access token (cached)
@@ -450,14 +499,18 @@ module Clacky
 
             if code == 91403
               raise FeishuDocPermissionError, token
-            elsif code == 99991672
+            elsif code == ERR_SCOPE_MISSING
               # Extract auth URL from the error message if present
               auth_url = response.dig("error", "permission_violations", 0, "attach_url") ||
-                         response["msg"].to_s[/https:\/\/open\.feishu\.cn\/app\/[^\s"]+/]
+                         extract_url(response["msg"].to_s)
               raise FeishuDocScopeError.new(auth_url)
             else
               raise "Failed to fetch doc: code=#{code} msg=#{response["msg"]}"
             end
+          end
+
+          private def extract_url(text)
+            text[URI::DEFAULT_PARSER.make_regexp(%w[https])]
           end
 
           # Build Faraday connection

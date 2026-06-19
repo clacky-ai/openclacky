@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OpenClacky · Design Sample v2</title>
+<link rel="stylesheet" href="/design-sample.css">
+</head>
+<body>
+<div id="app">
+  <!-- TOP HEADER: original 3-zone, command bar fills the empty center -->
+  <header id="top-header">
+    <div id="header-left">
+      <button class="sidebar-toggle-btn" title="Toggle sidebar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/></svg></button>
+      <div id="header-brand">
+        <div class="brand-mark">C</div>
+        <span class="header-logo-divider"></span>
+        <span id="header-logo">OpenClacky</span>
+        <button class="header-owner-badge">OWNER</button>
+      </div>
+    </div>
+    <div id="header-center">
+      <div class="cmdbar">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+        <span class="ph">Search or run a command…</span>
+        <span class="kbd">⌘K</span>
+      </div>
+    </div>
+    <div id="header-right">
+      <div class="header-icons">
+        <button class="theme-toggle-btn" title="Share"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg></button>
+        <button class="theme-toggle-btn" title="Notifications"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.7 21a2 2 0 0 1-3.4 0"/></svg></button>
+        <button class="theme-toggle-btn" title="Theme"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg></button>
+      </div>
+    </div>
+  </header>
+
+  <div id="content-row">
+    <!-- SIDEBAR: original groups & order, only skin changed -->
+    <aside id="sidebar">
+      <div id="sidebar-list">
+        <!-- Sessions -->
+        <div class="sidebar-divider">
+          <span>Sessions</span>
+          <div class="sidebar-divider-actions">
+            <button class="btn-icon-sm" title="Search sessions"><svg width="13" height="13" viewBox="0 0 16 16" fill="none"><circle cx="6.5" cy="6.5" r="4.5" stroke="currentColor" stroke-width="1.6"/><line x1="10.3" y1="10.3" x2="14" y2="14" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
+            <div class="btn-split-wrap">
+              <button class="btn-split-main">+ New Session</button>
+              <button class="btn-split-arrow">▾</button>
+            </div>
+          </div>
+        </div>
+        <div class="conv-empty">No conversations yet</div>
+
+        <!-- Config -->
+        <div class="sidebar-divider"><span>Config</span></div>
+        <div class="task-item"><div class="task-row"><svg class="task-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg><div class="task-info"><span class="task-name">Task Management</span></div></div></div>
+        <div class="task-item active"><div class="task-row"><svg class="task-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19.4 7.85c0 .3.1.6.3.9l1.6 1.6c.5.5.7 1.1.7 1.7s-.2 1.2-.7 1.7l-1.6 1.6c-.2.2-.5.3-.8.3-.5-.1-.8-.5-1-.9a2.5 2.5 0 1 0-3.2 3.2c.4.2.9.5 1 1a1 1 0 0 1-.3.8l-1.6 1.6c-.5.5-1.1.7-1.7.7s-1.2-.2-1.7-.7l-1.6-1.6a1 1 0 0 0-.9-.3c-.5.1-.8.5-1 1a2.5 2.5 0 1 1-3.2-3.2c.5-.2.9-.5 1-1a1 1 0 0 0-.3-.9l-1.6-1.6A2.4 2.4 0 0 1 2 12c0-.6.2-1.2.7-1.7L4.2 8.8c.2-.2.6-.4.9-.3.5.1.9.5 1.1 1a2.5 2.5 0 1 0 3.3-3.3c-.5-.2-.9-.6-1-1.1 0-.3.1-.7.3-.9l1.5-1.5A2.4 2.4 0 0 1 12 2c.6 0 1.2.2 1.7.7l1.6 1.6c.2.2.6.3.9.3.5-.1.8-.5 1-1a2.5 2.5 0 1 1 3.2 3.2c-.5.2-.9.5-1 1Z"/></svg><div class="task-info"><span class="task-name">Skill Management</span></div></div></div>
+        <div class="task-item"><div class="task-row"><svg class="task-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="2" width="14" height="20" rx="2"/><path d="M12 18h.01"/></svg><div class="task-info"><span class="task-name">Channel Management</span></div></div></div>
+        <div class="task-item"><div class="task-row"><svg class="task-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="6" rx="1"/><rect x="3" y="14" width="18" height="6" rx="1"/><path d="M8 7h.01M8 17h.01"/></svg><div class="task-info"><span class="task-name">MCP Servers</span></div></div></div>
+
+        <!-- My Data -->
+        <div class="sidebar-divider"><span>My Data</span></div>
+        <div class="task-item"><div class="task-row"><svg class="task-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg><div class="task-info"><span class="task-name">Profile &amp; Soul</span></div></div></div>
+        <div class="task-item"><div class="task-row"><svg class="task-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg><div class="task-info"><span class="task-name">File Recall</span></div></div></div>
+        <div class="task-item"><div class="task-row"><svg class="task-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg><div class="task-info"><span class="task-name">Billing</span></div></div></div>
+
+        <!-- Creator (conditional) -->
+        <div class="sidebar-divider"><span>Creator</span></div>
+        <div class="task-item"><div class="task-row"><svg class="task-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg><div class="task-info"><span class="task-name">Creator Hub</span></div></div></div>
+      </div>
+
+      <div id="sidebar-footer">
+        <div class="sidebar-nav-row">
+          <button class="sidebar-nav-btn"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-2.7 1.1V21a2 2 0 0 1-4 0v-.1A1.6 1.6 0 0 0 7 19.4a1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0-1.1-2.7H1a2 2 0 0 1 0-4h.1A1.6 1.6 0 0 0 2.6 9a1.6 1.6 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A1.6 1.6 0 0 0 7 4.6a1.6 1.6 0 0 0 1-1.5V3a2 2 0 0 1 4 0v.1a1.6 1.6 0 0 0 1 1.5 1.6 1.6 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8V9a1.6 1.6 0 0 0 1.5 1H21a2 2 0 0 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1z"/></svg><span>Settings</span></button>
+          <span class="version-badge">v1.2.6</span>
+        </div>
+      </div>
+    </aside>
+
+    <!-- MAIN / chat empty state -->
+    <main id="main">
+      <div class="chat-empty">
+        <div class="ce-mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M12 2l2.4 6.6L21 11l-6.6 2.4L12 20l-2.4-6.6L3 11l6.6-2.4z"/></svg></div>
+        <div style="display:flex;flex-direction:column;gap:6px;align-items:center;">
+          <div class="ce-title">What should we build?</div>
+          <div class="ce-sub">Your agent is standing by. Pick a starting point or just type.</div>
+        </div>
+        <div class="chips">
+          <button class="chip"><span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M16 18l6-6-6-6M8 6l-6 6 6 6"/></svg></span><span><span class="ct">Write code</span><br><span class="cd">build, refactor, debug</span></span></button>
+          <button class="chip"><span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></span><span><span class="ct">Automate a task</span><br><span class="cd">schedule, run, repeat</span></span></button>
+          <button class="chip"><span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 19.5V6a2 2 0 0 1 2-2h12v16H6a2 2 0 0 1-2-2z"/><path d="M8 7h7"/></svg></span><span><span class="ct">Research</span><br><span class="cd">search, read, summarize</span></span></button>
+        </div>
+      </div>
+      <div class="composer-wrap">
+        <div id="session-info-bar">
+          <span id="sib-status"><span class="heartbeat"></span>RUNNING</span>
+          <span class="sib-sep">│</span>
+          <span id="sib-id" class="sib-clickable" title="Session actions">#a3f9 ▾</span>
+          <span class="sib-sep">│</span>
+          <span id="sib-dir" class="sib-clickable" title="Change directory">~/proj</span>
+          <span class="sib-sep">│</span>
+          <span id="sib-model" class="sib-clickable" title="Switch model">gemini-3-flash ▾</span>
+          <span class="sib-sep">│</span>
+          <span id="sib-reasoning" class="sib-clickable" title="Reasoning effort">medium</span>
+          <span class="sib-sep">│</span>
+          <span id="sib-signal" class="sib-clickable" title="Latency"><span class="sig-bars"><i></i><i></i><i></i><i></i></span> 0.4s</span>
+          <span class="sib-sep">│</span>
+          <span id="sib-mode">auto</span>
+          <span class="sib-sep">│</span>
+          <span id="sib-tasks">0 tasks</span>
+          <span class="sib-sep">│</span>
+          <span id="sib-cost">$0.03</span>
+        </div>
+        <div class="composer">
+          <button class="ib-icon" title="Attach file"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66L9.41 17.41a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg></button>
+          <button class="ib-icon" title="Insert command (/)"><span style="font-family:var(--font-mono);font-weight:600;">/</span></button>
+          <textarea rows="1" placeholder="Message… (Enter to send, Shift+Enter for newline)"></textarea>
+          <button class="send"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button>
+        </div>
+      </div>
+    </main>
+  </div>
+</div>
+<button class="sample-switch" onclick="document.documentElement.dataset.theme = document.documentElement.dataset.theme==='light'?'dark':'light'">TOGGLE THEME</button>
+</body>
+</html>

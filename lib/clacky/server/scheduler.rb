@@ -192,21 +192,26 @@ module Clacky
 
       private def run_loop
         loop do
-          break unless @running
+          begin
+            break unless @running
 
-          tick(Time.now)
+            tick(Time.now)
 
-          # Sleep until the start of the next minute
-          now     = Time.now
-          sleep_s = 60 - now.sec
-          sleep(sleep_s)
+            # Sleep until the start of the next minute
+            now     = Time.now
+            sleep_s = 60 - now.sec
+            sleep(sleep_s)
+          rescue => e
+            Clacky::Logger.error("scheduler_tick_error", error: e)
+            sleep(5) # back off before retrying next tick
+          end
         end
-      rescue => e
-        Clacky::Logger.error("scheduler_fatal_error", error: e)
       end
 
       # Check all enabled schedules against the given time and fire matching ones.
       private def tick(now)
+        maybe_run_backup(now)
+
         load_schedules.each do |schedule|
           next unless schedule["enabled"] != false
           next unless cron_matches?(schedule["cron"].to_s, now)
@@ -243,6 +248,23 @@ module Clacky
         Clacky::Logger.info("scheduler_task_dispatched", task: task_name, session: session_id)
       rescue => e
         Clacky::Logger.error("scheduler_fire_error", task: schedule["task"], error: e)
+      end
+
+      # Built-in automatic backup hook. Runs as a plain system operation —
+      # no AI session — when the backup cron matches and auto-backup is enabled.
+      private def maybe_run_backup(now)
+        cfg = BackupManager.config
+        return unless cfg["enabled"]
+        return unless cron_matches?(cfg["cron"].to_s, now)
+
+        minute_key = now.strftime("%Y%m%d%H%M")
+        return if @last_backup_minute == minute_key
+
+        @last_backup_minute = minute_key
+        result = BackupManager.run!
+        Clacky::Logger.info("scheduler_backup_done", archive: File.basename(result[:archive]), size: result[:size])
+      rescue => e
+        Clacky::Logger.error("scheduler_backup_error", error: e)
       end
 
       # ── Cron parsing ─────────────────────────────────────────────────────────

@@ -42,7 +42,7 @@ module Clacky
 
     attr_reader :session_id, :name, :history, :iterations, :total_cost, :working_dir, :created_at, :total_tasks, :todos,
                 :cache_stats, :cost_source, :ui, :skill_loader, :agent_profile,
-                :status, :error, :updated_at, :source,
+                :status, :error, :updated_at, :source, :config,
                 :latest_latency,  # Hash of latency metrics from the most recent LLM call (see Client#send_messages_with_tools)
                 :reasoning_effort
     attr_accessor :pinned
@@ -102,7 +102,7 @@ module Clacky
       @ui = ui  # UIController for direct UI interaction
       @debug_logs = []  # Debug logs for troubleshooting
       @pending_injections = []     # Pending inline skill injections to flush after observe()
-      @pending_script_tmpdirs = [] # Decrypted-script tmpdirs to shred when agent.run completes
+      @pending_script_tmpdirs = [] # Decrypted-script tmpdirs that live for the agent's lifetime
       @pending_error_rollback = false  # Deferred rollback flag set by restore_session on error
       @last_run_interrupted = false    # Set when run() exits via AgentInterrupted; tells the next run() to keep the task-start snapshot (continuation of the same task across a relay, not a brand-new task)
 
@@ -341,19 +341,23 @@ module Clacky
         # the file_prompt builder can't emit the "not supported by model" /
         # "too large" note for downgraded images.
         downgrade_reason = f[:downgrade_reason] || f["downgrade_reason"]
+        ocr_text         = f[:ocr_text]         || f["ocr_text"]
         ref = Utils::FileProcessor.process_path(path, name: name)
         { name: ref.name, type: ref.type.to_s, path: ref.original_path,
           preview_path: ref.preview_path, parse_error: ref.parse_error, parser_path: ref.parser_path,
-          downgrade_reason: downgrade_reason }
+          downgrade_reason: downgrade_reason, ocr_text: ocr_text }
       end
 
       # Build display_files for replay: lightweight metadata so the UI can reconstruct
-      # file badges (PDF, doc, etc.) on page refresh. Images are NOT stored here — they
-      # are recovered from the image_url blocks in user_content by extract_image_files_from_content.
+      # file badges (PDF, doc, etc.) on page refresh. Vision-inlined images are NOT
+      # stored here — they recover from image_url blocks in user_content. Downgraded
+      # images (provider has no vision / too large / OCR'd) DO need path here so the
+      # UI can re-render them from the on-disk copy across session switches.
       display_files = all_disk_files.filter_map do |f|
         name = f[:name] || f["name"]
         next unless name
         { name: name, type: f[:type] || f["type"] || "file",
+          path: f[:path] || f["path"],
           preview_path: f[:preview_path] || f["preview_path"] }
       end
 
@@ -381,6 +385,7 @@ module Clacky
           parse_error      = f[:parse_error]      || f["parse_error"]
           parser_path      = f[:parser_path]      || f["parser_path"]
           downgrade_reason = f[:downgrade_reason] || f["downgrade_reason"]
+          ocr_text         = f[:ocr_text]         || f["ocr_text"]
 
           next unless name
 
@@ -395,6 +400,14 @@ module Clacky
           # model — switching models later won't leave stale warnings.
           note = downgrade_note_for(downgrade_reason)
           lines << "Note: #{note}" if note
+
+          # OCR transcription (when an OCR sidecar successfully described
+          # an image the primary model couldn't see). Embedded inline so
+          # the LLM has the description colocated with the file entry.
+          if ocr_text && !ocr_text.strip.empty?
+            lines << "OCR description:"
+            lines << ocr_text.strip
+          end
 
           # Parser failed — instruct LLM to fix and re-run
           if preview_path.nil? && parse_error
@@ -533,6 +546,11 @@ module Clacky
               end
             end
 
+            # If the assistant ended its turn with a question, treat this as
+            # an in-flight conversation (agent is awaiting the user's reply)
+            # and skip skill evolution — the task isn't truly complete yet.
+            awaiting_user_feedback = true if ends_with_question
+
             break
           end
 
@@ -586,12 +604,6 @@ module Clacky
         end
 
       result = build_result
-
-      # Save snapshots of modified files for Time Machine
-      if @modified_files_in_task && !@modified_files_in_task.empty?
-        save_modified_files_snapshot(@modified_files_in_task)
-        @modified_files_in_task = []  # Reset for next task
-      end
 
         # Run skill evolution hooks after main loop completes
         # Skip if task was interrupted by user (denied tool) or awaiting user feedback
@@ -656,12 +668,8 @@ module Clacky
         # Safety net: ensure any lingering progress spinner is stopped.
         # Normal paths close their own spinners; this guards against exceptions
         # raised between a progress slot's active/done pair.
+        Clacky::Logger.warn("[ph_debug] agent_run_ensure")
         @ui&.show_progress(phase: "done")
-
-        # Shred any decrypted-script tmpdirs created during this run for encrypted brand skills.
-        # This covers the inline-injection path; the subagent path shreds immediately after
-        # subagent.run returns (see execute_skill_with_subagent).
-        shred_script_tmpdirs
 
         # Fire-and-forget telemetry after every agent run.
         # Tracks daily active users (distinct devices per day) and task volume.
@@ -939,8 +947,11 @@ module Clacky
           end
         end
 
-        # Special handling for request_user_feedback: don't show as tool call
-        unless call[:name] == "request_user_feedback"
+        # Special handling for request_user_feedback
+        if call[:name] == "request_user_feedback"
+          # In auto_approve mode, give user time to see and cancel before auto-answering
+          auto_approve_countdown(seconds: 10) if @config.permission_mode == :auto_approve
+        else
           @ui&.show_tool_call(call[:name], redact_tool_args(call[:arguments]))
         end
 
@@ -990,6 +1001,10 @@ module Clacky
           # instant tools like edit/write/read/glob/grep. Truly slow
           # tools (terminal running a build, web_fetch) exceed the
           # threshold and their final frame is preserved as usual.
+          # Record BEFORE-change snapshots for Time Machine right before the
+          # tool runs, so undo can restore (or delete) any file it touches.
+          record_tool_target_before(call[:name], args)
+
           result = nil
           if @ui
             progress_message = build_tool_progress_message(call[:name], args)
@@ -1003,9 +1018,6 @@ module Clacky
           else
             result = tool.execute(**args)
           end
-
-          # Track modified files for Time Machine snapshots
-          track_modified_files(call[:name], args)
 
           # Hook: after_tool_use
           @hooks.trigger(:after_tool_use, call, result)
@@ -1036,7 +1048,7 @@ module Clacky
           else
             # Use tool's format_result method to get display-friendly string
             formatted_result = tool.respond_to?(:format_result) ? tool.format_result(result) : result.to_s
-            @ui&.show_tool_result(formatted_result)
+            @ui&.show_tool_result(redact_tool_args(formatted_result))
           end
 
           results << build_success_result(call, result)
@@ -1054,7 +1066,7 @@ module Clacky
           Clacky::Logger.error("tool_execution_error", tool: call[:name], error: e)
 
           @hooks.trigger(:on_tool_error, call, e)
-          @ui&.show_tool_error(e)
+          @ui&.show_tool_error(redact_tool_args(e.message))
           # Use build_denied_result with system_injected=true so LLM knows it can retry
           results << build_denied_result(call, e.message, true)
         end
@@ -1092,6 +1104,9 @@ module Clacky
       # base64 data in a `role:"tool"` message causes it to be JSON-encoded as
       # plain text, inflating token counts by 20-40x.  The tool result carries a
       # plain-text description for the LLM; the actual image is delivered here.
+      vision_supported = @config.current_model_supports?(:vision)
+      ocr_entry = vision_supported ? nil : @config.find_model_by_type("ocr")
+
       tool_results.each do |tr|
         inject = tr[:image_inject]
         next unless inject
@@ -1103,12 +1118,18 @@ module Clacky
 
         data_url = "data:#{mime_type};base64,#{base64_data}"
         label = path ? File.basename(path.to_s) : "image"
-        image_block = { type: "image_url", image_url: { url: data_url } }
-        image_block[:image_path] = path if path
-        image_content = [
-          { type: "text", text: "[Image: #{label}]" },
-          image_block
-        ]
+
+        image_content =
+          if vision_supported
+            image_block = { type: "image_url", image_url: { url: data_url } }
+            image_block[:image_path] = path if path
+            [{ type: "text", text: "[Image: #{label}]" }, image_block]
+          else
+            ocr_result = try_ocr(ocr_entry, data_url: data_url, name: label)
+            text = ocr_text_for_inject(label, ocr_result, ocr_entry)
+            [{ type: "text", text: text }]
+          end
+
         @history.append({
           role:             "user",
           content:          image_content,
@@ -1148,8 +1169,8 @@ module Clacky
     end
 
     # Register a tmpdir that contains decrypted brand skill scripts.
-    # SkillManager calls this after decrypt_all_scripts so agent.run's ensure block
-    # can shred it when the run completes.
+    # SkillManager calls this after decrypt_all_scripts. The tmpdir lives for
+    # the agent's lifetime (a session), not just a single agent.run.
     # @param dir [String] Absolute path to the tmpdir
     def register_script_tmpdir(dir)
       @pending_script_tmpdirs << dir
@@ -1236,7 +1257,7 @@ module Clacky
         # Skip malformed tool calls with nil name or arguments
         next if name.nil? || arguments.nil?
 
-        {
+        formatted = {
           id: call[:id],
           type: call[:type] || "function",
           function: {
@@ -1244,6 +1265,8 @@ module Clacky
             arguments: arguments
           }
         }
+        formatted[:extra_content] = call[:extra_content] if call[:extra_content]
+        formatted
       end
 
       valid.any? ? valid : nil
@@ -1486,6 +1509,11 @@ module Clacky
       # the current model (no stale state on `/model` switch).
       vision_supported = @config.current_model_supports?(:vision)
 
+      # OCR sidecar — only consulted when the primary doesn't see images.
+      # When the sidecar entry has "primary"=>true, the primary itself can see,
+      # so vision_supported was already true and we never enter the OCR branch.
+      ocr_entry = vision_supported ? nil : @config.find_model_by_type("ocr")
+
       vision_images = []  # Array of { url:, name:, size_bytes:, path: }
       downgraded    = []
 
@@ -1502,8 +1530,11 @@ module Clacky
           file_ref  = Utils::FileProcessor.save_image_to_disk(body: raw, mime_type: mime, filename: name)
           reason    = downgrade_reason_for(vision_supported, byte_size, max_bytes)
           if reason
-            downgraded << { name: name, path: file_ref.original_path, type: "image",
-                            mime_type: mime, size_bytes: byte_size, downgrade_reason: reason }
+            ocr_result = (reason == :provider_no_vision) ? try_ocr(ocr_entry, data_url: data_url, name: name) : nil
+            entry = { name: name, path: file_ref.original_path, type: "image",
+                      mime_type: mime, size_bytes: byte_size, downgrade_reason: reason }
+            apply_ocr_outcome!(entry, ocr_result)
+            downgraded << entry
           else
             vision_images << { url: data_url, name: name, size_bytes: byte_size, path: file_ref.original_path }
           end
@@ -1514,8 +1545,11 @@ module Clacky
             byte_size = (b64_data.bytesize * 3) / 4
             reason    = downgrade_reason_for(vision_supported, byte_size, max_bytes)
             if reason
-              downgraded << { name: name, path: path, type: "image",
-                              mime_type: mime, size_bytes: byte_size, downgrade_reason: reason }
+              ocr_result = (reason == :provider_no_vision) ? try_ocr(ocr_entry, path: path, name: name) : nil
+              entry = { name: name, path: path, type: "image",
+                        mime_type: mime, size_bytes: byte_size, downgrade_reason: reason }
+              apply_ocr_outcome!(entry, ocr_result)
+              downgraded << entry
             else
               vision_images << { url: data_url_from_path, name: name, size_bytes: byte_size, path: path }
             end
@@ -1526,6 +1560,30 @@ module Clacky
       end
 
       [vision_images, downgraded]
+    end
+
+    # Best-effort OCR through the configured sidecar. Returns nil when no
+    # sidecar is configured or the call failed — caller falls back to the
+    # ":provider_no_vision" downgrade note (today's behaviour).
+    # @return [Clacky::Vision::Resolver::Result, nil]
+    #   nil — no sidecar exists or sidecar IS the primary (no point extra hop).
+    #         Caller treats this as ":provider_no_vision" (configure a sidecar).
+    #   Result — outcome from the sidecar call. status=:ok carries text;
+    #            :empty / :call_failed / :bad_image each get their own message
+    #            so the user can tell "image content unreadable" from
+    #            "sidecar misconfigured / down".
+    private def try_ocr(ocr_entry, data_url: nil, path: nil, name: nil)
+      return nil unless ocr_entry
+      return nil if ocr_entry["primary"]
+
+      image = data_url ? { data_url: data_url } : { path: path }
+
+      @ui&.show_progress("Reading image…", progress_type: "vision", phase: "active")
+      begin
+        Clacky::Vision::Resolver.new(ocr_entry).describe(image)
+      ensure
+        @ui&.show_progress(phase: "done")
+      end
     end
 
     # Decide whether an image must be downgraded to a disk ref, and if so why.
@@ -1546,9 +1604,61 @@ module Clacky
     private def downgrade_note_for(reason)
       case reason&.to_sym
       when :provider_no_vision
-        "The current model does not support vision input. Image content is not visible to the model; suggest switching to a vision-capable model if the user needs image analysis."
+        "The current model does not support vision input and no OCR sidecar is configured. Tell the user clearly that to analyze this image they need to either: (1) configure an OCR sidecar model in Settings → Media → OCR (any vision-capable model works as the sidecar — e.g. gemini-3-5-flash, gpt-4o-mini, claude-3-5-haiku), or (2) switch the current model to a vision-capable one. Do not attempt to guess the image content."
       when :too_large
         "Image was too large for inline delivery and has been saved to disk. Read it with a vision-capable tool/model if needed."
+      when :ocr_resolved
+        "The current model does not support vision input. The image has been transcribed by an OCR sidecar model — the description below is what the model sees in place of the raw pixels."
+      when :ocr_call_failed
+        "The current model does not support vision and the configured OCR sidecar call failed. Tell the user the sidecar (Settings → Media → OCR) errored — likely a misconfigured base_url / api_key, or the upstream is down. They can retry, fix the sidecar config, or switch to a vision-capable primary model. Do not guess the image content."
+      when :ocr_empty
+        "The current model does not support vision. The OCR sidecar responded but returned no readable text (the model produced no description — possibly the image is blank, or the model exhausted its token budget on internal reasoning). Tell the user honestly; do not guess the image content."
+      when :ocr_bad_image
+        "The current model does not support vision. The OCR sidecar could not read the image bytes (corrupt or unsupported format). Tell the user; do not guess the image content."
+      end
+    end
+
+    # Mutates `entry` in place based on the OCR Result outcome.
+    # Sets `:ocr_text` (only on :ok) and rewrites `:downgrade_reason` to one
+    # of :ocr_resolved / :ocr_call_failed / :ocr_empty / :ocr_bad_image.
+    # When ocr_result is nil (no sidecar configured) leaves the original
+    # :provider_no_vision reason untouched.
+    private def apply_ocr_outcome!(entry, ocr_result)
+      return entry unless ocr_result
+
+      case ocr_result.status
+      when :ok
+        entry[:ocr_text] = ocr_result.text
+        entry[:downgrade_reason] = :ocr_resolved
+      when :empty
+        entry[:downgrade_reason] = :ocr_empty
+      when :call_failed
+        entry[:downgrade_reason] = :ocr_call_failed
+        entry[:ocr_error] = ocr_result.error
+      when :bad_image
+        entry[:downgrade_reason] = :ocr_bad_image
+      end
+      entry
+    end
+
+    # Build the inline text block used by the image_inject path (tool screenshots,
+    # generated images, etc. that arrive as content blocks rather than as
+    # display_files entries).
+    private def ocr_text_for_inject(label, ocr_result, ocr_entry)
+      header = "[Image: #{label}]"
+      if ocr_result.nil?
+        return "#{header} The current model has no vision and no OCR sidecar is configured. Tell the user to either configure an OCR sidecar in Settings → Media → OCR, or switch to a vision-capable model, then retry. Do not guess the image content."
+      end
+
+      case ocr_result.status
+      when :ok
+        "#{header}\nOCR description (the current model cannot see images directly; this transcription was produced by sidecar #{ocr_entry["model"]}):\n#{ocr_result.text.strip}"
+      when :empty
+        "#{header} The OCR sidecar (#{ocr_entry["model"]}) returned no readable text. The image may be blank, or the sidecar exhausted its token budget on internal reasoning. Tell the user honestly; do not guess the image content."
+      when :call_failed
+        "#{header} The OCR sidecar (#{ocr_entry["model"]}) call failed: #{ocr_result.error}. Tell the user the sidecar errored (likely a misconfigured base_url / api_key in Settings → Media → OCR, or the upstream is down). They can retry, fix the sidecar, or switch to a vision-capable primary model. Do not guess the image content."
+      when :bad_image
+        "#{header} The OCR sidecar could not read the image bytes (corrupt or unsupported format). Tell the user; do not guess the image content."
       end
     end
 
@@ -1697,17 +1807,14 @@ module Clacky
       @ui&.show_assistant_message(full_content, files: parsed[:files])
     end
 
-    # Track modified files for Time Machine snapshots
-    # @param tool_name [String] Name of the tool that was executed
+    # Record BEFORE-change snapshots for any file a tool is about to mutate,
+    # so Time Machine can later restore or delete it.
+    # @param tool_name [String] Name of the tool about to be executed
     # @param args [Hash] Arguments passed to the tool
-    def track_modified_files(tool_name, args)
-      @modified_files_in_task ||= []
-
+    private def record_tool_target_before(tool_name, args)
       case tool_name
       when "write", "edit"
-        file_path = args[:path]
-        full_path = File.expand_path(file_path, @working_dir)
-        @modified_files_in_task << full_path unless @modified_files_in_task.include?(full_path)
+        record_file_before_change(args[:path]) if args[:path]
       end
     end
   end

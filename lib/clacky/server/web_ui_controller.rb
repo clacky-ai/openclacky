@@ -171,7 +171,6 @@ module Clacky
 
       def show_diff(old_content, new_content, max_lines: 50)
         emit("diff", old_size: old_content.bytesize, new_size: new_content.bytesize)
-        # Diffs are too verbose for IM — intentionally not forwarded
       end
 
       def show_token_usage(token_data)
@@ -208,6 +207,27 @@ module Clacky
       def show_warning(message)
         emit("warning", message: message)
         forward_to_subscribers { |sub| sub.show_warning(message) }
+      end
+
+      # === Phase grouping ===
+
+      def phase_start(kind:, label: nil)
+        pid = SecureRandom.uuid
+        Thread.current[:clacky_phase_id] = pid
+        # Emit without auto-injection (the start event itself defines the phase)
+        event = { type: "phase_start", session_id: @session_id, phase_id: pid, kind: kind.to_s }
+        event[:label] = label if label
+        @broadcaster.call(@session_id, event)
+        pid
+      end
+
+      def phase_end(phase_id, summary: nil)
+        # Clear thread-local before emitting end so the end event itself
+        # doesn't get tagged with the phase_id it's closing.
+        Thread.current[:clacky_phase_id] = nil if Thread.current[:clacky_phase_id] == phase_id
+        event = { type: "phase_end", session_id: @session_id, phase_id: phase_id }
+        event[:summary] = summary if summary
+        @broadcaster.call(@session_id, event)
       end
 
       def show_error(message, code: nil, top_up_url: nil)
@@ -414,6 +434,9 @@ module Clacky
 
       def emit(type, **data)
         event = { type: type, session_id: @session_id }.merge(data)
+        if (pid = Thread.current[:clacky_phase_id]) && !data.key?(:phase_id)
+          event[:phase_id] = pid
+        end
         @broadcaster.call(@session_id, event)
       end
 

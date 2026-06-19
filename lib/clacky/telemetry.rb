@@ -71,6 +71,26 @@ module Clacky
         fire_and_forget("/api/v1/telemetry/task", payload.compact)
       end
 
+      # Called from the WebUI when user opens the share modal or completes
+      # a share action (e.g. downloads poster). Tracks share engagement.
+      #
+      # @param event [String] "share_open" or "share_download"
+      # @param extra [Hash] optional context (platform, scorecard mode, etc.)
+      def share!(event:, extra: {})
+        return unless enabled?
+
+        brand = Clacky::BrandConfig.load
+        payload = {
+          device_id: resolve_device_id(brand),
+          version:   Clacky::VERSION,
+          brand:     brand.branded? ? brand.package_name : nil,
+          event:     event
+        }
+        payload.merge!(extra) if extra.is_a?(Hash)
+
+        fire_and_forget("/api/v1/telemetry/share", payload.compact)
+      end
+
       # ── private helpers ────────────────────────────────────────────────
 
       private def enabled?

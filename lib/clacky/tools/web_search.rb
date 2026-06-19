@@ -120,15 +120,65 @@ module Clacky
 
       # ── Bing ───────────────────────────────────────────────────────────────
 
+      BING_ENDPOINTS = [
+        ["cn.bing.com", "zh-CN,zh;q=0.9,en;q=0.8"],
+        ["www.bing.com", "en-US,en;q=0.9"]
+      ].freeze
+
+      # Race both Bing endpoints in parallel and return the first relevant result.
+      # cn.bing.com works best from mainland China; www.bing.com works best from
+      # overseas. Racing avoids guessing the network egress and recovers from
+      # one endpoint temporarily returning anti-scrape filler. If both return
+      # irrelevant garbage, fall back to whichever came back non-empty.
       private def search_bing(query, max_results)
-        encoded_query = CGI.escape(query)
-        # cn.bing.com redirects to www.bing.com for non-China IPs (e.g. GitHub CI);
-        # follow_redirects ensures both environments work with the same code path.
-        url = URI("https://cn.bing.com/search?q=#{encoded_query}&count=#{max_results}")
-        response = http_get(url, accept_language: "zh-CN,zh;q=0.9,en;q=0.8", follow_redirects: 2)
+        queue = Queue.new
+        threads = BING_ENDPOINTS.map do |host, lang|
+          Thread.new do
+            results = bing_fetch(host, lang, query, max_results)
+            queue.push([host, results])
+          rescue StandardError
+            queue.push([host, []])
+          end
+        end
+
+        winner = nil
+        runner_up = nil
+        BING_ENDPOINTS.length.times do
+          _host, results = queue.pop
+          if bing_results_relevant?(results, query)
+            winner = results
+            break
+          elsif !results.empty? && runner_up.nil?
+            runner_up = results
+          end
+        end
+
+        threads.each(&:kill)
+        winner || runner_up || []
+      end
+
+      private def bing_fetch(host, lang, query, max_results)
+        url = URI("https://#{host}/search?q=#{CGI.escape(query)}&count=#{max_results}&form=QBLH")
+        response = http_get(url, accept_language: lang, follow_redirects: 2,
+                                 referer: "https://#{host}/")
         return [] unless response.is_a?(Net::HTTPSuccess)
 
         parse_bing_html(response.body, max_results)
+      end
+
+      # A real Bing answer mentions at least one query token in the titles or
+      # snippets. The anti-scrape fallback returns top-domain filler (Yandex,
+      # Bunnings, WikiLeaks, …) that shares nothing with the query.
+      private def bing_results_relevant?(results, query)
+        return false if results.empty?
+
+        tokens = query.downcase.scan(/[\p{L}\p{N}]+/).reject { |t| t.length < 2 }
+        return true if tokens.empty?
+
+        results.any? do |r|
+          haystack = "#{r[:title]} #{r[:snippet]}".downcase
+          tokens.any? { |t| haystack.include?(t) }
+        end
       end
 
       private def parse_bing_html(html, max_results)
@@ -199,7 +249,7 @@ module Clacky
 
       # Shared browser-like GET request — no Accept-Encoding to avoid gzip/br
       # detection tricks used by Bing. Supports redirect following.
-      private def http_get(url, accept_language: "en-US,en;q=0.9", follow_redirects: 0)
+      private def http_get(url, accept_language: "en-US,en;q=0.9", follow_redirects: 0, referer: nil)
         request = Net::HTTP::Get.new(url)
         request["User-Agent"] = USER_AGENTS.sample
         request["Accept"] = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
@@ -208,8 +258,9 @@ module Clacky
         # a JS-only skeleton (~39KB) instead of the real HTML results (~120KB)
         request["Sec-Fetch-Dest"] = "document"
         request["Sec-Fetch-Mode"] = "navigate"
-        request["Sec-Fetch-Site"] = "none"
+        request["Sec-Fetch-Site"] = referer ? "same-origin" : "none"
         request["Upgrade-Insecure-Requests"] = "1"
+        request["Referer"] = referer if referer
 
         response = Net::HTTP.start(url.hostname, url.port,
           use_ssl: url.scheme == "https",
@@ -220,7 +271,7 @@ module Clacky
         if follow_redirects > 0 && response.is_a?(Net::HTTPRedirection)
           location = response["location"]
           redirect_url = location.start_with?("http") ? URI(location) : URI("#{url.scheme}://#{url.hostname}#{location}")
-          return http_get(redirect_url, accept_language: accept_language, follow_redirects: follow_redirects - 1)
+          return http_get(redirect_url, accept_language: accept_language, follow_redirects: follow_redirects - 1, referer: referer)
         end
 
         response

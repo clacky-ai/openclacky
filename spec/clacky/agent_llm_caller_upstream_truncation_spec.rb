@@ -100,11 +100,12 @@ RSpec.describe Clacky::Agent, "upstream tool-call truncation recovery" do
 
     context "with non-parseable JSON (partial stream)" do
       let(:args) { '{"path": "/tmp/x"' } # truncated mid-object
-      # Intentionally NOT treated as truncation here — the existing
-      # ArgumentsParser → BadArgumentsError path handles partial JSON by
-      # surfacing the parse error to the LLM as a tool_result, which is
-      # more efficient than a blind retry.
-      it { is_expected.to be false }
+      # Treated as truncation: even though ArgumentsParser could repair it
+      # for the current turn, the original broken string ends up in history
+      # and upstream proxies reject the next request with a 400 BadRequest
+      # at the json.loads boundary. Retrying from a clean state is the only
+      # path that actually recovers.
+      it { is_expected.to be true }
     end
 
     context "with complete, non-empty JSON" do
@@ -172,24 +173,44 @@ RSpec.describe Clacky::Agent, "upstream tool-call truncation recovery" do
   end
 
   describe 'tool_calls=[write] with partial/invalid JSON args' do
-    # Partial JSON is NOT intercepted by the upstream-truncation detector —
-    # it falls through to the existing ArgumentsParser / BadArgumentsError
-    # path (see bedrock_truncation_recovery_spec.rb for that coverage).
-    # We assert the negative: the detector stays out of the way.
-    it "does NOT raise UpstreamTruncatedError for partial-JSON args" do
-      allow(client).to receive(:send_messages_with_tools).and_return(
-        mock_api_response(
-          content: "",
-          tool_calls: [truncated_call(args: '{"path": "/tmp/x"')],
-          finish_reason: "tool_calls"
-        ),
-        mock_api_response(content: "Done.")
-      )
+    # Partial JSON in tool_call args is now treated as upstream truncation:
+    # if we let it through, the broken arguments string would be persisted
+    # in history and upstream proxies (LiteLLM, OpenRouter, etc.) reject
+    # the next request with a 400 BadRequest at the json.loads boundary.
+    # Retrying from a clean state is the only path that actually recovers.
+    it "retries and succeeds instead of poisoning history with broken JSON" do
+      Dir.mktmpdir do |dir|
+        tmp = File.join(dir, "ok.txt")
+        call_count = 0
+        allow(client).to receive(:send_messages_with_tools) do |_msgs, **_opts|
+          call_count += 1
+          case call_count
+          when 1
+            mock_api_response(
+              content: "",
+              tool_calls: [truncated_call(args: '{"path": "/tmp/x"')],
+              finish_reason: "tool_calls"
+            )
+          when 2
+            mock_api_response(
+              content: "",
+              tool_calls: [{
+                id: "call_ok",
+                type: "function",
+                name: "write",
+                arguments: JSON.generate(path: tmp, content: "hi")
+              }],
+              finish_reason: "tool_calls"
+            )
+          else
+            mock_api_response(content: "Done.")
+          end
+        end
 
-      # Not raising UpstreamTruncatedError means our detector didn't fire.
-      # The BadArgumentsError path then kicks in, producing a tool_result
-      # error — tested separately in bedrock_truncation_recovery_spec.
-      expect { agent.run("create a file") }.not_to raise_error
+        result = agent.run("create a file")
+        expect(result[:status]).to eq(:success)
+        expect(call_count).to be >= 2
+      end
     end
   end
 

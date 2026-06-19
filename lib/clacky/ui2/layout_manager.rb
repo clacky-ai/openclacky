@@ -119,18 +119,29 @@ module Clacky
 
         @render_mutex.synchronize do
           entry = @buffer.entry_by_id(id)
-          # Skip if gone, fully committed, or only partially visible (its
-          # prefix is already in terminal scrollback and cannot be edited).
-          return if entry.nil? || entry.committed
-          return if (entry.committed_line_offset || 0) > 0
+          if entry.nil?
+            Clacky::Logger.warn("[ph_debug] replace_entry_nil", id: id, content: content.to_s[0, 120])
+            return
+          end
+          if entry.committed
+            Clacky::Logger.warn("[ph_debug] replace_entry_committed", id: id, content: content.to_s[0, 120])
+            return
+          end
+          if (entry.committed_line_offset || 0) > 0
+            Clacky::Logger.warn("[ph_debug] replace_entry_partial", id: id, offset: entry.committed_line_offset, content: content.to_s[0, 120])
+            return
+          end
 
           old_lines = entry.lines.dup
           new_lines = wrap_content_to_lines(content)
           if old_lines == new_lines
+            Clacky::Logger.warn("[ph_debug] replace_entry_same", id: id)
             screen.flush
             return
           end
           @buffer.replace(id, new_lines)
+          is_tail = @buffer.live_entries.last&.id == id
+          Clacky::Logger.warn("[ph_debug] replace_entry_paint", id: id, is_tail: is_tail, old_n: old_lines.length, new_n: new_lines.length, content: content.to_s[0, 120])
 
           unless @fullscreen_mode
             # repaint_entry_in_place relies on the entry being the tail of
@@ -147,7 +158,6 @@ module Clacky
             # For non-tail replaces, fall back to a full rebuild of the
             # output area from the buffer. Slower, but correct regardless
             # of where the entry lives.
-            is_tail = @buffer.live_entries.last&.id == id
             if is_tail
               repaint_entry_in_place(entry, old_lines, new_lines)
             else

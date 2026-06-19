@@ -22,6 +22,12 @@ module Clacky
 
       DEFAULT_ASPECT = "landscape"
 
+      # Video aspect ratios accepted by the gateway's /videos/generations
+      # endpoint. The human-friendly labels map straight through; the gateway
+      # normalises to Veo's "16:9" / "9:16" internally.
+      VIDEO_ASPECTS = %w[landscape portrait].freeze
+      DEFAULT_VIDEO_DURATION = 8
+
       def generate_image(prompt:, aspect_ratio: DEFAULT_ASPECT, output_dir: nil, n: 1, **_kwargs)
         provider_id = Clacky::Providers.find_by_base_url(@base_url) || "custom"
         aspect      = ASPECT_TO_SIZE.key?(aspect_ratio) ? aspect_ratio : DEFAULT_ASPECT
@@ -135,9 +141,163 @@ module Clacky
         )
       end
 
+      def generate_video(prompt:, aspect_ratio: DEFAULT_ASPECT, duration_seconds: nil, output_dir: nil, image: nil, **_kwargs)
+        provider_id = Clacky::Providers.find_by_base_url(@base_url) || "custom"
+        aspect      = VIDEO_ASPECTS.include?(aspect_ratio) ? aspect_ratio : DEFAULT_ASPECT
+        duration    = duration_seconds.to_i
+        duration    = DEFAULT_VIDEO_DURATION if duration <= 0
+
+        if prompt.to_s.strip.empty?
+          return video_error_response(
+            error: "Prompt is required and must be a non-empty string",
+            error_type: "invalid_argument", provider: provider_id, aspect_ratio: aspect
+          )
+        end
+        if @api_key.to_s.empty?
+          return video_error_response(
+            error: "api_key not configured for video model '#{@model}'",
+            error_type: "auth_required", provider: provider_id, prompt: prompt, aspect_ratio: aspect
+          )
+        end
+
+        payload = { model: @model, prompt: prompt, aspect_ratio: aspect, duration_seconds: duration }
+        payload[:image] = image if image.is_a?(Hash) && image["b64_json"]
+
+        begin
+          response = video_connection.post("videos/generations") do |req|
+            req.headers["Content-Type"]  = "application/json"
+            req.headers["Authorization"] = "Bearer #{@api_key}"
+            req.body = JSON.generate(payload)
+          end
+        rescue Faraday::Error => e
+          return video_error_response(
+            error: "HTTP request failed: #{e.message}",
+            error_type: "network_error", provider: provider_id, prompt: prompt, aspect_ratio: aspect
+          )
+        end
+
+        unless response.success?
+          return video_error_response(
+            error: "Upstream #{response.status}: #{truncate(response.body, 500)}",
+            error_type: "api_error", provider: provider_id, prompt: prompt, aspect_ratio: aspect
+          )
+        end
+
+        body = parse_json(response.body)
+        return video_error_response(
+          error: "Invalid JSON response from upstream",
+          error_type: "invalid_response", provider: provider_id, prompt: prompt, aspect_ratio: aspect
+        ) unless body.is_a?(Hash)
+
+        first = (body["data"] || []).first
+        if first.nil? || first["b64_json"].to_s.empty?
+          return video_error_response(
+            error: "Upstream returned no video data",
+            error_type: "empty_response", provider: provider_id, prompt: prompt, aspect_ratio: aspect
+          )
+        end
+
+        path = save_b64_video(first["b64_json"], output_dir: output_dir || Dir.pwd, prefix: "vid")
+        video_success_response(
+          video: path, prompt: prompt, aspect_ratio: aspect, provider: provider_id,
+          extra: {
+            "duration_seconds" => duration,
+            "usage"            => body["usage"],
+            "cost_usd"         => body["cost_usd"]
+          }.compact
+        )
+      end
+
+      def generate_speech(input:, voice: nil, output_dir: nil, **_kwargs)
+        provider_id = Clacky::Providers.find_by_base_url(@base_url) || "custom"
+
+        if input.to_s.strip.empty?
+          return audio_error_response(
+            error: "input is required and must be a non-empty string",
+            error_type: "invalid_argument", provider: provider_id, voice: voice.to_s
+          )
+        end
+        if @api_key.to_s.empty?
+          return audio_error_response(
+            error: "api_key not configured for audio model '#{@model}'",
+            error_type: "auth_required", provider: provider_id, input: input, voice: voice.to_s
+          )
+        end
+
+        payload = { model: @model, input: input }
+        payload[:voice] = voice if voice && !voice.to_s.strip.empty?
+
+        begin
+          response = audio_connection.post("audio/speech") do |req|
+            req.headers["Content-Type"]  = "application/json"
+            req.headers["Authorization"] = "Bearer #{@api_key}"
+            req.body = JSON.generate(payload)
+          end
+        rescue Faraday::Error => e
+          return audio_error_response(
+            error: "HTTP request failed: #{e.message}",
+            error_type: "network_error", provider: provider_id, input: input, voice: voice.to_s
+          )
+        end
+
+        unless response.success?
+          return audio_error_response(
+            error: "Upstream #{response.status}: #{truncate(response.body, 500)}",
+            error_type: "api_error", provider: provider_id, input: input, voice: voice.to_s
+          )
+        end
+
+        body = parse_json(response.body)
+        return audio_error_response(
+          error: "Invalid JSON response from upstream",
+          error_type: "invalid_response", provider: provider_id, input: input, voice: voice.to_s
+        ) unless body.is_a?(Hash)
+
+        first = (body["data"] || []).first
+        if first.nil? || first["b64_json"].to_s.empty?
+          return audio_error_response(
+            error: "Upstream returned no audio data",
+            error_type: "empty_response", provider: provider_id, input: input, voice: voice.to_s
+          )
+        end
+
+        ext = case first["mime_type"].to_s
+              when "audio/mpeg", "audio/mp3" then "mp3"
+              when "audio/ogg" then "ogg"
+              else "wav"
+              end
+
+        path = save_b64_audio(first["b64_json"], output_dir: output_dir || Dir.pwd, prefix: "tts", extension: ext)
+        audio_success_response(
+          audio: path, input: input, voice: body["voice"] || voice.to_s, provider: provider_id,
+          extra: {
+            "mime_type" => first["mime_type"],
+            "usage"     => body["usage"],
+            "cost_usd"  => body["cost_usd"]
+          }.compact
+        )
+      end
+
       private def connection
         Faraday.new(url: normalized_base_url) do |f|
           f.options.timeout      = 240
+          f.options.open_timeout = 10
+        end
+      end
+
+      # Video generation runs the gateway's submit+poll cycle inside one
+      # request, which can take several minutes; give it a much longer read
+      # timeout than the image path.
+      private def video_connection
+        Faraday.new(url: normalized_base_url) do |f|
+          f.options.timeout      = 600
+          f.options.open_timeout = 10
+        end
+      end
+
+      private def audio_connection
+        Faraday.new(url: normalized_base_url) do |f|
+          f.options.timeout      = 120
           f.options.open_timeout = 10
         end
       end

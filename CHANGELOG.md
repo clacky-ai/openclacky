@@ -5,6 +5,146 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.2] - 2026-06-18
+
+### Added
+- Right-click context menu on workspace file tree with "Reveal in Finder" support (macOS/Linux/WSL)
+- Resizable workspace panel with a drag handle
+- Expandable task prompt preview — click a task card to view the full prompt
+
+### Improved
+- Skill cards now show a delete button, with shimmer skeleton loading while fetching
+
+### Fixed
+- Every-N-hours cron schedule label now renders correctly (e.g. `0 */2 * * *`)
+- Billing sessions list now shows all rows instead of being clipped
+- Session replay skips reasoning-only assistant messages to match the live view
+- Set-as-default button in settings aligned to the footer row with the top-up link
+
+## [1.3.1] - 2026-06-17
+
+### Added
+- Delete skills directly from the Web UI
+
+### Improved
+- Sidebar is now draggable to resize, with width persisted across sessions
+- Sidebar scrollbar only appears while scrolling for a cleaner look
+- Billing page UI polish and mobile adaptation
+- Default openclacky image model switched to Nano Banana 2
+
+### Fixed
+- Onboarding device-login window no longer gets blocked as a popup
+
+## [1.3.0] - 2026-06-17
+
+### Added
+- Complete Web UI overhaul: skeleton loading, task card layout, new session dialog, onboarding flow, inline image preview, and redesigned session bar
+- Multimedia generation: video generation, text-to-speech (TTS), and OCR via vision models
+- IM channel management UI — bind and unbind channels directly in Web UI
+- `/model` command in terminal UI for quick model switching
+- AI-key device login flow
+- Session sharing and backup support
+
+### Improved
+- Terminal output auto-collapses on completion with normalized result display
+- Billing page mobile layout, global tooltip, and logo animation polish
+- Live chat history API replaces group buffer polling for real-time sync
+
+### Fixed
+- Sidebar scrolling back to active session on content updates
+- Channel key missing arbitration on session restore
+- Race condition in model switching
+- Channel keys and info out of sync on bind/unbind
+
+## [1.2.18] - 2026-06-13
+
+### Added
+- Alibaba DashScope (Qwen-Image) as a new image generation backend
+- "Always show" toggle for media-gen and skill-creators default skills, keeping them visible in all sessions
+
+### Fixed
+- Brand skill files not accessible outside their initial session context
+- `/model` command
+
+### More
+- Brand skills page now auto-refreshes on enter
+
+## [1.2.17] - 2026-06-12
+
+### Added
+- Session sharing to Web UI — share any session via a shareable link with billing integration
+- Share telemetry tracking
+
+### Fixed
+- Markdown rendering in certain edge cases
+- Image blocks not detected in replay round counting, potentially causing history truncation
+- History images served as base64 causing replay lag, now proxied through server
+- WSL kernel repair getting stuck in infinite loop on pending state
+- WeChat QR login fallback showing false stale-session errors
+
+### More
+- Background color styling update
+
+## [1.2.16] - 2026-06-10
+
+### Added
+- Claude Fable 5 model support
+
+### Fixed
+- Model test failed when using saved API key
+- Windows WSL install success rate
+
+## [1.2.15] - 2026-06-10
+
+### Added
+- Proxy configuration support
+- Optional sound notification on task completion in Web UI
+
+### Fixed
+- Prevent scheduler thread from dying on tick exception
+
+### More
+- Tool diff CSS refinement
+
+## [1.2.14] - 2026-06-08
+
+### Added
+- OCR support for scanned PDFs (optical character recognition)
+- VLM-based PDF parser for improved document understanding
+
+### Improved
+- PDF OCR processing quality
+
+### Fixed
+- PDF processing not appearing in session history
+- Stale progress indicator that wouldn't dismiss
+
+### More
+- Document Bing smoke test anti-scrape failure handling in gem-release
+
+## [1.2.13] - 2026-06-08
+
+### Added
+- Session forking capability (Fork any message to a new session)
+- Gemini Flash 3.5 support and MIMO model pricing
+- Web search content capability and search skill LRU caching
+- Token usage visibility after tool calls
+- Subagent UI formatting for better readability
+
+### Improved
+- Web search performance using Bing race search strategy
+- Input box automatically clears when switching sessions
+- Skill evolution info display simplified
+- TUI adds an extra progress bar for better visual feedback
+
+### Fixed
+- Dir-picker path input synchronization on directory navigation
+- Thinking mode silent retries
+- IME (Input Method Editor) input check issues
+- WebUI reflect bug
+- Upstream JSON loading stability
+- Prevent skill evolution when the last message is incomplete
+
 ## [1.2.12] - 2026-06-05
 
 ### Fixed

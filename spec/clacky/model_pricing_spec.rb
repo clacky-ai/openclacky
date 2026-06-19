@@ -242,6 +242,75 @@ RSpec.describe Clacky::ModelPricing do
       end
     end
 
+    context "with Xiaomi MiMo models" do
+      it "calculates mimo-v2.5-pro basic cost" do
+        usage = {
+          prompt_tokens: 100_000,
+          completion_tokens: 50_000
+        }
+
+        # Input:  (100_000 / 1_000_000) * $0.435 = $0.0435
+        # Output: (50_000  / 1_000_000) * $0.87  = $0.0435
+        # Total:  $0.0870
+        result = described_class.calculate_cost(model: "mimo-v2.5-pro", usage: usage)
+        expect(result[:cost]).to be_within(0.00001).of(0.087)
+        expect(result[:source]).to eq(:price)
+      end
+
+      it "calculates mimo-v2.5 with cache hit at $0.0028/MTok" do
+        usage = {
+          prompt_tokens: 100_000,
+          completion_tokens: 50_000,
+          cache_read_input_tokens: 30_000
+        }
+
+        # Regular input: ((100_000 - 30_000) / 1_000_000) * $0.14   = $0.0098
+        # Output:        (50_000 / 1_000_000)             * $0.28   = $0.014
+        # Cache read:    (30_000 / 1_000_000)             * $0.0028 = $0.000084
+        # Total: $0.023884
+        result = described_class.calculate_cost(model: "mimo-v2.5", usage: usage)
+        expect(result[:cost]).to be_within(0.00001).of(0.023884)
+        expect(result[:source]).to eq(:price)
+      end
+
+      it "bills mimo-v2-pro at the same rate as mimo-v2.5-pro (forwarded post 2026-06-01)" do
+        usage = { prompt_tokens: 100_000, completion_tokens: 50_000 }
+        v2pro    = described_class.calculate_cost(model: "mimo-v2-pro",   usage: usage)
+        v25pro   = described_class.calculate_cost(model: "mimo-v2.5-pro", usage: usage)
+        expect(v2pro[:cost]).to eq(v25pro[:cost])
+      end
+
+      it "bills mimo-v2-omni at the same rate as mimo-v2.5 (forwarded post 2026-06-01)" do
+        usage = { prompt_tokens: 100_000, completion_tokens: 50_000 }
+        omni = described_class.calculate_cost(model: "mimo-v2-omni", usage: usage)
+        v25  = described_class.calculate_cost(model: "mimo-v2.5",    usage: usage)
+        expect(omni[:cost]).to eq(v25[:cost])
+      end
+
+      it "calculates mimo-v2-flash at its distinct rate" do
+        usage = {
+          prompt_tokens: 100_000,
+          completion_tokens: 50_000,
+          cache_read_input_tokens: 30_000
+        }
+
+        # Regular input: ((100_000 - 30_000) / 1_000_000) * $0.10 = $0.007
+        # Output:        (50_000 / 1_000_000)             * $0.30 = $0.015
+        # Cache read:    (30_000 / 1_000_000)             * $0.01 = $0.0003
+        # Total: $0.0223
+        result = described_class.calculate_cost(model: "mimo-v2-flash", usage: usage)
+        expect(result[:cost]).to be_within(0.00001).of(0.0223)
+        expect(result[:source]).to eq(:price)
+      end
+
+      it "matches MiMo model names case-insensitively" do
+        usage = { prompt_tokens: 100_000, completion_tokens: 50_000 }
+        result = described_class.calculate_cost(model: "MiMo-V2.5-Pro", usage: usage)
+        expect(result[:cost]).to be_within(0.00001).of(0.087)
+        expect(result[:source]).to eq(:price)
+      end
+    end
+
     context "with Claude 3.5 models" do
       it "supports claude-3-5-sonnet-20241022" do
         usage = {

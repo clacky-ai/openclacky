@@ -254,6 +254,18 @@ module Clacky
         }
       end
 
+      # Show countdown before auto-executing in auto_approve mode.
+      # Gives the user time to see what's happening and Ctrl+C to cancel.
+      # @param seconds [Integer] Countdown duration
+      private def auto_approve_countdown(seconds: 10)
+        return unless @ui
+
+        seconds.downto(1) do |remaining|
+          @ui.show_info("  Auto-executing in #{remaining}s... (Ctrl+C to cancel)", prefix_newline: false)
+          sleep 1
+        end
+      end
+
       # Check if a tool is potentially slow and should show progress
       # @param tool_name [String] Name of the tool
       # @param args [Hash] Tool arguments

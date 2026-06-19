@@ -1,7 +1,6 @@
 # frozen_string_literal: true
 
 require_relative "channel_ui_controller"
-require_relative "group_message_buffer"
 
 module Clacky
   module Channel
@@ -28,14 +27,11 @@ module Clacky
       # @param run_agent_task     [Proc] (session_id, agent, &task) — from HttpServer
       # @param interrupt_session  [Proc] (session_id) — from HttpServer
       # @param channel_config     [Clacky::ChannelConfig]
-      # @param binding_mode       [:user | :chat | :chat_user] how to map IM identities to sessions.
-      #   :chat_user (default) — one session per (chat, user) pair. Most natural:
-      #                          private chat = that user's session; in a group each
-      #                          user has their own session; the same user across
-      #                          different groups keeps those contexts separate.
-      #   :chat                — one session per chat (all users in a group share it).
-      #   :user                — one session per user (merges DMs and all groups).
-      def initialize(session_registry:, session_builder:, run_agent_task:, interrupt_session:, channel_config:, binding_mode: :chat_user)
+      # @param binding_mode       [:chat | :chat_user | :user] how to map IM identities to sessions.
+      #   :chat (default)      — one session per chat (all users in a chat share it).
+      #   :chat_user           — one session per (chat, user) pair.
+      #   :user                — one session per user (merges all chats).
+      def initialize(session_registry:, session_builder:, run_agent_task:, interrupt_session:, channel_config:, binding_mode: :chat)
         @registry          = session_registry
         @session_builder   = session_builder
         @run_agent_task    = run_agent_task
@@ -46,8 +42,7 @@ module Clacky
         @adapter_threads   = []
         @running           = false
         @mutex             = Mutex.new
-        @session_counters  = Hash.new(0)  # platform => count, for short session names
-        @group_buffer      = GroupMessageBuffer.new
+        @session_counters  = Hash.new(0)
       end
 
       # Start all enabled adapters in background threads. Non-blocking.
@@ -80,15 +75,6 @@ module Clacky
       # @return [Array<Symbol>] platforms currently running
       def running_platforms
         @mutex.synchronize { @adapters.map(&:platform_id) }
-      end
-
-      # Return all buffered group chat messages for a given chat.
-      # @param chat_id [String]
-      # @return [Array<Hash>] each entry has :user_id, :user_name, :text
-      def group_history(chat_id)
-        @group_buffer.peek(chat_id).map do |e|
-          { user_id: e.user_id, user_name: e.user_name, text: e.text }
-        end
       end
 
       # Proactively send a message to a user on the given platform.
@@ -244,7 +230,6 @@ module Clacky
 
       def route_message(adapter, event)
         if event[:observe_only]
-          @group_buffer.push(event[:chat_id], user_id: event[:user_id], user_name: event[:user_name], text: event[:text].to_s)
           return
         end
 
@@ -320,7 +305,7 @@ module Clacky
         # Prepend buffered group history so the agent knows what was discussed
         # before it was @-mentioned. Buffer is cleared atomically on take.
         # WebUI always receives the raw user text — context is agent-only.
-        prompt = build_prompt_with_context(event[:chat_id], text)
+        prompt = build_prompt_with_context(event, text)
 
         # Start typing keepalive BEFORE sending any message.
         # sendmessage cancels the typing indicator in WeChat protocol,
@@ -375,17 +360,28 @@ module Clacky
           else
             arg
           end
-          unless session_id && @registry.get(session_id)
+          unless session_id && @registry.ensure(session_id)
             adapter.send_text(chat_id, "Session not found. Use /list to see available sessions.")
             return
           end
 
           # Detach channel_ui from the old session's web_ui, reattach to the new one.
+          # Also clear the old session's persisted agent.channel_info if it still
+          # matches this key — keeping channel_keys and channel_info strictly in sync
+          # so resolve_session never sees two sessions claim the same key via different
+          # sources (see comment in resolve_session).
           old_session_id = resolve_session(event)
           channel_ui = old_session_id ? channel_ui_for_session(old_session_id) : nil
 
           if channel_ui
-            @registry.with_session(old_session_id) { |s| s[:ui]&.unsubscribe_channel(channel_ui); s.delete(:channel_ui) }
+            @registry.with_session(old_session_id) do |s|
+              s[:ui]&.unsubscribe_channel(channel_ui)
+              s.delete(:channel_ui)
+              if s[:agent]&.respond_to?(:channel_info=) && s[:agent].respond_to?(:channel_info) &&
+                 s[:agent].channel_info && channel_key_from_info(s[:agent].channel_info) == key
+                s[:agent].channel_info = nil
+              end
+            end
           else
             channel_ui = ChannelUIController.new(event, -> { adapter_for(event[:platform]) })
           end
@@ -412,7 +408,17 @@ module Clacky
           unbound = false
           @registry.list.each do |summary|
             @registry.with_session(summary[:id]) do |s|
-              unbound = true if s[:channel_keys]&.delete(key)
+              if s[:channel_keys]&.delete(key)
+                unbound = true
+                # Keep agent.channel_info in sync with channel_keys (see resolve_session).
+                # Without this, after process restart + eviction, the fallback path would
+                # silently re-bind this key back to the unbinded session via stale
+                # channel_info, defeating /unbind.
+                if s[:agent]&.respond_to?(:channel_info=) && s[:agent].respond_to?(:channel_info) &&
+                   s[:agent].channel_info && channel_key_from_info(s[:agent].channel_info) == key
+                  s[:agent].channel_info = nil
+                end
+              end
             end
           end
           adapter.send_text(chat_id, unbound ? "Unbound." : "No binding found.")
@@ -442,8 +448,10 @@ module Clacky
         Commands:
           ? / h / help - show this help
           /new / /clear - start a new session
-          /model - show current model & available models
-          /model <n> - switch to model n
+          /model - show current model, cards & quick-switch list
+          /model <n> - switch card by number
+          /model s<n> - quick-switch model under current card
+          /model off - reset to card default
           /skills - list available skills
           /<skill> <args> - invoke a skill directly
           /bind <n|session_id> - switch to a session (use /list to see numbers)
@@ -472,44 +480,126 @@ module Clacky
         arg = text.sub(/\A\/model\s*/i, "").strip
 
         if arg.empty?
-          # Show current model and available list
-          info = agent.current_model_info
-          current = info&.dig(:model) || "unknown"
-          sub     = info&.dig(:sub_model)
-          card    = info&.dig(:card_model)
-          header  = "Current model: #{current}"
-          header += " (#{card} · #{sub})" if card && sub && sub != current
-          header += " (#{card})" if card && !sub
+          show_model_list(adapter, chat_id, agent)
+        elsif arg =~ /\A\d+\z/
+          switch_model_by_index(adapter, chat_id, agent, arg.to_i - 1)
+        elsif arg =~ /\As(\d+)\z/i
+          switch_quick_by_index(adapter, chat_id, agent, $1.to_i - 1)
+        else
+          switch_model_by_name(adapter, chat_id, agent, arg)
+        end
+      end
 
-          models = agent.available_models
-          if models.empty?
-            adapter.send_text(chat_id, "#{header}\nNo other models available.")
-            return
-          end
+      def show_model_list(adapter, chat_id, agent)
+        info = agent.current_model_info
+        current = info&.dig(:model) || "unknown"
+        sub     = info&.dig(:sub_model)
+        card    = info&.dig(:card_model)
 
+        header  = "Current: #{current}"
+        header += " (#{card})" if card && sub && sub != current
+        header += " (#{card})" if card && !sub
+
+        result = header
+
+        # Card list
+        models = agent.available_models
+        unless models.empty?
           lines = models.each_with_index.map do |name, i|
             marker = name == current ? " *" : ""
             "#{i + 1}. #{name}#{marker}"
           end
-          adapter.send_text(chat_id, "#{header}\n\nSwitch with /model <n>:\n#{lines.join("\n")}")
-        elsif arg =~ /\A\d+\z/
-          idx = arg.to_i - 1
-          models = agent.config.models
-          if idx < 0 || idx >= models.length
-            adapter.send_text(chat_id, "Invalid model number. Use /model to see available models.")
-            return
-          end
-
-          model_id = models[idx]["id"]
-          if agent.switch_model_by_id(model_id)
-            new_info = agent.current_model_info
-            adapter.send_text(chat_id, "Switched to #{new_info&.dig(:model) || model_id}.")
-          else
-            adapter.send_text(chat_id, "Failed to switch model.")
-          end
-        else
-          adapter.send_text(chat_id, "Usage: /model to list, /model <n> to switch.")
+          result += "\n\nCards (/model <n>):\n#{lines.join("\n")}"
         end
+
+        # Quick-switch models under current provider
+        info = agent.current_model_info
+        provider_id = Clacky::Providers.find_by_base_url(info&.dig(:base_url))
+        if provider_id
+          quick = Clacky::Providers.models(provider_id)
+          unless quick.empty?
+            current_for_quick = sub || current
+            quick_lines = quick.each_with_index.map do |name, i|
+              marker = name == current_for_quick ? " *" : ""
+              "  s#{i + 1}. #{name}#{marker}"
+            end
+            result += "\n\nQuick switch (/model s<n>):\n#{quick_lines.join("\n")}"
+            unless quick.include?(current_for_quick)
+              result += "\n(#{current_for_quick} not in this provider; switch card first)"
+            end
+          end
+        end
+
+        adapter.send_text(chat_id, result)
+      end
+
+      def switch_model_by_index(adapter, chat_id, agent, idx)
+        models = agent.config.models
+        if idx < 0 || idx >= models.length
+          adapter.send_text(chat_id, "Invalid number. Use /model to see available cards.")
+          return
+        end
+
+        model_id = models[idx]["id"]
+        if agent.switch_model_by_id(model_id)
+          new_info = agent.current_model_info
+          adapter.send_text(chat_id, "Switched to #{new_info&.dig(:model) || model_id}.")
+        else
+          adapter.send_text(chat_id, "Failed to switch model.")
+        end
+      end
+
+      def switch_quick_by_index(adapter, chat_id, agent, idx)
+        info = agent.current_model_info
+        provider_id = Clacky::Providers.find_by_base_url(info&.dig(:base_url))
+
+        unless provider_id
+          adapter.send_text(chat_id, "No quick-switch models. Use /model <n> to switch card.")
+          return
+        end
+
+        quick = Clacky::Providers.models(provider_id)
+        if idx < 0 || idx >= quick.length
+          adapter.send_text(chat_id, "Invalid s#{idx + 1}. Use /model to see quick-switch list.")
+          return
+        end
+
+        agent.set_session_sub_model(quick[idx])
+        new_info = agent.current_model_info
+        adapter.send_text(chat_id, "Switched to #{new_info&.dig(:sub_model) || new_info&.dig(:model)}.")
+      end
+
+      def switch_model_by_name(adapter, chat_id, agent, name)
+        info = agent.current_model_info
+        provider_id = Clacky::Providers.find_by_base_url(info&.dig(:base_url))
+
+        unless provider_id
+          adapter.send_text(chat_id, "Current card has no quick-switch models. Use /model <n> to switch card.")
+          return
+        end
+
+        allowed = Clacky::Providers.models(provider_id)
+        if allowed.empty?
+          adapter.send_text(chat_id, "No quick-switch models available. Use /model <n> to switch card.")
+          return
+        end
+
+        # Clear override
+        if name =~ /\A(off|clear|none)\z/i
+          agent.set_session_sub_model(nil)
+          new_info = agent.current_model_info
+          adapter.send_text(chat_id, "Back to card default (#{new_info&.dig(:model)}).")
+          return
+        end
+
+        unless allowed.include?(name)
+          adapter.send_text(chat_id, "'#{name}' not available. Use /model to see quick-switch list.")
+          return
+        end
+
+        agent.set_session_sub_model(name)
+        new_info = agent.current_model_info
+        adapter.send_text(chat_id, "Switched to #{new_info&.dig(:sub_model) || new_info&.dig(:model)}.")
       end
 
       def handle_skills_command(adapter, event)
@@ -546,12 +636,20 @@ module Clacky
 
       def resolve_session(event)
         key = channel_key(event)
+
+        # Resolve order per session:
+        #   1. explicit in-memory channel_keys (set by /bind or auto_create_session)
+        #   2. fallback to persisted agent.channel_info for evicted channel sessions
+        #      (process restart with in-memory channel_keys lost)
+        #
+        # /bind and /unbind keep agent.channel_info strictly in sync with channel_keys
+        # (see handle_bind / handle_unbind), so the two sources never disagree on the
+        # same key for two different sessions — a single pass is sufficient.
         @registry.list.each do |summary|
           found = nil
           @registry.with_session(summary[:id]) { |s| found = s[:channel_keys]&.include?(key) }
           return summary[:id] if found
 
-          # Check evicted channel sessions via persisted channel_info
           next unless summary[:source] == "channel"
           next unless @registry.ensure(summary[:id])
           agent = nil
@@ -561,6 +659,7 @@ module Clacky
           bind_key_to_session(key, summary[:id])
           return summary[:id]
         end
+
         nil
       rescue StandardError => e
         Clacky::Logger.error("[ChannelManager] Session resolve failed: #{e.message}")
@@ -655,7 +754,7 @@ module Clacky
         case @binding_mode
         when :chat      then "#{platform}:chat:#{event[:chat_id]}"
         when :user      then "#{platform}:user:#{event[:user_id]}"
-        else # :chat_user (default)
+        else # :chat_user
           "#{platform}:chat:#{event[:chat_id]}:user:#{event[:user_id]}"
         end
       end
@@ -667,17 +766,16 @@ module Clacky
         case @binding_mode
         when :chat      then "#{platform}:chat:#{chat_id}"
         when :user      then "#{platform}:user:#{user_id}"
-        else # :chat_user (default)
+        else # :chat_user
           "#{platform}:chat:#{chat_id}:user:#{user_id}"
         end
       end
 
       private def extract_channel_info(event)
         {
-          platform:  event[:platform],
-          user_id:   event[:user_id],
-          user_name: event[:user_name],
-          chat_id:   event[:chat_id]
+          platform: event[:platform],
+          user_id:  event[:user_id],
+          chat_id:  event[:chat_id]
         }
       end
 
@@ -721,11 +819,15 @@ module Clacky
 
           key = channel_key_from_info(info)
 
-          event = { platform: info[:platform], chat_id: info[:chat_id] }
-          ensure_channel_ui_subscribed(summary[:id], event)
-
+          # Arbitrate first: skip duplicate keys before attaching any channel_ui.
+          # Attaching channel_ui to a loser session would leave an orphan in its
+          # web_ui subscriber list (it cannot be detached later), which a subsequent
+          # /bind onto that session would then double up — causing duplicate broadcasts.
           next unless bound_keys.add?(key)
           bind_key_to_session(key, summary[:id])
+
+          event = { platform: info[:platform], chat_id: info[:chat_id] }
+          ensure_channel_ui_subscribed(summary[:id], event)
 
           Clacky::Logger.info("[ChannelManager] Restored channel binding #{key} -> session #{summary[:id][0, 8]}")
           restored_count += 1
@@ -739,23 +841,20 @@ module Clacky
         Clacky::Logger.warn("[ChannelManager] Error stopping #{adapter.platform_id}: #{e.message}")
       end
 
-      # Prepend recent group chat history to the user's message so the agent
-      # has context for questions like "what were we just discussing?".
-      # Returns the original text unchanged when there is no buffered history.
-      private def build_prompt_with_context(chat_id, text)
-        entries = @group_buffer.peek(chat_id, limit: GroupMessageBuffer::PROMPT_LIMIT)
-        return text if entries.empty?
+      # Prepend sender identity and optional group chat history to the user's message.
+      # Returns the original text unchanged when there is no extra context.
+      private def build_prompt_with_context(event, text)
+        user_id = event[:user_id].to_s
+        sender  = user_id
 
-        total = @group_buffer.peek(chat_id).size
-        lines = entries.map { |e| "#{e.user_name || e.user_id}: #{e.text}" }.join("\n")
+        history = event[:group_history]
+        if history.nil? || history.empty?
+          return "[Sender: #{sender}]\n#{text}"
+        end
 
-        partial = total > entries.size
-        header = partial ? "[Group chat partial history (latest #{entries.size} of #{total}, max buffer #{GroupMessageBuffer::MAX_MESSAGES} messages)]" : "[Group chat history (#{total} messages, max buffer #{GroupMessageBuffer::MAX_MESSAGES})]"
-        footer = if partial
-                   "[INSTRUCTION: If the above partial history is insufficient to answer, MUST web_fetch http://#{ENV["CLACKY_SERVER_HOST"]}:#{ENV["CLACKY_SERVER_PORT"]}/api/channels/group_history/#{chat_id} for full context.]"
-                 end
-
-        [header, lines, footer, "---", text].compact.join("\n")
+        lines  = history.map { |e| "#{e[:user_id]}: #{e[:text]}" }.join("\n")
+        header = "[Group chat history (#{history.size} messages)]"
+        [header, lines, "---", "[Sender: #{sender}]", text].join("\n")
       end
     end
   end

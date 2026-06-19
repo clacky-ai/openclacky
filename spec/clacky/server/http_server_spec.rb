@@ -928,6 +928,37 @@ RSpec.describe Clacky::Server::HttpServer do
       end
     end
 
+    it "resolves masked key by stable model id, ignoring stale index" do
+      agent_config.models << {
+        "id" => "real-id", "model" => "opus",
+        "api_key" => "sk-real-key-abcdefghijklmnop",
+        "base_url" => "https://opus"
+      }
+
+      test_client = double("client")
+      allow(test_client).to receive(:test_connection).and_return({ success: true })
+
+      with_server(agent_config: agent_config) do |server|
+        expect(Clacky::Client).to receive(:new) do |key, **|
+          expect(key).to eq("sk-real-key-abcdefghijklmnop")
+          test_client
+        end
+
+        payload = {
+          id:       "real-id",
+          index:    99,
+          model:    "opus",
+          base_url: "https://opus",
+          api_key:  "sk-real-****mnop"
+        }
+        req = fake_req(method: "POST", path: "/api/config/test", body: payload)
+        res = fake_res
+        dispatch(server, req, res)
+
+        expect(parsed_body(res)["ok"]).to be true
+      end
+    end
+
     it "auto-retries with /v1 suffix on 404 and reports effective_base_url" do
       first_client  = double("client_no_v1")
       second_client = double("client_v1")
@@ -1063,7 +1094,8 @@ RSpec.describe Clacky::Server::HttpServer do
           user_invocable?:      true,
           disabled?:            false,
           allowed_for_agent?:   true,
-          encrypted?:           false
+          encrypted?:           false,
+          always_show:          false
         )
         allow(mock_skill).to receive(:allowed_for_agent?).with(anything).and_return(true)
 

@@ -144,6 +144,28 @@ module Clacky
             raise RetryableError, "[LLM] Model returned empty response (no content, no tool_calls), retrying..."
           end
 
+          # Thinking-mode silent response detector. DeepSeek V4 / Kimi K2 /
+          # other reasoning models occasionally spend all output tokens inside
+          # `reasoning_content` and emit `content=""` + no tool_calls +
+          # `finish_reason="stop"`. Protocol-legal under OpenAI semantics
+          # (stop = model done), but semantically the model "thought and went
+          # silent" — agent main loop would treat it as task completion and
+          # exit. Reuse RetryableError so the existing retry + fallback
+          # pipeline handles it identically to 5xx/429.
+          if response[:content].to_s.strip.empty? &&
+              (response[:tool_calls].nil? || response[:tool_calls].empty?) &&
+              response[:reasoning_content].to_s.strip.length > 0 &&
+              response[:finish_reason].to_s == "stop"
+            reasoning_str = response[:reasoning_content].to_s
+            Clacky::Logger.warn("llm.thinking_mode_silent_response_detected",
+              model: api_call_model,
+              reasoning_len: reasoning_str.length,
+              reasoning_tail: reasoning_str[-200, 200] || reasoning_str,
+              completion_tokens: response.dig(:token_usage, :completion_tokens)
+            )
+            raise RetryableError, "[LLM] Thinking-mode model produced reasoning but empty content/tool_calls, retrying..."
+          end
+
         rescue Faraday::TimeoutError => e
           # Faraday::TimeoutError on our non-streaming POST almost always means
           # the *response* took longer than the 300s read-timeout to come back —
@@ -612,17 +634,10 @@ module Clacky
       # stream mid-tool_use (observed with Anthropic at ~127 s TTFT under
       # load), OpenRouter does NOT surface an error — it emits a valid
       # `tool_calls[]` whose `arguments` is empty, `"{}"`, or non-parseable
-      # JSON. Without this check the agent would either execute the tool with
-      # empty args or (worse) silently exit thinking the task finished.
-      #
-      # Rule is deliberately narrow: we only intercept the case where the
-      # model streamed literally nothing into the tool_call arguments —
-      # i.e. `nil`, empty string, or the placeholder `"{}"`. Partial/invalid
-      # JSON (e.g. `{"path": "/tmp/x"`) is left to the existing
-      # ArgumentsParser → BadArgumentsError path, because the model already
-      # committed to specific values and feeding the parse error back as a
-      # tool_result lets it self-correct in one round-trip (faster than a
-      # blind retry from scratch).
+      # JSON. Without this check the agent would either execute the tool
+      # with empty args, or write the broken arguments string back into
+      # history and have the NEXT request rejected by the upstream proxy
+      # with a 400 BadRequest at the json.loads boundary.
       private def detect_upstream_truncation!(response)
         tool_calls = response[:tool_calls]
         return if tool_calls.nil? || tool_calls.empty?
@@ -653,22 +668,23 @@ module Clacky
           "(args=#{args_str[0, 40].inspect}). Retrying..."
       end
 
-      # True when a tool_call's arguments field looks COMPLETELY empty —
-      # i.e. the upstream stream was cut before the model wrote any real
-      # content into the arguments JSON.
+      # True when a tool_call's arguments field is unusable — either empty
+      # or not a complete, parseable JSON object.
       #
       # Rules:
-      #   - nil / non-String / empty string  → truncated (nothing at all)
+      #   - nil / non-String / empty string  → truncated
       #   - parses to {} (empty object)      → truncated (placeholder only)
-      #   - anything else (including partial/invalid JSON like `{"path":
-      #     "/tmp/x"` where the model already started writing) → NOT
-      #     truncated by this detector
+      #   - JSON::ParserError (partial JSON) → truncated
+      #   - valid non-empty JSON object      → NOT truncated
       #
-      # Partial-JSON cases are deliberately left to the existing
-      # ArgumentsParser → BadArgumentsError path, which surfaces the parse
-      # error back to the LLM as a tool_result so it can self-correct. That
-      # is more efficient than a blind retry when the model already wrote
-      # most of the args.
+      # Why partial JSON counts as truncated: even though ArgumentsParser
+      # could repair it for the current turn, the original broken string
+      # still ends up in history (agent.rb#format_tool_calls_for_api keeps
+      # arguments verbatim). The next turn's request body would then carry
+      # an invalid JSON in tool_calls[].function.arguments, which upstream
+      # proxies (LiteLLM, OpenRouter, etc.) reject with a 400 BadRequest
+      # before the model ever sees it. Retrying from a clean state is the
+      # only path that actually recovers.
       private def tool_call_args_truncated?(args)
         return true if args.nil?
         return true unless args.is_a?(String)
@@ -677,8 +693,7 @@ module Clacky
         parsed = begin
           JSON.parse(args)
         rescue JSON::ParserError
-          # Partial/invalid JSON — let ArgumentsParser handle it downstream.
-          return false
+          return true
         end
 
         parsed.is_a?(Hash) && parsed.empty?

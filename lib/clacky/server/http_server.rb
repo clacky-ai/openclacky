@@ -3,8 +3,10 @@
 require "webrick"
 require "websocket"
 require "socket"
+require "digest"
 require "json"
 require "net/http"
+require "faraday"
 require "thread"
 require "fileutils"
 require "tmpdir"
@@ -39,15 +41,18 @@ module Clacky
           url  = f[:data_url] || f["data_url"]
           name = f[:name]     || f["name"]
           path = f[:path]     || f["path"]
+          type = f[:type]     || f["type"] || ""
 
           if url
             url
-          elsif path && File.exist?(path.to_s)
-            # Reconstruct data_url from the tmp file (still present on disk)
-            Utils::FileProcessor.image_path_to_data_url(path) rescue "expired:#{name}"
+          elsif type.to_s == "image" && path && File.exist?(path.to_s)
+            # Serve via the /api/local-image proxy instead of inlining a base64
+            # data URL. Inlining forced a synchronous disk-read + full base64
+            # encode + downscale on every history replay (2-3s lag for sessions
+            # with downgraded text-model images). The proxy lets the browser
+            # lazy-load + cache the image, keeping the replay response tiny.
+            "/api/local-image?path=#{CGI.escape(path.to_s)}"
           elsif name
-            # File badge for non-image disk files, or image whose tmp file is gone
-            type = f[:type] || f["type"] || ""
             type.to_s == "image" ? "expired:#{name}" : "pdf:#{name}"
           end
         end
@@ -362,6 +367,17 @@ module Clacky
         @scheduler.start
         puts "   Scheduler: #{@scheduler.schedules.size} task(s) loaded"
 
+        # Reclaim orphaned Time Machine snapshots (sessions deleted earlier
+        # without snapshot cleanup). Runs off-thread so startup stays fast.
+        Thread.new do
+          begin
+            n = Clacky::SessionManager.cleanup_orphan_snapshots
+            puts "   Snapshots: reclaimed #{n} orphan dir(s)" if n.positive?
+          rescue StandardError => e
+            Clacky::Logger.error("snapshot_cleanup_error", error: e)
+          end
+        end
+
         # Start IM channel adapters (non-blocking — each platform runs in its own thread)
         @channel_manager.start
 
@@ -407,6 +423,16 @@ module Clacky
           # with modalities:["image"]); end-to-end latency is commonly
           # 20-60s and can exceed 2 minutes for or-gpt-image-2 under load.
           300
+        elsif path == "/api/media/video"
+          # Video generation (Veo via the gateway) runs an async submit+poll
+          # cycle that routinely takes 1-3 minutes and can approach the
+          # gateway's 8-minute ceiling. Give the local handler headroom.
+          600
+        elsif path == "/api/media/audio/speech"
+          120
+        elsif path.start_with?("/api/backup/download") || path == "/api/backup/run"
+          # Building a tar.gz of ~/.clacky (with session history) can take a while.
+          120
         else
           10
         end
@@ -431,19 +457,31 @@ module Clacky
         when ["GET",    "/api/cron-tasks"]    then api_list_cron_tasks(res)
         when ["POST",   "/api/cron-tasks"]    then api_create_cron_task(req, res)
         when ["GET",    "/api/skills"]         then api_list_skills(res)
-        when ["GET",    "/api/config"]        then api_get_config(res)
+        when ["GET",    "/api/config"]        then api_get_config(req, res)
         when ["GET",    "/api/config/settings"]  then api_get_settings(res)
         when ["GET",    "/api/exchange-rate"]    then api_exchange_rate(req, res)
         when ["PATCH",  "/api/config/settings"]  then api_update_settings(req, res)
         when ["POST",   "/api/config/models"] then api_add_model(req, res)
         when ["POST",   "/api/config/test"]   then api_test_config(req, res)
+        when ["POST",   "/api/config/media/test"] then api_test_media_config(req, res)
         when ["GET",    "/api/config/media"]  then api_get_media_config(res)
+        when ["GET",    "/api/config/ocr"]    then api_get_ocr_config(res)
+        when ["PATCH",  "/api/config/ocr"]    then api_update_ocr_config(req, res)
+        when ["POST",   "/api/config/ocr/test"] then api_test_ocr_config(req, res)
+        when ["POST",   "/api/internal/ocr-image"] then api_internal_ocr_image(req, res)
         when ["GET",    "/api/providers"]     then api_list_providers(res)
         when ["GET",    "/api/onboard/status"]    then api_onboard_status(res)
+        when ["POST",   "/api/onboard/device/start"] then api_onboard_device_start(req, res)
+        when ["POST",   "/api/onboard/device/poll"]  then api_onboard_device_poll(req, res)
         when ["GET",    "/api/browser/status"]    then api_browser_status(res)
         when ["POST",   "/api/browser/configure"]  then api_browser_configure(req, res)
         when ["POST",   "/api/browser/reload"]    then api_browser_reload(res)
         when ["POST",   "/api/browser/toggle"]    then api_browser_toggle(res)
+        when ["GET",    "/api/backup/status"]     then api_backup_status(res)
+        when ["POST",   "/api/backup/run"]        then api_backup_run(res)
+        when ["GET",    "/api/backup/download"]   then api_backup_download(res)
+        when ["PATCH",  "/api/backup/config"]     then api_backup_config(req, res)
+        when ["POST",   "/api/telemetry"]        then api_telemetry(req, res)
         when ["POST",   "/api/onboard/complete"]  then api_onboard_complete(req, res)
         when ["POST",   "/api/onboard/skip-soul"] then api_onboard_skip_soul(req, res)
         when ["GET",    "/api/store/skills"]          then api_store_skills(res)
@@ -470,6 +508,8 @@ module Clacky
         when ["POST",   "/api/file-action"]       then api_file_action(req, res)
         when ["GET",    "/api/local-image"]       then api_serve_local_image(req, res)
         when ["POST",   "/api/media/image"]       then api_media_image(req, res)
+        when ["POST",   "/api/media/video"]       then api_media_video(req, res)
+        when ["POST",   "/api/media/audio/speech"] then api_media_audio_speech(req, res)
         when ["GET",    "/api/media/types"]       then api_media_types(res)
         when ["GET",    "/api/version"]           then api_get_version(res)
         when ["POST",   "/api/version/upgrade"]   then api_upgrade_version(req, res)
@@ -525,6 +565,8 @@ module Clacky
           elsif method == "GET" && path.match?(%r{^/api/sessions/[^/]+/skills$})
             session_id = path.sub("/api/sessions/", "").sub("/skills", "")
             api_session_skills(session_id, res)
+          elsif method == "GET" && path == "/api/dirs"
+            api_browse_dirs(req, res)
           elsif method == "GET" && path.match?(%r{^/api/sessions/[^/]+/files$})
             session_id = path.sub("/api/sessions/", "").sub("/files", "")
             api_session_files(session_id, req, res)
@@ -552,6 +594,9 @@ module Clacky
           elsif method == "PATCH" && path.match?(%r{^/api/sessions/[^/]+/working_dir$})
             session_id = path.sub("/api/sessions/", "").sub("/working_dir", "")
             api_change_session_working_dir(session_id, req, res)
+          elsif method == "POST" && path.match?(%r{^/api/sessions/[^/]+/fork$})
+            session_id = path.sub("/api/sessions/", "").sub("/fork", "")
+            api_fork_session(session_id, req, res)
           elsif method == "DELETE" && path.start_with?("/api/sessions/")
             session_id = path.sub("/api/sessions/", "")
             api_delete_session(session_id, res)
@@ -582,6 +627,12 @@ module Clacky
           elsif method == "PATCH" && path.match?(%r{^/api/skills/[^/]+/toggle$})
             name = URI.decode_www_form_component(path.sub("/api/skills/", "").sub("/toggle", ""))
             api_toggle_skill(name, req, res)
+          elsif method == "DELETE" && path.match?(%r{^/api/skills/[^/]+$})
+            name = URI.decode_www_form_component(path.sub("/api/skills/", ""))
+            api_delete_skill(name, res)
+          elsif method == "DELETE" && path.match?(%r{^/api/brand/skills/[^/]+$})
+            slug = URI.decode_www_form_component(path.sub("/api/brand/skills/", ""))
+            api_delete_brand_skill(slug, res)
           elsif method == "POST" && path.match?(%r{^/api/brand/skills/[^/]+/install$})
             slug = URI.decode_www_form_component(path.sub("/api/brand/skills/", "").sub("/install", ""))
             api_brand_skill_install(slug, req, res)
@@ -610,6 +661,7 @@ module Clacky
         limit   = [query["limit"].to_i.then { |n| n > 0 ? n : 20 }, 50].min
         before  = query["before"].to_s.strip.then  { |v| v.empty? ? nil : v }
         q       = query["q"].to_s.strip.then       { |v| v.empty? ? nil : v }
+        q_scope = query["q_scope"].to_s.strip.then { |v| %w[name content].include?(v) ? v : "name" }
         date    = query["date"].to_s.strip.then    { |v| v.empty? ? nil : v }
         type    = query["type"].to_s.strip.then    { |v| v.empty? ? nil : v }
         # Backward-compat: ?source=<x> and ?profile=coding → type
@@ -620,7 +672,7 @@ module Clacky
         # `registry.list` always returns ALL matching pinned rows first (on the
         # first page; `before` == nil), followed by non-pinned rows up to `limit+1`.
         # So has_more is determined by whether the non-pinned section overflowed.
-        sessions = @registry.list(limit: limit + 1, before: before, q: q, date: date, type: type)
+        sessions = @registry.list(limit: limit + 1, before: before, q: q, q_scope: q_scope, date: date, type: type)
 
         # Split pinned vs non-pinned to apply has_more only to the non-pinned tail.
         pinned_part, non_pinned_part = sessions.partition { |s| s[:pinned] }
@@ -808,6 +860,96 @@ module Clacky
         end
       end
 
+      # POST /api/onboard/device/start
+      # Kicks off a device-authorization flow against the platform. Returns the
+      # device_code (held by the client for polling) plus the user-facing
+      # verification URL the browser should open.
+      def api_onboard_device_start(req, res)
+        client = Clacky::PlatformHttpClient.new
+        result = client.post("/api/v1/device/authorize", {
+          device_id:   onboard_device_id,
+          device_info: { os: RUBY_PLATFORM, hostname: Socket.gethostname, app_version: Clacky::VERSION }
+        })
+
+        if result[:success]
+          data = result[:data]
+          json_response(res, 200, {
+            ok:                        true,
+            device_code:               data["device_code"],
+            user_code:                 data["user_code"],
+            verification_uri:          data["verification_uri"],
+            verification_uri_complete: data["verification_uri_complete"],
+            interval:                  data["interval"] || 5
+          })
+        else
+          json_response(res, 502, { ok: false, error: result[:error] })
+        end
+      end
+
+      # POST /api/onboard/device/poll  { device_code }
+      # Polls the platform once. While pending, returns { status: "pending" }.
+      # On approval, persists the issued key into agent_config and returns
+      # { status: "approved" } so the frontend can proceed to the onboard session.
+      def api_onboard_device_poll(req, res)
+        body        = parse_json_body(req) || {}
+        device_code = body["device_code"].to_s
+        if device_code.empty?
+          return json_response(res, 422, { ok: false, error: "device_code is required" })
+        end
+
+        client = Clacky::PlatformHttpClient.new
+        result = client.post("/api/v1/device/token", { device_code: device_code })
+        data   = result[:data] || {}
+        status = data["status"]
+
+        if result[:success] && status == "approved"
+          persist_onboard_model(
+            api_key:  data["api_key"],
+            base_url: data["base_url"],
+            model:    data["default_model"]
+          )
+          json_response(res, 200, {
+            ok:            true,
+            status:        "approved",
+            default_model: data["default_model"]
+          })
+        elsif status == "pending"
+          json_response(res, 200, { ok: true, status: "pending" })
+        else
+          # denied / expired / consumed / network error — surface to the client.
+          json_response(res, 200, {
+            ok:     false,
+            status: status || "error",
+            error:  result[:error]
+          })
+        end
+      end
+
+      # Stable per-machine id for the onboarding device flow. Independent of the
+      # brand/license device_id — onboarding can happen before any license.
+      private def onboard_device_id
+        components = [Socket.gethostname, ENV["USER"] || ENV["USERNAME"] || "", RUBY_PLATFORM]
+        Digest::SHA256.hexdigest(components.join(":"))
+      end
+
+      # Persist a device-flow-issued model as the default and re-anchor current_*.
+      private def persist_onboard_model(api_key:, base_url:, model:)
+        @agent_config.models.each { |m| m.delete("type") if m["type"] == "default" }
+        entry = {
+          "id"               => SecureRandom.uuid,
+          "model"            => model,
+          "base_url"         => base_url,
+          "api_key"          => api_key,
+          "anthropic_format" => false,
+          "type"             => "default"
+        }
+        @agent_config.models << entry
+        @agent_config.current_model_id    = entry["id"]
+        @agent_config.current_model_index = @agent_config.models.length - 1
+        @agent_config.save
+      end
+
+
       # GET /api/browser/status
       # Returns real daemon liveness from BrowserManager (not just yml read).
       def api_browser_status(res)
@@ -846,6 +988,63 @@ module Clacky
         json_response(res, 500, { ok: false, error: e.message })
       end
 
+      # GET /api/backup/status
+      def api_backup_status(res)
+        json_response(res, 200, BackupManager.status)
+      rescue StandardError => e
+        json_response(res, 500, { ok: false, error: e.message })
+      end
+
+      # POST /api/backup/run — run a backup immediately.
+      def api_backup_run(res)
+        result = BackupManager.run!
+        json_response(res, 200, { ok: true, archive: File.basename(result[:archive]),
+                                  size: result[:size], dest_dir: result[:dest_dir],
+                                  status: BackupManager.status })
+      rescue StandardError => e
+        json_response(res, 500, { ok: false, error: e.message })
+      end
+
+      # GET /api/backup/download — build a one-off archive and stream it
+      # directly to the browser. Not written to dest_dir nor recorded.
+      def api_backup_download(res)
+        result = BackupManager.build_download!
+        res.status                = 200
+        res["Content-Type"]       = "application/gzip"
+        res["Content-Disposition"] = %(attachment; filename="#{result[:filename]}")
+        res["Cache-Control"]      = "no-store"
+        res.body                  = File.binread(result[:path])
+      rescue StandardError => e
+        json_response(res, 500, { ok: false, error: e.message })
+      ensure
+        FileUtils.rm_f(result[:path]) if result && result[:path]
+      end
+      # Body: { enabled?, cron?, dest_dir?, keep?, include_sessions? }
+      def api_backup_config(req, res)
+        body = parse_json_body(req) || {}
+        cfg = BackupManager.update_config(
+          enabled:          body.key?("enabled") ? body["enabled"] : nil,
+          cron:             body["cron"],
+          dest_dir:         body.key?("dest_dir") ? body["dest_dir"] : nil,
+          keep:             body["keep"],
+          include_sessions: body.key?("include_sessions") ? body["include_sessions"] : nil
+        )
+        json_response(res, 200, { ok: true, config: cfg, status: BackupManager.status })
+      rescue StandardError => e
+        json_response(res, 500, { ok: false, error: e.message })
+      end
+
+      # POST /api/telemetry
+      # Body: { "event": "share_open" | "share_download", ... }
+      # Fire-and-forget telemetry from the WebUI frontend.
+      def api_telemetry(req, res)
+        body = parse_json_body(req) || {}
+        Clacky::Telemetry.share!(event: body["event"], extra: body["extra"])
+        json_response(res, 200, { ok: true })
+      rescue StandardError => e
+        json_response(res, 500, { ok: false, error: e.message })
+      end
+
       # POST /api/media/image
       # Body: { "prompt": "...", "aspect_ratio": "landscape|square|portrait",
       #         "output_dir": "<absolute path, optional>" }
@@ -878,6 +1077,65 @@ module Clacky
         json_response(res, 500, { error: e.message })
       end
 
+      def api_media_video(req, res)
+        body = parse_json_body(req)
+        return json_response(res, 400, { error: "Invalid JSON" }) unless body
+
+        prompt = body["prompt"].to_s
+        if prompt.strip.empty?
+          return json_response(res, 422, { error: "prompt is required" })
+        end
+
+        aspect_ratio = body["aspect_ratio"].to_s
+        aspect_ratio = "landscape" if aspect_ratio.empty?
+        duration     = body["duration_seconds"]
+        image        = body["image"]
+        output_dir   = body["output_dir"].to_s
+        output_dir   = @agent_config.default_working_dir || Dir.pwd if output_dir.empty?
+
+        result = Clacky::Media::Generator.new(@agent_config).generate_video(
+          prompt: prompt,
+          aspect_ratio: aspect_ratio,
+          duration_seconds: duration,
+          output_dir: output_dir,
+          image: image
+        )
+        if result["success"]
+          log_media_usage(result, prompt: prompt)
+        end
+        status = result["success"] ? 200 : 422
+        json_response(res, status, result)
+      rescue StandardError => e
+        json_response(res, 500, { error: e.message })
+      end
+
+      def api_media_audio_speech(req, res)
+        body = parse_json_body(req)
+        return json_response(res, 400, { error: "Invalid JSON" }) unless body
+
+        input = body["input"].to_s
+        if input.strip.empty?
+          return json_response(res, 422, { error: "input is required" })
+        end
+
+        voice      = body["voice"]
+        output_dir = body["output_dir"].to_s
+        output_dir = @agent_config.default_working_dir || Dir.pwd if output_dir.empty?
+
+        result = Clacky::Media::Generator.new(@agent_config).generate_speech(
+          input: input,
+          voice: voice,
+          output_dir: output_dir
+        )
+        if result["success"]
+          log_media_usage(result, prompt: input)
+        end
+        status = result["success"] ? 200 : 422
+        json_response(res, status, result)
+      rescue StandardError => e
+        json_response(res, 500, { error: e.message })
+      end
+
       private def log_media_usage(result, prompt:)
         usage = result["usage"]
         cost  = result["cost_usd"]
@@ -894,7 +1152,11 @@ module Clacky
         end
         parts << format("cost_usd=%.6f", cost.to_f) if cost
         parts << "prompt=#{prompt[0, 60].inspect}"
-        Clacky::Logger.info("[Media] image generated #{parts.join(" ")}")
+        kind = if result.key?("video") then "video"
+               elsif result.key?("audio") then "audio"
+               else "image"
+               end
+        Clacky::Logger.info("[Media] #{kind} generated #{parts.join(" ")}")
       end
 
       # GET /api/media/types
@@ -935,6 +1197,9 @@ module Clacky
             api_key_masked: entry ? mask_api_key(entry["api_key"]) : nil,
             provider:   state["provider"],
             available:  state["available"],
+            aliases:    state["aliases"] || {},
+            stale:      state["stale"] || false,
+            requested_model: state["requested_model"],
             configured: state["configured"]
           }
         end
@@ -952,7 +1217,8 @@ module Clacky
           defaults[t] = {
             provider:  provider_id,
             model:     provider_id ? Clacky::Providers.default_media_model(provider_id, t) : nil,
-            available: provider_id ? Clacky::Providers.media_models(provider_id, t) : []
+            available: provider_id ? Clacky::Providers.media_models(provider_id, t) : [],
+            aliases:   provider_id ? Clacky::Providers.media_model_aliases(provider_id, t) : {}
           }
         end
 
@@ -965,6 +1231,85 @@ module Clacky
       # off / auto — remove any custom entry; "auto" lets the virtual
       # derivation in AgentConfig#find_model_by_type take over.
       # custom — replace any existing custom entry with the supplied fields.
+      # POST /api/config/media/test
+      # Body: { kind, source, model, base_url, api_key }
+      # Lightweight preflight: GET <base_url>/models to verify connectivity,
+      # auth, and that the requested model is exposed by the endpoint.
+      # No image is generated — zero cost, sub-second.
+      def api_test_media_config(req, res)
+        body = parse_json_body(req) || {}
+        kind = body["kind"].to_s
+        return json_response(res, 422, { error: "invalid kind" }) unless %w[image video audio].include?(kind)
+        return json_response(res, 422, { error: "only image kind supported" }) unless kind == "image"
+
+        api_key = body["api_key"].to_s
+        if api_key.empty? || api_key.include?("****")
+          existing = @agent_config.find_model_by_type(kind) || {}
+          api_key = existing["api_key"].to_s
+        end
+
+        model    = body["model"].to_s.strip
+        base_url = body["base_url"].to_s.strip
+
+        if model.empty? || base_url.empty? || api_key.empty?
+          return json_response(res, 200, { ok: false, message: "model, base_url, api_key are required" })
+        end
+
+        result = preflight_media_endpoint(base_url: base_url, api_key: api_key, model: model)
+        json_response(res, 200, result)
+      rescue => e
+        json_response(res, 200, { ok: false, message: e.message })
+      end
+
+      private def preflight_media_endpoint(base_url:, api_key:, model:)
+        url = "#{base_url.chomp("/")}/models"
+        conn = Faraday.new(url: url) do |f|
+          f.options.timeout      = 10
+          f.options.open_timeout = 5
+        end
+
+        response =
+          begin
+            conn.get do |req|
+              req.headers["Authorization"] = "Bearer #{api_key}"
+              req.headers["Accept"]        = "application/json"
+            end
+          rescue Faraday::Error => e
+            return { ok: false, message: "Network error: #{e.message}" }
+          end
+
+        case response.status
+        when 401, 403
+          return { ok: false, message: "Authentication failed (HTTP #{response.status}). Check API key." }
+        when 404
+          return { ok: false, message: "Endpoint not found at #{url}. Check Base URL." }
+        end
+
+        unless response.success?
+          return { ok: false, message: "HTTP #{response.status}: #{response.body.to_s[0, 200]}" }
+        end
+
+        body = JSON.parse(response.body) rescue nil
+        ids =
+          if body.is_a?(Hash) && body["data"].is_a?(Array)
+            body["data"].map { |m| m["id"].to_s }
+          elsif body.is_a?(Array)
+            body.map { |m| m["id"].to_s }
+          else
+            []
+          end
+
+        if ids.empty?
+          return { ok: true, message: "Connected (model list unavailable; cannot verify model id)" }
+        end
+
+        if ids.include?(model)
+          { ok: true, message: "Connected. Model '#{model}' is available." }
+        else
+          { ok: false, message: "Connected, but model '#{model}' not found on this endpoint." }
+        end
+      end
+
       def api_update_media_config(kind, req, res)
         body = parse_json_body(req) || {}
         source = body["source"].to_s
@@ -974,7 +1319,23 @@ module Clacky
 
         @agent_config.models.reject! { |m| m["type"] == kind }
 
-        if source == "custom"
+        case source
+        when "off"
+          @agent_config.models << {
+            "id"       => SecureRandom.uuid,
+            "type"     => kind,
+            "disabled" => true
+          }
+        when "auto"
+          override = body["model"].to_s.strip
+          unless override.empty?
+            @agent_config.models << {
+              "id"    => SecureRandom.uuid,
+              "type"  => kind,
+              "model" => override
+            }
+          end
+        when "custom"
           model    = body["model"].to_s.strip
           base_url = body["base_url"].to_s.strip
           api_key  = body["api_key"].to_s
@@ -996,6 +1357,179 @@ module Clacky
         json_response(res, 200, { ok: true, state: @agent_config.media_state(kind) })
       rescue => e
         json_response(res, 422, { error: e.message })
+      end
+
+      # GET /api/config/ocr
+      # Returns the OCR sidecar state for the Settings UI. Mirrors media_state
+      # in shape so the UI can render OCR with the same row component.
+      def api_get_ocr_config(res)
+        state = @agent_config.ocr_state
+        entry = @agent_config.find_model_by_type("ocr")
+
+        out = {
+          source:         state["source"],
+          model:          state["model"],
+          base_url:       state["base_url"],
+          api_key_masked: entry ? mask_api_key(entry["api_key"]) : nil,
+          provider:       state["provider"],
+          available:      state["available"],
+          stale:          state["stale"] || false,
+          requested_model: state["requested_model"],
+          configured:     state["configured"],
+          primary:        state["primary"] || false
+        }
+
+        # Auto-mode preview: surface what the OCR sidecar *would* be if the
+        # user flipped to "auto" — derived from the same provider as the
+        # current default model.
+        default = @agent_config.find_model_by_type("default")
+        provider_id = default && Clacky::Providers.resolve_provider(
+          base_url: default["base_url"],
+          api_key:  default["api_key"]
+        )
+        default_preview = {
+          provider:  provider_id,
+          model:     provider_id ? Clacky::Providers.default_ocr_model(provider_id) : nil,
+          available: provider_id ? Clacky::Providers.ocr_models(provider_id) : []
+        }
+
+        json_response(res, 200, { ocr: out, default_provider: default_preview })
+      end
+
+      # PATCH /api/config/ocr
+      # Body: { source: "off"|"auto"|"custom", model?, base_url?, api_key?,
+      #         anthropic_format? }
+      # Mirrors api_update_media_config but for the single "ocr" type.
+      def api_update_ocr_config(req, res)
+        body = parse_json_body(req) || {}
+        source = body["source"].to_s
+        unless %w[off auto custom].include?(source)
+          return json_response(res, 422, { error: "invalid source" })
+        end
+
+        @agent_config.models.reject! { |m| m["type"] == "ocr" }
+
+        case source
+        when "off"
+          @agent_config.models << {
+            "id"       => SecureRandom.uuid,
+            "type"     => "ocr",
+            "disabled" => true
+          }
+        when "auto"
+          override = body["model"].to_s.strip
+          unless override.empty?
+            @agent_config.models << {
+              "id"    => SecureRandom.uuid,
+              "type"  => "ocr",
+              "model" => override
+            }
+          end
+        when "custom"
+          model    = body["model"].to_s.strip
+          base_url = body["base_url"].to_s.strip
+          api_key  = body["api_key"].to_s
+          if api_key.include?("****")
+            existing = @agent_config.models.find { |m| m["type"] == "ocr" && m["api_key"] }
+            api_key = existing ? existing["api_key"].to_s : ""
+          end
+          if model.empty? || base_url.empty? || api_key.empty?
+            return json_response(res, 422, { error: "model, base_url, api_key are required" })
+          end
+
+          @agent_config.models << {
+            "id"               => SecureRandom.uuid,
+            "model"            => model,
+            "base_url"         => base_url,
+            "api_key"          => api_key,
+            "anthropic_format" => body["anthropic_format"] || false,
+            "type"             => "ocr"
+          }
+        end
+
+        @agent_config.save
+        json_response(res, 200, { ok: true, state: @agent_config.ocr_state })
+      rescue => e
+        json_response(res, 422, { error: e.message })
+      end
+
+      # POST /api/config/ocr/test
+      # Reuses the media preflight (GET /models) — same connectivity check.
+      def api_test_ocr_config(req, res)
+        body = parse_json_body(req) || {}
+        api_key = body["api_key"].to_s
+        if api_key.empty? || api_key.include?("****")
+          existing = @agent_config.find_model_by_type("ocr") || {}
+          api_key = existing["api_key"].to_s
+        end
+
+        model    = body["model"].to_s.strip
+        base_url = body["base_url"].to_s.strip
+
+        if model.empty? || base_url.empty? || api_key.empty?
+          return json_response(res, 200, { ok: false, message: "model, base_url, api_key are required" })
+        end
+
+        result = preflight_media_endpoint(base_url: base_url, api_key: api_key, model: model)
+        json_response(res, 200, result)
+      rescue => e
+        json_response(res, 200, { ok: false, message: e.message })
+      end
+
+      # POST /api/internal/ocr-image
+      # Internal endpoint used by parser scripts (e.g. pdf_parser_vlm.py) to
+      # transcribe a single image via the configured OCR sidecar. Localhost-
+      # only by virtue of the standard auth path: when the server binds to
+      # 127.0.0.1 (@localhost_only), check_access_key returns true without
+      # requiring a token, so parsers running on the same host can call this
+      # endpoint with no extra wiring.
+      #
+      # Request:  multipart/form-data with field "image" (binary), optional "prompt"
+      #           OR JSON body { "data_url": "data:image/png;base64,...", "prompt": "..." }
+      # Response: { ok: true, text: "..." } or { ok: false, message: "..." }
+      def api_internal_ocr_image(req, res)
+        entry = @agent_config.find_model_by_type("ocr")
+        unless entry
+          return json_response(res, 503, { ok: false, message: "OCR sidecar not configured" })
+        end
+
+        prompt   = nil
+        data_url = nil
+        bytes    = nil
+        mime     = "image/png"
+
+        ctype = req.content_type.to_s
+        if ctype.start_with?("multipart/form-data")
+          parts = req.query
+          if (img = parts["image"])
+            bytes = img.respond_to?(:read) ? img.read : img.to_s
+            mime  = (img.respond_to?(:[]) ? img["content-type"].to_s : nil)
+            mime  = "image/png" if mime.nil? || mime.empty?
+          end
+          prompt = parts["prompt"].to_s if parts["prompt"]
+        else
+          body = parse_json_body(req) || {}
+          data_url = body["data_url"].to_s
+          prompt   = body["prompt"].to_s if body["prompt"]
+        end
+
+        image =
+          if bytes && !bytes.empty?
+            { bytes: bytes, mime_type: mime }
+          elsif data_url && !data_url.empty?
+            { data_url: data_url }
+          else
+            return json_response(res, 400, { ok: false, message: "image or data_url required" })
+          end
+
+        text = Clacky::Vision::Resolver.new(entry).describe(image, prompt: prompt)
+        if text && !text.strip.empty?
+          json_response(res, 200, { ok: true, text: text })
+        else
+          json_response(res, 200, { ok: false, message: "OCR returned empty result" })
+        end
+      rescue => e
+        json_response(res, 500, { ok: false, message: e.message })
       end
 
       # POST /api/onboard/complete
@@ -1162,6 +1696,8 @@ module Clacky
             branded:                       true,
             needs_activation:              true,
             product_name:                  brand.product_name,
+            homepage_url:                  brand.homepage_url,
+            logo_url:                      brand.logo_url,
             test_mode:                     @brand_test,
             distribution_refresh_pending:  refresh_pending
           })
@@ -1201,6 +1737,8 @@ module Clacky
           branded:          true,
           needs_activation: false,
           product_name:     brand.product_name,
+          homepage_url:     brand.homepage_url,
+          logo_url:         brand.logo_url,
           warning:          warning,
           test_mode:        @brand_test,
           user_licensed:    brand.user_licensed?,
@@ -1404,6 +1942,23 @@ module Clacky
           json_response(res, 422, { ok: false, error: result[:error] })
         end
       rescue StandardError, ScriptError => e
+        json_response(res, 500, { ok: false, error: e.message })
+      end
+
+      # DELETE /api/brand/skills/:slug
+      # Uninstalls a brand skill by removing its files and metadata.
+      def api_delete_brand_skill(slug, res)
+        brand = Clacky::BrandConfig.load
+        installed = brand.installed_brand_skills
+        unless installed.key?(slug)
+          json_response(res, 404, { ok: false, error: "Brand skill '#{slug}' is not installed" })
+          return
+        end
+
+        brand.delete_brand_skill!(slug)
+        @skill_loader = Clacky::SkillLoader.new(working_dir: nil, brand_config: brand)
+        json_response(res, 200, { ok: true })
+      rescue StandardError => e
         json_response(res, 500, { ok: false, error: e.message })
       end
 
@@ -2360,10 +2915,13 @@ module Clacky
           result = Utils::EnvironmentDetector.open_file(linux_path)
           return json_response(res, 501, { error: "unsupported OS" }) if result.nil?
           json_response(res, 200, { ok: true })
+        when "reveal"
+          Utils::EnvironmentDetector.reveal_file(linux_path)
+          json_response(res, 200, { ok: true })
         when "download"
           serve_file_download(res, linux_path)
         else
-          json_response(res, 400, { error: "invalid action. Must be 'open' or 'download'" })
+          json_response(res, 400, { error: "invalid action. Must be 'open', 'reveal' or 'download'" })
         end
       rescue => e
         json_response(res, 500, { ok: false, error: e.message })
@@ -2402,19 +2960,38 @@ module Clacky
         # Convert it to the Linux-side path so File.exist? works.
         path = Utils::EnvironmentDetector.win_to_linux_path(path)
 
-        # Security: only serve image files
+        # Security: only serve media files (images + videos)
         ext = File.extname(path).downcase
-        unless Utils::FileProcessor::LOCAL_IMAGE_EXTENSIONS.include?(ext)
-          return json_response(res, 403, { error: "not an image file" })
+        unless Utils::FileProcessor::LOCAL_MEDIA_EXTENSIONS.include?(ext)
+          return json_response(res, 403, { error: "not a supported media file" })
         end
 
         return json_response(res, 404, { error: "file not found" }) unless File.exist?(path)
 
+        file_size = File.size(path)
         mime = Utils::FileProcessor::MIME_TYPES[ext] || "application/octet-stream"
-        res.status         = 200
-        res["Content-Type"] = mime
-        res["Cache-Control"] = "private, max-age=3600"
-        res.body = File.binread(path)
+
+        # Support HTTP Range requests for video seeking
+        range_header = req["Range"]
+        if range_header && range_header =~ /\Abytes=(\d*)-(\d*)\z/
+          start_byte = ($1.empty? ? 0 : $1.to_i)
+          end_byte   = ($2.empty? ? file_size - 1 : $2.to_i)
+          end_byte   = [end_byte, file_size - 1].min
+
+          res.status = 206
+          res["Content-Type"]  = mime
+          res["Content-Range"] = "bytes #{start_byte}-#{end_byte}/#{file_size}"
+          res["Accept-Ranges"] = "bytes"
+          res["Cache-Control"] = "private, max-age=3600"
+          res["Content-Length"] = (end_byte - start_byte + 1).to_s
+          IO.binread(path, end_byte - start_byte + 1, start_byte).then { |data| res.body = data }
+        else
+          res.status         = 200
+          res["Content-Type"] = mime
+          res["Accept-Ranges"] = "bytes"
+          res["Cache-Control"] = "private, max-age=3600"
+          res.body = File.binread(path)
+        end
       rescue => e
         json_response(res, 500, { error: e.message })
       end
@@ -2731,6 +3308,7 @@ module Clacky
             description:       skill.context_description,
             description_zh:    skill.description_zh,
             source:            source,
+            always_show:       skill.always_show,
             enabled:           !skill.disabled?,
             invalid:           skill.invalid?,
             warnings:          skill.warnings,
@@ -2783,7 +3361,8 @@ module Clacky
             description:    skill.description || skill.context_description,
             description_zh: skill.description_zh,
             encrypted:      skill.encrypted?,
-            source_type:    source_type
+            source_type:    source_type,
+            always_show:    skill.always_show
           }
         end
 
@@ -2809,6 +3388,7 @@ module Clacky
         query = URI.decode_www_form(req.query_string.to_s).to_h
         rel = query["path"].to_s
         absolute_mode = query["absolute"] == "true"
+        show_hidden = query["show_hidden"] == "true"
 
         # Absolute mode: allow browsing outside working directory (e.g., root "/")
         if absolute_mode
@@ -2828,7 +3408,9 @@ module Clacky
         end
 
         return json_response(res, 404, { error: "Directory not found" }) unless Dir.exist?(target)
-        entries = Dir.children(target).reject { |name| IGNORED_FILE_ENTRIES.include?(name) }
+        entries = Dir.children(target).reject do |name|
+          IGNORED_FILE_ENTRIES.include?(name) || (!show_hidden && name.start_with?("."))
+        end
 
         items = entries.filter_map do |name|
           full = File.join(target, name)
@@ -2852,6 +3434,45 @@ module Clacky
       rescue StandardError => e
         json_response(res, 500, { error: e.message })
       end
+
+      # GET /api/dirs?path=<absolute-or-~-path>
+      # Session-independent directory browser used by the New Session modal,
+      # where no session (and thus no working_dir) exists yet. Always operates
+      # in absolute mode and lists directories only.
+      def api_browse_dirs(req, res)
+        query = URI.decode_www_form(req.query_string.to_s).to_h
+        rel   = query["path"].to_s.strip
+        show_hidden = query["show_hidden"] == "true"
+        rel   = Dir.home if rel.empty?
+        target = File.expand_path(rel.start_with?("~") ? rel.sub(/\A~/, Dir.home) : rel)
+
+        # The requested directory may not exist yet (e.g. the default
+        # ~/clacky_workspace before any session created it). Instead of 404,
+        # walk up to the nearest existing ancestor so the picker stays usable.
+        until Dir.exist?(target)
+          parent = File.dirname(target)
+          break if parent == target
+          target = parent
+        end
+        return json_response(res, 404, { error: "Directory not found" }) unless Dir.exist?(target)
+
+        entries = Dir.children(target).reject do |name|
+          IGNORED_FILE_ENTRIES.include?(name) || (!show_hidden && name.start_with?("."))
+        end
+        items = entries.filter_map do |name|
+          full = File.join(target, name)
+          next unless File.directory?(full) && File.exist?(full)
+          { name: name, path: full, type: "dir" }
+        rescue StandardError
+          nil
+        end
+        items.sort_by! { |it| it[:name].downcase }
+
+        json_response(res, 200, { root: target, path: target, parent: File.dirname(target), home: Dir.home, entries: items })
+      rescue StandardError => e
+        json_response(res, 500, { error: e.message })
+      end
+
       # Body: { enabled: true/false }
       def api_toggle_skill(name, req, res)
         body    = parse_json_body(req)
@@ -2866,6 +3487,14 @@ module Clacky
         json_response(res, 200, { ok: true, name: skill.identifier, enabled: !skill.disabled? })
       rescue Clacky::AgentError => e
         json_response(res, 422, { error: e.message })
+      end
+
+      private def api_delete_skill(name, res)
+        skill = @skill_loader[name]
+        return json_response(res, 404, { error: "Skill not found: #{name}" }) unless skill
+
+        FileUtils.rm_rf(skill.directory)
+        json_response(res, 200, { ok: true })
       end
 
       # POST /api/my-skills/:name/publish
@@ -3605,7 +4234,7 @@ module Clacky
       # ── Config API ────────────────────────────────────────────────────────────
 
       # GET /api/config — return current model configurations
-      def api_get_config(res)
+      def api_get_config(req, res)
         models = @agent_config.models.map.with_index do |m, i|
           {
             id:               m["id"],   # Stable runtime id — use this for switching
@@ -3618,17 +4247,56 @@ module Clacky
           }
         end
         # Filter out auto-injected models (lite, derived media) AND media
-        # entries (image/video/audio) — those are managed via the dedicated
+        # entries (image/video/audio/ocr) — those are managed via the dedicated
         # media-config UI, not the chat-model card list.
         models.reject! do |m|
           raw = @agent_config.models[m[:index]]
-          raw["auto_injected"] || Clacky::Providers::MEDIA_KINDS.include?(raw["type"].to_s)
+          raw["auto_injected"] ||
+            Clacky::Providers::MEDIA_KINDS.include?(raw["type"].to_s) ||
+            raw["type"].to_s == "ocr"
         end
+        # Capabilities follow the model the *session* is actually running on
+        # (it may differ from the global default after a per-session switch).
+        query   = URI.decode_www_form(req.query_string.to_s).to_h
+        cfg     = config_for_session(query["session_id"]) || @agent_config
         json_response(res, 200, {
           models: models,
           current_index: @agent_config.current_model_index,
-          current_id: @agent_config.current_model&.dig("id")
+          current_id: @agent_config.current_model&.dig("id"),
+          media_capabilities: media_capabilities_payload(cfg)
         })
+      end
+
+      # Resolve the AgentConfig for a given session, falling back to nil when
+      # the session isn't live so callers can use the global config instead.
+      def config_for_session(session_id)
+        return nil if session_id.to_s.strip.empty?
+        return nil unless @registry.ensure(session_id)
+
+        agent = nil
+        @registry.with_session(session_id) { |s| agent = s[:agent] }
+        agent&.config
+      end
+
+      # Capability summary for the model dropdown's footer.
+      #   vision — true when the current default model handles images itself
+      #            OR a vision sidecar is configured (ocr_state covers both).
+      #   image/video/audio — true only when a dedicated sidecar is configured;
+      #            the chat model can never generate these on its own.
+      def media_capabilities_payload(cfg = @agent_config)
+        ocr = cfg.ocr_state
+        out = {
+          vision: {
+            configured: !!ocr["configured"],
+            primary:    !!ocr["primary"],
+            model:      ocr["model"]
+          }
+        }
+        Clacky::Providers::MEDIA_KINDS.each do |t|
+          state = cfg.media_state(t)
+          out[t] = { configured: !!state["configured"], model: state["model"] }
+        end
+        out
       end
 
       # GET /api/config/settings — return advanced settings
@@ -3637,7 +4305,8 @@ module Clacky
           ok: true,
           enable_compression: @agent_config.enable_compression,
           enable_prompt_caching: @agent_config.enable_prompt_caching,
-          memory_update_enabled: @agent_config.memory_update_enabled
+          memory_update_enabled: @agent_config.memory_update_enabled,
+          proxy_url: @agent_config.proxy_url.to_s
         })
       end
 
@@ -3654,6 +4323,22 @@ module Clacky
         end
         if body.key?("memory_update_enabled")
           @agent_config.memory_update_enabled = !!body["memory_update_enabled"]
+        end
+        if body.key?("proxy_url")
+          raw = body["proxy_url"].to_s.strip
+          if raw.empty?
+            @agent_config.proxy_url = nil
+          else
+            begin
+              uri = URI.parse(raw)
+              unless uri.is_a?(URI::HTTP) && uri.host && !uri.host.empty?
+                return json_response(res, 422, { error: "proxy_url must be a valid http(s) URL" })
+              end
+            rescue URI::InvalidURIError
+              return json_response(res, 422, { error: "proxy_url is not a valid URL" })
+            end
+            @agent_config.proxy_url = raw
+          end
         end
 
         @agent_config.save
@@ -3844,8 +4529,16 @@ module Clacky
 
         api_key = body["api_key"].to_s
         if api_key.include?("****")
-          idx = body["index"]&.to_i || @agent_config.current_model_index
-          api_key = @agent_config.models.dig(idx, "api_key").to_s
+          model_id = body["id"].to_s
+          entry = nil
+          if !model_id.empty?
+            entry = @agent_config.models.find { |m| m["id"] == model_id }
+          end
+          if entry.nil? && body.key?("index")
+            entry = @agent_config.models[body["index"].to_i]
+          end
+          entry ||= @agent_config.models[@agent_config.current_model_index]
+          api_key = entry ? entry["api_key"].to_s : ""
         end
 
         model            = body["model"].to_s
@@ -4199,6 +4892,15 @@ module Clacky
         json_response(res, 200, { ok: true, working_dir: expanded_dir })
       rescue => e
         json_response(res, 500, { error: e.message })
+      end
+
+      def api_fork_session(session_id, req, res)
+        fork_data = @session_manager.fork(session_id)
+        return json_response(res, 404, { error: "Session not found" }) unless fork_data
+
+        fork_id = fork_data[:session_id]
+        broadcast_session_update(fork_id)
+        json_response(res, 201, { session: @registry.snapshot(fork_id) })
       end
 
       def api_delete_session(session_id, res)
@@ -4664,6 +5366,11 @@ module Clacky
           task.call
           @registry.update(session_id, status: :idle, error: nil)
           broadcast_session_update(session_id)
+          # Transient global signal for the optional task-complete sound. Sent to
+          # all clients (broadcast_all) so a browser viewing another session — or
+          # with the tab/window in the background — can still chime. Not part of
+          # session history: a chime is a live cue, never replayed on refresh.
+          broadcast_all(type: "task_finished", session_id: session_id)
           @session_manager.save(agent.to_session_data(status: :success))
           # Start idle compression timer now that the agent is idle
           idle_timer&.start

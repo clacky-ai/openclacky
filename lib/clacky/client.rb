@@ -398,7 +398,17 @@ module Clacky
     def parse_simple_openai_response(response)
       raise_error(response) unless response.status == 200
       parsed_body = safe_json_parse(response.body, context: "LLM response")
-      parsed_body["choices"].first["message"]["content"]
+      content = parsed_body.dig("choices", 0, "message", "content")
+      if content.nil?
+        snippet = response.body.to_s[0, 1200]
+        if defined?(Clacky::Logger)
+          Clacky::Logger.warn("[parse_simple_openai_response] no content. status=#{response.status} body=#{snippet}")
+        end
+        raise Clacky::Error,
+          "Upstream OpenAI-compatible response missing choices[0].message.content. " \
+          "Body snippet: #{snippet}"
+      end
+      content
     end
 
     # ── Prompt caching helpers ────────────────────────────────────────────────
@@ -506,61 +516,64 @@ module Clacky
     end
 
     def bedrock_connection
-      @bedrock_connection ||= Faraday.new(url: @base_url) do |conn|
-        conn.headers["Content-Type"]  = "application/json"
-        conn.headers["Authorization"] = "Bearer #{@api_key}"
-        conn.options.timeout      = @read_timeout || 300
-        conn.options.open_timeout = 10
-        conn.ssl.verify           = false
-        conn.adapter Faraday.default_adapter
+      current_epoch = Clacky::ProxyConfig.epoch
+      if @bedrock_connection.nil? ||
+         (!@bedrock_connection_epoch.nil? && @bedrock_connection_epoch != current_epoch)
+        @bedrock_connection = Faraday.new(url: @base_url) do |conn|
+          conn.headers["Content-Type"]  = "application/json"
+          conn.headers["Authorization"] = "Bearer #{@api_key}"
+          conn.options.timeout      = @read_timeout || 300
+          conn.options.open_timeout = 10
+          conn.ssl.verify           = false
+          conn.adapter Faraday.default_adapter
+        end
+        @bedrock_connection_epoch = current_epoch
       end
+      @bedrock_connection
     end
 
     def openai_connection
-      @openai_connection ||= Faraday.new(url: @base_url) do |conn|
-        conn.headers["Content-Type"]  = "application/json"
-        conn.headers["Authorization"] = "Bearer #{@api_key}"
-        conn.options.timeout      = @read_timeout || 300
-        conn.options.open_timeout = 10
-        conn.ssl.verify           = false
-        conn.adapter Faraday.default_adapter
+      current_epoch = Clacky::ProxyConfig.epoch
+      if @openai_connection.nil? ||
+         (!@openai_connection_epoch.nil? && @openai_connection_epoch != current_epoch)
+        @openai_connection = Faraday.new(url: @base_url) do |conn|
+          conn.headers["Content-Type"]  = "application/json"
+          conn.headers["Authorization"] = "Bearer #{@api_key}"
+          conn.options.timeout      = @read_timeout || 300
+          conn.options.open_timeout = 10
+          conn.ssl.verify           = false
+          conn.adapter Faraday.default_adapter
+        end
+        @openai_connection_epoch = current_epoch
       end
+      @openai_connection
     end
 
     def anthropic_connection
-      @anthropic_connection ||= Faraday.new(url: @base_url) do |conn|
-        conn.headers["Content-Type"]   = "application/json"
-        conn.headers["x-api-key"]      = @api_key
-        conn.headers["anthropic-version"] = "2023-06-01"
-        conn.headers["anthropic-dangerous-direct-browser-access"] = "true"
-        # OpenRouter's /v1/messages endpoint authenticates with a Bearer
-        # token (the OpenRouter API key), not Anthropic's x-api-key. We send
-        # both so the same connection code works for direct Anthropic and
-        # for OpenRouter-proxied Claude — each endpoint ignores the header
-        # it doesn't recognise.
-        if @provider_id == "openrouter"
-          conn.headers["Authorization"] = "Bearer #{@api_key}"
+      current_epoch = Clacky::ProxyConfig.epoch
+      if @anthropic_connection.nil? ||
+         (!@anthropic_connection_epoch.nil? && @anthropic_connection_epoch != current_epoch)
+        @anthropic_connection = Faraday.new(url: @base_url) do |conn|
+          conn.headers["Content-Type"]   = "application/json"
+          conn.headers["x-api-key"]      = @api_key
+          conn.headers["anthropic-version"] = "2023-06-01"
+          conn.headers["anthropic-dangerous-direct-browser-access"] = "true"
+          if @provider_id == "openrouter"
+            conn.headers["Authorization"] = "Bearer #{@api_key}"
+          end
+          # Moonshot's Kimi Code (Coding Plan) endpoint enforces a User-Agent
+          # prefix whitelist limited to first-party coding agents.
+          if @provider_id == "kimi-coding"
+            conn.headers["User-Agent"] = "claude-cli/1.0.51 (external, cli)"
+          end
+          conn.options.timeout      = @read_timeout || 300
+          conn.options.open_timeout = 10
+          conn.ssl.verify           = false
+          conn.adapter Faraday.default_adapter
         end
-        # Moonshot's Kimi Code (Coding Plan) endpoint enforces a User-Agent
-        # prefix whitelist limited to first-party coding agents (Kimi CLI,
-        # Claude Code, Roo Code, Kilo Code, ...). Requests with the default
-        # Faraday UA are rejected with HTTP 403 access_terminated_error,
-        # despite a valid API key. We send a Claude Code-shaped UA here
-        # because openclacky talks to this endpoint over the same Anthropic
-        # /v1/messages protocol that Claude Code uses, so the UA matches the
-        # wire-level behaviour. Hardcoding rather than exposing as a config
-        # field is intentional: the only UAs known to pass the gate are the
-        # whitelisted-client formats, and the project's preset registry is
-        # the single source of truth for provider-specific quirks (mirroring
-        # how the openrouter Bearer-fallback above is hardcoded).
-        if @provider_id == "kimi-coding"
-          conn.headers["User-Agent"] = "claude-cli/1.0.51 (external, cli)"
-        end
-        conn.options.timeout      = @read_timeout || 300
-        conn.options.open_timeout = 10
-        conn.ssl.verify           = false
-        conn.adapter Faraday.default_adapter
+        @anthropic_connection_epoch = current_epoch
       end
+      @anthropic_connection
     end
 
     # Correct relative path for the Anthropic /v1/messages endpoint, accounting

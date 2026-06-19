@@ -92,6 +92,7 @@ require_relative "clacky/ui2/progress_indicator"
 
 # Utils
 require_relative "clacky/utils/logger"
+require_relative "clacky/proxy_config"
 require_relative "clacky/platform_http_client"
 require_relative "clacky/utils/encoding"
 require_relative "clacky/utils/environment_detector"
@@ -128,12 +129,14 @@ require_relative "clacky/mcp/skill_provider"
 require_relative "clacky/media/base"
 require_relative "clacky/media/openai_compat"
 require_relative "clacky/media/generator"
+require_relative "clacky/vision/resolver"
 require_relative "clacky/telemetry"
 require_relative "clacky/agent"
 
 require_relative "clacky/server/session_registry"
 require_relative "clacky/server/web_ui_controller"
 require_relative "clacky/server/browser_manager"
+require_relative "clacky/server/backup_manager"
 require_relative "clacky/cli"
 
 # Runtime patch layer: load user/AI patches from ~/.clacky/patches/ after all
@@ -164,3 +167,5 @@ module Clacky
   class BrowserNotReachableError < AgentError; end  # Chrome/Edge not running or remote debugging disabled
   # BrowserManager singleton: Clacky::BrowserManager.instance
 end
+
+Clacky::ProxyConfig.install!

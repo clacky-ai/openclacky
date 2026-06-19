@@ -100,6 +100,46 @@ RSpec.describe Clacky::UI2::ProgressHandle do
       expect { h.finish }.not_to raise_error
     end
 
+    it "completes the unregister on a follow-up finish when the first was interrupted between stop_ticker and unregister_progress" do
+      raising_owner = Class.new do
+        attr_reader :register_calls, :unregister_calls, :raise_on_first
+
+        def initialize
+          @register_calls = 0
+          @unregister_calls = 0
+          @raise_on_first = true
+        end
+
+        def register_progress(_handle)
+          @register_calls += 1
+          1
+        end
+
+        def unregister_progress(_handle, final_frame:)
+          _ = final_frame
+          @unregister_calls += 1
+          if @raise_on_first
+            @raise_on_first = false
+            raise Interrupt, "simulated Thread#raise during unregister"
+          end
+        end
+
+        def render_frame(_handle, _frame); end
+      end.new
+
+      h = described_class.new(owner: raising_owner, message: "Executing edit", style: :quiet, quiet_on_fast_finish: true)
+      h.start
+      expect { h.finish }.to raise_error(Interrupt)
+      expect(raising_owner.unregister_calls).to eq(1)
+
+      h.finish
+      expect(raising_owner.unregister_calls).to eq(2)
+      expect(h.ticker_alive?).to be(false)
+
+      h.finish
+      expect(raising_owner.unregister_calls).to eq(2)
+    end
+
     it "passes a final frame (with elapsed time) to the owner on finish" do
       h = described_class.new(owner: owner, message: "Saving", style: :primary)
       h.start

@@ -10,7 +10,7 @@ RSpec.describe Clacky::Utils::ScriptsManager do
       # Must end with /scripts, not /../scripts or similar
       expect(dir).to end_with("/scripts")
       # The gem root is openclacky/ — confirm the resolved path contains it
-      expect(dir).to include("openclacky")
+      expect(dir).to match(%r{open-?clacky})
       # Sanity: the directory must actually exist
       expect(Dir.exist?(dir)).to be(true), "DEFAULT_SCRIPTS_DIR does not exist: #{dir}"
     end

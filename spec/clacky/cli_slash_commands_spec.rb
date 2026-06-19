@@ -133,7 +133,7 @@ RSpec.describe Clacky::CLI, "UI2 slash commands" do
   describe "/exit" do
     it "stops the UI and exits" do
       allow(ui_controller).to receive(:stop)
-      expect(ui_controller).to receive(:stop).with(clear_screen: true)
+      expect(ui_controller).to receive(:stop).with(no_args)
       expect { send_input("/exit") }.to raise_error(SystemExit) { |e| expect(e.status).to eq(0) }
     end
   end
@@ -141,7 +141,7 @@ RSpec.describe Clacky::CLI, "UI2 slash commands" do
   describe "/quit" do
     it "stops the UI and exits (alias for /exit)" do
       allow(ui_controller).to receive(:stop)
-      expect(ui_controller).to receive(:stop).with(clear_screen: true)
+      expect(ui_controller).to receive(:stop).with(no_args)
       expect { send_input("/quit") }.to raise_error(SystemExit) { |e| expect(e.status).to eq(0) }
     end
   end
@@ -159,6 +159,14 @@ RSpec.describe Clacky::CLI, "UI2 slash commands" do
     it "delegates to handle_config_command without the client param (agent owns its client)" do
       expect(cli).to receive(:handle_config_command).with(ui_controller, agent_config, agent)
       send_input("/config")
+    end
+  end
+
+  # ── /model ───────────────────────────────────────────────────────────────────
+  describe "/model" do
+    it "delegates to handle_model_command" do
+      expect(cli).to receive(:handle_model_command).with(ui_controller, agent_config, agent, anything)
+      send_input("/model")
     end
   end
 end

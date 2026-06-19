@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require "fileutils"
+
 module Clacky
   class Agent
     # Skill management and execution
@@ -128,6 +130,32 @@ module Clacky
           s.identifier.to_s.start_with?("mcp:")
         end
 
+        # Sort normal skills so AVAILABLE SKILLS prioritises what the user
+        # actually relies on:
+        #   1. default skills first (alphabetical, stable) — the always-present
+        #      built-in baseline; they don't participate in LRU.
+        #   2. user-installed (project + brand + global) after, ordered by the
+        #      skill directory's mtime descending (LRU). touch_skill_for_lru
+        #      bumps mtime on every invocation; freshly installed skills also
+        #      naturally float to the top.
+        #   3. search-skills is pinned to the very end (after truncation) so it
+        #      sits next to the "(N more skills installed)" hint and is the
+        #      last thing the LLM sees when scanning the list — maximising the
+        #      chance it remembers to search before building a duplicate skill.
+        default_skills, user_skills = normal_skills.partition { |s| s.source == :default }
+        search_skill, default_skills = default_skills.partition { |s| s.identifier.to_s == "search-skills" }
+        default_skills = default_skills.sort_by { |s| s.identifier.to_s }
+        user_skills = user_skills.sort_by { |s|
+          mt = File.mtime(s.directory.to_s).to_f rescue 0.0
+          [-mt, s.identifier.to_s]
+        }
+        normal_skills = default_skills + user_skills
+
+        # Track total before truncation so we can hint the agent that more
+        # skills exist beyond the window.
+        total_normal_skills = normal_skills.size
+        truncated_skill_count = 0
+
         # Enforce system prompt injection limit to control token usage.
         # Warn at most once per process per dropped-set signature — build_skill_context
         # runs on every system-prompt assembly and is invoked from many short-lived
@@ -135,6 +163,7 @@ module Clacky
         if normal_skills.size > MAX_CONTEXT_SKILLS
           kept    = normal_skills.first(MAX_CONTEXT_SKILLS)
           dropped = normal_skills.drop(MAX_CONTEXT_SKILLS)
+          truncated_skill_count = dropped.size
           dropped_names = dropped.map(&:identifier)
           signature = dropped_names.sort.join(",")
 
@@ -149,6 +178,8 @@ module Clacky
           end
           normal_skills = kept
         end
+
+        normal_skills += search_skill unless search_skill.empty?
 
         if mcp_skills.size > MAX_CONTEXT_MCP_SERVERS
           dropped = mcp_skills.drop(MAX_CONTEXT_MCP_SERVERS).map(&:identifier)
@@ -192,6 +223,12 @@ module Clacky
               context += "- name: #{skill.identifier}\n"
               context += "  description: #{skill.context_description}\n\n"
             end
+          end
+
+          if truncated_skill_count > 0
+            context += "(#{truncated_skill_count} more skill(s) installed but not shown here. " \
+                       "If the listed skills don't fit the task, invoke the `search-skills` skill " \
+                       "to look them up by keyword BEFORE deciding to build a new skill.)\n\n"
           end
 
           context += "\n"
@@ -296,6 +333,8 @@ module Clacky
       # @param task_id [Integer] Current task ID (for message tagging)
       # @return [void]
       def inject_skill_as_assistant_message(skill, arguments, task_id, slash_command: false)
+        touch_skill_for_lru(skill)
+
         # Track skill execution context for self-evolution system
         @skill_execution_context = {
           skill_name: skill.identifier,
@@ -307,7 +346,7 @@ module Clacky
 
         # For encrypted brand skills with supporting scripts: decrypt to a tmpdir so the
         # LLM receives the real paths it can execute. The tmpdir is registered on the agent
-        # and shredded when agent.run completes (see Agent#shred_script_tmpdirs).
+        # and lives for the agent's lifetime (the session).
         script_dir = nil
         if skill.encrypted? && skill.has_supporting_files?
           script_dir = Dir.mktmpdir("clacky-skill-#{skill.identifier}-")
@@ -413,8 +452,40 @@ module Clacky
       # @return [Hash<String, Proc>]
       def build_template_context
         {
-          "memories_meta" => -> { load_memories_meta }
+          "memories_meta"   => -> { load_memories_meta },
+          "all_skills_meta" => -> { load_all_skills_meta }
         }
+      end
+
+      # Render a complete list of installed skills (no MAX_CONTEXT_SKILLS cap)
+      # for skills like `search-skills` that need to see every available skill.
+      # Brand skill names + descriptions are pulled from cached_metadata so this
+      # is safe to inject without touching encrypted SKILL.md.enc content.
+      # @return [String]
+      def load_all_skills_meta
+        all = @skill_loader.load_all
+        all = filter_skills_by_profile(all)
+        all = all.reject(&:invalid?)
+        all = all.reject { |s| s.identifier.to_s.start_with?("mcp:") }
+
+        return "(No skills installed.)" if all.empty?
+
+        default_skills, user_skills = all.partition { |s| s.source == :default }
+        default_skills = default_skills.sort_by { |s| s.identifier.to_s }
+        user_skills = user_skills.sort_by { |s|
+          mt = File.mtime(s.directory.to_s).to_f rescue 0.0
+          [-mt, s.identifier.to_s]
+        }
+        ordered = default_skills + user_skills
+
+        lines = ["All installed skills (#{ordered.size} total):", ""]
+        ordered.each do |skill|
+          lines << "- name: #{skill.identifier}"
+          lines << "  source: #{skill.source}"
+          lines << "  description: #{skill.context_description}"
+          lines << ""
+        end
+        lines.join("\n")
       end
 
       # Scan ~/.clacky/memories/ and return a formatted summary of all memory files.
@@ -488,11 +559,25 @@ module Clacky
         FileUtils.remove_dir(dir, true) rescue nil
       end
 
+      # Bump a skill's directory mtime so user-installed skills sort by recent
+      # use (LRU) when assembling AVAILABLE SKILLS. Touches the directory, NOT
+      # SKILL.md — the WebUI creator center uses SKILL.md mtime to detect local
+      # edits, and we must not produce false positives there.
+      # default-source skills are skipped: they don't participate in LRU and
+      # often live in a read-only gem path.
+      def touch_skill_for_lru(skill)
+        return if skill.source == :default
+        FileUtils.touch(skill.directory.to_s)
+      rescue StandardError
+        nil
+      end
+
       # Execute a skill in a forked subagent
       # @param skill [Skill] The skill to execute
       # @param arguments [String] Arguments for the skill
       # @return [String] Summary of subagent execution
       def execute_skill_with_subagent(skill, arguments)
+        touch_skill_for_lru(skill)
         # For encrypted brand skills with supporting scripts: decrypt to a tmpdir.
         # Subagent path has a clear boundary (subagent.run returns), so we shred inline
         # rather than registering on the parent agent.

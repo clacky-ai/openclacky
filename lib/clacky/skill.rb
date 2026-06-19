@@ -26,7 +26,7 @@ module Clacky
       model
       forbidden_tools
       auto_summarize
-
+      always-show
     ].freeze
 
     attr_reader :directory, :frontmatter, :source_path
@@ -35,6 +35,7 @@ module Clacky
     attr_reader :allowed_tools, :context, :agent_type, :argument_hint, :hooks
     attr_reader :fork_agent, :model, :forbidden_tools, :auto_summarize
     attr_reader :brand_skill, :brand_config
+    attr_reader :always_show
 
     # Source location of this skill — set by SkillLoader after registration.
     # One of: :default, :global_claude, :global_clacky, :project_claude, :project_clacky, :brand
@@ -515,6 +516,7 @@ module Clacky
       @model           = @frontmatter["model"]
       @forbidden_tools = @frontmatter["forbidden_tools"]
       @auto_summarize  = @frontmatter["auto_summarize"]
+      @always_show     = @frontmatter["always-show"]
     end
 
     # Sanitize and auto-correct frontmatter fields instead of raising on bad data.

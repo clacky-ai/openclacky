@@ -116,10 +116,13 @@ step 2 "Running test suite"
 
 if [[ "$DRY_RUN" == true ]]; then
     echo -e "  ${YELLOW}[dry-run]${NC} bundle exec rspec"
+    echo -e "  ${YELLOW}[dry-run]${NC} bundle exec rspec spec/integration/web_search_smoke_spec.rb --tag smoke"
 else
     bundle exec rspec || die "Tests failed — aborting release"
+    bundle exec rspec spec/integration/web_search_smoke_spec.rb --tag smoke \
+        || die "Web search smoke tests failed — a provider parser may be broken on real network. Aborting release."
 fi
-success "All tests passed"
+success "All tests passed (including web search smoke)"
 
 # ════════════════════════════════════════════════════════════════════════
 # Step 3: Bump version

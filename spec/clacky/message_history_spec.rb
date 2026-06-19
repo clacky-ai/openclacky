@@ -214,15 +214,23 @@ RSpec.describe Clacky::MessageHistory do
   end
 
   # ─────────────────────────────────────────────
-  # for_task
+  # to_api task_chain filtering (Time Machine)
   # ─────────────────────────────────────────────
-  describe "#for_task" do
-    it "returns only messages with task_id <= given id" do
+  describe "#to_api with task_chain" do
+    it "keeps only messages whose task_id is in the chain plus untagged ones" do
+      history.append({ role: "system", content: "sys" })
       history.append(user_msg("t1", task_id: 1))
-      history.append(assistant_msg("t2", task_id: 2))
-      history.append(user_msg("t3", task_id: 3))
-      result = history.for_task(2)
-      expect(result.map { |m| m[:content] }).to eq(%w[t1 t2])
+      history.append(assistant_msg("a1", task_id: 1))
+      history.append(user_msg("t2", task_id: 2))
+      history.append(user_msg("t4", task_id: 4))
+      result = history.to_api(task_chain: Set[1, 4])
+      expect(result.map { |m| m[:content] }).to eq(%w[sys t1 a1 t4])
+    end
+
+    it "returns the full history when task_chain is nil" do
+      history.append(user_msg("t1", task_id: 1))
+      history.append(user_msg("t2", task_id: 2))
+      expect(history.to_api.map { |m| m[:content] }).to eq(%w[t1 t2])
     end
   end
 

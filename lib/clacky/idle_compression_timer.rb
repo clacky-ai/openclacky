@@ -17,7 +17,7 @@ module Clacky
     # Seconds of inactivity before idle compression is triggered.
     # Kept under the 5-minute prompt cache TTL so the compression call itself
     # still hits the existing prefix cache.
-    IDLE_DELAY = 314
+    IDLE_DELAY = 266
 
     # @param agent [Clacky::Agent] the agent whose messages will be compressed
     # @param session_manager [Clacky::SessionManager, nil] used to persist session after compression

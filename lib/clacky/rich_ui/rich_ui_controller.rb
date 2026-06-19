@@ -134,7 +134,9 @@ module Clacky
       @running = false
     end
 
-    def stop(clear_screen: false)
+    # Clears the screen on exit by default — the Rich UI repaints fullscreen
+    # and leaves no useful scrollback to preserve.
+    def stop(clear_screen: true)
       @running = false
       @shell.stop
       RubyRich::Terminal.clear if clear_screen

@@ -68,6 +68,18 @@ module Clacky
       def run_memory_update_subagent
         return unless should_update_memory?
 
+        with_memory_update_phase do
+          run_memory_update_subagent_inner
+        end
+      end
+
+      private def with_memory_update_phase
+        return yield unless @ui.respond_to?(:with_phase)
+
+        @ui.with_phase(kind: "memory_update", label: "Updating long-term memory") { yield }
+      end
+
+      private def run_memory_update_subagent_inner
         handle = @ui&.start_progress(message: "Updating long-term memory…", style: :primary)
 
         # Fork subagent inheriting main agent's model, tools, and history.

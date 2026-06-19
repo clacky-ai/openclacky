@@ -59,6 +59,15 @@ module Clacky
       ".jpeg" => "image/jpeg",
       ".gif"  => "image/gif",
       ".webp" => "image/webp",
+      ".mp4"  => "video/mp4",
+      ".webm" => "video/webm",
+      ".mov"  => "video/quicktime",
+      ".wav"  => "audio/wav",
+      ".mp3"  => "audio/mpeg",
+      ".ogg"  => "audio/ogg",
+      ".aac"  => "audio/aac",
+      ".flac" => "audio/flac",
+      ".m4a"  => "audio/mp4",
       ".pdf"  => "application/pdf"
     }.freeze
 
@@ -528,6 +537,9 @@ module Clacky
 
     # Image extensions that can be inlined as data URLs in markdown content.
     LOCAL_IMAGE_EXTENSIONS = %w[.png .jpg .jpeg .gif .webp].freeze
+    LOCAL_VIDEO_EXTENSIONS = %w[.mp4 .webm .mov].freeze
+    LOCAL_AUDIO_EXTENSIONS = %w[.wav .mp3 .ogg .aac .flac .m4a].freeze
+    LOCAL_MEDIA_EXTENSIONS = (LOCAL_IMAGE_EXTENSIONS + LOCAL_VIDEO_EXTENSIONS + LOCAL_AUDIO_EXTENSIONS).freeze
 
     # Replace local image paths in markdown content with base64 data URLs.
     #
@@ -582,22 +594,81 @@ module Clacky
     def self.rewrite_local_image_urls(content)
       return content if content.nil? || content.empty?
 
-      content.gsub(/!\[([^\]]*)\]\(((?:file:\/\/)?\/[^)]+)\)/) do |match|
+      # Rewrite markdown image syntax ![alt](file:///path) → proxy URL
+      content = content.gsub(/!\[([^\]]*)\]\(((?:file:\/\/)?\/[^)]+)\)/) do |_match|
         alt  = Regexp.last_match(1)
         href = Regexp.last_match(2)
 
-        # Extract the filesystem path from the href
         path = href.sub(%r{\Afile://}, "")
         path = CGI.unescape(path)
 
         ext = File.extname(path).downcase
-        if LOCAL_IMAGE_EXTENSIONS.include?(ext) && File.exist?(path)
+        if LOCAL_MEDIA_EXTENSIONS.include?(ext) && File.exist?(path)
           encoded = CGI.escape(href)
           "![#{alt}](/api/local-image?path=#{encoded})"
         else
-          match # return original match unchanged
+          _match
         end
       end
+
+      # Rewrite <video src="file:///path/vid.mp4" ...> → proxy URL
+      content = content.gsub(/<video\b([^>]*)\bsrc="((?:file:\/\/)?\/[^"]+)"([^>]*)>/) do |_match|
+        pre  = Regexp.last_match(1) || ""
+        href = Regexp.last_match(2)
+        post = Regexp.last_match(3) || ""
+
+        path = href.sub(%r{\Afile://}, "")
+        path = CGI.unescape(path)
+
+        ext = File.extname(path).downcase
+        if LOCAL_VIDEO_EXTENSIONS.include?(ext) && File.exist?(path)
+          encoded = CGI.escape(href)
+          "<video#{pre} src=\"/api/local-image?path=#{encoded}\"#{post}>"
+        else
+          _match
+        end
+      end
+
+      # Rewrite <audio src="file:///path/audio.wav" ...> → proxy URL
+      content = content.gsub(/<audio\b([^>]*)\bsrc="((?:file:\/\/)?\/[^"]+)"([^>]*)>/) do |_match|
+        pre  = Regexp.last_match(1) || ""
+        href = Regexp.last_match(2)
+        post = Regexp.last_match(3) || ""
+
+        path = href.sub(%r{\Afile://}, "")
+        path = CGI.unescape(path)
+
+        ext = File.extname(path).downcase
+        if LOCAL_AUDIO_EXTENSIONS.include?(ext) && File.exist?(path)
+          encoded = CGI.escape(href)
+          "<audio#{pre} src=\"/api/local-image?path=#{encoded}\"#{post}>"
+        else
+          _match
+        end
+      end
+
+      # Rewrite video/audio markdown links [text](file:///path) → proxy URL
+      content = content.gsub(/(?<!!)\[([^\]]*)\]\(((?:file:\/\/)?\/[^)]+)\)/) do |_match|
+        text = Regexp.last_match(1)
+        href = Regexp.last_match(2)
+
+        path = href.sub(%r{\Afile://}, "")
+        path = CGI.unescape(path)
+
+        ext = File.extname(path).downcase
+        if LOCAL_VIDEO_EXTENSIONS.include?(ext) || LOCAL_AUDIO_EXTENSIONS.include?(ext)
+          if File.exist?(path)
+            encoded = CGI.escape(href)
+            "[#{text}](/api/local-image?path=#{encoded})"
+          else
+            _match
+          end
+        else
+          _match
+        end
+      end
+
+      content
     end
   end
   end

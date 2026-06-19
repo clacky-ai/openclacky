@@ -8,6 +8,21 @@ module Clacky
     # All pricing is based on official API documentation
     PRICING_TABLE = {
       # Claude 4.5 models - tiered pricing based on prompt length
+      "claude-fable-5" => {
+        input: {
+          default: 10.00,              # $10/MTok for prompts ≤ 200K tokens
+          over_200k: 10.00             # same for all tiers
+        },
+        output: {
+          default: 50.00,             # $50/MTok for prompts ≤ 200K tokens
+          over_200k: 50.00            # same for all tiers
+        },
+        cache: {
+          write: 12.50,               # $12.50/MTok cache write (5-min tier)
+          read: 1.00                  # $1.00/MTok cache read
+        }
+      },
+
       "claude-opus-4.5" => {
         input: {
           default: 5.00,              # $5/MTok for prompts ≤ 200K tokens
@@ -145,6 +160,47 @@ module Clacky
         }
       },
 
+      # Xiaomi MiMo — USD per 1M tokens, international (海外) list price.
+      # Source: https://platform.xiaomimimo.com/docs/zh-CN/price/pay-as-you-go
+      # Effective 2026-05-27 (V2.5 launch price cut). Cache write is "limited-
+      # time free" per Xiaomi's notice; per the project's "displayed ≤ actual"
+      # convention we bill writes at the input-miss rate so that when the
+      # promo ends users won't see a cost spike. Cache hits use the explicit
+      # cache-hit rate.
+      #
+      # As of 2026-06-01, mimo-v2-pro/omni are forwarded to the V2.5 series
+      # and billed at V2.5 rates; mimo-v2-pro mirrors mimo-v2.5-pro and
+      # mimo-v2-omni mirrors mimo-v2.5. Both will be retired 2026-06-30.
+      "mimo-v2.5-pro" => {
+        input:  { default: 0.435,   over_200k: 0.435 },
+        output: { default: 0.87,    over_200k: 0.87 },
+        cache:  { write: 0.435,     read: 0.0036 }
+      },
+
+      "mimo-v2.5" => {
+        input:  { default: 0.14,    over_200k: 0.14 },
+        output: { default: 0.28,    over_200k: 0.28 },
+        cache:  { write: 0.14,      read: 0.0028 }
+      },
+
+      "mimo-v2-pro" => {
+        input:  { default: 0.435,   over_200k: 0.435 },
+        output: { default: 0.87,    over_200k: 0.87 },
+        cache:  { write: 0.435,     read: 0.0036 }
+      },
+
+      "mimo-v2-omni" => {
+        input:  { default: 0.14,    over_200k: 0.14 },
+        output: { default: 0.28,    over_200k: 0.28 },
+        cache:  { write: 0.14,      read: 0.0028 }
+      },
+
+      "mimo-v2-flash" => {
+        input:  { default: 0.10,    over_200k: 0.10 },
+        output: { default: 0.30,    over_200k: 0.30 },
+        cache:  { write: 0.10,      read: 0.01 }
+      },
+
       # Kimi K2.5 / K2.6 multimodal models
       # Source: https://platform.moonshot.cn (USD / 1M tokens)
       # Kimi billing model (same shape as DeepSeek):
@@ -178,6 +234,38 @@ module Clacky
         cache: {
           write: 0.95,                    # no separate write charge; bill at miss rate
           read: 0.16                      # $0.16/MTok cache hit
+        }
+      },
+
+      # Google Gemini 3 series (via Vertex AI). Tiered at 200K input tokens
+      # for Pro; Flash has flat pricing.
+      "gemini-3.1-pro" => {
+        input: {
+          default: 2.00,
+          over_200k: 4.00
+        },
+        output: {
+          default: 12.00,
+          over_200k: 18.00
+        },
+        cache: {
+          write: 2.00,
+          read: 0.50
+        }
+      },
+
+      "gemini-3-flash" => {
+        input: {
+          default: 0.50,
+          over_200k: 0.50
+        },
+        output: {
+          default: 3.00,
+          over_200k: 3.00
+        },
+        cache: {
+          write: 0.50,
+          read: 0.05
         }
       },
 
@@ -560,6 +648,8 @@ module Clacky
         # Support both dot and dash separators (e.g., "4.5", "4-5", "4-6")
         # Also handles Bedrock cross-region prefixes (e.g. "jp.anthropic.claude-sonnet-4-6")
         case model
+        when /claude.*fable.*5/i
+          "claude-fable-5"
         when /claude.*opus.*4[.-]?[5-9]/i
           "claude-opus-4.5"
         when /claude.*sonnet.*4[.-]?[5-9]/i
@@ -581,6 +671,22 @@ module Clacky
         # non-thinking / thinking modes respectively. Bill at flash rates.
         when /^deepseek-chat$/i, /^deepseek-reasoner$/i
           "deepseek-v4-flash"
+        # Xiaomi MiMo — strict anchored match per registered model id in
+        # providers.rb (currently mimo-v2.5-pro / mimo-v2-pro / mimo-v2-omni).
+        # mimo-v2.5 / mimo-v2-flash are also priced ahead of provider-side
+        # registration. Per Xiaomi's 2026-06 schedule, mimo-v2-pro/omni are
+        # transparently routed to V2.5 — keys are listed independently so
+        # both old and new ids resolve to the right rate.
+        when /^mimo-v2\.?5-pro$/i
+          "mimo-v2.5-pro"
+        when /^mimo-v2\.?5$/i
+          "mimo-v2.5"
+        when /^mimo-v2-pro$/i
+          "mimo-v2-pro"
+        when /^mimo-v2-omni$/i
+          "mimo-v2-omni"
+        when /^mimo-v2-flash$/i
+          "mimo-v2-flash"
         # Kimi K2.5 / K2.6 — strict match only. K2 text-only models
         # (kimi-k2-0905-preview, kimi-k2-thinking, etc.) are not yet
         # registered in providers.rb and will be added in a follow-up
@@ -635,6 +741,13 @@ module Clacky
           "qwen-plus-latest"
         when /^qwen3-vl-plus$/i
           "qwen3-vl-plus"
+
+        # Google Gemini 3 series. Match the platform aliases (or-gemini-*)
+        # and the bare upstream ids returned by Vertex.
+        when /^or-gemini-3-1-pro$/i, /^gemini-3\.1-pro(-preview)?$/i
+          "gemini-3.1-pro"
+        when /^or-gemini-3-5-flash$/i, /^gemini-3\.5-flash$/i, /^gemini-3-flash(-preview)?$/i
+          "gemini-3-flash"
 
         # OpenAI GPT-5.x models — match various dashed/dotted/compact forms
         # (e.g. "gpt-5.5", "gpt-5-5", "gpt5.5", "gpt55")

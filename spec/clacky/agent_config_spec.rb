@@ -502,10 +502,10 @@ RSpec.describe Clacky::AgentConfig do
 
       it "supports media types (image, video, audio) alongside chat types" do
         models = [
-          { "model" => "sonnet", "type" => "default" },
-          { "model" => "gpt-image-1", "type" => "image" },
-          { "model" => "fal-ai/kling-v2", "type" => "video" },
-          { "model" => "tts-1", "type" => "audio" }
+          { "model" => "sonnet", "base_url" => "https://api.anthropic.com/v1", "api_key" => "sk-x", "type" => "default" },
+          { "model" => "gpt-image-1",     "base_url" => "https://api.openai.com/v1", "api_key" => "sk-y", "type" => "image" },
+          { "model" => "fal-ai/kling-v2", "base_url" => "https://fal.run/v1",        "api_key" => "sk-z", "type" => "video" },
+          { "model" => "tts-1",           "base_url" => "https://api.openai.com/v1", "api_key" => "sk-y", "type" => "audio" }
         ]
         config = described_class.new(models: models)
 

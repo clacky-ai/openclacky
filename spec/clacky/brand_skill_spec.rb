@@ -589,7 +589,9 @@ RSpec.describe "Brand Skill system" do
         context_description:     "Explore the codebase.",
         model_invocation_allowed?: true,
         encrypted?:              false,
-        invalid?:                false
+        invalid?:                false,
+        source:                  :default,
+        directory:               "/tmp/code-explorer"
       )
     end
 
@@ -600,7 +602,9 @@ RSpec.describe "Brand Skill system" do
         context_description:     "Proprietary advisory skill.",
         model_invocation_allowed?: true,
         encrypted?:              true,
-        invalid?:                false
+        invalid?:                false,
+        source:                  :brand,
+        directory:               "/tmp/secret-advisor"
       )
     end
 
@@ -657,7 +661,9 @@ RSpec.describe "Brand Skill system" do
         context_description: "Description for #{id}",
         model_invocation_allowed?: true,
         encrypted?: false,
-        invalid?: false
+        invalid?: false,
+        source: :global_clacky,
+        directory: "/tmp/#{id}"
       )
     end
 

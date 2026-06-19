@@ -470,6 +470,7 @@ module Clacky
         return false unless File.exist?(json_path)
 
         sm.send(:_hard_delete_session_with_chunks, json_path)
+        _delete_snapshots(session[:session_id])
         true
       end
 
@@ -492,7 +493,9 @@ module Clacky
             next unless Time.parse(trash_time.to_s) < cutoff
           end
 
+          sid = session[:session_id]
           sm.send(:_hard_delete_session_with_chunks, filepath)
+          _delete_snapshots(sid)
           deleted += 1
         end
 
@@ -500,6 +503,17 @@ module Clacky
       end
 
       # ── private class helper ──────────────────────────────────────────
+
+      # Remove a session's Time Machine snapshots. Snapshots are pure
+      # undo-history caches keyed by full session_id, so they can be dropped
+      # whenever the session is permanently deleted.
+      def self._delete_snapshots(session_id)
+        return if session_id.to_s.empty?
+
+        dir = File.join(Dir.home, ".clacky", "snapshots", session_id.to_s)
+        FileUtils.rm_rf(dir) if Dir.exist?(dir)
+      end
+      private_class_method :_delete_snapshots
 
       def self._trash_sessions(sm)
         trash_dir = Clacky::TrashDirectory.sessions_trash_dir

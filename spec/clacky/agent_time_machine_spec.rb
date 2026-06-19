@@ -21,9 +21,9 @@ RSpec.describe "Clacky::Agent TimeMachine" do
   let(:working_dir) { Dir.mktmpdir("clacky_time_machine_test") }
   let(:agent) { Clacky::Agent.new(client, config, working_dir: working_dir, ui: nil, profile: "coding", session_id: Clacky::SessionManager.generate_id, source: :manual) }
 
-  # Helper to get snapshot directory for a task
+  # Helper to get the BEFORE snapshot directory for a task
   def snapshot_dir(task_id)
-    File.join(Dir.home, ".clacky", "snapshots", agent.session_id, "task-#{task_id}")
+    File.join(Dir.home, ".clacky", "snapshots", agent.session_id, "task-#{task_id}", "before")
   end
 
   # Helper to create a file with content
@@ -81,105 +81,108 @@ RSpec.describe "Clacky::Agent TimeMachine" do
     end
   end
 
-  describe "#save_modified_files_snapshot" do
-    it "saves file snapshots after modification" do
-      # Create initial file
+  describe "#record_file_before_change" do
+    it "captures the BEFORE content the first time a task touches a file" do
       create_file("test.txt", "initial content")
-      
-      # Start task and modify file
+
       agent.start_new_task
+      agent.record_file_before_change(File.join(working_dir, "test.txt"))
       File.write(File.join(working_dir, "test.txt"), "modified content")
-      
-      # Save snapshot
-      agent.save_modified_files_snapshot([File.join(working_dir, "test.txt")])
-      
-      # Check snapshot exists
+
       snapshot_path = File.join(snapshot_dir(1), "test.txt")
-      expect(File.exist?(snapshot_path)).to be true
-      expect(File.read(snapshot_path)).to eq("modified content")
+      expect(File.read(snapshot_path)).to eq("initial content")
+    end
+
+    it "keeps the earliest capture when called twice in one task" do
+      create_file("test.txt", "v0")
+
+      agent.start_new_task
+      agent.record_file_before_change(File.join(working_dir, "test.txt"))
+      File.write(File.join(working_dir, "test.txt"), "v1")
+      agent.record_file_before_change(File.join(working_dir, "test.txt"))
+
+      expect(File.read(File.join(snapshot_dir(1), "test.txt"))).to eq("v0")
+    end
+
+    it "writes an absent marker when the file does not yet exist" do
+      agent.start_new_task
+      agent.record_file_before_change(File.join(working_dir, "new.txt"))
+
+      marker = File.join(snapshot_dir(1), "new.txt.#{Clacky::Agent::TimeMachine::ABSENT_MARKER}")
+      expect(File.exist?(marker)).to be true
     end
 
     it "handles nested directory paths" do
-      # Create nested file
       create_file("dir/subdir/nested.txt", "nested content")
-      
-      agent.start_new_task
-      File.write(File.join(working_dir, "dir/subdir/nested.txt"), "updated nested")
-      
-      # Save snapshot
-      agent.save_modified_files_snapshot([File.join(working_dir, "dir/subdir/nested.txt")])
-      
-      # Check snapshot preserves directory structure
-      snapshot_path = File.join(snapshot_dir(1), "dir", "subdir", "nested.txt")
-      expect(File.exist?(snapshot_path)).to be true
-      expect(File.read(snapshot_path)).to eq("updated nested")
-    end
 
-    it "handles multiple files" do
-      create_file("file1.txt", "content1")
-      create_file("file2.txt", "content2")
-      
       agent.start_new_task
-      File.write(File.join(working_dir, "file1.txt"), "new1")
-      File.write(File.join(working_dir, "file2.txt"), "new2")
-      
-      agent.save_modified_files_snapshot([
-        File.join(working_dir, "file1.txt"),
-        File.join(working_dir, "file2.txt")
-      ])
-      
-      expect(File.read(File.join(snapshot_dir(1), "file1.txt"))).to eq("new1")
-      expect(File.read(File.join(snapshot_dir(1), "file2.txt"))).to eq("new2")
+      agent.record_file_before_change(File.join(working_dir, "dir/subdir/nested.txt"))
+
+      snapshot_path = File.join(snapshot_dir(1), "dir", "subdir", "nested.txt")
+      expect(File.read(snapshot_path)).to eq("nested content")
     end
+  end
+
+  # Helper: simulate a task writing a file (record BEFORE, then write).
+  def task_write(path, content)
+    agent.record_file_before_change(File.join(working_dir, path))
+    full = File.join(working_dir, path)
+    FileUtils.mkdir_p(File.dirname(full))
+    File.write(full, content)
   end
 
   describe "#restore_to_task_state" do
     before do
-      # Create initial state
+      # Initial state: file.txt = v0
       create_file("file.txt", "v0")
-      
-      # Task 1: Modify to v1
-      agent.start_new_task
-      File.write(File.join(working_dir, "file.txt"), "v1")
-      agent.save_modified_files_snapshot([File.join(working_dir, "file.txt")])
-      
-      # Task 2: Modify to v2
-      agent.start_new_task
-      File.write(File.join(working_dir, "file.txt"), "v2")
-      agent.save_modified_files_snapshot([File.join(working_dir, "file.txt")])
-      
-      # Task 3: Modify to v3
-      agent.start_new_task
-      File.write(File.join(working_dir, "file.txt"), "v3")
-      agent.save_modified_files_snapshot([File.join(working_dir, "file.txt")])
+
+      agent.start_new_task   # Task 1: v0 -> v1
+      task_write("file.txt", "v1")
+
+      agent.start_new_task   # Task 2: v1 -> v2
+      task_write("file.txt", "v2")
+
+      agent.start_new_task   # Task 3: v2 -> v3
+      task_write("file.txt", "v3")
     end
 
-    it "restores files to target task state" do
-      # Current state is v3 at task 3
+    it "restores to the state at the end of the target task" do
       expect(read_file("file.txt")).to eq("v3")
-      
-      # Restore to task 1
-      agent.restore_to_task_state(1)
+
+      agent.restore_to_task_state(1) # end of task 1 == v1
       expect(read_file("file.txt")).to eq("v1")
     end
 
-    it "restores through multiple tasks" do
-      # Restore from task 3 to task 1
+    it "restores to the original state (end of task 0)" do
+      agent.restore_to_task_state(0)
+      expect(read_file("file.txt")).to eq("v0")
+    end
+
+    it "restores forward and backward consistently" do
       agent.restore_to_task_state(1)
       expect(read_file("file.txt")).to eq("v1")
-      
-      # Forward to task 2
+
       agent.restore_to_task_state(2)
       expect(read_file("file.txt")).to eq("v2")
     end
 
-    it "handles missing snapshots for some tasks" do
-      # Create task 4 without modifying file.txt
-      agent.start_new_task
-      # No snapshot saved
-      
-      # Restore to task 4 should succeed (keeps current state)
-      expect { agent.restore_to_task_state(4) }.not_to raise_error
+    it "deletes files created after the target task" do
+      agent.start_new_task   # Task 4: create brand new file
+      task_write("created.txt", "brand new")
+      expect(read_file("created.txt")).to eq("brand new")
+
+      agent.restore_to_task_state(3) # before task 4
+      expect(read_file("created.txt")).to be_nil
+    end
+
+    it "restores files deleted after the target task" do
+      agent.start_new_task   # Task 4: delete file.txt
+      agent.record_file_before_change(File.join(working_dir, "file.txt"))
+      File.delete(File.join(working_dir, "file.txt"))
+      expect(read_file("file.txt")).to be_nil
+
+      agent.restore_to_task_state(3) # before task 4, file existed as v3
+      expect(read_file("file.txt")).to eq("v3")
     end
   end
 
@@ -187,26 +190,33 @@ RSpec.describe "Clacky::Agent TimeMachine" do
     before do
       create_file("file.txt", "v0")
       agent.start_new_task  # Task 1
-      File.write(File.join(working_dir, "file.txt"), "v1")
-      agent.save_modified_files_snapshot([File.join(working_dir, "file.txt")])
-      
+      task_write("file.txt", "v1")
+
       agent.start_new_task  # Task 2
-      File.write(File.join(working_dir, "file.txt"), "v2")
-      agent.save_modified_files_snapshot([File.join(working_dir, "file.txt")])
+      task_write("file.txt", "v2")
     end
 
     it "undoes to parent task" do
       result = agent.undo_last_task
-      
+
       expect(result[:success]).to be true
       expect(agent.instance_variable_get(:@active_task_id)).to eq(1)
       expect(read_file("file.txt")).to eq("v1")
     end
 
+    it "undoes the first task back to the original state" do
+      agent.undo_last_task           # -> task 1 (v1)
+      result = agent.undo_last_task  # -> task 0 (v0)
+
+      expect(result[:success]).to be true
+      expect(agent.instance_variable_get(:@active_task_id)).to eq(0)
+      expect(read_file("file.txt")).to eq("v0")
+    end
+
     it "cannot undo from root task" do
-      agent.switch_to_task(1)
+      agent.instance_variable_set(:@active_task_id, 0)
       result = agent.undo_last_task
-      
+
       expect(result[:success]).to be false
       expect(result[:message]).to include("Already at root task")
     end
@@ -215,18 +225,15 @@ RSpec.describe "Clacky::Agent TimeMachine" do
   describe "#switch_to_task" do
     before do
       create_file("file.txt", "v0")
-      
+
       agent.start_new_task  # Task 1
-      File.write(File.join(working_dir, "file.txt"), "v1")
-      agent.save_modified_files_snapshot([File.join(working_dir, "file.txt")])
-      
+      task_write("file.txt", "v1")
+
       agent.start_new_task  # Task 2
-      File.write(File.join(working_dir, "file.txt"), "v2")
-      agent.save_modified_files_snapshot([File.join(working_dir, "file.txt")])
-      
+      task_write("file.txt", "v2")
+
       agent.start_new_task  # Task 3
-      File.write(File.join(working_dir, "file.txt"), "v3")
-      agent.save_modified_files_snapshot([File.join(working_dir, "file.txt")])
+      task_write("file.txt", "v3")
     end
 
     it "switches to target task" do
@@ -303,7 +310,7 @@ RSpec.describe "Clacky::Agent TimeMachine" do
       expect(history[2][:status]).to eq(:current)
     end
 
-    it "marks future tasks correctly after undo" do
+    it "marks undone (off-chain) tasks correctly after undo" do
       agent.switch_to_task(1)
       history = agent.get_task_history(limit: 10)
       
@@ -311,7 +318,7 @@ RSpec.describe "Clacky::Agent TimeMachine" do
       task_2 = history.find { |t| t[:task_id] == 2 }
       
       expect(task_1[:status]).to eq(:current)
-      expect(task_2[:status]).to eq(:future)
+      expect(task_2[:status]).to eq(:undone)
     end
 
     it "detects branches" do
@@ -347,6 +354,7 @@ RSpec.describe "Clacky::Agent TimeMachine" do
       
       agent.instance_variable_set(:@current_task_id, 3)
       agent.instance_variable_set(:@active_task_id, 3)
+      agent.instance_variable_set(:@task_parents, { 1 => 0, 2 => 1, 3 => 2 })
     end
 
     it "returns all messages when at current task" do
@@ -375,6 +383,19 @@ RSpec.describe "Clacky::Agent TimeMachine" do
       messages = agent.active_messages
       expect(messages.first[:role]).to eq("system")
       expect(messages.length).to eq(3)  # system + 2 messages from task 1
+    end
+
+    it "excludes undone sibling-branch turns after a new message forks off the undone point" do
+      # User undid to task 1, then sent a new message forking task 4 off task 1.
+      # Tasks 2 and 3 are now an abandoned sibling branch and must NOT be sent.
+      agent.history.append({ role: "user", content: "Task 4", task_id: 4 })
+      agent.history.append({ role: "assistant", content: "Response 4", task_id: 4 })
+      agent.instance_variable_set(:@task_parents, { 1 => 0, 2 => 1, 3 => 2, 4 => 1 })
+      agent.instance_variable_set(:@current_task_id, 4)
+      agent.instance_variable_set(:@active_task_id, 4)
+
+      contents = agent.active_messages.map { |m| m[:content] }
+      expect(contents).to eq(["Task 1", "Response 1", "Task 4", "Response 4"])
     end
   end
 
@@ -407,10 +428,8 @@ RSpec.describe "Clacky::Agent TimeMachine" do
   end
 
   describe "file tracking" do
-    it "tracks modified files during task execution" do
-      # This would be tested in integration with actual tool execution
-      # For now, we just verify the tracking mechanism exists
-      expect(agent).to respond_to(:track_modified_files)
+    it "exposes the BEFORE-change recording mechanism" do
+      expect(agent).to respond_to(:record_file_before_change)
     end
   end
 

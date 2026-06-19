@@ -72,7 +72,7 @@ module Clacky
     def to_h
       tool_calls = @tool_calls.keys.sort.map do |idx|
         tc = @tool_calls[idx]
-        {
+        out = {
           "id"       => tc[:id],
           "type"     => tc[:type] || "function",
           "function" => {
@@ -80,6 +80,8 @@ module Clacky
             "arguments" => tc[:arguments].to_s
           }
         }
+        out["extra_content"] = tc[:extra_content] if tc[:extra_content]
+        out
       end
 
       message = {
@@ -104,6 +106,7 @@ module Clacky
         slot[:name] ||= fn["name"] if fn["name"]
         slot[:arguments] << fn["arguments"].to_s if fn["arguments"]
       end
+      slot[:extra_content] = tc["extra_content"] if tc["extra_content"]
     end
 
     private def parse_or_nil(s)

@@ -66,6 +66,16 @@ function Write-Warn    { param($msg) Write-Host "  [!] $msg" -ForegroundColor Ye
 function Write-Fail    { param($msg) Write-Host "  [x] $msg" -ForegroundColor Red }
 function Write-Step    { param($msg) Write-Host "`n==> $msg" -ForegroundColor Blue }
 
+# Exit codes (consumed by GUI installer to map to localized error messages).
+$EXIT_OK               = 0
+$EXIT_GENERIC_ERROR    = 1
+$EXIT_NETWORK_ERROR    = 2
+$EXIT_DISK_ERROR       = 3
+$EXIT_UNSUPPORTED_OS   = 4
+$EXIT_NOT_ADMIN        = 5
+$EXIT_REBOOT_REQUIRED  = 6
+$EXIT_WSL_ERROR        = 7
+
 function Test-IsAdmin {
     return ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(
         [Security.Principal.WindowsBuiltInRole]::Administrator)
@@ -194,7 +204,7 @@ function Prompt-Reboot {
     Write-Host "  $INSTALL_PS1_COMMAND" -ForegroundColor Yellow
     Write-Host ""
     Read-Host "Press Enter to exit"
-    exit 0
+    exit $EXIT_REBOOT_REQUIRED
 }
 
 # Download Ubuntu rootfs and verify checksum. Returns local tar path.
@@ -221,7 +231,7 @@ function Get-UbuntuRootfs {
         Write-Fail "Not enough disk space on $drive."
         Write-Fail "  Available : $([math]::Round($freeBytes / 1GB, 1)) GB"
         Write-Fail "  Required  : ~4 GB"
-        exit 3
+        exit $EXIT_DISK_ERROR
     }
 
     # Check if a valid cached tarball exists (skip download if checksum passes)
@@ -242,14 +252,14 @@ function Get-UbuntuRootfs {
             Write-Step "Downloading Ubuntu rootfs (~350 MB)..."
             if (-not (Invoke-Download -Url $wslUrl -OutFile $tarPath)) {
                 Write-Fail "Failed to download Ubuntu rootfs. Check your network and try again."
-                exit 1
+                exit $EXIT_NETWORK_ERROR
             }
             Write-Success "Download complete."
 
             Write-Step "Verifying checksum..."
             if (-not (Test-Sha256 -FilePath $tarPath -Sha256Url $sha256Url)) {
                 Write-Fail "The downloaded file is corrupted. Please try again."
-                exit 1
+                exit $EXIT_NETWORK_ERROR
             }
         }
 
@@ -278,7 +288,7 @@ function Install-UbuntuRootfs {
         Write-Fail "wsl --import failed (exit $LASTEXITCODE)."
         if ($wslOutput) { Write-Fail "$wslOutput" }
         Write-Fail "Try removing $UBUNTU_WSL_DIR and running the script again."
-        exit 1
+        exit $EXIT_WSL_ERROR
     }
     Write-Success "Ubuntu (WSL$WslVersion) imported successfully."
 }
@@ -289,7 +299,7 @@ function Test-WslNetwork {
     if ($LASTEXITCODE -ne 0) {
         Write-Fail "WSL cannot reach $CLACKY_CDN_PRIMARY_HOST (curl exit $LASTEXITCODE)."
         Write-Fail "Please fix the network inside WSL and re-run this installer."
-        exit 2
+        exit $EXIT_NETWORK_ERROR
     }
     Write-Success "WSL network OK."
 }
@@ -304,7 +314,7 @@ function Run-InstallInWsl {
         $localScript = Join-Path $scriptDir "install.sh"
         if (-not (Test-Path $localScript)) {
             Write-Fail "Local mode: install.sh not found at $localScript"
-            exit 1
+            exit $EXIT_GENERIC_ERROR
         }
         $wslPath = ($localScript -replace '\', '/') -replace '^([A-Za-z]):', { '/mnt/' + $args[0].Groups[1].Value.ToLower() }
         Write-Info "Local mode: using $wslPath"
@@ -315,13 +325,13 @@ function Run-InstallInWsl {
     }
 
     if ($LASTEXITCODE -eq 2) {
-        exit 2
+        exit $EXIT_NETWORK_ERROR
     }
     if ($LASTEXITCODE -ne 0) {
         Write-Fail "Installation failed inside WSL (exit $LASTEXITCODE)."
         Write-Fail "You can retry manually:"
         Write-Host "  wsl -d Ubuntu -u root -- bash -c `"curl -fsSL $INSTALL_SCRIPT_URL | bash`"" -ForegroundColor Yellow
-        exit 1
+        exit $EXIT_GENERIC_ERROR
     }
 }
 
@@ -418,7 +428,8 @@ function Test-VirtualisationSupported {
         New-Item -ItemType Directory -Force -Path $probeDir | Out-Null
 
         Write-Info "[probe] Running: wsl --import $probeName $probeDir $TarPath --version 2"
-        wsl.exe --import $probeName $probeDir $TarPath --version 2 >$null 2>$null
+        $probeOutput = wsl.exe --import $probeName $probeDir $TarPath --version 2 2>&1
+        if ($probeOutput) { Write-Info "WSL2 probe: $probeOutput" }
         $importExit = $LASTEXITCODE
         Write-Info "[probe] wsl --import exit code: $importExit"
         $ok = ($importExit -eq 0)
@@ -442,6 +453,8 @@ function Test-VirtualisationSupported {
 
 # Download and install the WSL2 kernel MSI from our CDN.
 function Install-WslKernel {
+    param([switch]$Repair)
+
     $cpuArch = Get-CpuArch
 
     # Select the correct MSI for this CPU architecture.
@@ -456,7 +469,14 @@ function Install-WslKernel {
     Write-Step "Downloading WSL kernel update ($cpuArch)..."
     if (-not (Invoke-Download -Url $url -OutFile $msiPath)) {
         Write-Fail "Failed to download WSL kernel update. Check your network and try again."
-        exit 1
+        exit $EXIT_NETWORK_ERROR
+    }
+    if ($Repair) {
+        # /fa = force repair all files; handles corrupt/partial installs where /i silently no-ops.
+        Start-Process msiexec -Wait -ArgumentList "/fa", $msiPath, "/quiet", "/norestart"
+        Remove-Item -Force -ErrorAction SilentlyContinue $msiPath
+        Write-Success "WSL kernel repair attempted."
+        return
     }
     Write-Info "Installing WSL kernel..."
     Start-Process msiexec -Wait -ArgumentList "/i", $msiPath, "/quiet", "/norestart"
@@ -488,7 +508,7 @@ if (-not (Test-IsAdmin)) {
     Write-Host ""
     Write-Host "  Right-click PowerShell -> 'Run as administrator', then:" -ForegroundColor Yellow
     Write-Host "  $INSTALL_PS1_COMMAND" -ForegroundColor Yellow
-    exit 1
+    exit $EXIT_NOT_ADMIN
 }
 
 # Check minimum Windows version: WSL1 requires Build 16215 (Win10 1709).
@@ -497,7 +517,7 @@ if ($osBuild -lt 16215) {
     Write-Fail "Unsupported Windows version (Build $osBuild)."
     Write-Fail "WSL requires Windows 10 Build 16215 (version 1709) or later."
     Write-Fail "Please update Windows and try again."
-    exit 1
+    exit $EXIT_UNSUPPORTED_OS
 }
 Write-Info "Windows Build $osBuild — OK."
 
@@ -505,10 +525,12 @@ Write-Info "Windows Build $osBuild — OK."
 Write-Step "Checking WSL status..."
 $wslCode = Invoke-WslStatusExitCode
 Write-Info "WSL --status exit code: $wslCode"
-$installPhase       = Get-InstallReg -Name "InstallPhase"       -Default ""
-$wslFeaturesEnabled = Get-InstallReg -Name "WslFeaturesEnabled" -Default ""
+$installPhase       = Get-InstallReg -Name "InstallPhase"         -Default ""
+$wslFeaturesEnabled = Get-InstallReg -Name "WslFeaturesEnabled"   -Default ""
+$kernelRepairAttempted = Get-InstallReg -Name "KernelRepairAttempted" -Default ""
 Write-Info "InstallPhase: '$installPhase'"
 Write-Info "WslFeaturesEnabled: '$wslFeaturesEnabled'"
+Write-Info "KernelRepairAttempted: '$kernelRepairAttempted'"
 
 if ($installPhase -eq "" -and $wslCode -ne 0) {
     # First run and WSL not ready: enable WSL features and reboot.
@@ -516,12 +538,17 @@ if ($installPhase -eq "" -and $wslCode -ne 0) {
     # Always exits (prompts reboot)
 }
 
-# phase == wsl-pending + code 1: reboot happened but WSL still not ready.
+# phase == wsl-pending + code 1: reboot happened but WSL still not ready; try kernel repair once.
 if ($installPhase -eq "wsl-pending" -and $wslCode -eq 1) {
-    Write-Warn "WSL features were enabled but WSL is still not ready."
-    Write-Warn "Please reboot your computer and run the installer again."
-    Write-Warn "If this keeps happening, please contact our support team."
-    exit 1
+    if ($kernelRepairAttempted -ne "1") {
+        Write-Warn "WSL features were enabled but WSL is still not ready. Attempting kernel repair..."
+        Set-InstallReg -Name "KernelRepairAttempted" -Value "1"
+        Install-WslKernel -Repair
+        Prompt-Reboot
+    } else {
+        Write-Warn "WSL kernel repair was already attempted but WSL is still not ready."
+        exit $EXIT_WSL_ERROR
+    }
 }
 
 # wslCode != 1 (0, -1, -444, 50, etc.): WSL is functional, continue.
@@ -568,7 +595,7 @@ if (Test-UbuntuInstalled) {
             }
             Write-Fail "Failed to import Ubuntu into both WSL1 and WSL2."
             Write-Fail "Please ensure Windows Subsystem for Linux is enabled and try again."
-            exit 1
+            exit $EXIT_WSL_ERROR
         }
     }
 }

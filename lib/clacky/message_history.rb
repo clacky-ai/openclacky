@@ -150,11 +150,6 @@ module Clacky
       @messages.find { |m| m[:subagent_instructions] }
     end
 
-    # Return all messages where task_id <= given id (Time Machine support).
-    def for_task(task_id)
-      @messages.select { |m| !m[:task_id] || m[:task_id] <= task_id }
-    end
-
     # ─────────────────────────────────────────────
     # Size helpers
     # ─────────────────────────────────────────────
@@ -191,8 +186,18 @@ module Clacky
     #   can't fire when the previous turns came from a provider that keeps
     #   thinking inline (e.g. MiniMax: <think>...</think> in content), so
     #   this bypass lets us recover on the retry without a server restart.
-    def to_api(force_reasoning_content_pad: false)
-      msgs = @messages.map { |m| strip_for_api(m) }
+    # Convert to API-ready messages. When `task_chain` is given (a Set of
+    # task IDs forming the active task's ancestor chain), messages tagged with
+    # a task_id outside that chain are dropped first — this is the Time Machine
+    # path, ensuring undone/sibling-branch turns never reach the LLM. Messages
+    # without a task_id (system / injected context) are always kept.
+    def to_api(force_reasoning_content_pad: false, task_chain: nil)
+      source = if task_chain
+        @messages.select { |m| !m[:task_id] || task_chain.include?(m[:task_id]) }
+      else
+        @messages
+      end
+      msgs = source.map { |m| strip_for_api(m) }
       msgs = repair_tool_call_pairing(msgs)
       ensure_reasoning_content_consistency(msgs, force: force_reasoning_content_pad)
     end

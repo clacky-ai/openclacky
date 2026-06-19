@@ -15,6 +15,7 @@ module Clacky
         SYSTEM_COMMANDS = [
           { command: "/clear", description: "Clear chat history and restart session" },
           { command: "/config", description: "Open configuration (models, API keys, settings)" },
+          { command: "/model", description: "Quickly switch the current model" },
           { command: "/undo", description: "Undo the last task and restore previous state" },
           { command: "/help", description: "Show help information" },
           { command: "/exit", description: "Exit the chat session" },

@@ -164,7 +164,8 @@ module Clacky
                   :models, :current_model_index, :current_model_id,
                   :memory_update_enabled, :skill_evolution,
                   :max_running_agents, :max_idle_agents,
-                  :default_working_dir
+                  :default_working_dir,
+                  :proxy_url
 
     def initialize(options = {})
       @permission_mode = validate_permission_mode(options[:permission_mode])
@@ -216,6 +217,11 @@ module Clacky
       @max_idle_agents = options[:max_idle_agents] || 10
 
       @default_working_dir = options[:default_working_dir] || ENV["CLACKY_WORKSPACE_DIR"]
+
+      # HTTP proxy policy. The user's shell ENV (HTTP_PROXY etc.) is always
+      # ignored — set proxy_url here to route Clacky's outbound HTTP through
+      # a proxy. Leave nil to go direct.
+      @proxy_url = options[:proxy_url]
 
       # Per-session virtual model overlay.
       # When set, #current_model returns a *merged* hash (the resolved @models
@@ -390,6 +396,7 @@ module Clacky
       FileUtils.mkdir_p(config_dir)
       File.write(config_file, to_yaml)
       FileUtils.chmod(0o600, config_file)
+      Clacky::ProxyConfig.reset_cache! if defined?(Clacky::ProxyConfig)
     end
 
     # Convert to YAML format (top-level array)
@@ -407,6 +414,7 @@ module Clacky
       memory_update_enabled
       skill_evolution max_running_agents max_idle_agents
       default_working_dir
+      proxy_url
     ].freeze
 
     # Serialize the current agent configuration to YAML.
@@ -425,7 +433,8 @@ module Clacky
         "skill_evolution" => @skill_evolution,
         "max_running_agents" => @max_running_agents,
         "max_idle_agents" => @max_idle_agents,
-        "default_working_dir" => @default_working_dir
+        "default_working_dir" => @default_working_dir,
+        "proxy_url" => @proxy_url
       }
       YAML.dump("settings" => settings, "models" => persistable_models)
     end
@@ -606,39 +615,63 @@ module Clacky
       }.compact
     end
 
-    # Find model by type (default or lite or media kind)
+    # Find model by type (default or lite or media kind or ocr sidecar)
     # Returns the model hash or nil if not found.
     # For media kinds (image/video/audio): explicit user-configured (custom)
     # entries win; otherwise an auto-derived virtual entry is returned
     # based on the default model's provider — mirroring how lite is
     # virtually derived via #lite_model_config_for_current.
+    # For "ocr": same custom→auto→nil pattern. Auto path first checks
+    # whether the default model itself supports vision (zero-overhead path,
+    # no sidecar needed); if not, derives from the provider's
+    # default_ocr_model.
     def find_model_by_type(type)
       kind = type.to_s
       if Clacky::Providers::MEDIA_KINDS.include?(kind)
-        custom = @models.find { |m| m["type"] == kind }
-        return custom if custom
-        return derive_media_model(kind)
+        entry = @models.find { |m| m["type"] == kind }
+        return nil if entry && entry["disabled"]
+        if entry && entry["base_url"].to_s.strip != "" && entry["api_key"].to_s.strip != ""
+          return entry
+        end
+        return derive_media_model(kind, model_override: entry && entry["model"])
+      end
+      if kind == "ocr"
+        entry = @models.find { |m| m["type"] == "ocr" }
+        return nil if entry && entry["disabled"]
+        if entry && entry["base_url"].to_s.strip != "" && entry["api_key"].to_s.strip != ""
+          return entry
+        end
+        return derive_ocr_model(model_override: entry && entry["model"])
       end
       @models.find { |m| m["type"] == type }
     end
 
-    private def derive_media_model(kind)
-      default = find_model_by_type("default")
-      return nil unless default
+    private def derive_media_model(kind, model_override: nil)
+      anchor = current_model || find_model_by_type("default")
+      return nil unless anchor
 
       provider_id = Clacky::Providers.resolve_provider(
-        base_url: default["base_url"],
-        api_key:  default["api_key"]
+        base_url: anchor["base_url"],
+        api_key:  anchor["api_key"]
       )
       return nil unless provider_id
 
-      model_name = Clacky::Providers.default_media_model(provider_id, kind)
+      if model_override && !model_override.to_s.strip.empty?
+        available = Clacky::Providers.media_models(provider_id, kind)
+        if available.include?(model_override)
+          model_name = model_override
+        else
+          model_name = Clacky::Providers.default_media_model(provider_id, kind)
+        end
+      else
+        model_name = Clacky::Providers.default_media_model(provider_id, kind)
+      end
       return nil if model_name.nil? || model_name.to_s.empty?
 
       {
         "model"         => model_name,
-        "base_url"      => default["base_url"],
-        "api_key"       => default["api_key"],
+        "base_url"      => anchor["base_url"],
+        "api_key"       => anchor["api_key"],
         "type"          => kind,
         "auto_injected" => true
       }
@@ -648,6 +681,54 @@ module Clacky
     # now derived virtually on read; nothing is materialized into @models.
     def derive_media_models!
       @models.reject! { |m| m["auto_injected"] && Clacky::Providers::MEDIA_KINDS.include?(m["type"].to_s) }
+    end
+
+    # Derive an OCR sidecar model entry from the default model's provider.
+    # Resolution order:
+    #   1. If the default model itself supports vision → return the default
+    #      directly (zero-overhead path; no separate sidecar call needed).
+    #   2. Otherwise look up the provider's default_ocr_model (or honour
+    #      model_override if it's a vision-capable model on that provider).
+    #   3. nil when the provider has no vision-capable lineup at all
+    #      (e.g. DeepSeek V4) — caller falls back to today's "no vision" UX.
+    private def derive_ocr_model(model_override: nil)
+      # Anchor on the model the session is *actually* running on, not the
+      # yml `type: default` marker — those diverge whenever the user
+      # switches model mid-session (e.g. opus → deepseek).
+      anchor = current_model || find_model_by_type("default")
+      return nil unless anchor
+
+      provider_id = Clacky::Providers.resolve_provider(
+        base_url: anchor["base_url"], api_key: anchor["api_key"]
+      )
+      return nil unless provider_id
+
+      if Clacky::Providers.supports?(provider_id, :vision, model_name: anchor["model"])
+        return {
+          "model"         => anchor["model"],
+          "base_url"      => anchor["base_url"],
+          "api_key"       => anchor["api_key"],
+          "type"          => "ocr",
+          "auto_injected" => true,
+          "primary"       => true
+        }
+      end
+
+      candidates = Clacky::Providers.ocr_models(provider_id)
+      model_name = if model_override && candidates.include?(model_override)
+                     model_override
+                   else
+                     Clacky::Providers.default_ocr_model(provider_id)
+                   end
+      return nil if model_name.nil? || model_name.to_s.empty?
+
+      {
+        "model"         => model_name,
+        "base_url"      => anchor["base_url"],
+        "api_key"       => anchor["api_key"],
+        "type"          => "ocr",
+        "auto_injected" => true
+      }
     end
 
     # Returns the configured/derived media model entry for `kind`, plus a
@@ -662,34 +743,141 @@ module Clacky
     #   "available"  [Array<String>]      — auto-source candidates from preset
     def media_state(kind)
       kind = kind.to_s
-      custom = @models.find { |m| m["type"] == kind }
-      auto   = custom ? nil : derive_media_model(kind)
-      entry  = custom || auto
+      raw_entry = @models.find { |m| m["type"] == kind }
+
+      if raw_entry && raw_entry["disabled"]
+        default = find_model_by_type("default")
+        default_provider = default && Clacky::Providers.resolve_provider(
+          base_url: default["base_url"], api_key: default["api_key"]
+        )
+        available = default_provider ? Clacky::Providers.media_models(default_provider, kind) : []
+        aliases  = default_provider ? Clacky::Providers.media_model_aliases(default_provider, kind) : {}
+        return {
+          "configured" => false,
+          "source"     => "off",
+          "model"      => nil,
+          "base_url"   => nil,
+          "provider"   => nil,
+          "available"  => available,
+          "aliases"    => aliases,
+          "stale"      => false
+        }
+      end
+
+      is_custom = raw_entry &&
+                  raw_entry["base_url"].to_s.strip != "" &&
+                  raw_entry["api_key"].to_s.strip != ""
+      override_model = raw_entry && !is_custom ? raw_entry["model"] : nil
+
+      entry = if is_custom
+                raw_entry
+              else
+                derive_media_model(kind, model_override: override_model)
+              end
 
       provider_id = if entry
                       Clacky::Providers.resolve_provider(
-                        base_url: entry["base_url"],
-                        api_key:  entry["api_key"]
+                        base_url: entry["base_url"], api_key: entry["api_key"]
                       )
                     end
 
-      available_provider_id = if custom
+      available_provider_id = if is_custom
                                 provider_id
                               else
                                 default = find_model_by_type("default")
                                 default && Clacky::Providers.resolve_provider(
-                                  base_url: default["base_url"],
-                                  api_key:  default["api_key"]
+                                  base_url: default["base_url"], api_key: default["api_key"]
                                 )
                               end
       available = available_provider_id ? Clacky::Providers.media_models(available_provider_id, kind) : []
+      aliases   = available_provider_id ? Clacky::Providers.media_model_aliases(available_provider_id, kind) : {}
+
+      stale = !!(override_model && entry && entry["model"] != override_model)
 
       {
         "configured" => !entry.nil?,
-        "source"     => custom ? "custom" : (auto ? "auto" : "off"),
+        "source"     => is_custom ? "custom" : (entry ? "auto" : "off"),
         "model"      => entry && entry["model"],
         "base_url"   => entry && entry["base_url"],
         "provider"   => provider_id,
+        "available"  => available,
+        "aliases"    => aliases,
+        "stale"      => stale,
+        "requested_model" => stale ? override_model : nil
+      }
+    end
+
+    # Tri-state introspection for the OCR sidecar — mirrors #media_state shape
+    # so the Settings UI can reuse the same row component.
+    # @return [Hash{String=>Object}] keys:
+    #   "configured" — anything available (auto or custom)
+    #   "source"     — "off" | "auto" | "custom"
+    #   "primary"    — true when auto resolves to the default model itself
+    #                  (no sidecar call needed)
+    #   "model"/"base_url"/"provider"/"available"
+    def ocr_state
+      raw_entry = @models.find { |m| m["type"] == "ocr" }
+
+      default = find_model_by_type("default")
+      default_provider = default && Clacky::Providers.resolve_provider(
+        base_url: default["base_url"], api_key: default["api_key"]
+      )
+      available = default_provider ? Clacky::Providers.ocr_models(default_provider) : []
+
+      if raw_entry && raw_entry["disabled"]
+        # A disabled OCR sidecar only means "no separate vision model"; it must
+        # not override the fact that the chat model may handle images itself.
+        anchor = current_model || default
+        anchor_provider = anchor && Clacky::Providers.resolve_provider(
+          base_url: anchor["base_url"], api_key: anchor["api_key"]
+        )
+        if anchor && anchor_provider &&
+           Clacky::Providers.supports?(anchor_provider, :vision, model_name: anchor["model"])
+          return {
+            "configured" => true,
+            "source"     => "primary",
+            "model"      => anchor["model"],
+            "base_url"   => anchor["base_url"],
+            "provider"   => anchor_provider,
+            "primary"    => true,
+            "available"  => available
+          }
+        end
+        return {
+          "configured" => false,
+          "source"     => "off",
+          "model"      => nil,
+          "base_url"   => nil,
+          "provider"   => nil,
+          "primary"    => false,
+          "available"  => available
+        }
+      end
+
+      is_custom = raw_entry &&
+                  raw_entry["base_url"].to_s.strip != "" &&
+                  raw_entry["api_key"].to_s.strip != ""
+      override_model = raw_entry && !is_custom ? raw_entry["model"] : nil
+
+      entry = if is_custom
+                raw_entry
+              else
+                derive_ocr_model(model_override: override_model)
+              end
+
+      provider_id = if entry
+                      Clacky::Providers.resolve_provider(
+                        base_url: entry["base_url"], api_key: entry["api_key"]
+                      )
+                    end
+
+      {
+        "configured" => !entry.nil?,
+        "source"     => is_custom ? "custom" : (entry ? "auto" : "off"),
+        "model"      => entry && entry["model"],
+        "base_url"   => entry && entry["base_url"],
+        "provider"   => provider_id,
+        "primary"    => !!(entry && entry["primary"]),
         "available"  => available
       }
     end
@@ -1006,7 +1194,7 @@ module Clacky
     # Returns true if successful
     def set_model_type(index, type)
       return false if index < 0 || index >= @models.length
-      return false unless ["default", "lite", "image", "video", "audio", nil].include?(type)
+      return false unless ["default", "lite", "image", "video", "audio", "ocr", nil].include?(type)
 
       if type
         # Remove type from any other model that has it

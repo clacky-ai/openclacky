@@ -5,11 +5,16 @@
 # Background:
 #   AWS Bedrock occasionally streams tool call arguments that stop mid-JSON
 #   (e.g. only 18 tokens: '{"path": "/tmp/build_manual.py"' — no `content`).
-#   When this happens, ArgumentsParser raises BadArgumentsError.
 #
-#   BadArgumentsError is treated as a normal tool error: the assistant message
-#   stays in history and a tool_result with the error message is appended.
-#   The LLM sees the error feedback and naturally adjusts on the next attempt.
+#   These broken arguments must NOT be persisted in history: the next
+#   request would carry a non-parseable string in tool_calls[].function
+#   .arguments and upstream proxies (LiteLLM, OpenRouter, etc.) reject it
+#   with a 400 BadRequest at the json.loads boundary, before the model
+#   ever sees a tool_result.
+#
+#   The detector (llm_caller#detect_upstream_truncation!) raises
+#   UpstreamTruncatedError on partial JSON; the standard RetryableError
+#   path then retries with a clean history.
 
 RSpec.describe Clacky::Agent, "Bedrock truncated tool call recovery" do
   # ── helpers ──────────────────────────────────────────────────────────────────
@@ -76,9 +81,9 @@ RSpec.describe Clacky::Agent, "Bedrock truncated tool call recovery" do
     allow_any_instance_of(described_class).to receive(:sleep)
   end
 
-  # ── Scenario 1: history is clean after truncated call ────────────────────────
+  # ── Scenario 1: truncated args trigger retry, broken args never reach history ──
 
-  describe "Scenario 1 — truncated write args: error returned as normal tool result" do
+  describe "Scenario 1 — truncated write args: retried, broken JSON not persisted" do
     # LLM returns the truncated tool call once, then a plain text final answer
     before do
       call_count = 0
@@ -102,20 +107,21 @@ RSpec.describe Clacky::Agent, "Bedrock truncated tool call recovery" do
       expect { agent.run("Write a build script") }.not_to raise_error
     end
 
-    it "returns the parse error as a tool result so LLM can see the feedback" do
+    it "does not leave the broken assistant tool_call in history" do
       agent.run("Write a build script")
 
-      tool_msgs = agent.history.to_a.select { |m| m[:role] == "tool" }
-      expect(tool_msgs.size).to eq(1)
-      error_content = JSON.parse(tool_msgs.first[:content])
-      expect(error_content["error"]).to include("write")
+      broken_args = '{"path": "/tmp/build_manual.py"'
+      assistant_with_broken = agent.history.to_a.select do |m|
+        m[:role] == "assistant" && m[:tool_calls]&.any? do |tc|
+          (tc.dig(:function, :arguments) || tc[:arguments]) == broken_args
+        end
+      end
+      expect(assistant_with_broken).to be_empty
     end
 
     it "does not leave orphan tool-result messages in history" do
       agent.run("Write a build script")
 
-      # An orphan tool-result has no preceding assistant message with a matching tool_call id.
-      # Verify: every tool message has a corresponding tool_call in the previous assistant.
       messages = agent.history.to_a
       messages.each_with_index do |msg, i|
         next unless msg[:role] == "tool"
@@ -128,7 +134,7 @@ RSpec.describe Clacky::Agent, "Bedrock truncated tool call recovery" do
       end
     end
 
-    it "makes exactly 2 LLM calls: once for the truncated turn, once for recovery" do
+    it "makes at least 2 LLM calls: one truncated, one recovery" do
       call_count = 0
       allow(client).to receive(:send_messages_with_tools) do |_msgs, **_opts|
         call_count += 1
@@ -136,7 +142,7 @@ RSpec.describe Clacky::Agent, "Bedrock truncated tool call recovery" do
       end
 
       agent.run("Write a build script")
-      expect(call_count).to eq(2)
+      expect(call_count).to be >= 2
     end
   end
 
@@ -236,7 +242,7 @@ RSpec.describe Clacky::Agent, "Bedrock truncated tool call recovery" do
 
   # ── Scenario 4: multiple consecutive truncations don't loop forever ────────────
 
-  describe "Scenario 4 — repeated Bedrock truncation: agent eventually gives up or recovers" do
+  describe "Scenario 4 — repeated Bedrock truncation: agent eventually recovers" do
     before do
       call_count = 0
       allow(client).to receive(:send_messages_with_tools) do |_msgs, **_opts|
@@ -255,16 +261,16 @@ RSpec.describe Clacky::Agent, "Bedrock truncated tool call recovery" do
       expect(result[:status]).to eq(:success)
     end
 
-    it "returns error tool results so LLM gets feedback each time" do
+    it "does not persist any broken-args assistant message in history" do
       agent.run("Write a build script")
 
-      tool_msgs = agent.history.to_a.select { |m| m[:role] == "tool" }
-      # Each truncated tool call gets an error tool_result — LLM sees the feedback
-      expect(tool_msgs).not_to be_empty
-      tool_msgs.each do |msg|
-        error_content = JSON.parse(msg[:content])
-        expect(error_content).to have_key("error")
+      broken_args = '{"path": "/tmp/build_manual.py"'
+      assistant_with_broken = agent.history.to_a.select do |m|
+        m[:role] == "assistant" && m[:tool_calls]&.any? do |tc|
+          (tc.dig(:function, :arguments) || tc[:arguments]) == broken_args
+        end
       end
+      expect(assistant_with_broken).to be_empty
     end
   end
 end

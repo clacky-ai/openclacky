@@ -1,0 +1,247 @@
+/* ============================================================
+   DESIGN SAMPLE v2 — "The Cockpit" (skin only, original layout)
+   Standalone. Does NOT touch app.css. For approval only.
+   ============================================================ */
+
+:root[data-theme="light"] {
+  --surface-0:  #FBFBFA;
+  --surface-1:  #FFFFFF;
+  --surface-2:  #F4F4F2;
+  --ink-1:      #1A1B1E;
+  --ink-2:      #56585E;
+  --ink-3:      #8A8D94;
+  --line:       #E8E8E4;
+  --line-soft:  #F0F0EC;
+  --accent:     #4F46E5;
+  --accent-ink: #FFFFFF;
+  --accent-soft: color-mix(in srgb, var(--accent) 9%, transparent);
+  --live:       #16A34A;
+  --shadow-card: 0 1px 2px rgba(20,21,30,.04);
+}
+:root[data-theme="dark"] {
+  --surface-0:  #101114;
+  --surface-1:  #16181D;
+  --surface-2:  #1D2026;
+  --ink-1:      #E8EAEE;
+  --ink-2:      #A4A9B4;
+  --ink-3:      #6B707B;
+  --line:       #262A31;
+  --line-soft:  #1E2229;
+  --accent:     #6366F1;
+  --accent-ink: #FFFFFF;
+  --accent-soft: color-mix(in srgb, var(--accent) 16%, transparent);
+  --live:       #34D399;
+  --shadow-card: 0 1px 2px rgba(0,0,0,.3);
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --font-sans: "Inter", -apple-system, system-ui, "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", "Menlo", monospace;
+}
+
+html, body { height: 100%; }
+body {
+  font-family: var(--font-sans);
+  background: var(--surface-0);
+  color: var(--ink-2);
+  -webkit-font-smoothing: antialiased;
+  font-size: 14px; line-height: 1.5;
+}
+
+.eyebrow {
+  font-family: var(--font-mono);
+  font-size: 10.5px; font-weight: 500;
+  letter-spacing: .14em; text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+#app { display: flex; flex-direction: column; height: 100vh; }
+
+/* ---------- TOP HEADER (original 3-zone layout kept) ---------- */
+#top-header {
+  height: 52px; display: flex; align-items: center;
+  padding: 0 14px; gap: 14px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface-0);
+}
+#header-left { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.sidebar-toggle-btn, .theme-toggle-btn {
+  width: 32px; height: 32px; border-radius: 7px; border: none;
+  background: transparent; color: var(--ink-3); cursor: pointer;
+  display: grid; place-items: center; transition: all .14s;
+}
+.sidebar-toggle-btn:hover, .theme-toggle-btn:hover { background: var(--surface-2); color: var(--ink-1); }
+#header-brand { display: flex; align-items: center; gap: 9px; cursor: pointer; }
+.brand-mark {
+  width: 22px; height: 22px; border-radius: 6px; background: var(--accent);
+  display: grid; place-items: center; color: var(--accent-ink);
+  font-family: var(--font-mono); font-size: 13px; font-weight: 700;
+}
+.header-logo-divider { width: 1px; height: 16px; background: var(--line); }
+#header-logo { font-weight: 650; color: var(--ink-1); font-size: 14.5px; }
+.header-owner-badge {
+  font-family: var(--font-mono); font-size: 9.5px; font-weight: 600;
+  letter-spacing: .1em; padding: 3px 7px; border-radius: 5px;
+  background: var(--accent-soft); color: var(--accent); border: none; cursor: pointer;
+}
+
+/* ---------- COMMAND BAR (new: fills the empty top center) ---------- */
+#header-center { flex: 1; display: flex; justify-content: center; }
+.cmdbar {
+  display: flex; align-items: center; gap: 9px;
+  width: 100%; max-width: 440px; height: 34px;
+  padding: 0 12px;
+  border: 1px solid var(--line); border-radius: 9px;
+  background: var(--surface-1); color: var(--ink-3);
+  cursor: text; transition: border-color .14s;
+}
+.cmdbar:hover { border-color: var(--accent); }
+.cmdbar svg { width: 15px; height: 15px; flex-shrink: 0; }
+.cmdbar .ph { flex: 1; font-size: 13px; }
+.cmdbar .kbd {
+  font-family: var(--font-mono); font-size: 10.5px;
+  padding: 2px 6px; border-radius: 5px;
+  background: var(--surface-2); color: var(--ink-3);
+  border: 1px solid var(--line);
+}
+
+/* ---------- right: icons ---------- */
+#header-right { display: flex; align-items: center; gap: 12px; }
+@keyframes pulse {
+  0%   { box-shadow: 0 0 0 0 color-mix(in srgb, var(--live) 55%, transparent); }
+  60%  { box-shadow: 0 0 0 4px transparent; }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+.header-icons { display: flex; gap: 2px; }
+.theme-toggle-btn svg { width: 16px; height: 16px; }
+
+/* ---------- content row + sidebar (original positions) ---------- */
+#content-row { flex: 1; display: flex; min-height: 0; }
+#sidebar {
+  width: 256px; flex-shrink: 0;
+  border-right: 1px solid var(--line);
+  background: var(--surface-0);
+  display: flex; flex-direction: column;
+}
+#sidebar-list { flex: 1; overflow-y: auto; padding: 8px 10px; }
+
+.sidebar-divider {
+  display: flex; align-items: center; gap: 8px;
+  padding: 14px 8px 7px;
+}
+.sidebar-divider > span:first-child {
+  font-family: var(--font-mono); font-size: 10.5px; font-weight: 500;
+  letter-spacing: .14em; text-transform: uppercase; color: var(--ink-3);
+  white-space: nowrap;
+}
+.sidebar-divider::after { content: ""; flex: 1; height: 1px; background: var(--line-soft); }
+.sidebar-divider-actions { display: flex; align-items: center; gap: 4px; }
+
+.btn-icon-sm {
+  width: 24px; height: 24px; border-radius: 6px; border: none;
+  background: transparent; color: var(--ink-3); cursor: pointer;
+  display: grid; place-items: center;
+}
+.btn-icon-sm:hover { background: var(--surface-2); color: var(--ink-1); }
+
+/* split new-session button (kept as original) */
+.btn-split-wrap { display: flex; align-items: stretch; }
+.btn-split-main {
+  height: 26px; padding: 0 10px; border: 1px solid var(--line);
+  border-right: none; border-radius: 7px 0 0 7px;
+  background: var(--surface-1); color: var(--ink-1); cursor: pointer;
+  font-family: var(--font-sans); font-size: 12px; font-weight: 550;
+}
+.btn-split-main:hover { background: var(--surface-2); }
+.btn-split-arrow {
+  width: 24px; border: 1px solid var(--line); border-radius: 0 7px 7px 0;
+  background: var(--surface-1); color: var(--ink-3); cursor: pointer; font-size: 10px;
+}
+.btn-split-arrow:hover { background: var(--surface-2); }
+
+.conv-empty { padding: 14px 10px; text-align: center; color: var(--ink-3); font-size: 12.5px; }
+
+/* nav items (Config / My Data / Creator) */
+.task-item {
+  display: flex; align-items: center;
+  padding: 8px 10px; border-radius: 8px; cursor: pointer;
+  color: var(--ink-2); transition: background .12s, color .12s;
+  position: relative;
+}
+.task-item:hover { background: var(--surface-2); color: var(--ink-1); }
+.task-item.active { background: var(--accent-soft); color: var(--ink-1); }
+.task-item.active::before {
+  content: ""; position: absolute; left: -10px; top: 50%; transform: translateY(-50%);
+  width: 3px; height: 17px; border-radius: 0 3px 3px 0; background: var(--accent);
+}
+.task-row { display: flex; align-items: center; gap: 11px; }
+.task-icon { color: var(--ink-3); flex-shrink: 0; }
+.task-item.active .task-icon { color: var(--accent); }
+.task-name { font-size: 13.5px; }
+.task-item.active .task-name { font-weight: 550; }
+
+/* sidebar footer */
+#sidebar-footer { border-top: 1px solid var(--line-soft); padding: 8px 10px; }
+.sidebar-nav-row { display: flex; align-items: center; justify-content: space-between; }
+.sidebar-nav-btn {
+  display: flex; align-items: center; gap: 11px;
+  padding: 8px 10px; border-radius: 8px; border: none; cursor: pointer;
+  background: transparent; color: var(--ink-2); font-size: 13px; flex: 1;
+}
+.sidebar-nav-btn:hover { background: var(--surface-2); color: var(--ink-1); }
+.sidebar-nav-btn svg { color: var(--ink-3); }
+.version-badge { font-family: var(--font-mono); font-size: 10px; color: var(--ink-3); padding-right: 6px; letter-spacing: .03em; }
+
+/* ---------- main / chat empty ---------- */
+#main { flex: 1; display: flex; flex-direction: column; background: var(--surface-1); min-width: 0; }
+.chat-empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 20px; padding: 40px; }
+.ce-mark { width: 52px; height: 52px; border-radius: 14px; background: var(--accent-soft); display: grid; place-items: center; }
+.ce-mark svg { width: 26px; height: 26px; color: var(--accent); }
+.ce-title { font-size: 21px; font-weight: 680; color: var(--ink-1); letter-spacing: -.01em; text-align: center; }
+.ce-sub { color: var(--ink-3); font-size: 13.5px; text-align: center; }
+.chips { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; max-width: 540px; }
+.chip { display: flex; align-items: center; gap: 9px; padding: 11px 15px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-0); cursor: pointer; transition: border-color .14s, transform .14s; }
+.chip:hover { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); transform: translateY(-1px); }
+.chip .ci { width: 30px; height: 30px; border-radius: 8px; background: var(--surface-2); display: grid; place-items: center; flex-shrink: 0; }
+.chip .ci svg { width: 16px; height: 16px; color: var(--ink-2); }
+.chip .ct { font-size: 13px; color: var(--ink-1); font-weight: 550; }
+.chip .cd { font-size: 11.5px; color: var(--ink-3); }
+
+.composer { margin: 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 13px; background: var(--surface-0); display: flex; align-items: flex-end; gap: 8px; box-shadow: var(--shadow-card); }
+.composer-wrap { margin: 0 28px 24px; }
+.ib-icon {
+  width: 32px; height: 32px; border-radius: 8px; border: none; flex-shrink: 0;
+  background: transparent; color: var(--ink-3); cursor: pointer;
+  display: grid; place-items: center;
+}
+.ib-icon:hover { background: var(--surface-2); color: var(--ink-1); }
+.ib-icon svg { width: 18px; height: 18px; }
+
+/* session info bar — CLI status mirror, kept fully clickable */
+#session-info-bar {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  font-family: var(--font-mono); font-size: 11px; color: var(--ink-3);
+  padding: 0 6px 8px;
+}
+#session-info-bar .sib-sep { opacity: .3; }
+#sib-status { display: flex; align-items: center; gap: 6px; color: var(--live); letter-spacing: .06em; }
+.sib-clickable { color: var(--ink-2); cursor: pointer; border-radius: 4px; padding: 1px 3px; transition: background .12s, color .12s; }
+.sib-clickable:hover { background: var(--surface-2); color: var(--ink-1); }
+#sib-cost { color: var(--ink-2); }
+.sig-bars { display: inline-flex; align-items: flex-end; gap: 1.5px; height: 9px; vertical-align: -1px; }
+.sig-bars i { width: 2.5px; background: var(--live); border-radius: 1px; }
+.sig-bars i:nth-child(1){height:3px} .sig-bars i:nth-child(2){height:5px} .sig-bars i:nth-child(3){height:7px} .sig-bars i:nth-child(4){height:9px;background:var(--line);}
+.heartbeat {
+  width: 6px; height: 6px; border-radius: 50%; background: var(--live);
+  animation: pulse 2.4s ease-in-out infinite;
+}
+.composer:focus-within { border-color: color-mix(in srgb, var(--accent) 50%, var(--line)); }
+.composer textarea { flex: 1; border: none; background: transparent; resize: none; font-family: var(--font-sans); font-size: 14px; color: var(--ink-1); outline: none; line-height: 1.55; }
+.composer .meta { font-family: var(--font-mono); font-size: 10.5px; color: var(--ink-3); align-self: center; white-space: nowrap; }
+.send { width: 34px; height: 34px; border-radius: 9px; border: none; background: var(--accent); color: var(--accent-ink); cursor: pointer; display: grid; place-items: center; }
+.send svg { width: 16px; height: 16px; }
+
+.sample-switch { position: fixed; bottom: 14px; right: 14px; z-index: 99; font-family: var(--font-mono); font-size: 11px; background: var(--surface-1); border: 1px solid var(--line); color: var(--ink-2); padding: 7px 13px; border-radius: 8px; cursor: pointer; }
+@media (prefers-reduced-motion: reduce) { .heartbeat { animation: none; } .chip { transition: none; } }

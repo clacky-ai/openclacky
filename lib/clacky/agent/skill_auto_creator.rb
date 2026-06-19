@@ -73,11 +73,14 @@ module Clacky
 
           ## Decision Criteria (ALL must be true)
 
-          1. **Reusable**: The workflow could apply to similar tasks in the future
+          1. **Turn is actually finished**: The assistant's last message is
+             not a question back to the user, and the user wasn't just asking
+             /discussing/exploring (Q&A is not work to capture).
+          2. **Reusable**: The workflow could apply to similar tasks in the future
              (not a one-off, project-specific task)
-          2. **Well-defined**: Clear steps with consistent logic, not just exploratory conversation
-          3. **Valuable**: Would save more than 5 minutes of work if reused
-          4. **Generalizable**: Can be parameterized for different inputs/contexts
+          3. **Well-defined**: Clear steps with consistent logic, not just exploratory conversation
+          4. **Valuable**: Would save more than 5 minutes of work if reused
+          5. **Generalizable**: Can be parameterized for different inputs/contexts
 
           ## Action
 

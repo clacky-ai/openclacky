@@ -8,113 +8,97 @@
 #
 # Output:
 #   stdout — extracted text content (UTF-8)
-#   stderr — error messages
+#   stderr — error / progress messages
 #   exit 0 — success
-#   exit 1 — failure
+#   exit 1 — hard failure (file unreadable, pdftotext missing, etc.)
 #
-# This file lives in ~/.clacky/parsers/ and can be modified by the LLM.
+# Strategy
+# --------
+# PDF pages naturally fall into two kinds: pages with a real text layer,
+# and scanned-image pages. The right tool is a per-page property, not a
+# document-level one. So:
 #
-# Extraction pipeline (first successful step wins):
-#   1. pdftotext (poppler)     — fastest, text-based PDFs
-#   2. pdfplumber (Python)     — handles more layouts
-#                                (→ pdf_parser_plumber.py)
-#   3. OCR (tesseract)         — scanned / image-only PDFs
-#                                (→ pdf_parser_ocr.py)
+#   1. Run pdftotext once over the whole file (`-layout`), split by `\f`.
+#   2. Pages with enough bytes → emit text directly.
+#   3. Pages below threshold → list page numbers in a Notice section
+#      with a shell command template the agent can run on demand to
+#      render a specific page to PNG, then file_reader that PNG.
 #
-# Each extractor is a plain, self-contained function. Python-backed steps
-# shell out to a sibling .py script so the LLM can edit them directly
-# (with proper syntax highlighting, linters, and per-file run/debug)
-# instead of wrestling with embedded heredocs.
+# The parser does NOT pre-render images. Most weak pages will never be
+# read (the answer is often already in the text-layer pages). Rendering
+# all of them up front is wasteful — 55 pages takes ~14s and most goes
+# to waste. The agent decides when (and which page) to OCR based on the
+# user's actual question.
 #
-# VERSION: 3
+# VERSION: 6
 
 require "open3"
 
-# Minimum useful output (in bytes). Below this, a step is considered a
-# miss and the next fallback is tried.
-MIN_CONTENT_BYTES = 20
+MIN_PAGE_BYTES = 20
 
-# Script directory — resolve sibling .py helpers relative to this file
-# so it works both from the gem's default_parsers/ dir and from the
-# copied-to-user ~/.clacky/parsers/ dir.
-SCRIPT_DIR = File.dirname(File.expand_path(__FILE__))
-
-def try_pdftotext(path)
-  stdout, _stderr, status = Open3.capture3("pdftotext", "-layout", "-enc", "UTF-8", path, "-")
-  return nil unless status.success?
-  text = stdout.strip
-  return nil if text.bytesize < MIN_CONTENT_BYTES
-  text
-rescue Errno::ENOENT
-  nil # pdftotext not installed
+def die(msg)
+  warn msg
+  exit 1
 end
 
-def try_pdfplumber(path)
-  script = File.join(SCRIPT_DIR, "pdf_parser_plumber.py")
-  return nil unless File.exist?(script)
-
-  stdout, _stderr, status = Open3.capture3("python3", script, path)
-  return nil unless status.success?
-  text = stdout.strip
-  return nil if text.bytesize < MIN_CONTENT_BYTES
-  text
-rescue Errno::ENOENT
-  nil # python3 not available
-end
-
-# OCR fallback for scanned/image-only PDFs.
-# See pdf_parser_ocr.py for the actual extraction logic.
-#
-# Installation hints (also printed on final failure):
-#   macOS:   brew install tesseract tesseract-lang poppler
-#            pip3 install pytesseract pdf2image
-#   Linux:   apt install tesseract-ocr tesseract-ocr-chi-sim poppler-utils
-#            pip3 install pytesseract pdf2image
-def try_ocr(path)
-  # Quick capability check — avoid spawning python if tesseract is missing.
-  _stdout, _stderr, status = Open3.capture3("tesseract", "--version")
-  return nil unless status.success?
-
-  script = File.join(SCRIPT_DIR, "pdf_parser_ocr.py")
-  return nil unless File.exist?(script)
-
-  stdout, stderr, status = Open3.capture3("python3", script, path)
+def pdftotext_pages(path)
+  stdout, stderr, status = Open3.capture3(
+    "pdftotext", "-layout", "-enc", "UTF-8", path, "-"
+  )
   unless status.success?
-    warn stderr.strip unless stderr.strip.empty?
+    warn "pdftotext failed: #{stderr.strip}"
     return nil
   end
-  text = stdout.strip
-  return nil if text.bytesize < MIN_CONTENT_BYTES
-  text
+  pages = stdout.split("\f", -1)
+  pages.pop if pages.last && pages.last.strip.empty?
+  pages.map(&:strip)
 rescue Errno::ENOENT
-  nil # tesseract or python3 not available
+  warn "pdftotext not found. Install poppler (`brew install poppler` / `apt install poppler-utils`)."
+  nil
 end
 
-# --- main ---
+def main(argv)
+  die "Usage: pdf_parser.rb <file_path>" if argv.empty?
+  path = argv[0]
+  die "File not found: #{path}" unless File.file?(path)
 
-path = ARGV[0]
+  pages = pdftotext_pages(path)
+  die "Could not extract text from PDF." if pages.nil?
 
-if path.nil? || path.empty?
-  warn "Usage: ruby pdf_parser.rb <file_path>"
-  exit 1
-end
+  weak = []
+  body_chunks = []
+  pages.each_with_index do |text, idx|
+    n = idx + 1
+    if text.bytesize >= MIN_PAGE_BYTES
+      body_chunks << "--- Page #{n} ---\n\n#{text}"
+    else
+      body_chunks << "--- Page #{n} ---\n\n[no extractable text layer]"
+      weak << n
+    end
+  end
 
-unless File.exist?(path)
-  warn "File not found: #{path}"
-  exit 1
-end
+  output = body_chunks.join("\n\n")
 
-# Try each extractor in order; first non-nil result wins.
-text = try_pdftotext(path) || try_pdfplumber(path) || try_ocr(path)
+  if weak.any?
+    abs_path = File.expand_path(path)
+    notice = +"\n\n--- Notice ---\n\n"
+    notice << "#{weak.size} of #{pages.size} pages have no extractable text layer "
+    notice << "(likely scanned images).\n"
+    notice << "Pages without text: #{weak.join(', ')}\n\n"
+    notice << "To OCR a specific page, render it to PNG via shell, then "
+    notice << "file_reader the PNG (it will be transcribed via the "
+    notice << "vision/OCR pipeline):\n\n"
+    notice << "  pdftoppm -r 150 -f <N> -l <N> -png -singlefile "
+    notice << "#{abs_path.inspect} /tmp/clacky-pdf-page-<N>\n"
+    notice << "  # produces /tmp/clacky-pdf-page-<N>.png\n\n"
+    notice << "Only render pages you actually need. If the user's question "
+    notice << "is already answered by the extracted text above, skip OCR.\n"
+    output << notice
+  end
 
-if text
-  print text
+  $stdout.write(output)
+  $stdout.write("\n") unless output.end_with?("\n")
   exit 0
-else
-  warn "Could not extract text from PDF."
-  warn "For text-based PDFs, install poppler: brew install poppler (macOS) / apt install poppler-utils (Linux)"
-  warn "For scanned PDFs (OCR):"
-  warn "  macOS: brew install tesseract tesseract-lang poppler && pip3 install pytesseract pdf2image"
-  warn "  Linux: apt install tesseract-ocr tesseract-ocr-chi-sim poppler-utils && pip3 install pytesseract pdf2image"
-  exit 1
 end
+
+main(ARGV) if __FILE__ == $PROGRAM_NAME
