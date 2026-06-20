@@ -43,14 +43,15 @@
 #   - goodbye
 
 # ── Voice behavior ──────────────────────────────────────────────────
-# silence_timeout_ms: 1500        # ms of silence before auto-finalizing
-# voice_mode_restart_delay_ms: 300 # restart delay after Google auto-stop
+# silence_timeout_ms: 1500        # ms of silence before auto-finalizing (Hands-free mode only)
+# voice_mode_restart_delay_ms: 300 # delay before auto-restarting in Hands-free mode
 # language: en-US                 # BCP-47 recognition language
 
 # ── Sound effects ───────────────────────────────────────────────────
-# Place custom .wav or .mp3 files in ~/.clacky/sounds/ (max 500KB).
-# Supported: WAV (16-bit PCM), MP3.
-# Values: "default" (built-in), "none" (silent), or a filename like "ding.wav".
+# Place custom audio files in ~/.clacky/sounds/.
+# Supported formats: WAV, MP3, OGG.
+# Values: "default" (voice_start.wav / voice_stop.wav in web root), "none" (silent),
+# or a filename like "ding.wav" (from ~/.clacky/sounds/).
 #
 # sound:
 #   start: default

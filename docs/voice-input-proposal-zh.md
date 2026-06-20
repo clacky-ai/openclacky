@@ -1,16 +1,13 @@
 # OpenClacky 语音输入集成方案
 
-> 语言：中文 | Language: zh-CN
-> 英文方案：待撰写 (voice-input-proposal-en.md)
->
-> 将语音输入从 Tampermonkey 油猴脚本迁移为 OpenClacky 原生功能，提 PR 贡献官方。
+> 语言：中文 | 英文版本：[voice-input-proposal.md](voice-input-proposal.md)
 
 ## 1. 目标
 
 在 OpenClacky Web UI 中提供**开箱即用的语音输入**能力：
 
 - 默认使用 Google Web Speech API（浏览器内置，零配置）
-- 高级用户可切换 DashScope / 科大讯飞等 ASR 引擎
+- 高级用户可切换 DashScope 等 ASR 引擎
 - 快捷键、退出词、提示音等全部可自定义
 
 ## 2. 架构总览
@@ -21,13 +18,13 @@
 │                                                           │
 │  voice-core.js (纯逻辑)    UI  (按钮/动画/快捷键)          │
 │  ├─ processAsrResult()     ├─ 麦克风按钮 + pulse 动画     │
-│  ├─ isVoiceExitCommand()   ├─ 提示音 (SIRI base64 WAV)    │
-│  └─ matchVoiceShortcut()   └─ 快捷键 Ctrl+Shift+Z/S/R     │
+│  ├─ matchVoiceShortcut()   ├─ 提示音 (SIRI base64 WAV)    │
+│  └─ createInitialState()   └─ 快捷键 Ctrl+Shift+Z/S/R/M   │
+│                             ├─ _isExitCommand() (退出词)   │
 │                                                           │
 │  AsrDriver 接口                                           │
 │  ├─ GoogleDriver    纯浏览器，不需后端                      │
-│  ├─ DashScopeDriver 浏览器 → WebSocket → 后端代理          │
-│  └─ IflytekDriver   (未来扩展)                             │
+│  └─ DashScopeDriver 浏览器 → WebSocket → 后端代理          │
 │                                                           │
 ├─────────────────────────────────────────────────────────┤
 │                    后端 (http_server.rb)                   │
@@ -38,15 +35,15 @@
 │  └─ 双向透明转发 (不做协议转换)                              │
 │                                                           │
 │  AsrProxy (Ruby)                                          │
-│  ├─ dashscope → wss://dashscope.aliyuncs.com/...           │
-│  └─ iflytek   → (未来扩展)                                 │
+│  └─ dashscope → wss://dashscope.aliyuncs.com/...           │
 └─────────────────────────────────────────────────────────┘
 ```
 
 **核心设计原则**：
-- **前端驱动层适配**：Google/DashScope 的差异在各自驱动内部消解，对外暴露统一的 `onText(text)` 回调
+- **前端驱动层适配**：Google/DashScope 的差异在各自引擎工厂内部消解，通过私有 `_emitResult()` 统一汇入输入框
 - **后端透明转发**：Proxy 只负责加 Auth header 转发 WebSocket，不做协议转换
 - **voice-core 无 DOM 依赖**：纯逻辑可单独测试（已有 84 条用例全部通过）
+- **与现有功能协作**：TTS 播报前读 `Voice.listening` 决定是否暂停麦克风，播完后调 `Voice.start()` 恢复；voice-mode-prompt 读 `Voice.voiceMode` 决定是否注入语音模式指令
 
 ## 3. ASR 驱动对比
 
@@ -66,8 +63,8 @@
 
 ### 4.1 设计原则
 
-- **自包含**：voice.js 不依赖项目其他模块，参考 `notify.js` 的 IIFE 模式
-- **遵循 i18n 规范**：所有用户可见文本走 `data-i18n` / `I18n.t()`，翻译键统一在 `i18n.js` 中添加（详见 [`docs/i18n-guide-zh.md`](i18n-guide-zh.md)）
+- **自包含**：voice.js 不依赖项目其他模块，采用 IIFE 模式，暴露单一全局对象 `Voice`
+- **遵循 i18n 规范**：所有用户可见文本走 `data-i18n` / `I18n.t()`，翻译键统一在 `i18n.js` 中添加
 - **遵循 CSS 规范**：使用项目已有的 CSS 变量（`--color-accent-primary` 等），不新增颜色常量
 
 ### 4.1.5 两种语音模式
@@ -102,13 +99,12 @@
 |-----|------|------|
 | `Voice.toggle()` | method | 切换录音状态（开→关、关→开）；pulse 动画跟随状态 |
 | `Voice.start()` | method | 开始录音；如果已在录音则无操作 |
-| `Voice.stop()` | method | 停止录音，返回本次识别的完整文本 |
+| `Voice.stop()` | method | 停止录音；已识别的文本保留在输入框中 |
 | `Voice.setVoiceMode(on)` | method | 开启/关闭语音交互模式：开启后每次识别完自动重启监听，形成连续对话循环 |
 | `Voice.listening` | getter | 是否正在录音（只读 boolean） |
 | `Voice.voiceMode` | getter | 是否处于语音交互模式（只读 boolean） |
-| `Voice.engine` | getter | 当前 ASR 引擎名称，如 `"google"` / `"dashscope"` |
 
-> **设计意图**：Voice 不提供 `onText` 事件注册——识别结果直接写入输入框并触发 Send，与键盘输入行为一致。外部集成只需读取 `listening`/`voiceMode` 状态、调用 `setVoiceMode()` 切换模式。
+> **设计意图**：Voice 不提供 `onText` 事件注册——识别结果直接写入输入框。在 hands-free 模式下自动触发 Send，push-to-talk 模式下由用户手动发送，两种模式均与键盘输入行为衔接。外部集成只需读取 `listening`/`voiceMode` 状态、调用 `setVoiceMode()` 切换模式。
 
 **典型集成场景**：
 
@@ -152,7 +148,7 @@ exit_words:
   - goodbye
 
 # ── Voice behavior ──────────────────────────────────────
-silence_timeout_ms: 1500          # 静默超时后自动提交 (ms)
+silence_timeout_ms: 1500          # 自动发送模式下静默超时后自动提交 (ms)
 voice_mode_restart_delay_ms: 300  # voice mode 下自动重启延迟 (ms)
 language: en-US                    # BCP-47 语言标签
 
@@ -178,71 +174,21 @@ sound:
 └──────────────────────────────────────────────────────────┘
 ```
 
-Settings → Voice tab 界面（所有标签使用 i18n key，由 `I18n.t()` 渲染）：
-
-```
-┌─ Settings ──────────────────────────────────┐
-│  [Models] [UI] [Voice] [General] [About]    │
-│                                              │
-│  ── settings.voice.engine ───────────────   │
-│  Engine  [settings.voice.engine.google ▼]     │
-│          Google / DashScope / ...            │
-│                                              │
-│  ── DashScope (选中时展开) ──────────────    │
-│  settings.voice.apiKey  [••••••••••••••••]   │
-│  Proxy URL [ws://localhost:8765]             │
-│                                              │
-│  ── settings.voice.shortcuts ────────────   │
-│  settings.voice.shortcut.toggle  [Ctrl+Shift+Z] [Edit]  │
-│  settings.voice.shortcut.stop    [Ctrl+Shift+S] [Edit]  │
-│  settings.voice.shortcut.start   [Ctrl+Shift+R] [Edit]  │
-│                                              │
-│  ── settings.voice.exitWords ────────────   │
-│  [结束语音交互, 退出语音交互, 关闭语音, 再见] │
-│                                              │
-│  ── settings.voice.sound ────────────────   │
-│  Start [settings.voice.sound.default ▼]      │
-│  Stop  [settings.voice.sound.default ▼]      │
-└──────────────────────────────────────────────┘
-```
+> **语音配置**：所有语音相关配置（ASR 引擎、API Key、快捷键、退出词、音效等）通过 `~/.clacky/voice-config.yml` 管理。前端通过 `/api/voice/config` 获取非敏感配置。暂未提供 Settings UI 面板，直接编辑 YAML 文件即可。
 
 ### 4.5 voice-core.js
 
-从油猴脚本提取的纯逻辑模块（无 DOM 依赖，可单元测试）：
+纯逻辑模块（无 DOM 依赖，可单元测试）：
 
 - `processAsrResult(state, text)` — ASR 文本累积 + 句子边界检测
-- `isVoiceExitCommand(text)` — 退出命令匹配
 - `createInitialState()` — 初始空状态
-- `matchVoiceShortcut(e)` — 快捷键判断
+- `matchVoiceShortcut(e, shortcuts)` — 快捷键判断
 
-**句子边界检测算法**（适配 paraformer-realtime-v2 无 is_end 特性）：
-同一 VAD 片段内文本逐字增长 → 新 VAD 片段时文本从长变短 → 检测到长度突降 ≤ 旧长度50% → 判定为新句子，旧句入队。
+> 退出词检测（`_isExitCommand`）实现在 voice.js 中，不在 voice-core.js。
 
 ### 4.6 CSS
 
-添加到 `app.css`，约50行：
-
-```css
-/* Voice button */
-#btn-voice { ... }
-#btn-voice:hover { color: var(--color-accent-primary); }
-
-/* Pulse animation (push-to-talk) */
-@keyframes voice-pulse { ... }
-#btn-voice.pulse {
-  animation: voice-pulse 0.4s ease-out;
-}
-
-/* Breathing animation (Hands-free mode) */
-@keyframes voice-breathe {
-  0%   { box-shadow: 0 0 0 0 rgba(74, 158, 255, 0.4); }
-  50%  { box-shadow: 0 0 12px 4px rgba(74, 158, 255, 0.3); }
-  100% { box-shadow: 0 0 0 0 rgba(74, 158, 255, 0); }
-}
-#btn-voice.mode-voice {
-  animation: voice-breathe 2s ease-in-out infinite;
-}
-```
+按钮样式和动画定义在 `app.css` 中，使用项目已有的 CSS 变量。录音时触发 `.pulse`（push-to-talk 脉冲）或 `.mode-voice`（hands-free 呼吸灯）类名切换动画。
 
 ## 5. 后端设计
 
@@ -254,113 +200,24 @@ GET /api/asr/proxy
   → 读取配置 → 连接上游 ASR 服务 → 双向转发
 ```
 
-### 5.2 AsrProxy（Ruby）
+### 5.2 AsrProxy
 
-```ruby
-module Clacky
-  module AsrProxy
-    def self.handle(ws)
-      config = load_config  # 从 settings 读 provider + api_key
-      upstream = case config[:provider]
-      when "dashscope"
-        connect_dashscope(config[:api_key])
-      when "iflytek"
-        connect_iflytek(config[:api_key])
-      end
-      relay(ws, upstream)  # 双向透明转发
-    end
-  end
-end
-```
-
-**不需要新依赖**：`websocket ~> 1.2` 已在 gemspec 中。
+`Clacky::AsrProxy` 负责完成浏览器 WebSocket 握手后，连接到上游 ASR 服务商并双向透明转发，不做协议转换。无需新依赖（`websocket` 已在 gemspec 中）。
 
 ### 5.3 安全考虑
 
-- API Key 仅存在服务端 localStorage 对应文件中，不返回给前端
-- 前端通过 Settings UI 提交 API Key 到后端 `/api/config/asr` 设置接口（只写不读）
-- 前端只能看到 `has_api_key: true/false`
+- API Key 仅存在服务端 `~/.clacky/voice-config.yml` 中，不返回给前端
+- 前端只能通过 `/api/voice/config` 获取非敏感配置，`api_key` 字段始终过滤
 
-## 6. 改动清单
+## 6. 文件结构
 
-### 新增文件
+```
+lib/clacky/
+├── web/
+│   ├── voice.js              # 语音模块（~650 行）
+│   └── voice-core.js         # 纯逻辑模块（~100 行）
+└── asr_proxy.rb              # 后端 ASR 代理（~260 行）
+```
 
-| 文件 | 说明 |
-|------|------|
-| `lib/clacky/web/voice.js` | 语音模块（~400行） |
-| `lib/clacky/web/voice-core.js` | 纯逻辑模块（~90行） |
-| `lib/clacky/asr_proxy.rb` | 后端 ASR 代理（~80行） |
-### 修改文件
+修改涉及：`index.html`（+2 script 标签）、`app.css`（+按钮/动画样式）、`http_server.rb`（+路由 + WebSocket 升级）。
 
-| 文件 | 改动 | 行数 |
-|------|------|------|
-| `lib/clacky/web/index.html` | +1 `<script src="/voice.js">` | +1 |
-| `lib/clacky/web/app.css` | +voice 按钮/动画样式 | +50 |
-| `lib/clacky/server/http_server.rb` | +`/api/asr/proxy` 路由 + WebSocket 升级 | +30 |
-
-**总计改动**：约 570 行新代码 + 80 行修改。
-
-## 7. 实现步骤
-
-### Phase 1：前端核心（voice.js + voice-core.js + CSS）
-
-1. 将 voice-core.js 逻辑移入项目
-2. 编写 voice.js（参考 notify.js 模式）
-3. 添加 CSS 样式
-4. 在 index.html 加 script 标签
-5. 实现 Google 驱动（默认）
-
-### Phase 2：后端代理
-
-1. 实现 `AsrProxy` Ruby 模块
-2. 在 http_server.rb 加 `/api/asr/proxy` WebSocket 路由
-3. 实现 DashScope 驱动
-4. 添加 API Key 管理接口
-
-### Phase 3：配置化
-
-1. Settings Voice tab UI
-2. 快捷键录制/编辑
-3. 退出词自定义
-4. 提示音选择和自定义
-5. i18n 翻译键
-
-### Phase 4：测试与 PR
-
-1. voice-core 单元测试
-2. 端到端功能测试
-3. 编写 PR 描述（英文）
-4. 提交 PR 到 openclacky 主仓库
-
-## 8. 兼容性
-
-### Google 驱动
-
-- Chrome：✅ 内置 `webkitSpeechRecognition`
-- Edge：✅ 同上
-- Firefox：❌ 不支持（降级提示用户切换引擎）
-- Safari：✅ `SpeechRecognition`（macOS）
-
-### DashScope 驱动
-
-- 所有浏览器：✅ 通过 WebSocket + 后端代理
-
-### 快捷键
-
-- 传统快捷键 `Ctrl+Shift+Z` 在所有桌面浏览器正常工作
-- Mac 用户：`Cmd+Shift+Z`（检测 `metaKey` 自动适配）
-
-## 9. 与现有功能的交互
-
-| 功能 | 交互方式 |
-|------|----------|
-| **TTS 语音播报** | `Voice.setVoiceMode()` — 开启/关闭持续监听 |
-| **voice-mode-prompt** | 读取 `Voice.listening` 状态，TTS 播完自动恢复监听 |
-| **离线模式** | 自动降级到 Google 驱动（离线也可用） |
-| **移动端** | 响应式布局，麦克风按钮自动适配 |
-
----
-
-> 作者：朱朱 (via 啸哥)
-> 日期：2026-06-20
-> 相关文件：`~/.clacky/zhuzhu/voice/` (油猴脚本原型)
