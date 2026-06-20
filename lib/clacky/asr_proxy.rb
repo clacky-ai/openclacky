@@ -16,7 +16,7 @@ require "socket"
 
 module Clacky
   module AsrProxy
-    DASHSCOPE_WS_URL = "wss://dashscope.aliyuncs.com/api-ws/v1/realtime".freeze
+    DASHSCOPE_WS_URL = "wss://dashscope.aliyuncs.com/api-ws/v1/inference/".freeze
 
     # Handle an incoming ASR proxy WebSocket connection from the browser.
     #
@@ -88,7 +88,8 @@ module Clacky
     def self.upstream_headers(provider, api_key)
       case provider
       when "dashscope"
-        { "Authorization" => "bearer #{api_key}" }
+        { "Authorization" => "bearer #{api_key}",
+          "X-DashScope-DataInspection" => "enable" }
       when "iflytek"
         { "X-Api-Key" => api_key }
       else
@@ -102,6 +103,7 @@ module Clacky
       if uri.scheme == "wss"
         ctx = OpenSSL::SSL::SSLContext.new
         ctx.verify_mode = OpenSSL::SSL::VERIFY_PEER
+        ctx.ca_file = OpenSSL::X509::DEFAULT_CERT_FILE
         tcp = OpenSSL::SSL::SSLSocket.new(tcp, ctx)
         tcp.hostname = uri.host
         tcp.connect
@@ -113,7 +115,7 @@ module Clacky
       tcp.write(hs.to_s)
 
       # Read server response
-      response = ""
+      response = +""
       loop do
         chunk = tcp.readpartial(4096) rescue nil
         break unless chunk
@@ -123,7 +125,8 @@ module Clacky
       end
 
       unless hs.valid?
-        Clacky::Logger.warn("[AsrProxy] Upstream handshake invalid: #{hs.error}")
+        Clacky::Logger.warn("[AsrProxy] Upstream handshake INVALID: #{hs.error}")
+        Clacky::Logger.warn("[AsrProxy] Upstream response: #{response[0..500]}")
         tcp.close rescue nil
         return nil
       end
@@ -138,10 +141,10 @@ module Clacky
     # Uses IO.select for non-blocking multiplexing.
     def self.relay(browser_socket, upstream, ws_version)
       incoming = WebSocket::Frame::Incoming::Server.new(version: ws_version)
-      outgoing = WebSocket::Frame::Outgoing::Server.new(version: ws_version)
-
-      upstream_buf = String.new("", encoding: "BINARY")
       upstream_incoming = WebSocket::Frame::Incoming::Client.new(version: ws_version)
+      upstream_buf = String.new("", encoding: "BINARY")
+      out_client = WebSocket::Frame::Outgoing::Client
+      out_server = WebSocket::Frame::Outgoing::Server
 
       loop do
         readable, _, _ = IO.select([browser_socket, upstream], nil, nil, 30)
@@ -161,16 +164,31 @@ module Clacky
               while (frame = incoming.next)
                 case frame.type
                 when :text, :binary
-                  upstream.write(outgoing.new(data: frame.data, type: frame.type).to_s) rescue break
+                  begin
+                    upstream.write(out_client.new(version: ws_version, data: frame.data, type: frame.type).to_s)
+                  rescue => e
+                    Clacky::Logger.warn("[AsrProxy] Relay browser→upstream write: #{e.class}: #{e.message}")
+                    break
+                  end
                 when :ping
-                  browser_socket.write(outgoing.new(type: :pong, data: frame.data).to_s) rescue break
+                  begin
+                    browser_socket.write(out_server.new(version: ws_version, type: :pong, data: frame.data).to_s)
+                  rescue => e
+                    Clacky::Logger.warn("[AsrProxy] Relay browser pong write: #{e.class}: #{e.message}")
+                    break
+                  end
                 when :close
-                  upstream.close rescue nil
+                  begin
+                    upstream.close
+                  rescue => e
+                    Clacky::Logger.warn("[AsrProxy] Relay close upstream on browser close: #{e.class}: #{e.message}")
+                  end
                   break
                 end
               end
             end
-          rescue IOError, Errno::ECONNRESET, Errno::EPIPE
+          rescue IOError, Errno::ECONNRESET, Errno::EPIPE => e
+            Clacky::Logger.warn("[AsrProxy] Relay browser read error: #{e.class}: #{e.message}")
             break
           end
         end
@@ -189,21 +207,32 @@ module Clacky
               while (frame = upstream_incoming.next)
                 case frame.type
                 when :text, :binary
-                  browser_socket.write(outgoing.new(data: frame.data, type: frame.type).to_s) rescue break
+                  begin
+                    browser_socket.write(out_server.new(version: ws_version, data: frame.data, type: frame.type).to_s)
+                  rescue => e
+                    Clacky::Logger.warn("[AsrProxy] Relay upstream→browser write: #{e.class}: #{e.message}")
+                    break
+                  end
                 when :ping
-                  # Relay ping/pong — upstream pings us, we respond
-                  upstream.write(WebSocket::Frame::Outgoing::Client.new(
-                    version: ws_version, data: frame.data, type: :pong
-                  ).to_s) rescue nil
+                  begin
+                    upstream.write(out_client.new(version: ws_version, data: frame.data, type: :pong).to_s)
+                  rescue => e
+                    Clacky::Logger.warn("[AsrProxy] Relay upstream pong write: #{e.class}: #{e.message}")
+                  end
                 when :pong
                   # Ignore pong from upstream
                 when :close
-                  browser_socket.write(outgoing.new(type: :close, data: "").to_s) rescue nil
+                  begin
+                    browser_socket.write(out_server.new(version: ws_version, type: :close, data: "").to_s)
+                  rescue => e
+                    Clacky::Logger.warn("[AsrProxy] Relay browser close write: #{e.class}: #{e.message}")
+                  end
                   break
                 end
               end
             end
-          rescue IOError, Errno::ECONNRESET, Errno::EPIPE
+          rescue IOError, Errno::ECONNRESET, Errno::EPIPE => e
+            Clacky::Logger.warn("[AsrProxy] Relay upstream read error: #{e.class}: #{e.message}")
             break
           end
         end
@@ -222,7 +251,8 @@ module Clacky
     # the WebSocket::Handshake::Server parser.
     def self.build_handshake_request(req)
       lines = ["#{req.request_method} #{req.path} HTTP/1.1"]
-      req.each_header do |k, v|
+      req.header.each do |k, vals|
+        v = vals.is_a?(Array) ? vals.join(", ") : vals.to_s
         next if k == "content-length" || k == "content-type"
         lines << "#{k}: #{v}"
       end
