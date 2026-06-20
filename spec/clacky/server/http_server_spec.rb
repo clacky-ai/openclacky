@@ -1118,8 +1118,9 @@ RSpec.describe Clacky::Server::HttpServer do
 
           body = parsed_body(res)
           cfg = body["config"]
-          # asr key should be removed entirely (contains api_key)
-          expect(cfg).not_to have_key("asr")
+          # api_key should be stripped, but provider should be kept for frontend ASR routing
+          expect(cfg["asr"]["provider"]).to eq("dashscope")
+          expect(cfg["asr"]).not_to have_key("api_key")
         end
       end
     end
