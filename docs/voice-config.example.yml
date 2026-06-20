@@ -1,0 +1,58 @@
+# ───────────────────────────────────────────────────────────────────────
+# Voice input configuration for OpenClacky (EXAMPLE)
+#
+# Copy this file to:  ~/.clacky/voice-config.yml
+# Then uncomment and customize the settings below.
+#
+# All settings have sensible defaults — voice input works without this file.
+# ───────────────────────────────────────────────────────────────────────
+
+# ── ASR engine ──────────────────────────────────────────────────────
+# asr:
+#   provider: dashscope        # google | dashscope
+#   api_key: ""                # DashScope API key (sk-xxx)
+
+# ── Keyboard shortcuts ──────────────────────────────────────────────
+# Modifier values (maps to KeyboardEvent properties):
+#   Control → e.ctrlKey   Shift → e.shiftKey
+#   Alt     → e.altKey     Meta  → e.metaKey (Cmd on Mac, Win on Windows)
+#
+# Key values reference:
+#   https://developer.mozilla.org/en-US/docs/Web/API/UI_Events/Keyboard_event_key_values
+#
+# shortcuts:
+#   toggle:
+#     modifiers: [Control, Shift]
+#     key: z
+#   stop:
+#     modifiers: [Control, Shift]
+#     key: s
+#   start:
+#     modifiers: [Control, Shift]
+#     key: r
+#   voice_mode:
+#     modifiers: [Control, Shift]
+#     key: m
+
+# ── Voice exit commands ─────────────────────────────────────────────
+# Spoken phrases that end voice interaction mode.
+#
+# exit_words:
+#   - stop listening
+#   - exit voice
+#   - goodbye
+
+# ── Voice behavior ──────────────────────────────────────────────────
+# silence_timeout_ms: 1500        # ms of silence before auto-finalizing
+# voice_mode_restart_delay_ms: 300 # restart delay after Google auto-stop
+# language: en-US                 # BCP-47 recognition language
+
+# ── Sound effects ───────────────────────────────────────────────────
+# Place custom .wav or .mp3 files in ~/.clacky/sounds/ (max 500KB).
+# Supported: WAV (16-bit PCM), MP3.
+# Values: "default" (built-in), "none" (silent), or a filename like "ding.wav".
+#
+# sound:
+#   start: default
+#   stop: default
+#   volume: 0.4               # 0.0 ~ 1.0

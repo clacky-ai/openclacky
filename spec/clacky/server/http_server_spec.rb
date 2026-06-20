@@ -44,16 +44,22 @@ module HttpServerSpecHelpers
     )
     allow(req).to receive(:instance_variable_get).and_return(nil)
     allow(req).to receive(:[]) { |k| headers[k] }
+    allow(req).to receive(:query) {
+      query_string && !query_string.empty? ? URI.decode_www_form(query_string).to_h : {}
+    }
     req
   end
 
   # Build a response collector that captures status + body.
   def fake_res
     res = double("res").as_null_object
+    res.instance_variable_set(:@status, 200)  # WEBrick default
+    res.instance_variable_set(:@headers, {})
     allow(res).to receive(:status=)  { |v| res.instance_variable_set(:@status, v) }
     allow(res).to receive(:body=)    { |v| res.instance_variable_set(:@body, v) }
     allow(res).to receive(:content_type=)
-    allow(res).to receive(:[]=)
+    allow(res).to receive(:[]=)      { |k, v| res.instance_variable_get(:@headers)[k] = v }
+    allow(res).to receive(:[])       { |k| res.instance_variable_get(:@headers)[k] }
     allow(res).to receive(:status)   { res.instance_variable_get(:@status) }
     allow(res).to receive(:body)     { res.instance_variable_get(:@body) }
     res
@@ -1040,6 +1046,170 @@ RSpec.describe Clacky::Server::HttpServer do
         dispatch(server, req, res)
 
         expect(parsed_body(res)["ok"]).to be false
+      end
+    end
+  end
+
+  # ── Voice API ──────────────────────────────────────────────────────────────
+# Uses a temporary HOME with ~/.clacky/voice-config.yml to keep tests
+# isolated from the developer's real voice config.
+
+  def with_voice_config(yaml_content)
+    tmp_home = Dir.mktmpdir("clacky_voice_spec_home")
+    clacky_dir = File.join(tmp_home, ".clacky")
+    Dir.mkdir(clacky_dir)
+    File.write(File.join(clacky_dir, "voice-config.yml"), yaml_content)
+
+    old_home = ENV["HOME"]
+    ENV["HOME"] = tmp_home
+
+    yield
+  ensure
+    ENV["HOME"] = old_home
+    FileUtils.rm_rf(tmp_home)
+  end
+
+  describe "GET /api/voice/config" do
+    it "returns voice config from voice-config.yml" do
+      with_voice_config(<<~YAML) do
+        silence_timeout_ms: 2000
+        language: en-US
+        shortcuts:
+          toggle:
+            modifiers: [Control]
+            key: "v"
+        exit_words:
+          - stop
+        sound:
+          volume: 0.7
+        asr:
+          provider: dashscope
+          api_key: sk-secret123
+      YAML
+        with_server(agent_config: agent_config) do |server|
+          req = fake_req(method: "GET", path: "/api/voice/config")
+          res = fake_res
+          dispatch(server, req, res)
+
+          expect(res.status).to eq(200)
+          body = parsed_body(res)
+          expect(body["ok"]).to be true
+          cfg = body["config"]
+          expect(cfg["silence_timeout_ms"]).to eq(2000)
+          expect(cfg["language"]).to eq("en-US")
+          expect(cfg["shortcuts"]["toggle"]["key"]).to eq("v")
+          expect(cfg["shortcuts"]["toggle"]["modifiers"]).to eq(["Control"])
+          expect(cfg["exit_words"]).to eq(["stop"])
+          expect(cfg["sound"]["volume"]).to eq(0.7)
+        end
+      end
+    end
+
+    it "strips api_key from ASR config before sending to client" do
+      with_voice_config(<<~YAML) do
+        asr:
+          provider: dashscope
+          api_key: sk-super-secret-do-not-leak
+      YAML
+        with_server(agent_config: agent_config) do |server|
+          req = fake_req(method: "GET", path: "/api/voice/config")
+          res = fake_res
+          dispatch(server, req, res)
+
+          body = parsed_body(res)
+          cfg = body["config"]
+          # asr key should be removed entirely (contains api_key)
+          expect(cfg).not_to have_key("asr")
+        end
+      end
+    end
+
+    it "returns empty config when voice-config.yml does not exist" do
+      with_voice_config("") do
+        # Delete the file we just created so it truly doesn't exist
+        File.delete(File.join(ENV["HOME"], ".clacky", "voice-config.yml"))
+
+        with_server(agent_config: agent_config) do |server|
+          req = fake_req(method: "GET", path: "/api/voice/config")
+          res = fake_res
+          dispatch(server, req, res)
+
+          expect(res.status).to eq(200)
+          body = parsed_body(res)
+          expect(body["ok"]).to be true
+          expect(body["config"]).to eq({})
+        end
+      end
+    end
+
+    it "returns empty config for malformed YAML" do
+      with_voice_config(":::: not valid yaml !!!") do
+        with_server(agent_config: agent_config) do |server|
+          req = fake_req(method: "GET", path: "/api/voice/config")
+          res = fake_res
+          dispatch(server, req, res)
+
+          expect(res.status).to eq(200)
+          body = parsed_body(res)
+          expect(body["ok"]).to be true
+          expect(body["config"]).to eq({})
+        end
+      end
+    end
+  end
+
+  describe "GET /api/voice/sound" do
+    it "returns audio/wav for a custom .wav sound file" do
+      with_voice_config(<<~YAML) do
+        sound:
+          start: custom_ding.wav
+      YAML
+        sounds_dir = File.join(ENV["HOME"], ".clacky", "sounds")
+        Dir.mkdir(sounds_dir)
+        # Write a minimal WAV file (44-byte header + silence)
+        wav_data = ([
+          "RIFF", 36, "WAVE", "fmt ", 16, 1, 1, 8000, 8000, 1, 8, "data", 0
+        ].pack("A4VA4A4VvvVVvvA4V"))
+        File.write(File.join(sounds_dir, "custom_ding.wav"), wav_data)
+
+        with_server(agent_config: agent_config) do |server|
+          req = fake_req(method: "GET", path: "/api/voice/sound", query_string: "type=start")
+          res = fake_res
+          dispatch(server, req, res)
+
+          expect(res.status).to eq(200)
+          expect(res["Content-Type"]).to include("audio/wav")
+          expect(res.body.bytesize).to be > 0
+        end
+      end
+    end
+
+    it "returns 204 with empty body when sound is set to none" do
+      with_voice_config(<<~YAML) do
+        sound:
+          start: none
+      YAML
+        with_server(agent_config: agent_config) do |server|
+          req = fake_req(method: "GET", path: "/api/voice/sound", query_string: "type=start")
+          res = fake_res
+          dispatch(server, req, res)
+
+          expect(res.status).to eq(204)
+          expect(res.body).to eq("")
+        end
+      end
+    end
+
+    it "falls back to default sound when config has no sound entry" do
+      with_voice_config("") do
+        with_server(agent_config: agent_config) do |server|
+          req = fake_req(method: "GET", path: "/api/voice/sound", query_string: "type=stop")
+          res = fake_res
+          dispatch(server, req, res)
+
+          # Should not crash; built-in default sound is returned
+          expect(res.status).to be_between(200, 204)
+        end
       end
     end
   end

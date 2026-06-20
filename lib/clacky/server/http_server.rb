@@ -24,6 +24,7 @@ require_relative "../brand_config"
 require_relative "channel"
 require_relative "../banner"
 require_relative "../utils/file_processor"
+require_relative "../asr_proxy"
 
 module Clacky
   module Server
@@ -429,6 +430,10 @@ module Clacky
 
         # WebSocket upgrade — no timeout applied (long-lived connection)
         if websocket_upgrade?(req)
+          if path == "/api/asr/proxy"
+            handle_asr_proxy(req, res)
+            return
+          end
           handle_websocket(req, res)
           return
         end
@@ -505,6 +510,8 @@ module Clacky
         when ["GET",    "/api/skills"]         then api_list_skills(res)
         when ["GET",    "/api/config"]        then api_get_config(req, res)
         when ["GET",    "/api/config/settings"]  then api_get_settings(res)
+        when ["GET",    "/api/voice/config"]    then api_voice_config(res)
+        when ["GET",    "/api/voice/sound"]     then api_voice_sound(req, res)
         when ["GET",    "/api/exchange-rate"]    then api_exchange_rate(req, res)
         when ["PATCH",  "/api/config/settings"]  then api_update_settings(req, res)
         when ["POST",   "/api/config/models"] then api_add_model(req, res)
@@ -5665,6 +5672,105 @@ module Clacky
 
       def websocket_upgrade?(req)
         req["Upgrade"]&.downcase == "websocket"
+      end
+
+      # Handle ASR proxy WebSocket upgrade.
+      # The browser connects to ws://host/api/asr/proxy?provider=dashscope
+      # The server opens an upstream WebSocket to the ASR provider,
+      # adds authentication headers, and relays data transparently.
+      def handle_asr_proxy(req, res)
+        query = parse_query(req)
+        voice_cfg = load_voice_config
+
+        settings = {
+          asr_provider: query["provider"] || voice_cfg.dig("asr", "provider") || "dashscope",
+          asr_api_key: voice_cfg.dig("asr", "api_key")
+        }
+
+        Clacky::AsrProxy.handle(req, settings)
+
+        # Tell WEBrick not to send a response
+        res.instance_variable_set(:@header, {})
+        res.status = -1
+      rescue => e
+        Clacky::Logger.error("[AsrProxy] Handler error: #{e.class}: #{e.message}")
+      end
+
+      # Load voice configuration from ~/.clacky/voice-config.yml
+      def load_voice_config
+        config_path = File.join(ENV["HOME"], ".clacky", "voice-config.yml")
+        return {} unless File.exist?(config_path)
+        YAML.safe_load(File.read(config_path)) || {}
+      rescue => e
+        Clacky::Logger.warn("[Voice] Failed to load voice-config.yml: #{e.message}")
+        {}
+      end
+
+      # GET /api/voice/config — expose voice config to frontend (strips api_key)
+      def api_voice_config(res)
+        cfg = load_voice_config
+        safe_cfg = cfg.dup
+        # Strip api_key from asr section before sending to client, keep provider
+        if safe_cfg["asr"] && safe_cfg["asr"]["api_key"]
+          safe_cfg["asr"] = safe_cfg["asr"].dup
+          safe_cfg["asr"].delete("api_key")
+        end
+        json_response(res, 200, { ok: true, config: safe_cfg })
+      end
+
+      # GET /api/voice/sound?type=start|stop — serve custom or default sound
+      def api_voice_sound(req, res)
+        query = parse_query(req)
+        type = query["type"] || "start"
+        cfg = load_voice_config
+
+        sound_name = cfg.dig("sound", type) || "default"
+
+        if sound_name == "none"
+          res.status = 204
+          res.body = ""
+          return
+        end
+
+        if sound_name != "default"
+          sound_path = File.join(ENV["HOME"], ".clacky", "sounds", sound_name)
+          if File.exist?(sound_path)
+            ct = case File.extname(sound_path).downcase
+                 when ".mp3" then "audio/mpeg"
+                 when ".wav" then "audio/wav"
+                 when ".ogg" then "audio/ogg"
+                 else "application/octet-stream"
+                 end
+            res["Content-Type"] = ct
+            res.body = File.binread(sound_path)
+            return
+          end
+          Clacky::Logger.warn("[Voice] Custom sound not found: #{sound_path}, falling back to default")
+        end
+
+        # Built-in default: use voice_start.wav / voice_stop.wav
+        default_name = type == "stop" ? "voice_stop.wav" : "voice_start.wav"
+        default_path = File.join(WEB_ROOT, default_name)
+        if File.exist?(default_path)
+          res["Content-Type"] = "audio/wav"
+          res.body = File.binread(default_path)
+        else
+          res.status = 204
+          res.body = ""
+        end
+      end
+
+      # Parse query string from request path (used by handle_asr_proxy)
+      def parse_query(req)
+        q = req.query || {}
+        return q unless q.empty?
+        # Fallback: parse from path
+        path = req.path.to_s
+        idx = path.index("?")
+        return {} unless idx
+        URI.decode_www_form(path[(idx + 1)..]).to_h
+      rescue
+        {}
       end
 
       # Hijacks the TCP socket from WEBrick and upgrades it to WebSocket.
