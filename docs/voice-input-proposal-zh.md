@@ -151,6 +151,7 @@ exit_words:
 silence_timeout_ms: 1500          # 自动发送模式下静默超时后自动提交 (ms)
 voice_mode_restart_delay_ms: 300  # voice mode 下自动重启延迟 (ms)
 language: en-US                    # BCP-47 语言标签
+default_mode: push-to-talk         # 初始语音模式：push-to-talk（点击发送）| hands-free（自动发送）
 
 # ── Sound effects ───────────────────────────────────────
 sound:

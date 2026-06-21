@@ -151,6 +151,7 @@ exit_words:
 silence_timeout_ms: 1500          # Auto-submit after silence in Hands-free mode (ms)
 voice_mode_restart_delay_ms: 300  # Auto-restart delay in voice mode (ms)
 language: en-US                    # BCP-47 language tag
+default_mode: push-to-talk         # Initial voice mode: push-to-talk | hands-free
 
 # ── Sound effects ───────────────────────────────────────
 sound:

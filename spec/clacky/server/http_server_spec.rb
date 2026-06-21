@@ -1125,6 +1125,21 @@ RSpec.describe Clacky::Server::HttpServer do
       end
     end
 
+    it "exposes default_mode to the frontend" do
+      with_voice_config(<<~YAML) do
+        default_mode: hands-free
+      YAML
+        with_server(agent_config: agent_config) do |server|
+          req = fake_req(method: "GET", path: "/api/voice/config")
+          res = fake_res
+          dispatch(server, req, res)
+
+          cfg = parsed_body(res)["config"]
+          expect(cfg["default_mode"]).to eq("hands-free")
+        end
+      end
+    end
+
     it "returns empty config when voice-config.yml does not exist" do
       with_voice_config("") do
         # Delete the file we just created so it truly doesn't exist

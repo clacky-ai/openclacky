@@ -46,6 +46,7 @@
 # silence_timeout_ms: 1500        # ms of silence before auto-finalizing (Hands-free mode only)
 # voice_mode_restart_delay_ms: 300 # delay before auto-restarting in Hands-free mode
 # language: en-US                 # BCP-47 recognition language
+# default_mode: push-to-talk      # Initial voice mode: push-to-talk | hands-free
 
 # ── Sound effects ───────────────────────────────────────────────────
 # Place custom audio files in ~/.clacky/sounds/.
