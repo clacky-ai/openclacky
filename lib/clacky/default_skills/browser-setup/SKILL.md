@@ -47,6 +47,27 @@ When unsure, show **both** lines (label them "China:" and "Global:") so the user
 
 If no subcommand is clear, default to `setup`.
 
+## Prerequisites Check — verify the default browser
+
+Ask the server for the user's default browser:
+
+```bash
+curl -s http://${CLACKY_SERVER_HOST}:${CLACKY_SERVER_PORT}/api/browser/default
+```
+
+Response: `{ "id": "...", "browser": "chrome" | "edge" | "other" | "unknown" }`
+
+Act on `browser`:
+
+- **`chrome` / `edge`** → proceed with setup normally.
+- **`other`** → tell the user, in your own words, that browser automation
+  requires real Chrome or Edge, and that they can either switch their default
+  browser or just open Chrome/Edge for this. **Do not hard-block** — if they
+  already have Chrome/Edge open, let them continue. Offer download links per
+  the **Region-Aware Download Links** section above.
+- **`unknown`** (detection failed, or the endpoint errored) → skip this check
+  and proceed normally; the setup steps below will surface any real problem.
+
 ---
 
 ## `setup`
@@ -185,6 +206,10 @@ If still failing:
 > - Chrome/Edge is running
 > - You clicked "Allow remote debugging" in chrome://inspect/#remote-debugging
 > - No firewall is blocking localhost connections
+> - **Your browser is genuine Chrome or Edge** — skinned browsers built on Chromium
+>   (e.g. 360 Safe Browser, QQ Browser, Sogou, UC, Quark) look like Chrome but disable remote
+>   debugging, so automation cannot connect. If you are using one of these, please
+>   switch to real Chrome or Edge (download links above) and run `/browser-setup` again.
 >
 > Run `/browser-setup doctor` to diagnose the issue in detail.
 

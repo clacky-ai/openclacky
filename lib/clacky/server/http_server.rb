@@ -494,6 +494,7 @@ module Clacky
         when ["POST",   "/api/onboard/device/start"] then api_onboard_device_start(req, res)
         when ["POST",   "/api/onboard/device/poll"]  then api_onboard_device_poll(req, res)
         when ["GET",    "/api/browser/status"]    then api_browser_status(res)
+        when ["GET",    "/api/browser/default"]   then api_browser_default(res)
         when ["POST",   "/api/browser/configure"]  then api_browser_configure(req, res)
         when ["POST",   "/api/browser/reload"]    then api_browser_reload(res)
         when ["POST",   "/api/browser/toggle"]    then api_browser_toggle(res)
@@ -1194,6 +1195,16 @@ module Clacky
       end
       def api_browser_status(res)
         json_response(res, 200, @browser_manager.status)
+      end
+
+      # GET /api/browser/default
+      # Returns the OS-registered default browser identity so the browser-setup
+      # skill can advise the user. Reads system-level identity (plist/registry/
+      # xdg), not UA — sees through Chromium-shell browsers (e.g. 360).
+      def api_browser_default(res)
+        json_response(res, 200, @browser_manager.default_browser)
+      rescue StandardError => e
+        json_response(res, 500, { id: nil, browser: "unknown", error: e.message })
       end
 
       # POST /api/browser/configure

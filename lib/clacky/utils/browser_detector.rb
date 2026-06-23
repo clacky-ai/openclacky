@@ -39,6 +39,130 @@ module Clacky
       end
 
       # -----------------------------------------------------------------------
+      # Default browser identity (for browser-setup skill)
+      # -----------------------------------------------------------------------
+      #
+      # Reads the OS-registered default browser identity — NOT navigator.userAgent.
+      # This is the only reliable way to see through Chromium-shell browsers
+      # (360, UC, Sogou, Quark, QQ …): they spoof their UA to look like plain
+      # Chrome on third-party pages, but the system-level default-browser id they
+      # register cannot be faked (e.g. 360 registers ProgID "360seURL").
+      #
+      #   macOS → LaunchServices https handler Bundle ID  (e.g. com.google.chrome)
+      #   WSL   → Windows registry UserChoice ProgID       (e.g. ChromeHTML)
+      #   Linux → xdg-settings default-web-browser .desktop (e.g. google-chrome.desktop)
+      #
+      # The returned :browser is a coarse label the skill can act on. We do NOT
+      # block here — the browser-setup skill decides how to talk to the user.
+      #
+      # @return [Hash] { id: String|nil, browser: "chrome"|"edge"|"other"|"unknown" }
+
+      # Whitelist of genuine, CDP-automatable browsers per platform.
+      # Matched case-insensitively (macOS LaunchServices returns lowercase ids).
+      # Verified by real-machine testing: com.google.chrome, com.microsoft.edgemac,
+      # ChromeHTML, MSEdgeHTM (and 360seURL confirmed to fall outside).
+      DEFAULT_BROWSER_WHITELIST = {
+        macos: {
+          "chrome" => ["com.google.chrome"],
+          "edge"   => ["com.microsoft.edgemac"]
+        },
+        win: {
+          "chrome" => ["chromehtml"],
+          "edge"   => ["msedgehtm"]
+        },
+        linux: {
+          "chrome" => [/\Agoogle-chrome/],
+          "edge"   => [/\Amicrosoft-edge/]
+        }
+      }.freeze
+
+      # @return [Hash] { id: String|nil, browser: String }
+      def self.default_browser
+        os = EnvironmentDetector.os_type
+        id = case os
+             when :macos        then macos_default_browser_id
+             when :wsl          then win_default_browser_progid
+             when :linux        then linux_default_browser_desktop
+             end
+
+        rules =
+          case os
+          when :macos        then DEFAULT_BROWSER_WHITELIST[:macos]
+          when :wsl          then DEFAULT_BROWSER_WHITELIST[:win]
+          when :linux        then DEFAULT_BROWSER_WHITELIST[:linux]
+          end
+
+        browser = classify_default_browser(id, rules)
+        Clacky::Logger.info("[BrowserDetector] Default browser: id=#{id.inspect} → #{browser}")
+        { id: id, browser: browser }
+      end
+
+      # Match a default-browser id against a platform whitelist.
+      # @return [String] "chrome" | "edge" | "other" | "unknown"
+      private_class_method def self.classify_default_browser(id, rules)
+        return "unknown" if id.nil? || id.empty? || rules.nil?
+
+        needle = id.downcase
+        rules.each do |label, patterns|
+          patterns.each do |p|
+            matched = p.is_a?(Regexp) ? needle.match?(p) : needle == p
+            return label if matched
+          end
+        end
+        "other"
+      end
+
+      # macOS: read the https handler Bundle ID from LaunchServices.
+      # Uses `plutil -extract LSHandlers json` + Ruby JSON (no Python dependency).
+      # @return [String, nil] lowercase bundle id, e.g. "com.google.chrome"
+      private_class_method def self.macos_default_browser_id
+        plist = File.join(Dir.home,
+                          "Library", "Preferences",
+                          "com.apple.LaunchServices",
+                          "com.apple.launchservices.secure.plist")
+        return nil unless File.exist?(plist)
+
+        out, _err, st = Open3.capture3("plutil", "-extract", "LSHandlers", "json", "-o", "-", plist)
+        return nil unless st.success?
+
+        handlers = JSON.parse(out)
+        return nil unless handlers.is_a?(Array)
+
+        https = handlers.find { |h| h.is_a?(Hash) && h["LSHandlerURLScheme"] == "https" }
+        https&.dig("LSHandlerRoleAll")&.to_s&.downcase
+      rescue StandardError => e
+        Clacky::Logger.debug("[BrowserDetector] macOS default browser read failed: #{e.message}")
+        nil
+      end
+
+      # WSL: read the Windows default-browser ProgID from the registry via
+      # powershell.exe. The UserChoice key cannot be spoofed by shell browsers
+      # (360 registers "360seURL" here, fully exposed).
+      # @return [String, nil] ProgID, e.g. "ChromeHTML" / "MSEdgeHTM" / "360seURL"
+      private_class_method def self.win_default_browser_progid
+        cmd = '(Get-ItemProperty "HKCU:\SOFTWARE\Microsoft\Windows\Shell\Associations\UrlAssociations\https\UserChoice").ProgId'
+        out = Utils::Encoding.cmd_to_utf8(
+          `powershell.exe -NoProfile -Command #{Shellwords.escape(cmd)} 2>/dev/null`
+        ).strip.tr("\r\n", "")
+        out.empty? ? nil : out
+      rescue StandardError => e
+        Clacky::Logger.debug("[BrowserDetector] WSL default browser read failed: #{e.message}")
+        nil
+      end
+
+      # Linux: read the default browser .desktop name via xdg-settings.
+      # @return [String, nil] e.g. "google-chrome.desktop"
+      private_class_method def self.linux_default_browser_desktop
+        out = Utils::Encoding.cmd_to_utf8(
+          `xdg-settings get default-web-browser 2>/dev/null`
+        ).strip
+        out.empty? ? nil : out
+      rescue StandardError => e
+        Clacky::Logger.debug("[BrowserDetector] Linux default browser read failed: #{e.message}")
+        nil
+      end
+
+      # -----------------------------------------------------------------------
       # DevToolsActivePort file scan
       # -----------------------------------------------------------------------
 

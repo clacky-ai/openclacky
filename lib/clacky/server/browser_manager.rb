@@ -123,6 +123,15 @@ module Clacky
       }
     end
 
+    # Returns the OS-registered default browser identity. Delegates to
+    # BrowserDetector (which reads plist / registry / xdg — never UA, so it
+    # sees through Chromium-shell browsers). Consumed by the browser-setup
+    # skill to advise the user; this does NOT gate anything.
+    # @return [Hash] { id: String|nil, browser: "chrome"|"edge"|"other"|"unknown" }
+    def default_browser
+      Clacky::Utils::BrowserDetector.default_browser
+    end
+
     # Write browser.yml with the given config and reload the daemon.
     # Called by HttpServer POST /api/browser/configure.
     # @param chrome_version [String] detected Chrome major version
