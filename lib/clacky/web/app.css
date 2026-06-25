@@ -2271,13 +2271,16 @@ body {
   /* Sit above the next message in case text would otherwise clip beneath it. */
   z-index: 1;
 }
-.msg:hover .msg-time {
+.msg:hover .msg-time,
+.msg-user-wrap:hover .msg-time {
   opacity: 1;
   transform: translateY(0);
 }
 /* Time color / alignment: anchor to the bubble's own side, let width be
    driven by content — prevents overflow on narrow bubbles. */
-.msg-user .msg-time      { display: none; }
+/* User timestamp: appended to .msg-user-wrap (not bubble), sits below action
+   buttons, right-aligned. */
+.msg-user-wrap > .msg-time { color: var(--color-text-secondary); top: auto; bottom: 0.2rem; right: 0; left: auto; padding-right: 0.25rem; }
 .msg-assistant .msg-time { color: var(--color-text-secondary); left: 0;  right: auto; padding-left: 0.25rem; }
 
 .msg-user      { background: var(--color-accent-soft); color: var(--color-text-primary); white-space: pre-wrap; }
@@ -2289,11 +2292,11 @@ body {
   position: relative;
   display: flex;
   justify-content: flex-end;
-  padding-bottom: 1.8rem;
+  padding-bottom: 3rem;
 }
 .msg-user-actions {
   position: absolute;
-  top: calc(100% - 1.5rem + 2px);
+  bottom: 1.1rem;
   right: 0;
   display: flex;
   gap: 0.125rem;
@@ -2305,6 +2308,7 @@ body {
 .msg-user-wrap:hover .msg-user-actions { opacity: 1; pointer-events: auto; }
 .msg-user-wrap:has(.msg-user.editing) { padding-bottom: 0; }
 .msg-user-wrap:has(.msg-user.editing) .msg-user-actions { display: none; }
+.msg-user-wrap:has(.msg-user.editing) .msg-time { display: none; }
 
 .msg-user-action-btn {
   display: inline-flex;

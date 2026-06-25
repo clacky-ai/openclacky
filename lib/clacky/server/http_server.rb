@@ -5708,13 +5708,15 @@ module Clacky
         end
 
         # Broadcast user message through web_ui so channel subscribers (飞书/企微) receive it.
+        # created_at is shared with agent.run so the history entry and the bubble use the same value.
+        msg_created_at = Time.now.to_f
         web_ui = nil
         @registry.with_session(session_id) { |s| web_ui = s[:ui] }
-        web_ui&.show_user_message(content, source: :web)
+        web_ui&.show_user_message(content, created_at: msg_created_at, source: :web)
 
         # File references are now handled inside agent.run — injected as a system_injected
         # message after the user message, so replay_history skips them automatically.
-        run_agent_task(session_id, agent) { agent.run(content, files: files) }
+        run_agent_task(session_id, agent) { agent.run(content, files: files, created_at: msg_created_at) }
       end
 
       def deliver_confirmation(session_id, conf_id, result)
