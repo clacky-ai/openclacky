@@ -68,6 +68,7 @@ require_relative "clacky/message_format/bedrock"
 require_relative "clacky/bedrock_stream_aggregator"
 require_relative "clacky/openai_stream_aggregator"
 require_relative "clacky/anthropic_stream_aggregator"
+require_relative "clacky/locales/i18n"
 require_relative "clacky/client"
 require_relative "clacky/skill"
 require_relative "clacky/skill_loader"
@@ -155,7 +156,14 @@ require_relative "clacky/server/api_extension_dispatcher"
 module Clacky
   class AgentInterrupted < Exception; end  # Inherit from Exception to bypass rescue StandardError
   class AgentError < StandardError; end
-  class BadRequestError < AgentError; end  # 400 errors — our request was malformed, history should be rolled back
+  class BadRequestError < AgentError
+    attr_reader :display_message
+
+    def initialize(message, display_message: nil)
+      super(message)
+      @display_message = display_message
+    end
+  end
   class InsufficientCreditError < AgentError
     attr_reader :error_code, :provider_id
 

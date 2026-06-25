@@ -50,6 +50,7 @@ RSpec.describe Clacky::Agent, "fallback model integration" do
   before do
     # Suppress sleep in retry loops so tests run fast
     allow_any_instance_of(described_class).to receive(:sleep)
+    Thread.current[:lang] = "en"
   end
 
   # Shorthand: a successful API response with no tool calls

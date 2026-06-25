@@ -71,6 +71,7 @@ RSpec.describe Clacky::Agent, "upstream tool-call truncation recovery" do
 
   before do
     allow_any_instance_of(described_class).to receive(:sleep)
+    Thread.current[:lang] = "en"
   end
 
   # ── Detector-level unit tests (tool_call_args_truncated?) ────────────────

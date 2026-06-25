@@ -604,11 +604,24 @@ module Clacky
       return { success: true, status: response.status } if response.status == 200
 
       error_body = JSON.parse(response.body) rescue nil
+      error_code = extract_error_code(error_body)
+
+      translated = case response.status
+      when 402       then I18n.t("llm.error.insufficient_credit")
+      when 400       then I18n.t("llm.error.rate_limit_400")
+      when 401       then I18n.t("llm.error.invalid_api_key")
+      when 403       then I18n.t("llm.error.403.#{error_code || "default"}")
+      when 404       then I18n.t("llm.error.endpoint_not_found")
+      when 429       then I18n.t("llm.error.rate_limit_429")
+      when 500..599  then I18n.t("llm.error.server_error", status: response.status)
+      else                extract_error_message(error_body, response.body)
+      end
+
       {
         success:    false,
         status:     response.status,
-        error:      extract_error_message(error_body, response.body),
-        error_code: extract_error_code(error_body)
+        error:      translated,
+        error_code: error_code
       }
     end
 
@@ -626,7 +639,7 @@ module Clacky
 
       if error_code == "insufficient_credit" || response.status == 402
         raise InsufficientCreditError.new(
-          "[LLM] Insufficient credit: #{error_message}",
+          "[LLM] #{I18n.t("llm.error.insufficient_credit")}",
           error_code: "insufficient_credit",
           provider_id: @provider_id
         )
@@ -638,19 +651,25 @@ module Clacky
         # However, some proxy/relay providers do — so we inspect the message first.
         # Also, Bedrock returns ThrottlingException as 400 instead of 429.
         if error_message.match?(/ThrottlingException|unavailable|quota/i)
-          hint = error_message.match?(/quota/i) ? " (possibly out of credits)" : ""
-          raise RetryableError, "[LLM] Rate limit or service issue: #{error_message}#{hint}"
+          raise RetryableError, "[LLM] #{I18n.t("llm.error.rate_limit_400")}"
         end
 
         # True bad request — our message was malformed. Roll back history so the
         # broken message is not replayed on the next user turn.
-        raise BadRequestError, "[LLM] Client request error: #{error_message}"
-      when 401 then raise AgentError, "[LLM] Invalid API key"
-      when 403 then raise AgentError, "[LLM] Access denied: #{error_message}"
-      when 404 then raise AgentError, "[LLM] API endpoint not found: #{error_message}"
-      when 429 then raise RetryableError, "[LLM] Rate limit exceeded, please wait a moment"
-      when 500..599 then raise RetryableError, "[LLM] Service temporarily unavailable (#{response.status}), retrying..."
-      else raise AgentError, "[LLM] Unexpected error (#{response.status}): #{error_message}"
+        raise BadRequestError.new(
+          "[LLM] Client request error: #{error_message}",
+          display_message: "[LLM] #{I18n.t("llm.error.bad_request")}"
+        )
+      when 401 then raise AgentError, "[LLM] #{I18n.t("llm.error.invalid_api_key")}"
+      when 403
+        i18n_key = "llm.error.403.#{error_code}"
+        translated = I18n.t(i18n_key)
+        translated = I18n.t("llm.error.403.default") if translated == i18n_key
+        raise AgentError, "[LLM] #{translated}"
+      when 404 then raise AgentError, "[LLM] #{I18n.t("llm.error.endpoint_not_found")}"
+      when 429 then raise RetryableError, "[LLM] #{I18n.t("llm.error.rate_limit_429")}"
+      when 500..599 then raise RetryableError, "[LLM] #{I18n.t("llm.error.server_error", status: response.status)}"
+      else raise AgentError, "[LLM] #{I18n.t("llm.error.unexpected", status: response.status)}"
       end
     end
 
@@ -658,7 +677,7 @@ module Clacky
     def check_html_response(response)
       body = response.body.to_s.lstrip
       if body.start_with?("<!DOCTYPE", "<!doctype", "<html", "<HTML")
-        raise RetryableError, "[LLM] Service temporarily unavailable (received HTML error page), retrying..."
+        raise RetryableError, "[LLM] #{I18n.t("llm.error.html_response")}"
       end
     end
 

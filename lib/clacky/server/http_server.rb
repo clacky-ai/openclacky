@@ -419,6 +419,8 @@ module Clacky
         path   = req.path
         method = req.request_method
 
+        Thread.current[:lang] = req["X-Lang"].to_s.strip.then { |l| l.empty? ? nil : l }
+
         # Access key guard (skip for WebSocket upgrades)
         return unless check_access_key(req, res)
 
@@ -5550,6 +5552,7 @@ module Clacky
 
         when "message"
           session_id = msg["session_id"] || conn.session_id
+          Thread.current[:lang] = msg["lang"].to_s.strip.then { |l| l.empty? ? nil : l }
           # Merge legacy images array into files as { data_url:, name:, mime_type: } entries
           raw_images = (msg["images"] || []).map do |data_url|
             { "data_url" => data_url, "name" => "image.jpg", "mime_type" => "image/jpeg" }
@@ -5841,7 +5844,9 @@ module Clacky
 
         broadcast_session_update(session_id)
 
+        locale = Thread.current[:lang]
         thread = Thread.new do
+          Thread.current[:lang] = locale
           task.call
           @registry.update(session_id, status: :idle, error: nil)
           broadcast_session_update(session_id)
@@ -5868,10 +5873,11 @@ module Clacky
             preset = Clacky::Providers::PRESETS[e.provider_id]
             top_up_url = preset && preset["website_url"]
           end
-          @registry.update(session_id, status: :error, error: e.message, error_code: code, top_up_url: top_up_url)
+          user_message = e.respond_to?(:display_message) && e.display_message ? e.display_message : e.message
+          @registry.update(session_id, status: :error, error: user_message, error_code: code, top_up_url: top_up_url)
           broadcast_session_update(session_id)
-          web_ui&.show_error(e.message, code: code, top_up_url: top_up_url)
-          @session_manager.save(agent.to_session_data(status: :error, error_message: e.message))
+          web_ui&.show_error(user_message, code: code, top_up_url: top_up_url)
+          @session_manager.save(agent.to_session_data(status: :error, error_message: user_message))
         end
         @registry.with_session(session_id) { |s| s[:thread] = thread }
       end

@@ -3,6 +3,14 @@
 require "spec_helper"
 
 RSpec.describe Clacky::Client do
+  around do |example|
+    orig = ENV["LANG"]
+    ENV["LANG"] = "en_US.UTF-8"
+    example.run
+  ensure
+    ENV["LANG"] = orig
+  end
+
   let(:client) { described_class.new("test-key", base_url: "https://api.example.com", model: "gpt-4") }
 
   # Helper: build a fake Faraday response
