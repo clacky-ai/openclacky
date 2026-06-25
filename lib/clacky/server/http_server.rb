@@ -218,6 +218,7 @@ module Clacky
       end
 
       def start
+        @start_time = Time.now
         # One-time migration: move legacy trash contents into file-trash/ subdirectory.
         Clacky::TrashDirectory.migrate_legacy_if_needed
 
@@ -381,6 +382,12 @@ module Clacky
         # Auto-create a default session on startup
         create_default_session
 
+        # Load user-defined HTTP API extensions from ~/.clacky/api_ext/.
+        # Done here (not at gem load) so handlers can resolve session_manager
+        # and other host helpers as soon as they are wired up.
+        # The loader logs its own summary via Clacky::Logger.
+        Clacky::ApiExtensionLoader.load_all
+
         # Start the background scheduler
         @scheduler.start
         puts "   Scheduler: #{@scheduler.schedules.size} task(s) loaded"
@@ -430,6 +437,11 @@ module Clacky
         # generous 90s so retry + failover can complete without being cut short.
         timeout_sec = if path.start_with?("/api/brand")
           90
+        elsif path.start_with?(Clacky::Server::ApiExtensionDispatcher::MOUNT_PREFIX)
+          # api_ext dispatcher applies its own per-route timeout (capped at
+          # ApiExtension::MAX_TIMEOUT). Use the upper bound here so the outer
+          # guard never cuts a long-running custom handler short.
+          Clacky::ApiExtension::MAX_TIMEOUT + 30
         elsif path == "/api/tool/browser"
           30
         elsif path == "/api/exchange-rate"
@@ -468,6 +480,13 @@ module Clacky
       def _dispatch_rest(req, res)
         path   = req.path
         method = req.request_method
+
+        # User-defined HTTP API extensions live under ~/.clacky/api_ext/<name>/
+        # and mount at /api/ext/<name>/...  Routed through a separate dispatcher
+        # so the host's giant case table stays focused on built-in endpoints.
+        if path.start_with?(Clacky::Server::ApiExtensionDispatcher::MOUNT_PREFIX)
+          return if Clacky::Server::ApiExtensionDispatcher.handle(req, res, http_server: self)
+        end
 
         case [method, path]
         when ["GET",    "/api/sessions"]      then api_list_sessions(req, res)
@@ -2416,6 +2435,13 @@ module Clacky
         # even when the server is bound to a public address. This lets local
         # skills/curl talk to the server without an access key.
         return true if loopback_ip?(ip)
+
+        # Public API extension endpoints (declared via public_endpoint + meta.yml
+        # public:true) are intentionally exposed without auth — used for
+        # third-party webhooks where the extension does its own signature check.
+        if Clacky::Server::ApiExtensionDispatcher.public_path?(req.path, req.request_method)
+          return true
+        end
 
         candidate = extract_key(req)
 

@@ -515,6 +515,12 @@ module Clacky
       end
     end
 
+    def reset_connections!
+      @bedrock_connection = nil
+      @openai_connection = nil
+      @anthropic_connection = nil
+    end
+
     def bedrock_connection
       current_epoch = Clacky::ProxyConfig.epoch
       if @bedrock_connection.nil? ||

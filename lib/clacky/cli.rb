@@ -268,8 +268,9 @@ module Clacky
           config.save
         end
 
-        # Refresh UI bar
+        # Refresh UI bar and model list
         ui_controller.config[:model] = config.model_name
+        ui_controller.available_models = config.model_names
         ui_controller.update_sessionbar(
           tasks: agent.total_tasks,
           cost: agent.total_cost
@@ -836,11 +837,12 @@ module Clacky
             say "Error: Rich UI requires Ruby >= 2.6. Use --ui ui2 on Ruby #{RUBY_VERSION}.", :red
             exit 1
           end
-          require_relative "rich_ui_controller"
+          require_relative "rich_ui"
           RichUIController.new(
             working_dir: working_dir,
             mode: agent_config.permission_mode.to_s,
             model: agent_config.model_name,
+            model_names: agent_config.model_names,
             theme: options[:theme]
           )
         else
@@ -901,6 +903,21 @@ module Clacky
           agent_config.permission_mode = new_mode.to_sym
         end
 
+        # Set up model switch handler (from /model slash command)
+        ui_controller.on_model_switch do |model, persist|
+          next unless agent_config.switch_model_by_name(model)
+
+          id = agent_config.current_model_id
+          agent.switch_model_by_id(id)
+          if persist
+            agent_config.set_default_model_by_id(id)
+            agent_config.save
+            ui_controller.show_success("Model switched to #{model} (saved)")
+          else
+            ui_controller.show_success("Model switched to #{model} (session only)")
+          end
+        end
+
         # Set up time machine handler (ESC key)
         ui_controller.on_time_machine do
           handle_time_machine_command(ui_controller, agent, session_manager)
@@ -921,6 +938,16 @@ module Clacky
           end
 
           if (not current_task_thread&.alive?) && input_was_empty
+            # Rich UI: require double-tap Ctrl+C to exit.  When the user
+            # just copied terminal-native text selection, the viewport
+            # has no knowledge of the selection, yet Ctrl+C must not exit.
+            # First press only sets the warning; second press exits.
+            if ui_controller.respond_to?(:ctrl_c_warning) && !ui_controller.ctrl_c_warning
+              ui_controller.instance_variable_set(:@ctrl_c_warning, "Press Ctrl+C again to exit")
+              ui_controller.set_input_tips("Press Ctrl+C again to exit.", type: :info)
+              next
+            end
+
             # Save final session state before exit
             if session_manager && agent.total_tasks > 0
               session_data = agent.to_session_data(status: :exited)
@@ -1038,7 +1065,13 @@ module Clacky
               # Update session bar with agent's cumulative stats
               ui_controller.update_sessionbar(tasks: agent.total_tasks, cost: agent.total_cost)
             rescue Clacky::AgentInterrupted, StandardError => e
-              handle_agent_exception(ui_controller, agent, session_manager, e)
+              begin
+                handle_agent_exception(ui_controller, agent, session_manager, e)
+              rescue StandardError => ex
+                # If handle_agent_exception itself raises (e.g. UI in bad state),
+                # prevent the thread from dying with an unhandled exception.
+                $stderr.puts "[cli] handle_agent_exception failed: #{ex.class}: #{ex.message}"
+              end
             ensure
               current_task_thread = nil
               # Start idle timer after agent completes
@@ -1179,6 +1212,63 @@ module Clacky
       result.loaded.each { |n| puts "[OK]   #{n}" }
       result.skipped.each { |(n, reason)| puts "[SKIP] #{n} — #{reason}" }
       exit 1 if result.skipped.any?
+    end
+
+    desc "api_ext_new NAME", "Scaffold a custom HTTP API extension at ~/.clacky/api_ext/NAME/"
+    long_desc <<-LONGDESC
+      Generate a ready-to-edit HTTP API extension skeleton. The skeleton mounts
+      a sample route under /api/ext/NAME/ — fill in your routes, then verify with
+      `clacky api_ext_verify`.
+
+      Examples:
+        $ clacky api_ext_new my-dashboard
+    LONGDESC
+    def api_ext_new(name)
+      path = Clacky::ApiExtensionLoader.scaffold(name)
+      puts "Created api extension: #{path}"
+      puts "Edit the routes, then run: clacky api_ext_verify"
+    rescue ArgumentError => e
+      warn "Error: #{e.message}"
+      exit 1
+    end
+
+    desc "api_ext_verify", "Load user API extensions and report which are valid"
+    def api_ext_verify
+      result = Clacky::ApiExtensionLoader.load_all
+
+      if result.loaded.empty? && result.skipped.empty?
+        puts "No api extensions found in ~/.clacky/api_ext/"
+        return
+      end
+
+      result.loaded.each do |id|
+        klass = Clacky::ApiExtension.registry[id]
+        public_count = klass.public_paths.size
+        suffix = public_count > 0 ? " (#{public_count} public)" : ""
+        puts "[OK]   #{id} — #{klass.routes.size} route(s)#{suffix}"
+      end
+      result.skipped.each { |(n, reason)| puts "[SKIP] #{n} — #{reason}" }
+      exit 1 if result.skipped.any?
+    end
+
+    desc "api_ext_list", "List loaded API extensions and their routes"
+    def api_ext_list
+      Clacky::ApiExtensionLoader.load_all if Clacky::ApiExtension.registry.empty?
+
+      if Clacky::ApiExtension.registry.empty?
+        puts "No api extensions loaded."
+        return
+      end
+
+      Clacky::ApiExtension.registry.each do |id, klass|
+        public_tag = klass.public_paths.any? ? " (public)" : ""
+        puts "#{id}#{public_tag}"
+        klass.routes.each do |route|
+          full_path = "/api/ext/#{id}#{route.pattern}".chomp("/")
+          full_path = "/api/ext/#{id}/" if full_path == "/api/ext/#{id}"
+          puts "  #{route.method.to_s.upcase.ljust(6)} #{full_path}"
+        end
+      end
     end
 
     desc "billing", "Show billing summary and usage statistics"

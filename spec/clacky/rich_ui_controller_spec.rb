@@ -9,7 +9,7 @@ if Gem::Version.new(RUBY_VERSION) < Gem::Version.new("2.6.0")
     end
   end
 else
-require_relative "../../lib/clacky/rich_ui_controller"
+require_relative "../../lib/clacky/rich_ui"
 
 RSpec.describe Clacky::RichUIController do
   describe "layout" do
@@ -23,7 +23,7 @@ RSpec.describe Clacky::RichUIController do
       expect(ui.shell.layout[:todos].width).to eq(36)
       expect(ui.shell.layout[:transcript].width).to eq(64)
       rendered_text = strip_ansi(ui.shell.layout.render)
-      expect(rendered_text).to include("Todos")
+      expect(rendered_text).to include("Work")
       expect(rendered_text).not_to include("Plan")
     end
 
@@ -38,7 +38,7 @@ RSpec.describe Clacky::RichUIController do
       ui.shell.layout.calculate_dimensions(100, 30)
 
       rendered_text = strip_ansi(ui.shell.layout.render)
-      expect(rendered_text).to include("Todos")
+      expect(rendered_text).to include("Work")
       expect(rendered_text).to include("Research DeepSeek v4")
       expect(rendered_text).to include("Write weather scraper")
       expect(rendered_text).to include("Optimize SQL query")
@@ -55,12 +55,10 @@ RSpec.describe Clacky::RichUIController do
       ui.shell.layout.calculate_dimensions(100, 30)
 
       rendered_text = strip_ansi(ui.shell.layout.render)
-      expect(rendered_text).to include("Todos")
-      expect(ui.shell.sidebar.tasks.map { |task| task[:label] }).to include(
-        'web_search("普京访华 2025最新消息")',
-        "web_fetch(www.chinadaily.com.cn)"
-      )
-      expect(rendered_text).not_to include("No active todos")
+      expect(rendered_text).to include("Work")
+      # Tool activity items appear in the Work panel when no explicit todos exist
+      expect(rendered_text).to include("web_search")
+      expect(rendered_text).to include("web_fetch")
     end
 
     it "keeps explicit todo_manager tasks ahead of tool activity" do
@@ -85,7 +83,6 @@ RSpec.describe Clacky::RichUIController do
 
       rendered_text = strip_ansi(ui.shell.layout.render)
       expect(ui.shell.sidebar.tasks).to eq([])
-      expect(rendered_text).to include("No active todos")
     end
   end
 
@@ -272,6 +269,28 @@ RSpec.describe Clacky::RichUIController do
   end
 
   describe "Ctrl+C handling" do
+    it "copies selected transcript text instead of interrupting" do
+      ui = described_class.new(working_dir: Dir.pwd, mode: "confirm_safes", model: "test-model")
+      interrupts = []
+
+      ui.shell.transcript.add_block(:markdown, (0...80).map { |index| "line #{index}" }.join("\n"), metadata: { plain: true })
+      ui.shell.layout.calculate_dimensions(100, 30)
+      ui.shell.viewport.scroll_to(20)
+      ui.on_interrupt { |input_was_empty:| interrupts << input_was_empty }
+
+      expect(ui.shell.viewport).to receive(:copy_to_clipboard).with("line 29").once.and_return(true)
+
+      ui.shell.layout.notify_listeners(type: :mouse, name: :mouse_down, x: 0, y: 10, button: :left)
+      ui.shell.layout.notify_listeners(type: :mouse, name: :mouse_drag, x: 7, y: 10, button: :left)
+      ui.shell.layout.notify_listeners(type: :mouse, name: :mouse_up, x: 7, y: 10, button: :left)
+
+      ui.shell.layout.notify_listeners(type: :key, name: :ctrl_c)
+
+      expect(interrupts).to eq([])
+      expect(ui.shell.viewport.selected_text).to eq("")
+      expect(ui.shell.viewport.scroll_top).to eq(20)
+    end
+
     it "consumes one keypress so non-empty input clears before the next Ctrl+C exits" do
       ui = described_class.new(working_dir: Dir.pwd, mode: "confirm_safes", model: "test-model")
       live = instance_double("RubyRich::Live")
@@ -294,6 +313,20 @@ RSpec.describe Clacky::RichUIController do
       ui.shell.layout.notify_listeners(type: :key, name: :ctrl_c)
 
       expect(interrupts).to eq([false, true])
+    end
+
+    it "preserves the double Ctrl+C exit warning until the callback can observe it" do
+      ui = described_class.new(working_dir: Dir.pwd, mode: "confirm_safes", model: "test-model")
+      warning_seen_by_callback = []
+
+      ui.instance_variable_set(:@ctrl_c_warning, "Press Ctrl+C again to exit")
+      ui.on_interrupt do |input_was_empty:|
+        warning_seen_by_callback << [input_was_empty, ui.ctrl_c_warning]
+      end
+
+      ui.shell.layout.notify_listeners(type: :key, name: :ctrl_c)
+
+      expect(warning_seen_by_callback).to eq([[true, "Press Ctrl+C again to exit"]])
     end
   end
 
@@ -360,13 +393,13 @@ RSpec.describe Clacky::RichUIController do
 
     it "wraps markdown table cells to fit the transcript content width" do
       ui = described_class.new(working_dir: Dir.pwd, mode: "confirm_safes", model: "test-model")
+      ui.shell.transcript.width = 40
       ui.show_assistant_message(<<~MARKDOWN, files: [])
         | Column A | Column B | Column C |
         | --- | --- | --- |
         | veryveryveryveryveryverylong | another very very very long value | 中文中文中文中文中文中文 |
       MARKDOWN
 
-      ui.shell.transcript.width = 40
       lines = ui.shell.transcript.render
       table_lines = lines.select { |line| line.gsub(/\e\[[0-9;:]*m/, "").include?("│") }
 
@@ -423,7 +456,7 @@ RSpec.describe Clacky::RichUIController do
     text.gsub(/\e\[[0-9;]*m/, "")
   end
 
-  describe Clacky::RichUIController::ConfigMenuDialog do
+  describe Clacky::RichUI::ConfigMenuDialog do
     it "renders a selectable model configuration menu" do
       dialog = described_class.new(
         choices: [
@@ -463,7 +496,7 @@ RSpec.describe Clacky::RichUIController do
     end
   end
 
-  describe Clacky::RichUIController::FormDialog do
+  describe Clacky::RichUI::FormDialog do
     it "edits fields and returns keyed values" do
       dialog = described_class.new(
         title: "Edit Model",

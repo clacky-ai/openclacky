@@ -47,6 +47,7 @@ module Clacky
         @input_callback = nil
         @interrupt_callback = nil
         @time_machine_callback = nil
+        @model_switch_callback = nil
         @tasks_count = 0
         @total_cost = 0.0
         @session_id = nil
@@ -190,6 +191,12 @@ module Clacky
       # @param block [Proc] Callback to execute on time machine
       def on_time_machine(&block)
         @time_machine_callback = block
+      end
+
+      # Set callback for model switch (from /model slash command)
+      # @param block [Proc] Callback to execute on model switch
+      def on_model_switch(&block)
+        @model_switch_callback = block
       end
 
       # Set agent for command suggestions

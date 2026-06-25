@@ -247,6 +247,8 @@ RSpec.describe "HttpServer access key authentication" do
       allow(req).to receive(:[]).and_return("")
       allow(req).to receive(:query_string).and_return("")
       allow(req).to receive(:cookies).and_return([])
+      allow(req).to receive(:path).and_return("/api/test")
+      allow(req).to receive(:request_method).and_return("GET")
       req
     end
 

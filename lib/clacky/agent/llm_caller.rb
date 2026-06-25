@@ -204,8 +204,14 @@ module Clacky
             raise AgentError, "[LLM] Request timed out after #{max_retries} retries: #{e.message}"
           end
 
-        rescue Faraday::ConnectionFailed, Faraday::SSLError, Errno::ECONNREFUSED, Errno::ETIMEDOUT => e
+        rescue Faraday::ConnectionFailed, Faraday::SSLError, Errno::ECONNREFUSED, Errno::ETIMEDOUT, Errno::EPIPE => e
           retries += 1
+
+          # Errno::EPIPE means the underlying TCP socket is dead (server closed the
+          # connection after idle time). The Faraday connection object caches the
+          # socket, so retrying without resetting it would hit the same dead socket.
+          epipe = e.is_a?(Errno::EPIPE) || (e.respond_to?(:wrapped_exception) && e.wrapped_exception.is_a?(Errno::EPIPE))
+          @client.reset_connections! if epipe
 
           # Probing failure: primary still down — renew cooling-off and retry with fallback.
           if @config.probing?

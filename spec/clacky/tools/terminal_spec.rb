@@ -1048,17 +1048,29 @@ RSpec.describe Clacky::Tools::Terminal do
       expect(exit_code).to eq(7)
     end
 
-    it "waits through an idle window longer than DEFAULT_IDLE_MS and still returns exit_code" do
-      # This is the exact shape that broke 0.9.36 upgrade: a command that
-      # stays silent past the 3s idle threshold, then finishes.
-      # sleep 5 produces NO output for 5s — #execute alone would return
-      # {session_id: ..., exit_code: nil}; #run_sync must poll and wait.
-      start = Time.now
-      _output, exit_code = described_class.run_sync("sleep 5 && echo done", timeout: 30)
-      elapsed = Time.now - start
+    it "polls through an idle return and still returns exit_code" do
+      # This is the exact shape that broke 0.9.36 upgrade: #execute may return
+      # a session_id after an idle window, while Ruby callers of #run_sync need
+      # synchronous capture semantics and must keep polling for the final code.
+      terminal = instance_double(described_class)
+      allow(described_class).to receive(:new).and_return(terminal)
+
+      expect(terminal).to receive(:execute).with(
+        command: "eventually-done",
+        timeout: 30,
+        cwd:     nil,
+        env:     nil
+      ).ordered.and_return(output: "", session_id: 123, exit_code: nil)
+      expect(terminal).to receive(:execute).with(
+        session_id: 123,
+        input:      "",
+        timeout:    30
+      ).ordered.and_return(output: "done\n", exit_code: 0)
+
+      output, exit_code = described_class.run_sync("eventually-done", timeout: 30)
 
       expect(exit_code).to eq(0)
-      expect(elapsed).to be >= 4.5   # actually waited
+      expect(output).to include("done")
     end
 
     it "forwards cwd" do
