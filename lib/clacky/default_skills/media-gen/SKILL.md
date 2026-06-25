@@ -59,7 +59,8 @@ curl -s -X POST http://${CLACKY_SERVER_HOST}:${CLACKY_SERVER_PORT}/api/media/ima
   -H "Content-Type: application/json" \
   -d '{
     "prompt": "A clean, modern hero illustration for a tech startup landing page. Soft gradient background, abstract geometric shapes in blue and purple, minimal style, 4K quality.",
-    "aspect_ratio": "landscape"
+    "aspect_ratio": "landscape",
+    "output_dir": "'"$(pwd)"'"
   }'
 ```
 
@@ -73,7 +74,7 @@ curl -s -X POST http://${CLACKY_SERVER_HOST}:${CLACKY_SERVER_PORT}/api/media/ima
 |----------------|----------|-------------------------------------|-------|
 | `prompt`       | yes      | string                              | Be detailed and concrete. See prompt tips below. |
 | `aspect_ratio` | no       | `landscape` / `square` / `portrait` | Defaults to `landscape`. |
-| `output_dir`   | no       | absolute path                       | Defaults to the current working directory. The image is saved under `<output_dir>/assets/generated/`. |
+| `output_dir`   | yes      | absolute path                       | Always pass `$(pwd)` so files land in the current session workspace. The image is saved under `<output_dir>/assets/generated/`. |
 | `image`        | no       | file path / base64 / data URL       | A single input image to **edit**. Triggers image-edit mode (see below). |
 | `images`       | no       | array of the above                  | Multiple input images for a multi-image edit. Takes precedence over `image`. |
 
@@ -204,7 +205,8 @@ curl -s -X POST http://${CLACKY_SERVER_HOST}:${CLACKY_SERVER_PORT}/api/media/vid
   -d '{
     "prompt": "A cinematic drone shot flying over a misty mountain range at sunrise, golden light, 4K.",
     "aspect_ratio": "landscape",
-    "duration_seconds": 8
+    "duration_seconds": 8,
+    "output_dir": "'"$(pwd)"'"
   }'
 ```
 
@@ -214,7 +216,7 @@ curl -s -X POST http://${CLACKY_SERVER_HOST}:${CLACKY_SERVER_PORT}/api/media/vid
 | `aspect_ratio`     | no       | `landscape` / `portrait`        | Defaults to `landscape` (16:9). |
 | `duration_seconds` | no       | 4–8                             | Defaults to 8. |
 | `image`            | no       | `{ "b64_json": "...", "mime_type": "image/png" }` | Optional first frame for image-to-video. |
-| `output_dir`       | no       | absolute path                   | MP4 saved under `<output_dir>/assets/generated/`. |
+| `output_dir`       | yes      | absolute path                   | Always pass `$(pwd)` so files land in the current session workspace. MP4 saved under `<output_dir>/assets/generated/`. |
 
 ### Response (success)
 
@@ -262,7 +264,8 @@ curl -s -X POST http://${CLACKY_SERVER_HOST}:${CLACKY_SERVER_PORT}/api/media/aud
   -H "Content-Type: application/json" \
   -d '{
     "input": "Hello and welcome to openclacky. Today we will explore...",
-    "voice": "Kore"
+    "voice": "Kore",
+    "output_dir": "'"$(pwd)"'"
   }'
 ```
 
@@ -270,7 +273,7 @@ curl -s -X POST http://${CLACKY_SERVER_HOST}:${CLACKY_SERVER_PORT}/api/media/aud
 |--------------|----------|---------------------------------|-------|
 | `input`      | yes      | string                          | The text to speak. Plain prose works best; you can prefix with style cues like "Say cheerfully:" or "In a calm tone:". |
 | `voice`      | no       | string voice name               | Defaults to `Kore`. Common Gemini voices: `Kore`, `Puck`, `Charon`, `Fenrir`, `Aoede`. |
-| `output_dir` | no       | absolute path                   | WAV saved under `<output_dir>/assets/generated/`. |
+| `output_dir` | yes      | absolute path                   | Always pass `$(pwd)` so files land in the current session workspace. WAV saved under `<output_dir>/assets/generated/`. |
 
 Generation typically takes 2–10 seconds depending on length. The request
 blocks until the WAV is ready.
