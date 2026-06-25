@@ -12123,16 +12123,3 @@ body.setup-mode[data-theme="dark"] {
   }
 }
 
-/* ════ Media output directory subsection (nested under #media-section) ════ */
-#media-output-dir-section.settings-subsection {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  max-width: 48rem;
-}
-#media-output-dir-section .settings-subsection-desc {
-  font-size: 0.8125rem;
-  color: var(--color-text-secondary);
-  line-height: 1.5;
-  margin: 0;
-}

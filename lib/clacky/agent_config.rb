@@ -165,8 +165,7 @@ module Clacky
                   :memory_update_enabled, :skill_evolution,
                   :max_running_agents, :max_idle_agents,
                   :default_working_dir,
-                  :proxy_url,
-                  :media_output_dir
+                  :proxy_url
 
     def initialize(options = {})
       @permission_mode = validate_permission_mode(options[:permission_mode])
@@ -223,15 +222,6 @@ module Clacky
       # ignored — set proxy_url here to route Clacky's outbound HTTP through
       # a proxy. Leave nil to go direct.
       @proxy_url = options[:proxy_url]
-
-      # User-configured directory where generated images / videos / audio
-      # land when a /api/media/* call doesn't pass an explicit output_dir.
-      # Final on-disk path is `<media_output_dir>/assets/generated/<file>`
-      # (the `assets/generated/` suffix is fixed by Media::Base for stable
-      # markdown/relative-path semantics across docs).
-      # Leave nil → fall back to Dir.pwd (legacy behavior, preserved for
-      # older configs that have no key set).
-      @media_output_dir = options[:media_output_dir]
 
       # Per-session virtual model overlay.
       # When set, #current_model returns a *merged* hash (the resolved @models
@@ -425,7 +415,6 @@ module Clacky
       skill_evolution max_running_agents max_idle_agents
       default_working_dir
       proxy_url
-      media_output_dir
     ].freeze
 
     # Serialize the current agent configuration to YAML.
@@ -445,8 +434,7 @@ module Clacky
         "max_running_agents" => @max_running_agents,
         "max_idle_agents" => @max_idle_agents,
         "default_working_dir" => @default_working_dir,
-        "proxy_url" => @proxy_url,
-        "media_output_dir" => @media_output_dir
+        "proxy_url" => @proxy_url
       }
       YAML.dump("settings" => settings, "models" => persistable_models)
     end

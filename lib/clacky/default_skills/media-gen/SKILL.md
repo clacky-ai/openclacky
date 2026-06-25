@@ -73,7 +73,7 @@ curl -s -X POST http://${CLACKY_SERVER_HOST}:${CLACKY_SERVER_PORT}/api/media/ima
 |----------------|----------|-------------------------------------|-------|
 | `prompt`       | yes      | string                              | Be detailed and concrete. See prompt tips below. |
 | `aspect_ratio` | no       | `landscape` / `square` / `portrait` | Defaults to `landscape`. |
-| `output_dir`   | no       | absolute path                       | Per-call override. When omitted, falls back to the user's `media_output_dir` setting (Settings → Models → Media Output Directory), then to the working directory. The image is always saved into the `assets/generated/` subdirectory of whichever path is used. |
+| `output_dir`   | no       | absolute path                       | Defaults to the current working directory. The image is saved under `<output_dir>/assets/generated/`. |
 | `image`        | no       | file path / base64 / data URL       | A single input image to **edit**. Triggers image-edit mode (see below). |
 | `images`       | no       | array of the above                  | Multiple input images for a multi-image edit. Takes precedence over `image`. |
 
@@ -214,7 +214,7 @@ curl -s -X POST http://${CLACKY_SERVER_HOST}:${CLACKY_SERVER_PORT}/api/media/vid
 | `aspect_ratio`     | no       | `landscape` / `portrait`        | Defaults to `landscape` (16:9). |
 | `duration_seconds` | no       | 4–8                             | Defaults to 8. |
 | `image`            | no       | `{ "b64_json": "...", "mime_type": "image/png" }` | Optional first frame for image-to-video. |
-| `output_dir`       | no       | absolute path                   | Per-call override; same fallback chain as `image` (user setting → cwd). MP4 saved into the `assets/generated/` subdirectory of whichever path is used. |
+| `output_dir`       | no       | absolute path                   | MP4 saved under `<output_dir>/assets/generated/`. |
 
 ### Response (success)
 

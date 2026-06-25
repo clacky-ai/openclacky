@@ -502,8 +502,6 @@ module Clacky
         when ["POST",   "/api/config/test"]   then api_test_config(req, res)
         when ["POST",   "/api/config/media/test"] then api_test_media_config(req, res)
         when ["GET",    "/api/config/media"]  then api_get_media_config(res)
-        when ["GET",    "/api/config/media-output-dir"]   then api_get_media_output_dir(res)
-        when ["PATCH",  "/api/config/media-output-dir"]   then api_update_media_output_dir(req, res)
         when ["GET",    "/api/config/ocr"]    then api_get_ocr_config(res)
         when ["PATCH",  "/api/config/ocr"]    then api_update_ocr_config(req, res)
         when ["POST",   "/api/config/ocr/test"] then api_test_ocr_config(req, res)
@@ -1321,11 +1319,8 @@ module Clacky
 
         aspect_ratio = body["aspect_ratio"].to_s
         aspect_ratio = "landscape" if aspect_ratio.empty?
-        output_dir   = Clacky::Media::OutputDir.resolve(
-          param:      body["output_dir"],
-          configured: @agent_config.media_output_dir,
-          fallback:   @agent_config.default_working_dir || Dir.pwd
-        )
+        output_dir   = body["output_dir"].to_s
+        output_dir   = @agent_config.default_working_dir || Dir.pwd if output_dir.empty?
 
         result = Clacky::Media::Generator.new(@agent_config).generate_image(
           prompt: prompt,
@@ -1356,11 +1351,8 @@ module Clacky
         aspect_ratio = "landscape" if aspect_ratio.empty?
         duration     = body["duration_seconds"]
         image        = body["image"]
-        output_dir   = Clacky::Media::OutputDir.resolve(
-          param:      body["output_dir"],
-          configured: @agent_config.media_output_dir,
-          fallback:   @agent_config.default_working_dir || Dir.pwd
-        )
+        output_dir   = body["output_dir"].to_s
+        output_dir   = @agent_config.default_working_dir || Dir.pwd if output_dir.empty?
 
         result = Clacky::Media::Generator.new(@agent_config).generate_video(
           prompt: prompt,
@@ -1388,11 +1380,8 @@ module Clacky
         end
 
         voice      = body["voice"]
-        output_dir = Clacky::Media::OutputDir.resolve(
-          param:      body["output_dir"],
-          configured: @agent_config.media_output_dir,
-          fallback:   @agent_config.default_working_dir || Dir.pwd
-        )
+        output_dir = body["output_dir"].to_s
+        output_dir = @agent_config.default_working_dir || Dir.pwd if output_dir.empty?
 
         result = Clacky::Media::Generator.new(@agent_config).generate_speech(
           input: input,
@@ -4811,83 +4800,6 @@ module Clacky
         json_response(res, 422, { error: e.message })
       end
 
-      # GET /api/config/media-output-dir
-      # Returns the user-configured directory under which generated media
-      # files (images / videos / audio) are persisted, plus the default
-      # the system would use if the value is empty. The frontend uses
-      # `default` as a placeholder hint.
-      def api_get_media_output_dir(res)
-        json_response(res, 200, {
-          ok:      true,
-          value:   @agent_config.media_output_dir.to_s,
-          default: default_media_output_dir
-        })
-      end
-
-      # PATCH /api/config/media-output-dir
-      # Body: { "value": "<absolute or ~-prefixed path, or empty to clear>" }
-      # Empty / blank value clears the override, restoring the legacy
-      # fallback (default_working_dir → Dir.pwd) for new generations.
-      def api_update_media_output_dir(req, res)
-        body = parse_json_body(req)
-        return json_response(res, 400, { error: "Invalid JSON" }) unless body
-
-        raw = body["value"].to_s.strip
-        if raw.empty?
-          @agent_config.media_output_dir = nil
-          @agent_config.save
-          return json_response(res, 200, {
-            ok:      true,
-            value:   "",
-            default: default_media_output_dir
-          })
-        end
-
-        expanded = File.expand_path(raw)
-
-        # Reject anything that's not an absolute path after `~` expansion.
-        # Relative paths would silently resolve against the server's CWD,
-        # which is exactly the source of confusion this setting exists to fix.
-        unless expanded.start_with?("/")
-          return json_response(res, 422, {
-            error: "media_output_dir must be an absolute path or start with ~"
-          })
-        end
-
-        # Create the directory if missing; surface filesystem errors plainly
-        # so the user can fix permissions / typo without reading server logs.
-        begin
-          FileUtils.mkdir_p(expanded)
-        rescue Errno::EACCES, Errno::EROFS, Errno::ENOSPC, Errno::ENOTDIR => e
-          return json_response(res, 422, {
-            error: "cannot create directory: #{e.message}"
-          })
-        end
-
-        unless File.writable?(expanded)
-          return json_response(res, 422, {
-            error: "directory is not writable: #{expanded}"
-          })
-        end
-
-        @agent_config.media_output_dir = expanded
-        @agent_config.save
-        json_response(res, 200, {
-          ok:      true,
-          value:   expanded,
-          default: default_media_output_dir
-        })
-      rescue => e
-        json_response(res, 422, { error: e.message })
-      end
-
-      # The path the resolver would pick if media_output_dir is blank.
-      # Mirrors the fallback chain inside Clacky::Media::OutputDir.resolve so
-      # the frontend can render it as a placeholder hint (no second source
-      # of truth — both call sites read default_working_dir).
-      private def default_media_output_dir
-        @agent_config.default_working_dir.to_s.empty? ? Dir.pwd : @agent_config.default_working_dir
-      end
       # DEPRECATED: this endpoint previously accepted the entire models array
       # and replaced @models in place. That design was fragile — any missing
       # or stale field on ANY row could wipe other rows' api_keys. It has
