@@ -34,11 +34,6 @@ module Clacky
       # some OpenRouter-compatible relays only honour Bearer — send both).
       @provider_id = provider_id
 
-      # Determine vision support once at construction time.
-      # Non-vision models (DeepSeek, Kimi, MiniMax, etc.) reject image_url
-      # content blocks; the conversion layer strips them when this is false.
-      @vision_supported = Providers.supports?(provider_id, :vision, model_name: @model)
-
       # Optional override for Faraday read_timeout (e.g. benchmark calls).
       # nil means use the default (300s for streaming).
       @read_timeout = read_timeout
@@ -343,9 +338,12 @@ module Clacky
       # OpenRouter proxies Claude with the same cache_control field convention as Anthropic direct.
       messages = apply_message_caching(messages) if caching_enabled
 
+      # Vision support is resolved against the request's actual model (which may
+      # differ from @model after a runtime switch or fallback override), so the
+      # conversion layer strips image_url blocks for non-vision models.
       body = MessageFormat::OpenAI.build_request_body(
         messages, model, tools, max_tokens, caching_enabled,
-        vision_supported: @vision_supported,
+        vision_supported: Providers.supports?(@provider_id, :vision, model_name: model),
         reasoning_effort: reasoning_effort
       )
       return send_openai_stream_request(body, on_chunk) if on_chunk
