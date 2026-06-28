@@ -6999,6 +6999,10 @@ body {
 .code-editor-status-error {
   color: var(--color-error, #c0392b);
 }
+.code-editor-save--saved {
+  background: var(--color-success, #10b981) !important;
+  border-color: var(--color-success, #10b981) !important;
+}
 .code-editor-actions {
   display: flex;
   gap: 0.5rem;
