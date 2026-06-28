@@ -6979,10 +6979,10 @@ body {
   background: var(--color-bg-hover);
 }
 .code-editor-body .cm-activeLine {
-  background: var(--color-bg-hover);
+  background: color-mix(in srgb, var(--color-bg-hover) 60%, transparent);
 }
 .code-editor-body .cm-selectionBackground {
-  background: color-mix(in srgb, var(--color-accent-primary) 20%, transparent) !important;
+  background: color-mix(in srgb, var(--color-accent-primary) 40%, transparent) !important;
 }
 .code-editor-footer {
   display: flex;
