@@ -78,6 +78,73 @@ RSpec.describe Clacky::Utils::Encoding do
     end
   end
 
+  describe ".pty_to_utf8" do
+    context "with nil or empty input" do
+      it "returns empty string for nil" do
+        expect(described_class.pty_to_utf8(nil)).to eq("")
+      end
+
+      it "returns empty string for empty string" do
+        expect(described_class.pty_to_utf8("")).to eq("")
+      end
+    end
+
+    context "with UTF-8 bytes (Linux/macOS and modern programs)" do
+      it "decodes UTF-8 Chinese unchanged" do
+        result = described_class.pty_to_utf8("你好，世界".encode("UTF-8").b)
+        expect(result.encoding).to eq(Encoding::UTF_8)
+        expect(result).to eq("你好，世界")
+      end
+
+      it "passes ASCII through unchanged" do
+        result = described_class.pty_to_utf8("Hello World\n".b)
+        expect(result).to eq("Hello World\n")
+      end
+
+      it "preserves multibyte emoji" do
+        expect(described_class.pty_to_utf8("OK 完成 ✓".encode("UTF-8").b)).to eq("OK 完成 ✓")
+      end
+    end
+
+    context "with GBK bytes (Simplified Chinese Windows powershell.exe / cmd.exe)" do
+      # Real bytes captured from `powershell.exe -Command "Write-Host '你好，世界'"`
+      # on a CP936 host: c4e3 bac3 a3ac cac0 bde7
+      let(:gbk_greeting) do
+        [0xC4, 0xE3, 0xBA, 0xC3, 0xA3, 0xAC, 0xCA, 0xC0, 0xBD, 0xE7].pack("C*").b
+      end
+
+      it "falls back to GBK and decodes correctly" do
+        result = described_class.pty_to_utf8(gbk_greeting)
+        expect(result.encoding).to eq(Encoding::UTF_8)
+        expect(result).to eq("你好，世界")
+      end
+
+      it "decodes a GBK line with trailing CRLF (cmd.exe form)" do
+        bytes = gbk_greeting + [0x0D, 0x0A].pack("C*").b
+        result = described_class.pty_to_utf8(bytes)
+        expect(result).to eq("你好，世界\r\n")
+      end
+    end
+
+    context "with genuinely invalid bytes" do
+      it "scrubs unrepresentable sequences rather than raising" do
+        raw = [0xFF, 0xFE, 0xFD].pack("C*").b
+        expect { described_class.pty_to_utf8(raw) }.not_to raise_error
+        expect(described_class.pty_to_utf8(raw).encoding).to eq(Encoding::UTF_8)
+      end
+    end
+
+    context "line-based slicing never splits a multibyte char (PTY \\n boundary)" do
+      it "decodes each GBK line correctly when split on \\n" do
+        line = [0xC4, 0xE3, 0xBA, 0xC3].pack("C*").b   # 你好 in GBK
+        stream = line + "\n".b + line + "\n".b
+        decoded = stream.split("\n".b, -1).map { |seg| described_class.pty_to_utf8(seg) }
+        expect(decoded[0]).to eq("你好")
+        expect(decoded[1]).to eq("你好")
+      end
+    end
+  end
+
   describe "code audit: all backtick command calls must be wrapped with cmd_to_utf8 or to_utf8" do
     # Core lib files only — exclude default_skills (deploy/channel scripts run in controlled envs)
     CORE_SOURCE_FILES = (

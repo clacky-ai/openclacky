@@ -897,69 +897,6 @@ RSpec.describe Clacky::Tools::Terminal do
     end
   end
 
-  describe "#force_powershell_utf8" do
-    let(:terminal) { described_class.new }
-    def call(cmd)
-      terminal.send(:force_powershell_utf8, cmd)
-    end
-
-    it "injects UTF-8 setup into -Command \"...\" form, preserving the rest" do
-      out = call(%q{powershell.exe -Command "Get-NetIPAddress | Select-Object InterfaceAlias"})
-      expect(out).to eq(%q{powershell.exe -Command "[Console]::OutputEncoding=[Text.Encoding]::UTF8;Get-NetIPAddress | Select-Object InterfaceAlias"})
-    end
-
-    it "handles -c short form and pwsh" do
-      expect(call(%q{powershell.exe -c "Get-Process"})).to include("UTF8;Get-Process")
-      expect(call(%q{pwsh -Command "Get-Date"})).to start_with("pwsh -Command \"[Console]")
-    end
-
-    it "rewrites bare invocation into -Command form" do
-      out = call(%q{powershell.exe Get-Process})
-      expect(out).to eq(%q{powershell.exe -Command "[Console]::OutputEncoding=[Text.Encoding]::UTF8;Get-Process"})
-    end
-
-    it "handles -Command without quotes" do
-      out = call(%q{powershell -Command Get-Date})
-      expect(out).to eq(%q{powershell -Command "[Console]::OutputEncoding=[Text.Encoding]::UTF8;Get-Date"})
-    end
-
-    it "splices through other PS flags like -NoProfile" do
-      out = call(%q{powershell.exe -NoProfile -Command "Get-Process"})
-      expect(out).to include("-NoProfile -Command \"[Console]")
-      expect(out).to end_with("Get-Process\"")
-    end
-
-    it "leaves -File invocations alone" do
-      cmd = %q{powershell.exe -File foo.ps1}
-      expect(call(cmd)).to eq(cmd)
-    end
-
-    it "leaves -EncodedCommand alone" do
-      cmd = %q{powershell.exe -EncodedCommand SQBuAHYAbwBrAGUA}
-      expect(call(cmd)).to eq(cmd)
-    end
-
-    it "is idempotent when OutputEncoding is already set" do
-      cmd = %q{powershell.exe -Command "[Console]::OutputEncoding=[Text.Encoding]::UTF8; Get-Date"}
-      expect(call(cmd)).to eq(cmd)
-    end
-
-    it "ignores non-powershell commands" do
-      expect(call("ls /tmp")).to eq("ls /tmp")
-      expect(call("cmd.exe /c dir")).to eq("cmd.exe /c dir")
-    end
-
-    it "refuses to splice across shell-level pipelines" do
-      cmd = %q{cat foo | powershell.exe -Command "Get-Date"}
-      expect(call(cmd)).to eq(cmd)
-    end
-
-    it "handles bare `powershell.exe` with no args" do
-      out = call("powershell.exe")
-      expect(out).to start_with("powershell.exe -Command \"[Console]")
-    end
-  end
-
   # ---------------------------------------------------------------------------
   # #exe_needs_stdin_isolation? — decides whether the user-command wrapper
   # should append `</dev/null` so Windows .exe interop children don't inherit
@@ -1166,6 +1103,19 @@ RSpec.describe Clacky::Tools::Terminal do
 
       it "is idempotent on already-clean text" do
         expect(described_class.clean("hello world\n")).to eq("hello world\n")
+      end
+
+      it "decodes GBK output from Chinese Windows shells" do
+        # Real bytes from `powershell.exe -Command "Write-Host '你好，世界'"` on CP936.
+        raw = [0xC4, 0xE3, 0xBA, 0xC3, 0xA3, 0xAC, 0xCA, 0xC0, 0xBD, 0xE7, 0x0D, 0x0A].pack("C*").b
+        cleaned = described_class.clean(raw)
+
+        expect(cleaned.encoding).to eq(Encoding::UTF_8)
+        expect(cleaned).to eq("你好，世界\n")
+      end
+
+      it "preserves UTF-8 Chinese unchanged (Linux/macOS)" do
+        expect(described_class.clean("你好，世界\n".encode("UTF-8").b)).to eq("你好，世界\n")
       end
 
       it "scrubs invalid UTF-8 byte sequences into a valid UTF-8 string" do

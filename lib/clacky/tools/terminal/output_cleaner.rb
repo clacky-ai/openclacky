@@ -35,9 +35,7 @@ module Clacky
         def clean(raw)
           return "" if raw.nil? || raw.empty?
 
-          s = raw.dup
-          s.force_encoding(Encoding::UTF_8)
-          s = s.scrub("?") unless s.valid_encoding?
+          s = Clacky::Utils::Encoding.pty_to_utf8(raw)
 
           s = s.gsub(CSI_REGEX, "")
           s = s.gsub(OSC_REGEX, "")

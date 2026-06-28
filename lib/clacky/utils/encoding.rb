@@ -75,6 +75,31 @@ module Clacky
         to_utf8(data)
       end
 
+      # Decode a raw PTY byte stream to valid UTF-8, auto-detecting the source
+      # encoding. UTF-8 is tried first (Linux/macOS and modern programs); when
+      # the bytes are not valid UTF-8 they are decoded as GBK/CP936 (Simplified
+      # Chinese Windows powershell.exe / cmd.exe default output); anything that
+      # still fails is scrubbed.
+      #
+      # MUST be called on complete byte runs — callers slice on "\n" (0x0A),
+      # which is never a trailing byte of a GBK or UTF-8 multibyte sequence, so
+      # a character is never split across the boundary.
+      #
+      # @param data [String, nil] raw PTY bytes (binary/ASCII-8BIT)
+      # @return [String] valid UTF-8 string
+      def self.pty_to_utf8(data)
+        return "" if data.nil? || data.empty?
+
+        s = data.dup.force_encoding("UTF-8")
+        return s if s.valid_encoding?
+
+        data.dup
+            .force_encoding("GBK")
+            .encode("UTF-8", invalid: :replace, undef: :replace, replace: "?")
+      rescue Encoding::InvalidByteSequenceError, Encoding::UndefinedConversionError
+        to_utf8(data)
+      end
+
       # Return an ASCII-safe UTF-8 copy of *str* suitable for security regex
       # pattern matching.  Any byte that is not valid in the source encoding, or
       # that cannot be represented in UTF-8, is replaced with '?'.  The
