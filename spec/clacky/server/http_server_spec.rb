@@ -1105,7 +1105,7 @@ RSpec.describe Clacky::Server::HttpServer do
       end
     end
 
-    it "strips api_key from ASR config before sending to client" do
+    it "masks api_key in ASR config before sending to client" do
       with_voice_config(<<~YAML) do
         asr:
           provider: dashscope
@@ -1118,9 +1118,11 @@ RSpec.describe Clacky::Server::HttpServer do
 
           body = parsed_body(res)
           cfg = body["config"]
-          # api_key should be stripped, but provider should be kept for frontend ASR routing
+          # api_key should be masked, but provider should be kept for frontend ASR routing
           expect(cfg["asr"]["provider"]).to eq("dashscope")
           expect(cfg["asr"]).not_to have_key("api_key")
+          expect(cfg["asr"]["api_key_masked"]).to include("****")
+          expect(cfg["asr"]["api_key_masked"]).not_to include("secret")
         end
       end
     end
@@ -1169,6 +1171,131 @@ RSpec.describe Clacky::Server::HttpServer do
           body = parsed_body(res)
           expect(body["ok"]).to be true
           expect(body["config"]).to eq({})
+        end
+      end
+    end
+  end
+
+  describe "PUT /api/voice/config" do
+    it "writes provider and api_key to voice-config.yml" do
+      with_voice_config("") do
+        with_server(agent_config: agent_config) do |server|
+          req = fake_req(method: "PUT", path: "/api/voice/config",
+                         body: { asr: { provider: "dashscope", api_key: "sk-new-key-12345" } })
+          res = fake_res
+          dispatch(server, req, res)
+
+          expect(res.status).to eq(200)
+          expect(parsed_body(res)["ok"]).to be true
+
+          written = YAML.safe_load(File.read(File.join(ENV["HOME"], ".clacky", "voice-config.yml")))
+          expect(written["asr"]["provider"]).to eq("dashscope")
+          expect(written["asr"]["api_key"]).to eq("sk-new-key-12345")
+        end
+      end
+    end
+
+    it "preserves existing fields when updating asr config" do
+      with_voice_config(<<~YAML) do
+        silence_timeout_ms: 2000
+        language: en-US
+        shortcuts:
+          toggle:
+            modifiers: [Control]
+            key: "v"
+        asr:
+          provider: google
+      YAML
+        with_server(agent_config: agent_config) do |server|
+          req = fake_req(method: "PUT", path: "/api/voice/config",
+                         body: { asr: { provider: "dashscope", api_key: "sk-abc123def456" } })
+          res = fake_res
+          dispatch(server, req, res)
+
+          expect(res.status).to eq(200)
+
+          written = YAML.safe_load(File.read(File.join(ENV["HOME"], ".clacky", "voice-config.yml")))
+          expect(written["silence_timeout_ms"]).to eq(2000)
+          expect(written["language"]).to eq("en-US")
+          expect(written["shortcuts"]["toggle"]["key"]).to eq("v")
+          expect(written["asr"]["provider"]).to eq("dashscope")
+          expect(written["asr"]["api_key"]).to eq("sk-abc123def456")
+        end
+      end
+    end
+
+    it "preserves existing api_key when masked value is sent" do
+      with_voice_config(<<~YAML) do
+        asr:
+          provider: dashscope
+          api_key: sk-real-secret-key-12345
+      YAML
+        with_server(agent_config: agent_config) do |server|
+          req = fake_req(method: "PUT", path: "/api/voice/config",
+                         body: { asr: { provider: "dashscope", api_key: "sk-real-s****2345" } })
+          res = fake_res
+          dispatch(server, req, res)
+
+          expect(res.status).to eq(200)
+
+          written = YAML.safe_load(File.read(File.join(ENV["HOME"], ".clacky", "voice-config.yml")))
+          expect(written["asr"]["api_key"]).to eq("sk-real-secret-key-12345")
+        end
+      end
+    end
+
+    it "preserves existing api_key when api_key field is omitted" do
+      with_voice_config(<<~YAML) do
+        asr:
+          provider: dashscope
+          api_key: sk-original-key-abcdef
+      YAML
+        with_server(agent_config: agent_config) do |server|
+          req = fake_req(method: "PUT", path: "/api/voice/config",
+                         body: { asr: { provider: "google" } })
+          res = fake_res
+          dispatch(server, req, res)
+
+          expect(res.status).to eq(200)
+
+          written = YAML.safe_load(File.read(File.join(ENV["HOME"], ".clacky", "voice-config.yml")))
+          expect(written["asr"]["provider"]).to eq("google")
+          expect(written["asr"]["api_key"]).to eq("sk-original-key-abcdef")
+        end
+      end
+    end
+
+    it "clears api_key when empty string is sent" do
+      with_voice_config(<<~YAML) do
+        asr:
+          provider: dashscope
+          api_key: sk-to-be-cleared-12345
+      YAML
+        with_server(agent_config: agent_config) do |server|
+          req = fake_req(method: "PUT", path: "/api/voice/config",
+                         body: { asr: { provider: "google", api_key: "" } })
+          res = fake_res
+          dispatch(server, req, res)
+
+          expect(res.status).to eq(200)
+
+          written = YAML.safe_load(File.read(File.join(ENV["HOME"], ".clacky", "voice-config.yml")))
+          expect(written["asr"]["provider"]).to eq("google")
+          expect(written["asr"]).not_to have_key("api_key")
+        end
+      end
+    end
+
+    it "rejects invalid provider" do
+      with_voice_config("") do
+        with_server(agent_config: agent_config) do |server|
+          req = fake_req(method: "PUT", path: "/api/voice/config",
+                         body: { asr: { provider: "invalid" } })
+          res = fake_res
+          dispatch(server, req, res)
+
+          expect(res.status).to eq(422)
+          expect(parsed_body(res)["error"]).to eq("invalid provider")
         end
       end
     end

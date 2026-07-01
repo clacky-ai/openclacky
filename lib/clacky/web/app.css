@@ -12396,3 +12396,105 @@ body.setup-mode[data-theme="dark"] {
   }
 }
 
+/* ── Voice settings ──────────────────────────────────────────────────── */
+.voice-engine-row {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin: 1rem 0 0.5rem;
+}
+.voice-field-label {
+  font-size: 0.875rem;
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+}
+.voice-engine-segmented {
+  display: inline-flex;
+  background: var(--color-bg-primary);
+  border: 1px solid var(--color-border-primary);
+  border-radius: 6px;
+  padding: 2px;
+}
+.voice-engine-btn {
+  background: transparent;
+  border: none;
+  padding: 0.3125rem 0.875rem;
+  font-size: 0.8125rem;
+  color: var(--color-text-secondary);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+  font-family: inherit;
+}
+.voice-engine-btn:hover:not(.is-active) {
+  color: var(--color-text-primary);
+  background: var(--color-bg-secondary);
+}
+.voice-engine-btn.is-active {
+  background: var(--color-button-primary);
+  color: #fff;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+}
+.voice-browser-hint {
+  font-size: 0.8125rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: 6px;
+  margin: 0.5rem 0 1rem;
+}
+.voice-browser-supported {
+  color: var(--color-success, #27ae60);
+  background: rgba(39, 174, 96, 0.08);
+}
+.voice-browser-unsupported {
+  color: var(--color-danger, #e74c3c);
+  background: rgba(231, 76, 60, 0.08);
+}
+.voice-apikey-row {
+  margin: 0.5rem 0 1rem;
+}
+.voice-apikey-input-wrap {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.25rem;
+}
+.voice-apikey-input-wrap .field-input {
+  flex: 1;
+}
+.voice-apikey-toggle {
+  background: transparent;
+  border: 1px solid var(--color-border-primary);
+  border-radius: 6px;
+  padding: 0.375rem;
+  cursor: pointer;
+  color: var(--color-text-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.15s, border-color 0.15s;
+}
+.voice-apikey-toggle:hover {
+  color: var(--color-text-primary);
+  border-color: var(--color-border-hover, var(--color-border-primary));
+}
+.voice-apikey-hint {
+  font-size: 0.75rem;
+  color: var(--color-text-tertiary);
+  margin-top: 0.25rem;
+}
+.voice-save-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 0.5rem;
+}
+.voice-save-status {
+  font-size: 0.8125rem;
+  color: var(--color-text-secondary);
+}
+.voice-save-status.voice-save-ok {
+  color: var(--color-success, #27ae60);
+}
+.voice-save-status.voice-save-error {
+  color: var(--color-danger, #e74c3c);
+}

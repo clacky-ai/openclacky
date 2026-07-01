@@ -811,6 +811,7 @@
         <button class="settings-tab" data-tab="ui" data-i18n="settings.tabs.ui">UI</button>
         <button class="settings-tab" data-tab="general" data-i18n="settings.tabs.general">General</button>
         <button class="settings-tab" data-tab="data" data-i18n="settings.tabs.data">Data</button>
+        <button class="settings-tab" data-tab="voice" data-i18n="settings.tabs.voice">Voice Input</button>
         <button class="settings-tab" data-tab="about" data-i18n="settings.tabs.about">About</button>
         <!-- Extension tab slot: extensions add custom settings tabs here (button needs data-tab="<id>"). -->
         <span id="ext-slot-settings-tabs" data-slot="settings.tabs"></span>
@@ -1103,6 +1104,115 @@
           </section>
 
         </div><!-- end Tab: Data -->
+
+        <!-- ══ Tab: Voice Input ══ -->
+        <div class="settings-tab-content" data-tab-content="voice" style="display:none">
+          <div id="voice-settings-section">
+
+            <!-- ASR Engine (card) -->
+            <div class="settings-section-title" data-i18n="settings.voice.asrEngineTitle">ASR Engine</div>
+            <div class="settings-network">
+              <div class="voice-engine-segmented" id="voice-engine-select">
+                <button type="button" class="voice-engine-btn is-active" data-engine="google" data-i18n="settings.voice.engine.browser">Browser Native</button>
+                <button type="button" class="voice-engine-btn" data-engine="dashscope" data-i18n="settings.voice.engine.dashscope">DashScope</button>
+              </div>
+
+              <!-- Browser compatibility hint (shown when "Browser Native" is selected) -->
+              <div class="voice-browser-hint" id="voice-browser-hint"></div>
+
+              <!-- DashScope API Key (shown when "DashScope" is selected) -->
+              <div class="voice-field-inline" id="voice-apikey-row" style="display:none">
+                <label class="settings-network-url-label" data-i18n="settings.voice.apiKey" style="min-width:82px">API Key</label>
+                <div class="settings-network-url-row" style="flex:1">
+                  <input type="password" id="voice-apikey-input" class="field-input" style="flex:1; max-width:400px" placeholder="sk-…" autocomplete="off" spellcheck="false">
+                  <button type="button" id="voice-apikey-toggle" class="voice-apikey-toggle" title="Show/Hide">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                  </button>
+                </div>
+              </div>
+              <div class="settings-network-desc" id="voice-apikey-hint" data-i18n="settings.voice.apiKeyHint" style="display:none">Get your key from DashScope console</div>
+            </div>
+
+            <!-- Recognition Language -->
+            <div class="settings-section-title" data-i18n="settings.voice.languageTitle">Recognition Language</div>
+            <div class="settings-lang-btns" id="voice-language-select">
+              <button type="button" class="settings-lang-btn" data-lang="en-US">English</button>
+              <button type="button" class="settings-lang-btn" data-lang="zh-CN">中文</button>
+            </div>
+
+            <!-- Keyboard Shortcuts (card) -->
+            <div class="settings-section-title" data-i18n="settings.voice.shortcuts">Keyboard Shortcuts</div>
+            <div class="settings-network">
+              <div class="voice-shortcut-grid">
+                <div class="voice-shortcut-row">
+                  <span class="settings-network-url-label" style="min-width:100px" data-i18n="settings.voice.shortcut.toggle">Toggle</span>
+                  <input type="text" id="voice-shortcut-toggle-key" class="field-input voice-key-input" placeholder="z">
+                </div>
+                <div class="voice-shortcut-row">
+                  <span class="settings-network-url-label" style="min-width:100px" data-i18n="settings.voice.shortcut.stop">Stop</span>
+                  <input type="text" id="voice-shortcut-stop-key" class="field-input voice-key-input" placeholder="s">
+                </div>
+                <div class="voice-shortcut-row">
+                  <span class="settings-network-url-label" style="min-width:100px" data-i18n="settings.voice.shortcut.start">Start</span>
+                  <input type="text" id="voice-shortcut-start-key" class="field-input voice-key-input" placeholder="r">
+                </div>
+                <div class="voice-shortcut-row">
+                  <span class="settings-network-url-label" style="min-width:100px" data-i18n="settings.voice.shortcut.voiceMode">Voice Mode</span>
+                  <input type="text" id="voice-shortcut-voice_mode-key" class="field-input voice-key-input" placeholder="m">
+                </div>
+              </div>
+              <div class="settings-network-desc" data-i18n="settings.voice.shortcut.hint">All shortcuts use Ctrl+Shift+key. Leave empty to disable.</div>
+            </div>
+
+            <!-- Exit Words (card) -->
+            <div class="settings-section-title" data-i18n="settings.voice.exitWords">Exit Words</div>
+            <div class="settings-network">
+              <input type="text" id="voice-exit-words" class="field-input" data-i18n-placeholder="settings.voice.exitWordsPlaceholder" placeholder="stop listening, exit voice, goodbye">
+              <div class="settings-network-desc" data-i18n="settings.voice.exitWordsHint">Comma-separated spoken phrases (supports both , and ，). When recognized, voice input stops automatically.</div>
+            </div>
+
+            <!-- Sound Effects (card) -->
+            <div class="settings-section-title" data-i18n="settings.voice.sound">Sound Effects</div>
+            <div class="settings-network">
+              <div class="voice-field-inline">
+                <label class="settings-network-url-label" data-i18n="settings.voice.soundVolume">Volume</label>
+                <input type="range" id="voice-sound-volume" min="0" max="1" step="0.1" value="0.4" class="voice-volume-slider">
+                <span id="voice-sound-volume-val" class="voice-volume-val">0.4</span>
+              </div>
+            </div>
+
+            <!-- Behavior (card) -->
+            <div class="settings-section-title" data-i18n="settings.voice.behavior">Behavior</div>
+            <div class="settings-network">
+              <!-- Default Mode -->
+              <div class="voice-field-inline">
+                <label class="settings-network-url-label" data-i18n="settings.voice.defaultMode">Default Mode</label>
+                <div class="voice-engine-segmented" id="voice-mode-select">
+                  <button type="button" class="voice-engine-btn is-active" data-mode="push-to-talk" data-i18n="settings.voice.mode.pushToTalk">Push to Talk</button>
+                  <button type="button" class="voice-engine-btn" data-mode="hands-free" data-i18n="settings.voice.mode.handsFree">Hands-free</button>
+                </div>
+              </div>
+              <div class="settings-network-desc" data-i18n="settings.voice.modeHint">Push to Talk: click the mic icon to record, then click send manually. Hands-free: continuous recognition with auto-send on silence.</div>
+
+              <div class="voice-field-inline" style="margin-top:0.75rem">
+                <label class="settings-network-url-label" data-i18n="settings.voice.silenceTimeout">Silence timeout (ms)</label>
+                <input type="number" id="voice-silence-timeout" class="field-input voice-num-input" value="1500" min="200" max="10000" step="100">
+              </div>
+              <div class="settings-network-desc" data-i18n="settings.voice.silenceTimeoutHint">In Hands-free mode, auto-finalize and send the current utterance after this many ms of silence.</div>
+
+              <div class="voice-field-inline" style="margin-top:0.75rem">
+                <label class="settings-network-url-label" data-i18n="settings.voice.restartDelay">Restart delay (ms)</label>
+                <input type="number" id="voice-restart-delay" class="field-input voice-num-input" value="300" min="0" max="5000" step="50">
+              </div>
+              <div class="settings-network-desc" data-i18n="settings.voice.restartDelayHint">In Hands-free mode, wait this many ms before restarting recognition after silence. Too short may cause missed words; too long adds a noticeable pause between sentences. If recognition errors occur frequently, try increasing this value.</div>
+            </div>
+
+            <!-- Save status -->
+            <div class="voice-save-row" style="margin-top:1rem">
+              <span class="voice-save-status" id="voice-save-status"></span>
+            </div>
+          </div>
+        </div><!-- end Tab: Voice -->
 
         <!-- ══ Tab: About ══ -->
         <div class="settings-tab-content" data-tab-content="about" style="display:none">

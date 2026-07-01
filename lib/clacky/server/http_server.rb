@@ -511,6 +511,7 @@ module Clacky
         when ["GET",    "/api/config"]        then api_get_config(req, res)
         when ["GET",    "/api/config/settings"]  then api_get_settings(res)
         when ["GET",    "/api/voice/config"]    then api_voice_config(res)
+        when ["PUT",    "/api/voice/config"]    then api_update_voice_config(req, res)
         when ["GET",    "/api/voice/sound"]     then api_voice_sound(req, res)
         when ["GET",    "/api/exchange-rate"]    then api_exchange_rate(req, res)
         when ["PATCH",  "/api/config/settings"]  then api_update_settings(req, res)
@@ -5706,16 +5707,53 @@ module Clacky
         {}
       end
 
-      # GET /api/voice/config — expose voice config to frontend (strips api_key)
+      # GET /api/voice/config — expose voice config to frontend (masks api_key)
       def api_voice_config(res)
         cfg = load_voice_config
         safe_cfg = cfg.dup
-        # Strip api_key from asr section before sending to client, keep provider
+        # Replace raw api_key with masked version, consistent with model config
         if safe_cfg["asr"] && safe_cfg["asr"]["api_key"]
           safe_cfg["asr"] = safe_cfg["asr"].dup
-          safe_cfg["asr"].delete("api_key")
+          safe_cfg["asr"]["api_key_masked"] = mask_api_key(safe_cfg["asr"].delete("api_key"))
         end
         json_response(res, 200, { ok: true, config: safe_cfg })
+      end
+
+      # PUT /api/voice/config — update voice config from frontend
+      # Body: { asr: { provider: "google"|"dashscope", api_key?: string } }
+      # If api_key is omitted or contains "****" (masked), the existing key is preserved.
+      # If api_key is an empty string, the key is cleared.
+      def api_update_voice_config(req, res)
+        body = parse_json_body(req) || {}
+        asr = body["asr"] || {}
+        provider = asr["provider"].to_s
+
+        unless %w[google dashscope].include?(provider)
+          return json_response(res, 422, { error: "invalid provider" })
+        end
+
+        cfg = load_voice_config
+        cfg["asr"] ||= {}
+        cfg["asr"]["provider"] = provider
+
+        if asr.key?("api_key")
+          api_key = asr["api_key"].to_s
+          if api_key.include?("****")
+            # Masked value sent back — preserve existing key
+          elsif api_key.empty?
+            cfg["asr"].delete("api_key")
+          else
+            cfg["asr"]["api_key"] = api_key
+          end
+        end
+
+        config_path = File.join(ENV["HOME"], ".clacky", "voice-config.yml")
+        FileUtils.mkdir_p(File.dirname(config_path))
+        File.write(config_path, YAML.dump(cfg))
+
+        json_response(res, 200, { ok: true })
+      rescue => e
+        json_response(res, 422, { error: e.message })
       end
 
       # GET /api/voice/sound?type=start|stop — serve custom or default sound
