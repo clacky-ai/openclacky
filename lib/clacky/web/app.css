@@ -12397,19 +12397,15 @@ body.setup-mode[data-theme="dark"] {
 }
 
 /* ── Voice settings ──────────────────────────────────────────────────── */
-.voice-engine-row {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-  margin: 1rem 0 0.5rem;
+#voice-settings-section .settings-section-title {
+  margin-top: 1.5rem;
 }
-.voice-field-label {
-  font-size: 0.875rem;
-  color: var(--color-text-secondary);
-  white-space: nowrap;
+#voice-settings-section .settings-section-title:first-child {
+  margin-top: 0;
 }
 .voice-engine-segmented {
   display: inline-flex;
+  align-self: flex-start;
   background: var(--color-bg-primary);
   border: 1px solid var(--color-border-primary);
   border-radius: 6px;
@@ -12449,18 +12445,6 @@ body.setup-mode[data-theme="dark"] {
   color: var(--color-danger, #e74c3c);
   background: rgba(231, 76, 60, 0.08);
 }
-.voice-apikey-row {
-  margin: 0.5rem 0 1rem;
-}
-.voice-apikey-input-wrap {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  margin-top: 0.25rem;
-}
-.voice-apikey-input-wrap .field-input {
-  flex: 1;
-}
 .voice-apikey-toggle {
   background: transparent;
   border: 1px solid var(--color-border-primary);
@@ -12477,11 +12461,6 @@ body.setup-mode[data-theme="dark"] {
   color: var(--color-text-primary);
   border-color: var(--color-border-hover, var(--color-border-primary));
 }
-.voice-apikey-hint {
-  font-size: 0.75rem;
-  color: var(--color-text-tertiary);
-  margin-top: 0.25rem;
-}
 .voice-save-row {
   display: flex;
   align-items: center;
@@ -12497,4 +12476,44 @@ body.setup-mode[data-theme="dark"] {
 }
 .voice-save-status.voice-save-error {
   color: var(--color-danger, #e74c3c);
+}
+
+/* ── Voice settings: extended config ── */
+.voice-field-inline {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+.voice-field-inline > .settings-network-url-label {
+  min-width: 140px;
+  flex-shrink: 0;
+}
+.voice-field-inline > .field-input {
+  flex: 1;
+  max-width: 300px;
+}
+.voice-shortcut-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px 24px;
+  margin-bottom: 8px;
+}
+.voice-shortcut-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.voice-key-input {
+  width: 60px;
+  text-align: center;
+  text-transform: lowercase;
+}
+.voice-range-input {
+  width: 120px;
+  accent-color: var(--color-accent, #4a9eff);
+}
+.voice-range-value {
+  font-size: 13px;
+  color: var(--color-text-secondary, #aaa);
+  min-width: 30px;
 }

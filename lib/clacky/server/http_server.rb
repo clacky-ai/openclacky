@@ -5720,31 +5720,60 @@ module Clacky
       end
 
       # PUT /api/voice/config — update voice config from frontend
-      # Body: { asr: { provider: "google"|"dashscope", api_key?: string } }
+      # Body: { asr?: {...}, shortcuts?: {...}, exit_words?: [...], language?: str,
+      #         default_mode?: str, silence_timeout_ms?: int, voice_mode_restart_delay_ms?: int,
+      #         sound?: {...} }
       # If api_key is omitted or contains "****" (masked), the existing key is preserved.
       # If api_key is an empty string, the key is cleared.
       def api_update_voice_config(req, res)
         body = parse_json_body(req) || {}
-        asr = body["asr"] || {}
-        provider = asr["provider"].to_s
-
-        unless %w[google dashscope].include?(provider)
-          return json_response(res, 422, { error: "invalid provider" })
-        end
 
         cfg = load_voice_config
-        cfg["asr"] ||= {}
-        cfg["asr"]["provider"] = provider
 
-        if asr.key?("api_key")
-          api_key = asr["api_key"].to_s
-          if api_key.include?("****")
-            # Masked value sent back — preserve existing key
-          elsif api_key.empty?
-            cfg["asr"].delete("api_key")
-          else
-            cfg["asr"]["api_key"] = api_key
+        # ASR config
+        if body["asr"]
+          asr = body["asr"]
+          provider = asr["provider"].to_s
+
+          unless %w[google dashscope].include?(provider)
+            return json_response(res, 422, { error: "invalid provider" })
           end
+
+          cfg["asr"] ||= {}
+          cfg["asr"]["provider"] = provider
+
+          if asr.key?("api_key")
+            api_key = asr["api_key"].to_s
+            if api_key.include?("****")
+              # Masked value sent back — preserve existing key
+            elsif api_key.empty?
+              cfg["asr"].delete("api_key")
+            else
+              cfg["asr"]["api_key"] = api_key
+            end
+          end
+        end
+
+        # Simple scalar fields
+        %w[language default_mode silence_timeout_ms voice_mode_restart_delay_ms].each do |field|
+          cfg[field] = body[field] if body.key?(field)
+        end
+
+        # Exit words (array)
+        if body.key?("exit_words")
+          cfg["exit_words"] = body["exit_words"]
+        end
+
+        # Shortcuts (hash of action → {modifiers, key}) — merge to preserve custom keys
+        if body["shortcuts"]
+          cfg["shortcuts"] ||= {}
+          cfg["shortcuts"].merge!(body["shortcuts"])
+        end
+
+        # Sound config — merge to preserve custom keys
+        if body["sound"]
+          cfg["sound"] ||= {}
+          cfg["sound"].merge!(body["sound"])
         end
 
         config_path = File.join(ENV["HOME"], ".clacky", "voice-config.yml")

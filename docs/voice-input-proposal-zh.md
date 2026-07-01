@@ -7,7 +7,7 @@
 在 OpenClacky Web UI 中提供**开箱即用的语音输入**能力：
 
 - 默认使用 Google Web Speech API（浏览器内置，零配置）
-- 高级用户可切换 DashScope 等 ASR 引擎
+- 高级用户可切换 DashScope（阿里云）等 ASR 引擎
 - 快捷键、退出词、提示音等全部可自定义
 
 ## 2. 架构总览
@@ -55,7 +55,7 @@
 | 中文识别质量 | 中等 | 优秀 |
 | 中英混合 | 中等 | 优秀 |
 | 流式结果 | ✅ | ✅ |
-| 用户操作 | 零配置直接用 | 配 API Key + 选 DashScope |
+| 用户操作 | 零配置直接用 | 配 API Key + 选 DashScope（阿里云） |
 
 > Google 的 `webkitSpeechRecognition` 开启 `interimResults: true` 后行为和 DashScope 的流式中间结果一致——都是累积型逐字更新。前端 voice-core 无需感知驱动差异。
 
@@ -73,7 +73,7 @@
 
 | 模式 | 激活方式 | 按钮外观 | 行为 |
 |------|---------|---------|------|
-| **点击发送 (Push-to-Talk)** | 默认；快捷键 `Ctrl+Shift+Z` 或点击麦克风 | 录音时红色 + pulse 脉冲动画 | 点击开关，一句一发（push, speak, stop, click send） |
+| **点击发送 (Push-to-Talk)** | 默认；快捷键 `Ctrl+Shift+Z` 或点击麦克风 | 录音时红色 + pulse 脉冲动画 | 点击麦克风图标开始录音，两点击停止，再手动点击发送 |
 | **自动发送 (Hands-free)** | 快捷键 `Ctrl+Shift+M` 或调用 `Voice.setVoiceMode(true)` | 录音时蓝色 + 呼吸灯动画（2s 循环） | 持续监听，静默 `silence_timeout_ms` 后自动提交并自动续听 |
 
 **模式切换逻辑**：
@@ -142,6 +142,7 @@ shortcuts:
     key: m
 
 # ── Voice exit commands ─────────────────────────────────
+# 在 Web UI 中，退出词可用英文逗号 (,) 或中文逗号 (，) 分隔。
 exit_words:
   - stop listening
   - exit voice
@@ -175,7 +176,7 @@ sound:
 └──────────────────────────────────────────────────────────┘
 ```
 
-> **语音配置**：所有语音相关配置（ASR 引擎、API Key、快捷键、退出词、音效等）通过 `~/.clacky/voice-config.yml` 管理。前端通过 `/api/voice/config` 获取非敏感配置。暂未提供 Settings UI 面板，直接编辑 YAML 文件即可。
+> **语音配置**：所有语音相关配置（ASR 引擎、API Key、识别语言、快捷键、退出词、音效、行为参数等）均可通过 Web UI → 设置 → 语音输入进行配置，修改后自动保存至 `~/.clacky/voice-config.yml`。前端通过 `/api/voice/config` 获取非敏感配置。也可直接编辑 YAML 文件——UI 会保留设置面板中未展示的自定义字段。
 
 ### 4.5 voice-core.js
 

@@ -1299,6 +1299,91 @@ RSpec.describe Clacky::Server::HttpServer do
         end
       end
     end
+
+    it "saves language, default_mode, and behavior fields" do
+      with_voice_config("") do
+        with_server(agent_config: agent_config) do |server|
+          req = fake_req(method: "PUT", path: "/api/voice/config",
+                         body: { asr: { provider: "google" }, language: "en-US",
+                                 default_mode: "hands-free", silence_timeout_ms: 2000,
+                                 voice_mode_restart_delay_ms: 500 })
+          res = fake_res
+          dispatch(server, req, res)
+
+          expect(res.status).to eq(200)
+
+          written = YAML.safe_load(File.read(File.join(ENV["HOME"], ".clacky", "voice-config.yml")))
+          expect(written["language"]).to eq("en-US")
+          expect(written["default_mode"]).to eq("hands-free")
+          expect(written["silence_timeout_ms"]).to eq(2000)
+          expect(written["voice_mode_restart_delay_ms"]).to eq(500)
+        end
+      end
+    end
+
+    it "saves shortcuts config" do
+      with_voice_config("") do
+        with_server(agent_config: agent_config) do |server|
+          req = fake_req(method: "PUT", path: "/api/voice/config",
+                         body: { asr: { provider: "google" },
+                                 shortcuts: { toggle: { modifiers: ["Control", "Shift"], key: "z" } } })
+          res = fake_res
+          dispatch(server, req, res)
+
+          expect(res.status).to eq(200)
+
+          written = YAML.safe_load(File.read(File.join(ENV["HOME"], ".clacky", "voice-config.yml")))
+          expect(written["shortcuts"]["toggle"]["key"]).to eq("z")
+          expect(written["shortcuts"]["toggle"]["modifiers"]).to eq(["Control", "Shift"])
+        end
+      end
+    end
+
+    it "saves exit_words and sound config" do
+      with_voice_config("") do
+        with_server(agent_config: agent_config) do |server|
+          req = fake_req(method: "PUT", path: "/api/voice/config",
+                         body: { asr: { provider: "google" },
+                                 exit_words: ["stop listening", "goodbye"],
+                                 sound: { volume: 0.7 } })
+          res = fake_res
+          dispatch(server, req, res)
+
+          expect(res.status).to eq(200)
+
+          written = YAML.safe_load(File.read(File.join(ENV["HOME"], ".clacky", "voice-config.yml")))
+          expect(written["exit_words"]).to eq(["stop listening", "goodbye"])
+          expect(written["sound"]["volume"]).to eq(0.7)
+        end
+      end
+    end
+
+    it "preserves existing fields when only updating a subset" do
+      with_voice_config(<<~YAML) do
+        asr:
+          provider: dashscope
+          api_key: sk-existing-key-12345
+        language: ja-JP
+        exit_words:
+          - stop
+      YAML
+        with_server(agent_config: agent_config) do |server|
+          req = fake_req(method: "PUT", path: "/api/voice/config",
+                         body: { asr: { provider: "google" }, silence_timeout_ms: 3000 })
+          res = fake_res
+          dispatch(server, req, res)
+
+          expect(res.status).to eq(200)
+
+          written = YAML.safe_load(File.read(File.join(ENV["HOME"], ".clacky", "voice-config.yml")))
+          expect(written["asr"]["provider"]).to eq("google")
+          expect(written["asr"]["api_key"]).to eq("sk-existing-key-12345")
+          expect(written["language"]).to eq("ja-JP")
+          expect(written["exit_words"]).to eq(["stop"])
+          expect(written["silence_timeout_ms"]).to eq(3000)
+        end
+      end
+    end
   end
 
   describe "GET /api/voice/sound" do

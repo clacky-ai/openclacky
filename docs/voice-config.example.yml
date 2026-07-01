@@ -8,9 +8,12 @@
 # ───────────────────────────────────────────────────────────────────────
 
 # ── ASR engine ──────────────────────────────────────────────────────
+# The ASR engine can also be configured via Web UI → Settings → Voice.
+# API keys entered in the Web UI are saved here and masked on display.
+#
 # asr:
-#   provider: dashscope        # google | dashscope
-#   api_key: ""                # DashScope API key (sk-xxx)
+#   provider: google             # google (browser native) | dashscope
+#   api_key: ""                  # DashScope API key (sk-xxx), required for dashscope
 
 # ── Keyboard shortcuts ──────────────────────────────────────────────
 # Modifier values (maps to KeyboardEvent properties):
@@ -36,6 +39,7 @@
 
 # ── Voice exit commands ─────────────────────────────────────────────
 # Spoken phrases that end voice interaction mode.
+# In the Web UI, exit words can be separated by comma (,) or Chinese comma (，).
 #
 # exit_words:
 #   - stop listening
@@ -45,7 +49,7 @@
 # ── Voice behavior ──────────────────────────────────────────────────
 # silence_timeout_ms: 1500        # ms of silence before auto-finalizing (Hands-free mode only)
 # voice_mode_restart_delay_ms: 300 # delay before auto-restarting in Hands-free mode
-# language: en-US                 # BCP-47 recognition language
+# language: en-US                 # BCP-47 recognition language (default: en-US, options: en-US, zh-CN)
 # default_mode: push-to-talk      # Initial voice mode: push-to-talk | hands-free
 
 # ── Sound effects ───────────────────────────────────────────────────

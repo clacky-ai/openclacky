@@ -7,7 +7,7 @@
 Provide **out-of-the-box voice input** in the OpenClacky Web UI:
 
 - Default: Google Web Speech API (browser-native, zero configuration)
-- Advanced: switch to DashScope or other ASR engines
+- Advanced: switch to DashScope (Alibaba Cloud) or other ASR engines
 - Fully customizable: shortcuts, exit words, sound effects
 
 ## 2. Architecture Overview
@@ -55,7 +55,7 @@ Provide **out-of-the-box voice input** in the OpenClacky Web UI:
 | Chinese recognition | Moderate | Excellent |
 | Chinese-English mixed | Moderate | Excellent |
 | Streaming results | ✅ | ✅ |
-| User setup | Zero config | Configure API Key + select DashScope |
+| User setup | Zero config | Configure API Key + select DashScope (Alibaba Cloud) |
 
 > Google's `webkitSpeechRecognition` with `interimResults: true` behaves identically to DashScope's streaming intermediate results — both are cumulative incremental updates. voice-core does not need to distinguish between drivers.
 
@@ -73,7 +73,7 @@ Voice input supports two interaction modes, toggled via `Voice.setVoiceMode()`:
 
 | Mode | Activation | Button appearance | Behavior |
 |------|-----------|-------------------|----------|
-| **Push-to-Talk** | Default; shortcut `Ctrl+Shift+Z` or click mic | Red + pulse animation while recording | Click to start, speak, click to stop, then manually send |
+| **Push-to-Talk** | Default; shortcut `Ctrl+Shift+Z` or click mic | Red + pulse animation while recording | Click mic icon to start recording, click again to stop, then manually click send |
 | **Hands-free** | Shortcut `Ctrl+Shift+M` or `Voice.setVoiceMode(true)` | Blue + breathing animation (2s loop) while recording | Continuous listening; auto-send after `silence_timeout_ms` silence, then auto-restart |
 
 **Mode switching logic**:
@@ -142,6 +142,7 @@ shortcuts:
     key: m
 
 # ── Voice exit commands ─────────────────────────────────
+# In the Web UI, exit words can be separated by comma (,) or Chinese comma (，).
 exit_words:
   - stop listening
   - exit voice
@@ -175,7 +176,7 @@ The mic button sits next to the input box (in `#input-bar`, to the left of `#btn
 └──────────────────────────────────────────────────────────┘
 ```
 
-> **Voice configuration**: All voice-related settings (ASR engine, API Key, shortcuts, exit words, sound effects, etc.) are managed via `~/.clacky/voice-config.yml`. The frontend fetches non-sensitive config through `/api/voice/config`. No Settings UI panel is provided yet — edit the YAML file directly.
+> **Voice configuration**: All voice-related settings (ASR engine, API Key, recognition language, shortcuts, exit words, sound effects, behavior, etc.) can be configured via Web UI → Settings → Voice Input. Changes are auto-saved to `~/.clacky/voice-config.yml`. The frontend fetches non-sensitive config through `/api/voice/config`. You can also edit the YAML file directly — the UI preserves any custom fields not shown in the settings panel.
 
 ### 4.5 voice-core.js
 
