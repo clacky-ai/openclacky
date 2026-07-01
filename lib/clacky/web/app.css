@@ -12517,3 +12517,6 @@ body.setup-mode[data-theme="dark"] {
   color: var(--color-text-secondary, #aaa);
   min-width: 30px;
 }
+.voice-num-input {
+  width: 100px;
+}
