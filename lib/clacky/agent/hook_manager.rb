@@ -28,7 +28,16 @@ module Clacky
       @hooks[event].each do |hook|
         begin
           hook_result = hook.call(*args)
-          result.merge!(hook_result) if hook_result.is_a?(Hash)
+          next unless hook_result.is_a?(Hash)
+          # First deny wins and stops the chain: a weaker later verdict must
+          # never clobber a stronger earlier one, and the first deny's reason
+          # is the one that reaches the agent. Rewrite hooks mutate `call` in
+          # place (chained rewrite), so for non-deny results there's nothing to
+          # merge — we just keep going.
+          if hook_result[:action] == :deny
+            result = hook_result
+            break
+          end
         rescue StandardError => e
           # Log error but don't fail
           Clacky::Logger.error("Hook error", event: event, error: e)

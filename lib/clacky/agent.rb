@@ -143,8 +143,15 @@ module Clacky
       # Register built-in tools
       register_builtin_tools
 
-      # Load declarative shell hooks from ~/.clacky/hooks.yml
-      ShellHookLoader.load_into(@hooks)
+      # Load declarative shell hooks from ~/.clacky/hooks.yml. Entries with
+      # `type: rewrite` use the rich JSON protocol (updatedInput rewrite);
+      # entries without `type` use the simple exit-code protocol.
+      ShellHookLoader.load_into(
+        @hooks,
+        session_id_fn:      -> { @session_id },
+        cwd_fn:             -> { @working_dir },
+        permission_mode_fn: -> { @config.permission_mode.to_s }
+      )
 
       # Ensure user-space parsers are in place (~/.clacky/parsers/)
       Utils::ParserManager.setup!
