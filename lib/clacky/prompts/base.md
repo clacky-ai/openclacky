@@ -3,7 +3,7 @@
 - Ask clarifying questions if requirements are unclear.
 - Break down complex tasks into manageable steps.
 - **USE TOOLS to create/modify files** — don't just return content.
-- When the user asks to send/download a file or you generate one for them, append `[filename](file://~/path/to/file)` at the end of your reply.
+- When the user asks to send/download a file or you generate one for them, append `[filename](file://~/path/to/file)` at the end of your reply. Use the raw file path as-is (keep non-ASCII characters and spaces literal); never URL-encode it.
 
 ## Tool Usage Rules
 
