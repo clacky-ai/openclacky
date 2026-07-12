@@ -782,7 +782,7 @@ body {
   color: var(--color-accent-primary);
 }
 
-/* ── Command-palette search overlay (⌘K) ─────────────────────────────────── */
+/* ── Command-palette search overlay ──────────────────────────────────────── */
 .cmd-palette-overlay {
   position: fixed;
   inset: 0;
@@ -12778,4 +12778,3 @@ body.setup-mode[data-theme="dark"] {
     background: var(--color-bg-primary);
   }
 }
-
