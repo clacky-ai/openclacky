@@ -452,6 +452,7 @@ module Clacky
       # @return [Hash<String, Proc>]
       def build_template_context
         {
+          "session_id"      => -> { @session_id },
           "memories_meta"   => -> { load_memories_meta },
           "all_skills_meta" => -> { load_all_skills_meta }
         }

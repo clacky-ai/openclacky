@@ -10,7 +10,7 @@
 # Subcommands:
 #   lastframe  <video.mp4> <out.jpg>           extract the final frame (JPEG by default)
 #   tob64      <image>                          print base64 (no newlines) to stdout
-#   payload    <out.json> <frame.jpg> <dur> <aspect> <output_dir> <prompt>
+#   payload    <out.json> <frame.jpg> <dur> <aspect> <output_dir> <prompt> [session_id]
 #                                               build an image-to-video JSON body
 #                                               for `curl --data @out.json`
 #   concat     <out.mp4> <clip1.mp4> [clip2 …]  losslessly join clips in order
@@ -43,7 +43,7 @@ cmd_tob64() {
 # Build the image-to-video request body as a file so curl can send it with
 # `--data @file`, avoiding "Argument list too long" from inlining base64.
 cmd_payload() {
-  local out="$1" frame="$2" dur="$3" aspect="$4" odir="$5" prompt="$6"
+  local out="$1" frame="$2" dur="$3" aspect="$4" odir="$5" prompt="$6" session_id="${7:-}"
   [[ -f "$frame" ]] || die "no such frame: $frame"
   need ffprobe
   local mime b64
@@ -53,7 +53,7 @@ cmd_payload() {
   esac
   b64="$(base64 < "$frame" | tr -d '\n')"
   FRAME_B64="$b64" FRAME_MIME="$mime" P_PROMPT="$prompt" P_DUR="$dur" \
-  P_ASPECT="$aspect" P_ODIR="$odir" python3 - "$out" <<'PY'
+  P_ASPECT="$aspect" P_ODIR="$odir" P_SESSION_ID="$session_id" python3 - "$out" <<'PY'
 import json, os, sys
 body = {
   "prompt": os.environ["P_PROMPT"],
@@ -62,6 +62,8 @@ body = {
   "output_dir": os.environ["P_ODIR"],
   "image": {"b64_json": os.environ["FRAME_B64"], "mime_type": os.environ["FRAME_MIME"]},
 }
+if os.environ["P_SESSION_ID"]:
+  body["session_id"] = os.environ["P_SESSION_ID"]
 open(sys.argv[1], "w").write(json.dumps(body))
 PY
   [[ -f "$out" ]] || die "failed to write payload"

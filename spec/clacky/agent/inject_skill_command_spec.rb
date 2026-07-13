@@ -188,6 +188,19 @@ RSpec.describe "Agent#inject_skill_as_assistant_message" do
     end
   end
 
+  it "expands the current session ID in skill content" do
+    Dir.mktmpdir do |tmpdir|
+      create_skill(tmpdir, name: "session-skill", content: "Session: <%= session_id %>")
+      agent = build_agent(tmpdir)
+      skill = agent.instance_variable_get(:@skill_loader).find_by_name("session-skill")
+
+      agent.send(:inject_skill_as_assistant_message, skill, "", 1)
+
+      injected = agent.history.to_a.find { |m| m[:role] == "assistant" && m[:system_injected] }
+      expect(injected[:content]).to include("Session: #{agent.session_id}")
+    end
+  end
+
   it "does NOT mark injected messages as transient for plain skills" do
     Dir.mktmpdir do |tmpdir|
       create_skill(tmpdir, name: "my-skill", content: "Plain content.")

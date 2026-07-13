@@ -60,7 +60,8 @@ curl -s -X POST http://${CLACKY_SERVER_HOST}:${CLACKY_SERVER_PORT}/api/media/ima
   -d '{
     "prompt": "A clean, modern hero illustration for a tech startup landing page. Soft gradient background, abstract geometric shapes in blue and purple, minimal style, 4K quality.",
     "aspect_ratio": "landscape",
-    "output_dir": "'"$(pwd)"'"
+    "output_dir": "'"$(pwd)"'",
+    "session_id": "<%= session_id %>"
   }'
 ```
 
@@ -75,6 +76,7 @@ curl -s -X POST http://${CLACKY_SERVER_HOST}:${CLACKY_SERVER_PORT}/api/media/ima
 | `prompt`       | yes      | string                              | Be detailed and concrete. See prompt tips below. |
 | `aspect_ratio` | no       | `landscape` / `square` / `portrait` | Defaults to `landscape`. |
 | `output_dir`   | yes      | absolute path                       | Always pass `$(pwd)` so files land in the current session workspace. The image is saved under `<output_dir>/assets/generated/`. |
+| `session_id`   | yes      | string                              | Current Clacky session ID. Always pass the rendered value shown in the request example. |
 | `image`        | no       | file path / base64 / data URL       | A single input image to **edit**. Triggers image-edit mode (see below). |
 | `images`       | no       | array of the above                  | Multiple input images for a multi-image edit. Takes precedence over `image`. |
 
@@ -90,7 +92,8 @@ curl -s -X POST http://${CLACKY_SERVER_HOST}:${CLACKY_SERVER_PORT}/api/media/ima
   -H "Content-Type: application/json" \
   -d '{
     "prompt": "change the background to a starry night sky, keep the cat unchanged",
-    "image": "/abs/path/to/input.png"
+    "image": "/abs/path/to/input.png",
+    "session_id": "<%= session_id %>"
   }'
 ```
 
@@ -206,7 +209,8 @@ curl -s -X POST http://${CLACKY_SERVER_HOST}:${CLACKY_SERVER_PORT}/api/media/vid
     "prompt": "A cinematic drone shot flying over a misty mountain range at sunrise, golden light, 4K.",
     "aspect_ratio": "landscape",
     "duration_seconds": 8,
-    "output_dir": "'"$(pwd)"'"
+    "output_dir": "'"$(pwd)"'",
+    "session_id": "<%= session_id %>"
   }'
 ```
 
@@ -217,6 +221,7 @@ curl -s -X POST http://${CLACKY_SERVER_HOST}:${CLACKY_SERVER_PORT}/api/media/vid
 | `duration_seconds` | no       | 4–8                             | Defaults to 8. |
 | `image`            | no       | `{ "b64_json": "...", "mime_type": "image/png" }` | Optional first frame for image-to-video. |
 | `output_dir`       | yes      | absolute path                   | Always pass `$(pwd)` so files land in the current session workspace. MP4 saved under `<output_dir>/assets/generated/`. |
+| `session_id`       | yes      | string                          | Current Clacky session ID. Always pass the rendered value shown in the request example. |
 
 ### Response (success)
 
@@ -278,11 +283,11 @@ Workflow for an N-segment continuous video:
    writes a ready-to-send JSON file:
    ```bash
    "$SEQ" payload /tmp/seg2.json /tmp/seg1_last.jpg 8 landscape "$OUT_DIR" \
-     "Continuing the same scene, the camera keeps pushing forward…"
+     "Continuing the same scene, the camera keeps pushing forward…" "<%= session_id %>"
    curl -s -X POST .../api/media/video -H "Content-Type: application/json" \
      --data @/tmp/seg2.json
    ```
-   (`payload <out.json> <frame> <duration_seconds> <aspect_ratio> <output_dir> <prompt>`)
+   (`payload <out.json> <frame> <duration_seconds> <aspect_ratio> <output_dir> <prompt> [session_id]`)
 5. **Repeat** steps 3–4 for each subsequent segment, always chaining off the
    *previous* segment's last frame.
 6. **Stitch** all clips in order into one file:
@@ -328,7 +333,8 @@ curl -s -X POST http://${CLACKY_SERVER_HOST}:${CLACKY_SERVER_PORT}/api/media/aud
   -d '{
     "input": "Hello and welcome to openclacky. Today we will explore...",
     "voice": "Kore",
-    "output_dir": "'"$(pwd)"'"
+    "output_dir": "'"$(pwd)"'",
+    "session_id": "<%= session_id %>"
   }'
 ```
 
@@ -337,6 +343,7 @@ curl -s -X POST http://${CLACKY_SERVER_HOST}:${CLACKY_SERVER_PORT}/api/media/aud
 | `input`      | yes      | string                          | The text to speak. Plain prose works best; you can prefix with style cues like "Say cheerfully:" or "In a calm tone:". |
 | `voice`      | no       | string voice name               | Defaults to `Kore`. Common Gemini voices: `Kore`, `Puck`, `Charon`, `Fenrir`, `Aoede`. |
 | `output_dir` | yes      | absolute path                   | Always pass `$(pwd)` so files land in the current session workspace. WAV saved under `<output_dir>/assets/generated/`. |
+| `session_id` | yes      | string                          | Current Clacky session ID. Always pass the rendered value shown in the request example. |
 
 Generation typically takes 2–10 seconds depending on length. The request
 blocks until the WAV is ready.
@@ -388,4 +395,3 @@ Same shape and `error_type` values as image generation, but with `"audio": null`
 - Voice consistency: Gemini TTS does not currently support voice cloning;
   use the same `voice` name across calls in one project to keep the
   narrator consistent.
-
