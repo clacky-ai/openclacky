@@ -53,7 +53,7 @@ module Clacky
             # encode + downscale on every history replay (2-3s lag for sessions
             # with downgraded text-model images). The proxy lets the browser
             # lazy-load + cache the image, keeping the replay response tiny.
-            "/api/local-image?path=#{CGI.escape(path.to_s)}"
+            "/api/local-image?path=#{CGI.escape(path.to_s)}&v=#{File.mtime(path.to_s).to_i}"
           elsif name
             type.to_s == "image" ? "expired:#{name}" : "pdf:#{name}"
           end
@@ -3730,6 +3730,20 @@ module Clacky
         file_size = File.size(path)
         mime = Utils::FileProcessor::MIME_TYPES[ext] || "application/octet-stream"
 
+        # ETag from mtime+size so an overwritten same-name file invalidates the
+        # browser cache. Use no-cache (revalidate every time) rather than
+        # max-age: unchanged files return 304 (no body), changed files return
+        # the new bytes.
+        stat = File.stat(path)
+        etag = %(W/"#{stat.mtime.to_i}-#{stat.size}")
+        res["Cache-Control"] = "private, no-cache"
+        res["ETag"] = etag
+        if req["If-None-Match"] == etag
+          res.status = 304
+          res.body = ""
+          return
+        end
+
         # Support HTTP Range requests for video seeking
         range_header = req["Range"]
         if range_header && range_header =~ /\Abytes=(\d*)-(\d*)\z/
@@ -3741,14 +3755,12 @@ module Clacky
           res["Content-Type"]  = mime
           res["Content-Range"] = "bytes #{start_byte}-#{end_byte}/#{file_size}"
           res["Accept-Ranges"] = "bytes"
-          res["Cache-Control"] = "private, max-age=3600"
           res["Content-Length"] = (end_byte - start_byte + 1).to_s
           IO.binread(path, end_byte - start_byte + 1, start_byte).then { |data| res.body = data }
         else
           res.status         = 200
           res["Content-Type"] = mime
           res["Accept-Ranges"] = "bytes"
-          res["Cache-Control"] = "private, max-age=3600"
           res.body = File.binread(path)
         end
       rescue => e

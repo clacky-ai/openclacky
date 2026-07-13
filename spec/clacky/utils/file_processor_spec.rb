@@ -405,7 +405,8 @@ RSpec.describe Clacky::Utils::FileProcessor do
         result = described_class.rewrite_local_image_urls(content)
 
         expected_path = CGI.escape("file://#{img}")
-        expect(result).to eq("Check this: ![pic](/api/local-image?path=#{expected_path})")
+        expect(result).to include("![pic](/api/local-image?path=#{expected_path}&v=")
+        expect(result).to match(/&v=\d+\)/)
       end
     end
 
@@ -418,7 +419,24 @@ RSpec.describe Clacky::Utils::FileProcessor do
         result = described_class.rewrite_local_image_urls(content)
 
         expected_path = CGI.escape(img)
-        expect(result).to eq("See: ![img](/api/local-image?path=#{expected_path})")
+        expect(result).to include("![img](/api/local-image?path=#{expected_path}&v=")
+        expect(result).to match(/&v=\d+\)/)
+      end
+    end
+
+    it "changes the version param when the same-name file is overwritten" do
+      Dir.mktmpdir do |dir|
+        img = File.join(dir, "cover.png")
+        File.binwrite(img, "v1")
+        first = described_class.rewrite_local_image_urls("![c](#{img})")
+
+        File.binwrite(img, "version-two")
+        File.utime(Time.now + 2, Time.now + 2, img)
+        second = described_class.rewrite_local_image_urls("![c](#{img})")
+
+        v1 = first[/&v=(\d+)/, 1]
+        v2 = second[/&v=(\d+)/, 1]
+        expect(v2).not_to eq(v1)
       end
     end
 

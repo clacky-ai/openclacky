@@ -604,8 +604,7 @@ module Clacky
 
         ext = File.extname(path).downcase
         if LOCAL_MEDIA_EXTENSIONS.include?(ext) && File.exist?(path)
-          encoded = CGI.escape(href)
-          "![#{alt}](/api/local-image?path=#{encoded})"
+          "![#{alt}](#{local_image_proxy_url(href, path)})"
         else
           _match
         end
@@ -622,8 +621,7 @@ module Clacky
 
         ext = File.extname(path).downcase
         if LOCAL_VIDEO_EXTENSIONS.include?(ext) && File.exist?(path)
-          encoded = CGI.escape(href)
-          "<video#{pre} src=\"/api/local-image?path=#{encoded}\"#{post}>"
+          "<video#{pre} src=\"#{local_image_proxy_url(href, path)}\"#{post}>"
         else
           _match
         end
@@ -640,8 +638,7 @@ module Clacky
 
         ext = File.extname(path).downcase
         if LOCAL_AUDIO_EXTENSIONS.include?(ext) && File.exist?(path)
-          encoded = CGI.escape(href)
-          "<audio#{pre} src=\"/api/local-image?path=#{encoded}\"#{post}>"
+          "<audio#{pre} src=\"#{local_image_proxy_url(href, path)}\"#{post}>"
         else
           _match
         end
@@ -658,8 +655,7 @@ module Clacky
         ext = File.extname(path).downcase
         if LOCAL_VIDEO_EXTENSIONS.include?(ext) || LOCAL_AUDIO_EXTENSIONS.include?(ext)
           if File.exist?(path)
-            encoded = CGI.escape(href)
-            "[#{text}](/api/local-image?path=#{encoded})"
+            "[#{text}](#{local_image_proxy_url(href, path)})"
           else
             _match
           end
@@ -669,6 +665,15 @@ module Clacky
       end
 
       content
+    end
+
+    # Build a proxy URL for a local media file, appending a version param
+    # derived from the file mtime so an overwritten same-name file produces a
+    # different URL and defeats the browser's in-memory image cache.
+    def self.local_image_proxy_url(href, path)
+      encoded = CGI.escape(href)
+      version = File.mtime(path).to_i
+      "/api/local-image?path=#{encoded}&v=#{version}"
     end
   end
   end
