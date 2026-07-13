@@ -12398,9 +12398,46 @@ body.setup-mode[data-theme="dark"] {
     display: none;
   }
 
+  /* Collapse session search into the right-side header actions */
+  #header-center {
+    justify-content: flex-end;
+    padding: 0;
+  }
+  #header-cmdbar {
+    flex: 0 0 1.875rem;
+    width: 1.875rem;
+    max-width: 1.875rem;
+    padding: 0;
+    border: none;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    justify-content: center;
+    gap: 0;
+    margin-right: 0.125rem;
+  }
+  #header-cmdbar:hover {
+    color: var(--color-text-primary);
+  }
+  #header-cmdbar svg {
+    width: 1rem;
+    height: 1rem;
+    opacity: 1;
+  }
+  #header-cmdbar .cmdbar-ph,
+  #header-cmdbar .cmdbar-kbd,
+  #ext-slot-header-right:empty {
+    display: none;
+  }
+
   /* Tighten right-side icon gap on mobile */
   #header-right {
     gap: 0.125rem;
+  }
+
+  @media (max-width: 360px) {
+    #top-header {
+      padding: 0 0.375rem;
+    }
   }
 
   /* Session info bar: single-line, no hover-expand, font smaller */
