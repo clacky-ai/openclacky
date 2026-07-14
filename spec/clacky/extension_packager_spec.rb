@@ -60,6 +60,24 @@ RSpec.describe Clacky::ExtensionPackager do
       expect { described_class.pack("broken", source_dir: local, out_dir: out) }
         .to raise_error(described_class::Error, /verify found errors/)
     end
+
+    it "excludes platform metadata files and dirs from the archive" do
+      dir = scaffold("demo")
+      FileUtils.touch(File.join(dir, ".DS_Store"))
+      FileUtils.touch(File.join(dir, "panels", ".DS_Store"))
+      FileUtils.touch(File.join(dir, "panels", "hello", "Thumbs.db"))
+      FileUtils.touch(File.join(dir, "desktop.ini"))
+      FileUtils.mkdir_p(File.join(dir, "__MACOSX", "panels"))
+      FileUtils.touch(File.join(dir, "__MACOSX", "panels", "junk"))
+
+      res = described_class.pack("demo", source_dir: local, out_dir: out)
+
+      names = []
+      Zip::File.open(res.path) { |z| z.each { |e| names << e.name } }
+      expect(names).to include("demo/ext.yml")
+      expect(names).to include("demo/panels/hello/view.js")
+      expect(names).not_to(include(a_string_matching(%r{(\.DS_Store|Thumbs\.db|desktop\.ini|__MACOSX)})))
+    end
   end
 
   describe ".install" do

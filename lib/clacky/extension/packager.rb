@@ -17,6 +17,9 @@ module Clacky
     MANIFEST     = "ext.yml"
     MAX_ZIP_SIZE = 50 * 1024 * 1024
 
+    # Platform metadata that leaks in from the developer's OS; never ship it.
+    SYSTEM_METADATA = [".DS_Store", "__MACOSX", "Thumbs.db", "desktop.ini"].freeze
+
     Result = Struct.new(:ext_id, :path, :units, keyword_init: true)
 
     class Error < StandardError; end
@@ -111,6 +114,8 @@ module Clacky
             next if base == "." || base == ".."
 
             rel = relative(container_dir, abs)
+            next if system_metadata?(rel)
+
             entry = File.join(File.basename(container_dir), rel)
             if File.directory?(abs)
               zip.mkdir(entry) unless zip.find_entry(entry)
@@ -119,6 +124,12 @@ module Clacky
             end
           end
         end
+      end
+
+      # True if any path segment is a platform metadata file/dir (e.g. a nested
+      # agents/.DS_Store or a whole __MACOSX/ tree).
+      private def system_metadata?(rel)
+        rel.split(File::SEPARATOR).any? { |seg| SYSTEM_METADATA.include?(seg) }
       end
 
       private def local_zip_for(source, tmp)
