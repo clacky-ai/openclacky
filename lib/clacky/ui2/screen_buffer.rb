@@ -118,14 +118,42 @@ module Clacky
         @height = TTY::Screen.height
       end
 
-      # Enable raw mode (disable line buffering)
+      # Enable raw mode (disable line buffering). The very first time it runs it
+      # snapshots the terminal's original settings (via `stty -g`) so the exact
+      # pre-clacky state can be restored on exit — `IO#cooked!` only applies a
+      # generic cooked profile and does not restore flow-control (IXON) and other
+      # bits, which on macOS leaves the shell in a broken input state.
       def enable_raw_mode
+        return unless $stdin.tty?
+
+        @original_stty ||= capture_stty
         $stdin.raw!
       end
 
-      # Disable raw mode
+      # Disable raw mode. Idempotent and tty-guarded so it can be safely called
+      # from any exit path. Restores the exact original terminal settings when a
+      # snapshot exists, then flushes pending input so stray bytes don't leak to
+      # the shell. Falls back to `IO#cooked!` when no snapshot is available.
       def disable_raw_mode
-        $stdin.cooked!
+        return unless $stdin.tty?
+
+        $stdin.cooked! unless @original_stty && restore_stty(@original_stty)
+        $stdin.ioflush
+      rescue IOError, Errno::ENOTTY
+        nil
+      end
+
+      private def capture_stty
+        out = Clacky::Utils::Encoding.cmd_to_utf8(`stty -g 2>/dev/null`).strip
+        out.empty? ? nil : out
+      rescue StandardError
+        nil
+      end
+
+      private def restore_stty(state)
+        system("stty", state, out: File::NULL, err: File::NULL)
+      rescue StandardError
+        false
       end
 
       # Read a single character without echo

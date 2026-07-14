@@ -402,6 +402,10 @@ module Clacky
           screen.show_cursor
           screen.flush
         end
+        # Restore cooked mode so the terminal is usable after exit, regardless
+        # of which exit path was taken (some call exit(0) and bypass the
+        # input_loop ensure). Idempotent; safe to call more than once.
+        screen.disable_raw_mode
       end
 
       # /clear: wipe output area + buffer, keep fixed area.
