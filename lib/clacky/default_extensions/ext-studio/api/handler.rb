@@ -250,6 +250,7 @@ class ExtStudioExt < Clacky::ApiExtension
     raw = container[:raw] || {}
     ext_issues = issues.select { |i| i.ext == ext_id }
     dir = container[:dir]
+    ext_units = result.units.select { |u| u.ext_id == ext_id }
     {
       id: ext_id,
       name: raw["name"] || ext_id,
@@ -259,7 +260,8 @@ class ExtStudioExt < Clacky::ApiExtension
       layer: container[:layer].to_s,
       dir: dir,
       mtime: File.mtime(File.join(dir, "ext.yml")).to_i,
-      units: result.units.select { |u| u.ext_id == ext_id }.map { |u| serialize_unit(u) },
+      units: ext_units.map { |u| serialize_unit(u) },
+      unit_counts: unit_counts(ext_units),
       error_count: ext_issues.count { |i| i.level == :error },
       warning_count: ext_issues.count { |i| i.level == :warning }
     }
@@ -267,6 +269,13 @@ class ExtStudioExt < Clacky::ApiExtension
 
   private def serialize_unit(unit)
     { kind: unit.kind.to_s, id: unit.id, layer: unit.layer.to_s }
+  end
+
+  private def unit_counts(units)
+    units.each_with_object({}) do |unit, counts|
+      kind = unit.kind.to_s
+      counts[kind] = (counts[kind] || 0) + 1
+    end
   end
 
   private def serialize_issue(issue)
