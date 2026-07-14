@@ -310,6 +310,175 @@ Rules & caveats:
   chaining is the practical option today; Veo's native server-side `extend`
   (148s) is not wired into this endpoint yet.
 
+### Seedance (Volcengine Ark) — multimodal video
+
+When the configured `type=video` model is a ByteDance **Doubao Seedance**
+model on Volcengine Ark (its Base URL is under `*.volces.com`, e.g.
+`https://ark.cn-beijing.volces.com/api/v3`), the **same**
+`POST /api/media/video` endpoint drives it. No separate endpoint — the server
+routes by Base URL automatically. Seedance adds richer inputs on top of the
+common fields; all are optional and only apply to Seedance:
+
+> **Cost gate — ask before EVERY generation.** Resolution is the main driver
+> of Seedance's price (4k costs far more than 720p). So **once you've confirmed
+> via `GET /api/media/types` that the `type=video` Base URL is under
+> `*.volces.com`, you MUST ask the user which resolution they want before EACH
+> AND EVERY billable call** — this covers not just a brand-new clip but also
+> editing, multimodal reference, and extending/continuing an existing video
+> (they all cost the same as a fresh render). Offer `480p` / `720p` / `1080p` /
+> `4k` and state the default is `720p`. Only after they answer (or explicitly
+> say "use the default") do you proceed, passing their choice as `resolution`.
+> **Ask again every single time — a resolution the user picked for one clip is
+> NEVER carried over to the next generation. Do not assume, do not reuse a
+> prior answer, do not batch. One generation = one fresh resolution question.**
+> **When editing or continuing/extending an existing video, default to that
+> source video's resolution — never silently upgrade it (e.g. don't turn a
+> 720p source into a 4k render).** If the user gave no answer and you didn't
+> ask, the server pins `720p`. **These Seedance-only fields (`resolution`,
+> `generate_audio`, `watermark`, `seed`, `first_frame`, `last_frame`,
+> `reference_*`) have NO effect on Veo or Qwen/DashScope backends — never send
+> them unless the Base URL is `*.volces.com`.**
+
+| Field              | Values                                   | Notes |
+|--------------------|------------------------------------------|-------|
+| `aspect_ratio`     | `landscape`/`portrait`/`square`, or a raw Ark ratio like `16:9`, `9:16`, `4:3`, `3:4`, `21:9`, `adaptive` | Raw ratios pass through unchanged. |
+| `duration_seconds` | integer, or `-1`                         | `-1` lets the model pick the length (Seedance 2.0 / 1.5 Pro). |
+| `resolution`       | `480p` / `720p` / `1080p` / `4k`         | **Defaults to `720p` when omitted** (cost control). Ask the user before every generation — never reuse a prior answer. See the cost gate above. Model-dependent; unsupported values are rejected upstream. |
+| `generate_audio`   | `true` / `false`                         | Seedance 2.0 / 1.5 Pro can synthesize a synced audio track. |
+| `watermark`        | `true` / `false`                         | |
+| `seed`             | integer                                  | Reproducibility. |
+| `first_frame`      | media ref (see below)                    | First frame → image-to-video. |
+| `last_frame`       | media ref                                | Together with `first_frame` → first+last-frame video. |
+| `reference_images` | array of media refs (0–9)                | Reference images. |
+| `reference_videos` | array of media refs (0–3)                | Reference videos. |
+| `reference_audios` | array of media refs (0–3)                | Reference audio (background music / voice). |
+
+**Which fields for which task** — Seedance covers six capabilities; pick the
+fields by intent, and never mix the two families below:
+
+| Task | What you want | Fields to send |
+|------|---------------|----------------|
+| Text-to-video | a clip from a prompt only | `prompt` (no media) |
+| Image-to-video (first frame) | animate a still image forward | `first_frame` |
+| Image-to-video (first + last frame) | interpolate between two stills | `first_frame` + `last_frame` |
+| Multimodal generation | new clip guided by reference images/videos/audio | `reference_images` / `reference_videos` / `reference_audios` |
+| **Edit an existing video** | replace/add/remove/repaint something *inside* a given video | `reference_videos: [<the video to edit>]` (+ optional `reference_images` / `reference_audios`) + a prompt describing the edit |
+| **Extend / continue a video** | prepend/append or stitch clips into one | `reference_videos: [<clip1>, <clip2>, ...]` (up to 3) + a prompt describing the join |
+
+> **🚫 Hard rule — the two families are mutually exclusive.**
+> `first_frame`/`last_frame` **cannot** be combined with any `reference_*`
+> field; Ark rejects the request. If the user wants to **edit or extend an
+> existing video, that is a `reference_videos` task — do NOT fall back to
+> extracting a frame and using `first_frame`** (that produces a brand-new clip
+> and silently loses the "edit the original" intent). The server also enforces
+> this and returns a clear `invalid_argument` error if you mix them.
+
+A **media ref** may be:
+- a public `http(s)://` URL, or a `data:` URL, or
+- a local file path (the server reads and base64-encodes it), or
+- a `{ "b64_json": "...", "mime_type": "image/png" }` hash.
+
+Note: audio cannot be sent alone — pair it with at least one image or video.
+Prefer passing large videos/audios as public URLs; base64-encoding a big local
+file can exceed upstream size limits.
+
+Example — **first + last frame** (image-to-video, no `reference_*`):
+
+```bash
+curl -s -X POST http://${CLACKY_SERVER_HOST}:${CLACKY_SERVER_PORT}/api/media/video \
+  -H "Content-Type: application/json" \
+  -d '{
+    "prompt": "First-person POV, a hand raises a cup of fruit tea toward the camera, bright and refreshing lighting",
+    "aspect_ratio": "9:16",
+    "duration_seconds": 8,
+    "resolution": "720p",
+    "first_frame": "'"$(pwd)"'/assets/frame_first.jpg",
+    "last_frame": "'"$(pwd)"'/assets/frame_last.jpg",
+    "output_dir": "'"$(pwd)"'",
+    "session_id": "<%= session_id %>"
+  }'
+```
+
+Example — **edit an existing video** (replace/add/remove something inside it;
+uses `reference_videos`, NOT `first_frame`):
+
+```bash
+curl -s -X POST http://${CLACKY_SERVER_HOST}:${CLACKY_SERVER_PORT}/api/media/video \
+  -H "Content-Type: application/json" \
+  -d '{
+    "prompt": "Add a small wooden fishing boat with a warm lantern drifting slowly across the lake in the foreground, keep everything else unchanged",
+    "resolution": "720p",
+    "reference_videos": ["'"$(pwd)"'/assets/original.mp4"],
+    "output_dir": "'"$(pwd)"'",
+    "session_id": "<%= session_id %>"
+  }'
+```
+
+**Seedance is asynchronous — POST only submits, it does NOT return the video.**
+Unlike Veo (which blocks and returns the mp4 in one call), the Seedance POST
+returns immediately with a task id:
+
+```json
+{ "success": true, "status": "submitted", "task_id": "cgt-2024...-xxxx", "provider": "volcengine" }
+```
+
+`status: "submitted"` means the render is now running on Volcengine's servers
+and **is already being billed** — it does NOT mean it is done. You MUST now
+poll for completion: sleep ~15 seconds, then query the status endpoint, and
+repeat until it is `succeeded` (or `failed`):
+
+```bash
+curl -s "http://${CLACKY_SERVER_HOST}:${CLACKY_SERVER_PORT}/api/media/video/status?task_id=cgt-2024...-xxxx&output_dir=$(pwd)&session_id=<%= session_id %>"
+```
+
+Status responses:
+
+```json
+{ "success": true,  "status": "running" }                         // keep polling
+{ "success": true,  "status": "succeeded", "video": "/abs/path.mp4" }  // done — this is the file
+{ "success": false, "status": "failed", "error": "..." }          // give up, report to user
+```
+
+Only once you receive `status: "succeeded"` and the absolute `video` path may
+you present the result to the user. Do NOT end your turn while the task is
+still `submitted`/`running` — the user is waiting for the finished video.
+
+A minimal poll loop:
+
+```bash
+TASK_ID=$(curl -s -X POST http://${CLACKY_SERVER_HOST}:${CLACKY_SERVER_PORT}/api/media/video \
+  -H "Content-Type: application/json" \
+  -d '{"prompt":"...","resolution":"720p","output_dir":"'"$(pwd)"'","session_id":"<%= session_id %>"}' \
+  | sed -n 's/.*"task_id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+
+while true; do
+  sleep 15
+  RESP=$(curl -s "http://${CLACKY_SERVER_HOST}:${CLACKY_SERVER_PORT}/api/media/video/status?task_id=${TASK_ID}&output_dir=$(pwd)&session_id=<%= session_id %>")
+  STATUS=$(echo "$RESP" | sed -n 's/.*"status"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+  echo "poll: $STATUS"
+  [ "$STATUS" = "succeeded" ] && echo "$RESP" && break
+  [ "$STATUS" = "failed" ] && echo "$RESP" && break
+done
+```
+
+**Hard rules — a broken version of this once doubled a user's bill:**
+
+- ❌ **Never POST the same generation twice.** Once you have a `task_id`, the
+  only valid next action is polling `/api/media/video/status`. A slow render
+  is not a failed one.
+- ⚠️ **A timeout or error is NOT proof the task failed.** The task keeps
+  running and billing on Volcengine's side. Always query the status endpoint
+  to find out the real state before doing anything else — never resubmit.
+- ❌ **Never kill the poll to "cancel" the job.** Killing your curl/session
+  does not stop the Volcengine task; it keeps running and billing. A running
+  task also cannot be deleted upstream.
+- ❌ **Never bypass `/api/media/*` to call Volcengine's native API directly.**
+  All submission and status checks must go through this server (it meters
+  cost). There is no reason to touch the raw Ark API.
+- ⏱️ If polling exceeds ~15 minutes and status is still `running`, stop
+  polling and tell the user the task is still rendering in the background,
+  give them the `task_id`, and let them check again later — do NOT resubmit.
+
 ## Generating speech (Gemini TTS)
 
 The same `/api/media/` namespace serves text-to-speech. The user must

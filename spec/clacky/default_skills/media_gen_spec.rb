@@ -11,8 +11,40 @@ RSpec.describe "media-gen default skill" do
     skill = Clacky::Skill.new(skill_dir)
     result = skill.process_content(template_context: { "session_id" => "session-123" })
 
-    expect(result.scan('"session_id": "session-123"').size).to eq(4)
+    expect(result.scan('"session_id": "session-123"').size).to eq(6)
     expect(result).to include('"Continuing the same scene, the camera keeps pushing forward…" "session-123"')
+  end
+
+  it "documents the Seedance async submit-then-poll flow with anti-resubmit guards" do
+    skill = Clacky::Skill.new(skill_dir)
+    result = skill.process_content(template_context: { "session_id" => "session-123" })
+
+    expect(result).to include("/api/media/video/status")
+    expect(result).to include('"status": "submitted"')
+    expect(result).to match(/Never POST the same generation twice/i)
+    expect(result).to match(/never bypass .*api\/media/i)
+    expect(result).to match(/timeout or error is NOT proof/i)
+  end
+
+  it "documents editing/extending a video via reference_videos, not first_frame" do
+    skill = Clacky::Skill.new(skill_dir)
+    result = skill.process_content(template_context: { "session_id" => "session-123" })
+
+    expect(result).to match(/Edit an existing video/i)
+    expect(result).to match(/Extend \/ continue a video/i)
+    expect(result).to match(/mutually exclusive/i)
+    expect(result).to match(/do NOT fall back to/i)
+    expect(result).to include('"reference_videos":')
+    expect(result).to match(/reference_videos.*original\.mp4/)
+  end
+
+  it "extends the resolution cost gate to edits and continuations" do
+    skill = Clacky::Skill.new(skill_dir)
+    result = skill.process_content(template_context: { "session_id" => "session-123" })
+
+    expect(result).to match(/before EACH/i)
+    expect(result).to match(/never reuse a prior answer|NEVER carried over/i)
+    expect(result).to match(/never silently upgrade it/i)
   end
 
   it "includes the session ID in chained-video payloads" do

@@ -19,7 +19,7 @@ module Clacky
     KNOWN_TOP_KEYS    = %w[id name title description version origin author homepage license public license_required keywords contributes].freeze
     KNOWN_CONTRIBUTES = %w[panels api skills agents channels patches hooks].freeze
 
-    PANEL_KEYS   = %w[id title title_zh description description_zh view order attach].freeze
+    PANEL_KEYS   = %w[id title title_zh description description_zh view order attach entry_points].freeze
     API_KEYS     = %w[id handler].freeze
     SKILL_KEYS   = %w[id dir protected].freeze
     AGENT_KEYS   = %w[id title title_zh description description_zh order prompt panels skills avatar].freeze

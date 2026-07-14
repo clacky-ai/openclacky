@@ -149,6 +149,47 @@ class ExtStudioExt < Clacky::ApiExtension
     json(ok: true, ext_id: ext_id)
   end
 
+  # POST /api/ext/ext-studio/set_meta
+  # body: { ext_id, name?, description?, entry_points? }
+  # entry_points: [{ unit_id, slot }] — stored under contributes.panels[id].entry_points
+  # Writes display metadata back to the local ext.yml without touching other fields.
+  post "/set_meta" do
+    ext_id = require_ext_id!
+
+    result    = Clacky::ExtensionLoader.load_all(force: false)
+    container = Array(result.containers).find { |id, _| id == ext_id }&.last
+    error!("extension not found: #{ext_id}", status: 404) unless container
+
+    yml_path = File.join(container[:dir], "ext.yml")
+    error!("ext.yml not found", status: 404) unless File.exist?(yml_path)
+
+    manifest = Psych.safe_load(File.read(yml_path), permitted_classes: [], aliases: true) || {}
+
+    manifest["name"]        = presence(json_body["name"])        if json_body.key?("name")
+    manifest["description"] = presence(json_body["description"]) if json_body.key?("description")
+
+    if json_body.key?("entry_points")
+      eps = json_body["entry_points"]
+      by_panel = Hash.new { |h, k| h[k] = [] }
+      Array(eps).each { |ep| by_panel[ep["unit_id"].to_s] << { "slot" => ep["slot"] } if ep["slot"] }
+      panels = Array((manifest["contributes"] || {})["panels"])
+      panels.each do |panel|
+        pid = panel["id"].to_s
+        slots = by_panel[pid]
+        if slots.any?
+          panel["entry_points"] = slots
+        else
+          panel.delete("entry_points")
+        end
+      end
+    end
+
+    File.write(yml_path, Psych.dump(manifest))
+    Clacky::ExtensionLoader.load_all(force: true)
+
+    json(ok: true, ext_id: ext_id)
+  end
+
   # POST /api/ext/ext-studio/set_version
   # body: { ext_id, version }
   # Writes the new version string back to the local ext.yml.
@@ -251,6 +292,10 @@ class ExtStudioExt < Clacky::ApiExtension
     ext_issues = issues.select { |i| i.ext == ext_id }
     dir = container[:dir]
     ext_units = result.units.select { |u| u.ext_id == ext_id }
+    panels = Array((raw["contributes"] || {})["panels"])
+    entry_points = panels.flat_map do |p|
+      Array(p["entry_points"]).map { |ep| { panel_id: p["id"], slot: ep["slot"] } }
+    end
     {
       id: ext_id,
       name: raw["name"] || ext_id,
@@ -262,6 +307,8 @@ class ExtStudioExt < Clacky::ApiExtension
       mtime: File.mtime(File.join(dir, "ext.yml")).to_i,
       units: ext_units.map { |u| serialize_unit(u) },
       unit_counts: unit_counts(ext_units),
+      contributes: raw["contributes"] || {},
+      entry_points: entry_points,
       error_count: ext_issues.count { |i| i.level == :error },
       warning_count: ext_issues.count { |i| i.level == :warning }
     }

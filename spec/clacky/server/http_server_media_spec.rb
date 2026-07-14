@@ -232,4 +232,55 @@ RSpec.describe Clacky::Server::HttpServer, "media routes" do
       end
     end
   end
+
+  describe "GET /api/media/video/status" do
+    let(:video_models) do
+      [{ "model" => "doubao-seedance-2-0-260128", "api_key" => "ark-x",
+         "base_url" => "https://ark.cn-beijing.volces.com/api/v3", "type" => "video" }]
+    end
+
+    it "rejects a missing task_id with 422" do
+      cfg = build_config(video_models)
+      with_server(agent_config: cfg) do |server|
+        req = fake_req(method: "GET", path: "/api/media/video/status", query_string: "")
+        res = fake_res
+        dispatch(server, req, res)
+        expect(res.status).to eq(422)
+        expect(parsed_body(res)["error"]).to include("task_id")
+      end
+    end
+
+    it "delegates to the Generator and returns 200 for a running task" do
+      cfg = build_config(video_models)
+      expect_any_instance_of(Clacky::Media::Generator).to receive(:video_status) do |_, **kwargs|
+        expect(kwargs[:task_id]).to eq("cgt-abc")
+        { "success" => true, "status" => "running", "task_id" => "cgt-abc" }
+      end
+
+      with_server(agent_config: cfg) do |server|
+        req = fake_req(method: "GET", path: "/api/media/video/status", query_string: "task_id=cgt-abc")
+        res = fake_res
+        dispatch(server, req, res)
+        expect(res.status).to eq(200)
+        body = parsed_body(res)
+        expect(body["status"]).to eq("running")
+      end
+    end
+
+    it "returns 200 with the local video path when the task has succeeded" do
+      cfg = build_config(video_models)
+      expect_any_instance_of(Clacky::Media::Generator).to receive(:video_status)
+        .and_return("success" => true, "status" => "succeeded", "video" => "/tmp/work/assets/generated/vid.mp4")
+
+      with_server(agent_config: cfg) do |server|
+        req = fake_req(method: "GET", path: "/api/media/video/status", query_string: "task_id=cgt-abc")
+        res = fake_res
+        dispatch(server, req, res)
+        expect(res.status).to eq(200)
+        body = parsed_body(res)
+        expect(body["status"]).to eq("succeeded")
+        expect(body["video"]).to eq("/tmp/work/assets/generated/vid.mp4")
+      end
+    end
+  end
 end
