@@ -463,6 +463,9 @@ module Clacky
           # with modalities:["image"]); end-to-end latency is commonly
           # 20-60s and can exceed 2 minutes for or-gpt-image-2 under load.
           300
+        elsif path == "/api/media/video/status"
+          # Single upstream task lookup; returns in well under a second.
+          30
         elsif path == "/api/media/video"
           # Video generation (Veo via the gateway) runs an async submit+poll
           # cycle that routinely takes 1-3 minutes and can approach the
@@ -572,6 +575,7 @@ module Clacky
         when ["GET",    "/api/local-image"]       then api_serve_local_image(req, res)
         when ["POST",   "/api/media/image"]       then api_media_image(req, res)
         when ["POST",   "/api/media/video"]       then api_media_video(req, res)
+        when ["GET",    "/api/media/video/status"] then api_media_video_status(req, res)
         when ["POST",   "/api/media/audio/speech"] then api_media_audio_speech(req, res)
         when ["POST",   "/api/media/audio/transcriptions"] then api_media_audio_transcriptions(req, res)
         when ["POST",   "/api/media/video/understand"]     then api_media_video_understand(req, res)
@@ -1539,13 +1543,41 @@ module Clacky
           aspect_ratio: aspect_ratio,
           duration_seconds: duration,
           output_dir: output_dir,
-          image: image
+          image: image,
+          first_frame: body["first_frame"],
+          last_frame: body["last_frame"],
+          reference_images: body["reference_images"],
+          reference_videos: body["reference_videos"],
+          reference_audios: body["reference_audios"],
+          resolution: body["resolution"],
+          generate_audio: body["generate_audio"],
+          watermark: body["watermark"],
+          seed: body["seed"]
         )
         if result["success"]
           log_media_usage(result, prompt: prompt, session_id: session_id)
         end
         status = result["success"] ? 200 : 422
         json_response(res, status, result)
+      rescue StandardError => e
+        json_response(res, 500, { error: e.message })
+      end
+
+      def api_media_video_status(req, res)
+        query   = URI.decode_www_form(req.query_string.to_s).to_h
+        task_id = query["task_id"].to_s
+        if task_id.strip.empty?
+          return json_response(res, 422, { error: "task_id is required" })
+        end
+
+        output_dir = query["output_dir"].to_s
+        output_dir = @agent_config.default_working_dir || Dir.pwd if output_dir.empty?
+
+        result = Clacky::Media::Generator.new(@agent_config).video_status(
+          task_id: task_id,
+          output_dir: output_dir
+        )
+        json_response(res, 200, result)
       rescue StandardError => e
         json_response(res, 500, { error: e.message })
       end

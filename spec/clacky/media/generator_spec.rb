@@ -81,6 +81,61 @@ RSpec.describe Clacky::Media::Generator do
     end
   end
 
+  describe "video provider routing" do
+    it "routes a volces.com base_url to Volcengine" do
+      video_entry = {
+        "model"    => "doubao-seedance-2-0-260128",
+        "type"     => "video",
+        "base_url" => "https://ark.cn-beijing.volces.com/api/v3",
+        "api_key"  => "ark-test"
+      }
+      config = Clacky::AgentConfig.new(models: [video_entry])
+
+      fake_provider = instance_double(Clacky::Media::Volcengine)
+      expect(Clacky::Media::Volcengine).to receive(:new).and_return(fake_provider)
+      expect(fake_provider).to receive(:generate_video).and_return({ "success" => true })
+
+      described_class.new(config).generate_video(prompt: "a cat", output_dir: "/tmp/work")
+    end
+  end
+
+  describe "#video_status" do
+    it "delegates to Volcengine for a volces.com base_url" do
+      config = Clacky::AgentConfig.new(models: [{
+        "model" => "doubao-seedance-2-0-260128", "type" => "video",
+        "base_url" => "https://ark.cn-beijing.volces.com/api/v3", "api_key" => "ark-test"
+      }])
+
+      fake_provider = instance_double(Clacky::Media::Volcengine)
+      expect(Clacky::Media::Volcengine).to receive(:new).and_return(fake_provider)
+      expect(fake_provider).to receive(:video_status).with(task_id: "cgt-1", output_dir: "/tmp/work")
+        .and_return({ "success" => true, "status" => "running" })
+
+      result = described_class.new(config).video_status(task_id: "cgt-1", output_dir: "/tmp/work")
+      expect(result["status"]).to eq("running")
+    end
+
+    it "returns unsupported for a synchronous provider (Veo)" do
+      config = Clacky::AgentConfig.new(models: [{
+        "model" => "or-veo-3-1", "type" => "video",
+        "base_url" => "https://api.openclacky.com", "api_key" => "clacky-test"
+      }])
+
+      result = described_class.new(config).video_status(task_id: "cgt-1")
+      expect(result["success"]).to be false
+      expect(result["error_type"]).to eq("unsupported")
+    end
+
+    it "returns not_configured when no video model is set" do
+      config = Clacky::AgentConfig.new(models: [
+        { "model" => "chat", "type" => "default", "base_url" => "https://example.invalid/v1", "api_key" => "k" }
+      ])
+      result = described_class.new(config).video_status(task_id: "cgt-1")
+      expect(result["success"]).to be false
+      expect(result["error_type"]).to eq("not_configured")
+    end
+  end
+
   describe "#generate_video" do
     context "when no type=video model is configured" do
       it "returns a not_configured error response" do

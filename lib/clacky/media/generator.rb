@@ -3,6 +3,7 @@
 require_relative "openai_compat"
 require_relative "gemini"
 require_relative "dashscope"
+require_relative "volcengine"
 
 module Clacky
   module Media
@@ -32,6 +33,13 @@ module Clacky
       # they correctly keep going through OpenAICompat.
       DASHSCOPE_NATIVE_HOSTS = [
         "aliyuncs.com"
+      ].freeze
+
+      # Hosts that speak Volcengine Ark's native async video-task API
+      # (ByteDance Doubao Seedance) instead of an OpenAI-compatible facade.
+      # Matched as a substring so regional variants are caught.
+      VOLCENGINE_NATIVE_HOSTS = [
+        "volces.com"
       ].freeze
 
       # @param agent_config [Clacky::AgentConfig]
@@ -99,6 +107,34 @@ module Clacky
           output_dir: output_dir,
           **kwargs
         )
+      end
+
+      def video_status(task_id:, output_dir: nil)
+        entry = video_model_entry
+        if entry.nil?
+          return {
+            "success"    => false,
+            "status"     => "failed",
+            "error"      => "No video model configured. Add a model with type=video in settings.",
+            "error_type" => "not_configured",
+            "provider"   => "",
+            "model"      => ""
+          }
+        end
+
+        provider = build_provider_for(entry)
+        unless provider.respond_to?(:video_status)
+          return {
+            "success"    => false,
+            "status"     => "failed",
+            "error"      => "Status queries are only supported for Volcengine (Seedance) video; this provider generates synchronously.",
+            "error_type" => "unsupported",
+            "provider"   => "",
+            "model"      => ""
+          }
+        end
+
+        provider.video_status(task_id: task_id, output_dir: output_dir)
       end
 
       def generate_speech(input:, voice: nil, output_dir: nil, **kwargs)
@@ -185,6 +221,9 @@ module Clacky
       #     DashScope (native /api/v1/.../multimodal-generation schema for
       #     Qwen-Image). Third-party aggregators re-exposing qwen-image behind
       #     an OpenAI-compatible facade are NOT on aliyuncs.com and fall through.
+      #   • base_url points at a Volcengine Ark host (*.volces.com) →
+      #     Volcengine (native async /api/v3/contents/generations/tasks schema
+      #     for Doubao Seedance video).
       #   • everything else → OpenAICompat. This covers OpenAI itself, the
       #     openclacky gateway, OpenRouter, and any third-party proxy that
       #     re-exposes Gemini / Imagen / DALL-E behind /v1/images/generations.
@@ -196,6 +235,8 @@ module Clacky
           Gemini.new(entry)
         elsif DASHSCOPE_NATIVE_HOSTS.any? { |host| url.include?(host) }
           DashScope.new(entry)
+        elsif VOLCENGINE_NATIVE_HOSTS.any? { |host| url.include?(host) }
+          Volcengine.new(entry)
         else
           OpenAICompat.new(entry)
         end
