@@ -607,9 +607,22 @@ module Clacky
           ""
         )
 
-        # Pass 1: anchored strip — the full wrapper echoed at the start,
-        # possibly spanning multiple real newlines.
-        text = text.sub(/\A\{.*?"\$__clacky_ec"\s*\n?/m, "")
+        # Pass 1: anchored strip — remove ONLY the wrapper's echoed head
+        # line (`{ USER_CMD`) at the very start of the buffer, and ONLY
+        # when a matching wrapper tail fingerprint (`}...; __clacky_ec=$?`)
+        # actually exists somewhere in the buffer. The guard is what keeps
+        # us from eating a real first line of user output that merely
+        # happens to start with `{` (e.g. JSON like `{"key": ...}`).
+        # We test the tail with a separate anchor-free `match?` (linear, no
+        # backtracking) rather than a lookahead, to avoid catastrophic
+        # regex backtracking on large `{`-prefixed output. We strip a
+        # single line (`[^\n]*`, not cross-line `.*?`): a multi-line command
+        # echoed in cooked mode puts the wrapper tail *after* the real
+        # output, so cross-line greed would swallow that output whole. The
+        # tail itself is removed by the fingerprint passes below.
+        if text.start_with?("{") && text.match?(/\}[^\n;]*; *__clacky_ec=\$\?/)
+          text = text.sub(/\A\{[^\n]*\n/, "")
+        end
 
         # Pass 2: token-aware global strip — remove any leftover wrapper
         # echo fragment, wherever it sits. Requires the session token so
@@ -629,9 +642,11 @@ module Clacky
           # 2b. Single-line shape: everything collapsed onto one line.
           # Strip from the wrapper's `}; __clacky_ec=$?` pivot (or the
           # opening `{` if still present on that line) through the end of
-          # the printf invocation (`"$__clacky_ec"`).
+          # the printf invocation (`"$__clacky_ec"`). The optional
+          # `[^\n;]*` between `}` and `;` absorbs a WSL `</dev/null`
+          # stdin redirect spliced onto the group.
           text = text.gsub(
-            /[^\n]*\}; *__clacky_ec=\$\?; *printf[^\n]*__CLACKY_DONE_#{token_re}_[^\n]*"\$__clacky_ec"[^\n]*\n?/,
+            /[^\n]*\}[^\n;]*; *__clacky_ec=\$\?; *printf[^\n]*__CLACKY_DONE_#{token_re}_[^\n]*"\$__clacky_ec"[^\n]*\n?/,
             ""
           )
 
@@ -653,9 +668,10 @@ module Clacky
         # private double-underscore var name that user code effectively
         # never emits — so we strip anything between them (non-greedy,
         # multiline-aware) to also handle width-wrap that inserted
-        # real \n breaks inside the echo.
+        # real \n breaks inside the echo. `[^\n;]*` between `}` and `;`
+        # absorbs a WSL `</dev/null` stdin redirect on the group.
         text = text.gsub(
-          /[^\n]*\}; *__clacky_ec=\$\?.*?"\$__clacky_ec"[^\n]*\n?/m,
+          /[^\n]*\}[^\n;]*; *__clacky_ec=\$\?.*?"\$__clacky_ec"[^\n]*\n?/m,
           ""
         )
 
@@ -663,7 +679,7 @@ module Clacky
         # truncation cut off everything after `__clacky_ec=$?`). Still a
         # reliable fingerprint thanks to the `__clacky_ec` var name.
         text = text.gsub(
-          /[^\n]*\}; *__clacky_ec=\$\?;?[^\n]*\n?/,
+          /[^\n]*\}[^\n;]*; *__clacky_ec=\$\?;?[^\n]*\n?/,
           ""
         )
 

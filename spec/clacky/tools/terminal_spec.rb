@@ -849,6 +849,41 @@ RSpec.describe Clacky::Tools::Terminal do
       expect(strip(input, token: token)).to eq("hi\n")
     end
 
+    it "keeps real output that sits between the echoed wrapper head and tail" do
+      # Multi-line command echoed in cooked mode: the shell echoes `{ CMD`,
+      # then the command runs and its output lands *before* the echoed
+      # wrapper tail. A cross-line strip would swallow that output whole.
+      input = "{ ls\n" \
+              "file_a.txt\n" \
+              "file_b.txt\n" \
+              "}; __clacky_ec=$?; printf \"\n__CLACKY_DONE_#{token}_%s__\n\" \"$__clacky_ec\"\n"
+      expect(strip(input, token: token)).to eq("file_a.txt\nfile_b.txt\n")
+    end
+
+    it "strips a WSL wrapper tail carrying a </dev/null stdin redirect" do
+      # On WSL, `.exe` commands get `</dev/null` spliced between the group's
+      # `}` and the `; __clacky_ec=$?` pivot. The fingerprint passes must
+      # still recognise the tail so it doesn't leak into user-visible output.
+      input = "{ ipconfig.exe\n" \
+              "Windows IP Configuration\n" \
+              "IPv4 Address: 192.168.1.5\n" \
+              "} </dev/null; __clacky_ec=$?; printf \"\n__CLACKY_DONE_#{token}_%s__\n\" \"$__clacky_ec\"\n"
+      expect(strip(input, token: token)).to eq("Windows IP Configuration\nIPv4 Address: 192.168.1.5\n")
+    end
+
+    it "never eats a real first line that merely starts with `{` (JSON output)" do
+      # stty -echo working: no wrapper echo, just real output whose first
+      # line is `{"key": ...}`. Pass 1 must NOT strip it — the lookahead
+      # guard only fires when a wrapper tail fingerprint is present.
+      input = "{\"key\": \"value\"}\n{\"a\": 1}\n"
+      expect(strip(input, token: token)).to eq(input)
+    end
+
+    it "leaves a `{`-prefixed multi-line JSON blob untouched when there is no wrapper" do
+      input = "{\n  \"a\": 1,\n  \"b\": 2\n}\n"
+      expect(strip(input, token: token)).to eq(input)
+    end
+
     it "strips a wrapper echo that appears mid-stream, not anchored to the start" do
       input = "previous output\n" \
               "{ echo hi\n}; __clacky_ec=$?; printf \"\n__CLACKY_DONE_#{token}_%s__\n\" \"$__clacky_ec\"\nhi\n"
