@@ -449,12 +449,12 @@ A minimal poll loop:
 TASK_ID=$(curl -s -X POST http://${CLACKY_SERVER_HOST}:${CLACKY_SERVER_PORT}/api/media/video \
   -H "Content-Type: application/json" \
   -d '{"prompt":"...","resolution":"720p","output_dir":"'"$(pwd)"'","session_id":"<%= session_id %>"}' \
-  | python3 -c 'import sys,json;print(json.load(sys.stdin).get("task_id",""))')
+  | sed -n 's/.*"task_id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
 
 while true; do
   sleep 15
   RESP=$(curl -s "http://${CLACKY_SERVER_HOST}:${CLACKY_SERVER_PORT}/api/media/video/status?task_id=${TASK_ID}&output_dir=$(pwd)&session_id=<%= session_id %>")
-  STATUS=$(echo "$RESP" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("status",""))')
+  STATUS=$(echo "$RESP" | sed -n 's/.*"status"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
   echo "poll: $STATUS"
   [ "$STATUS" = "succeeded" ] && echo "$RESP" && break
   [ "$STATUS" = "failed" ] && echo "$RESP" && break
