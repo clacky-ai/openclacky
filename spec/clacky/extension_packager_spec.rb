@@ -132,5 +132,38 @@ RSpec.describe Clacky::ExtensionPackager do
       expect { described_class.install(evil, installed_dir: installed) }
         .to raise_error(described_class::Error, /unsafe path/)
     end
+
+    def rootless_zip(name, manifest)
+      path = File.join(out, name)
+      Zip::File.open(path, create: true) do |z|
+        z.get_output_stream("ext.yml") { |f| f.write(manifest) }
+        z.get_output_stream("panels/hello/view.js") { |f| f.write("export default {}") }
+      end
+      path
+    end
+
+    it "names the install dir after the manifest id when the zip has no top-level container" do
+      zip = rootless_zip("brand.zip", "id: orchestrator\nname: Orchestrator\nversion: 1.0.0\n")
+      res = described_class.install(zip, installed_dir: installed)
+
+      expect(res.ext_id).to eq("orchestrator")
+      expect(File).to exist(File.join(installed, "orchestrator", "ext.yml"))
+      expect(Dir.exist?(File.join(installed, "unpacked"))).to be(false)
+    end
+
+    it "rejects a rootless archive whose manifest declares no id" do
+      zip = rootless_zip("noid.zip", "name: Orchestrator\nversion: 1.0.0\n")
+
+      expect { described_class.install(zip, installed_dir: installed) }
+        .to raise_error(described_class::Error, /declares no id/)
+    end
+
+    it "keeps using the top-level dir name when the archive has a container dir" do
+      zip = packed("demo")
+      res = described_class.install(zip, installed_dir: installed)
+
+      expect(res.ext_id).to eq("demo")
+      expect(File).to exist(File.join(installed, "demo", "ext.yml"))
+    end
   end
 end

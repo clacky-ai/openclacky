@@ -195,7 +195,9 @@ module Clacky
         dirs = children.select { |c| File.directory?(File.join(root, c)) }
 
         if File.file?(File.join(root, MANIFEST))
-          return [File.basename(File.expand_path(root)), root]
+          id = manifest_id(File.join(root, MANIFEST))
+          raise Error, "archive has no top-level container and #{MANIFEST} declares no id" if id.empty?
+          return [id, root]
         end
 
         if dirs.size == 1 && File.file?(File.join(root, dirs.first, MANIFEST))
@@ -203,6 +205,13 @@ module Clacky
         end
 
         raise Error, "archive does not contain a single container with #{MANIFEST}"
+      end
+
+      private def manifest_id(manifest_path)
+        data = YAMLCompat.load_file(manifest_path)
+        data.is_a?(Hash) ? data["id"].to_s.strip : ""
+      rescue StandardError
+        ""
       end
 
       private def verify_installed(ext_id, installed_dir)
