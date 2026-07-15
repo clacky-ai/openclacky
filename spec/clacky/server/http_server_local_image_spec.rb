@@ -88,4 +88,24 @@ RSpec.describe Clacky::Server::HttpServer, "GET /api/local-image caching" do
       expect(res.body).to eq("PNGDATA-version-2-longer")
     end
   end
+
+  it "serves a Windows drive-letter file:// path resolved to the real file (WSL)" do
+    with_server(agent_config: agent_config) do |server|
+      drive_href = "file:///C:/Users/foo/puppy.png"
+      allow(Clacky::Utils::EnvironmentDetector)
+        .to receive(:resolve_local_path).with(drive_href).and_return(image_path)
+
+      req = fake_req(
+        method:       "GET",
+        path:         "/api/local-image",
+        query_string: "path=#{CGI.escape(drive_href)}",
+        headers:      {}
+      )
+      res = capturing_res
+      dispatch(server, req, res)
+
+      expect(res.status).to eq(200)
+      expect(res.body).to eq("PNGDATA-v1")
+    end
+  end
 end

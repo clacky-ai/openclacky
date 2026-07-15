@@ -496,5 +496,35 @@ RSpec.describe Clacky::Utils::FileProcessor do
         expect(result).not_to eq(content)
       end
     end
+
+    it "rewrites a Windows drive-letter path resolved to the real local file (WSL)" do
+      Dir.mktmpdir do |dir|
+        real = File.join(dir, "shot.png")
+        File.binwrite(real, "PNG")
+
+        # On WSL a file:///C:/… href resolves (via win_to_linux_path) to the
+        # /mnt/… path. Stub the resolver to point the drive-letter href at our
+        # real temp file so we assert the rewrite uses the resolved path for
+        # existence + mtime while keeping the original href in the proxy URL.
+        drive_href = "file:///C:/Users/foo/shot.png"
+        allow(Clacky::Utils::EnvironmentDetector)
+          .to receive(:resolve_local_path).with(drive_href).and_return(real)
+
+        content = "![pic](#{drive_href})"
+        result = described_class.rewrite_local_image_urls(content)
+
+        expect(result).to include("![pic](/api/local-image?path=#{CGI.escape(drive_href)}&v=")
+        expect(result).to match(/&v=\d+\)/)
+      end
+    end
+
+    it "leaves a Windows drive-letter path untouched when the resolved file is missing" do
+      drive_href = "file:///C:/Users/foo/missing.png"
+      allow(Clacky::Utils::EnvironmentDetector)
+        .to receive(:resolve_local_path).with(drive_href).and_return("/mnt/c/Users/foo/missing.png")
+
+      content = "![pic](#{drive_href})"
+      expect(described_class.rewrite_local_image_urls(content)).to eq(content)
+    end
   end
 end

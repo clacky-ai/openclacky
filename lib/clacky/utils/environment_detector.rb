@@ -52,17 +52,24 @@ module Clacky
         end
       end
 
-      # Convert a Windows-style path to a WSL/Linux-side path.
-      # e.g. "C:/Users/foo/file.txt" → "/mnt/c/Users/foo/file.txt"
-      # Returns the original path unchanged on non-WSL or if already a Linux path.
-      # @param path [String]
-      # @return [String]
+      # Convert a Windows-style path (incl. the "/C:/" three-slash-URL form) to
+      # a WSL /mnt path. No-op on non-WSL or non-drive-letter paths.
       def self.win_to_linux_path(path)
-        return path unless os_type == :wsl && path.match?(/\A[A-Za-z]:[\/\\]/)
+        return path unless os_type == :wsl
 
-        drive = path[0].downcase
-        rest  = path[2..].gsub("\\", "/")
-        "/mnt/#{drive}#{rest}"
+        m = path.match(%r{\A/?([A-Za-z]):[/\\](.*)}m)
+        return path unless m
+
+        "/mnt/#{m[1].downcase}/#{m[2].gsub("\\", "/")}"
+      end
+
+      # Resolve a "file://" URL or bare path into a real local path:
+      # strip "file://", percent-decode, WSL drive-letter normalize, then expand.
+      def self.resolve_local_path(href)
+        path = href.to_s.sub(%r{\Afile://}, "")
+        path = CGI.unescape(path)
+        path = win_to_linux_path(path)
+        File.expand_path(path)
       end
 
       # Convert a Linux-side path to a Windows-style path via wslpath.

@@ -6,6 +6,7 @@ require "securerandom"
 require "stringio"
 
 require_relative "parser_manager"
+require_relative "environment_detector"
 require "zip"
 
 module Clacky
@@ -599,12 +600,11 @@ module Clacky
         alt  = Regexp.last_match(1)
         href = Regexp.last_match(2)
 
-        path = href.sub(%r{\Afile://}, "")
-        path = CGI.unescape(path)
+        real = Clacky::Utils::EnvironmentDetector.resolve_local_path(href)
 
-        ext = File.extname(path).downcase
-        if LOCAL_MEDIA_EXTENSIONS.include?(ext) && File.exist?(path)
-          "![#{alt}](#{local_image_proxy_url(href, path)})"
+        ext = File.extname(real).downcase
+        if LOCAL_MEDIA_EXTENSIONS.include?(ext) && File.exist?(real)
+          "![#{alt}](#{local_image_proxy_url(href, real)})"
         else
           _match
         end
@@ -616,12 +616,11 @@ module Clacky
         href = Regexp.last_match(2)
         post = Regexp.last_match(3) || ""
 
-        path = href.sub(%r{\Afile://}, "")
-        path = CGI.unescape(path)
+        real = Clacky::Utils::EnvironmentDetector.resolve_local_path(href)
 
-        ext = File.extname(path).downcase
-        if LOCAL_VIDEO_EXTENSIONS.include?(ext) && File.exist?(path)
-          "<video#{pre} src=\"#{local_image_proxy_url(href, path)}\"#{post}>"
+        ext = File.extname(real).downcase
+        if LOCAL_VIDEO_EXTENSIONS.include?(ext) && File.exist?(real)
+          "<video#{pre} src=\"#{local_image_proxy_url(href, real)}\"#{post}>"
         else
           _match
         end
@@ -633,12 +632,11 @@ module Clacky
         href = Regexp.last_match(2)
         post = Regexp.last_match(3) || ""
 
-        path = href.sub(%r{\Afile://}, "")
-        path = CGI.unescape(path)
+        real = Clacky::Utils::EnvironmentDetector.resolve_local_path(href)
 
-        ext = File.extname(path).downcase
-        if LOCAL_AUDIO_EXTENSIONS.include?(ext) && File.exist?(path)
-          "<audio#{pre} src=\"#{local_image_proxy_url(href, path)}\"#{post}>"
+        ext = File.extname(real).downcase
+        if LOCAL_AUDIO_EXTENSIONS.include?(ext) && File.exist?(real)
+          "<audio#{pre} src=\"#{local_image_proxy_url(href, real)}\"#{post}>"
         else
           _match
         end
@@ -649,13 +647,12 @@ module Clacky
         text = Regexp.last_match(1)
         href = Regexp.last_match(2)
 
-        path = href.sub(%r{\Afile://}, "")
-        path = CGI.unescape(path)
+        real = Clacky::Utils::EnvironmentDetector.resolve_local_path(href)
 
-        ext = File.extname(path).downcase
+        ext = File.extname(real).downcase
         if LOCAL_VIDEO_EXTENSIONS.include?(ext) || LOCAL_AUDIO_EXTENSIONS.include?(ext)
-          if File.exist?(path)
-            "[#{text}](#{local_image_proxy_url(href, path)})"
+          if File.exist?(real)
+            "[#{text}](#{local_image_proxy_url(href, real)})"
           else
             _match
           end

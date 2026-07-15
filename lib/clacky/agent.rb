@@ -1862,11 +1862,10 @@ module Clacky
       files = []
       content.scan(/(!?)\[([^\]]*)\]\(file:\/\/([^)]+)\)/) do
         inline = $1 == "!"
-        # URL-decode percent-encoded characters (e.g. Chinese filenames encoded by AI)
-        raw_path = CGI.unescape($3)
-        name   = File.basename(raw_path)
-        path   = File.expand_path(raw_path)
-        Clacky::Logger.info("[parse_file_links] raw=#{$3.inspect} expanded=#{path.inspect} exist=#{File.exist?(path)}")
+        # Resolve the AI-emitted path: decode, WSL drive-letter normalize, expand.
+        path   = Clacky::Utils::EnvironmentDetector.resolve_local_path($3)
+        name   = File.basename(path)
+        Clacky::Logger.info("[parse_file_links] raw=#{$3.inspect} resolved=#{path.inspect} exist=#{File.exist?(path)}")
         files << { name: name, path: path, inline: inline }
       end
       { text: content, files: files }

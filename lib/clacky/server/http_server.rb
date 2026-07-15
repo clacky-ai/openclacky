@@ -3691,13 +3691,11 @@ module Clacky
 
         return json_response(res, 400, { error: "path is required" }) unless path && !path.empty?
 
-        # Expand ~ to the user's home directory (e.g. "~/Desktop/file.pdf").
-        # Ruby's File.exist? does NOT automatically expand ~ — that's a shell feature.
-        path = File.expand_path(path)
-
-        # On WSL the file may be specified as a Windows path (e.g. "C:/Users/…").
-        # Convert it to the Linux-side path so File.exist? works.
+        # Path arrives already percent-decoded by the click handler; normalize
+        # Windows drive letters (WSL) BEFORE expand_path or the drive is treated
+        # as relative and corrupted. No-op on macOS/Linux.
         linux_path = Utils::EnvironmentDetector.win_to_linux_path(path)
+        linux_path = File.expand_path(linux_path)
 
         return json_response(res, 404, { error: "file not found" }) unless File.exist?(linux_path)
 
@@ -3742,14 +3740,9 @@ module Clacky
         raw_path = URI.decode_www_form(req.query_string.to_s).to_h["path"].to_s
         return json_response(res, 400, { error: "path is required" }) if raw_path.empty?
 
-        # Strip file:// prefix if present
-        path = raw_path.sub(%r{\Afile://}, "")
-        path = CGI.unescape(path)
-        path = File.expand_path(path)
-
-        # On WSL the file may be specified as a Windows path (e.g. "C:/Users/…").
-        # Convert it to the Linux-side path so File.exist? works.
-        path = Utils::EnvironmentDetector.win_to_linux_path(path)
+        # Strip file://, decode, WSL drive-letter normalize, then expand — in
+        # this order (normalize must precede expand_path). No-op on macOS/Linux.
+        path = Utils::EnvironmentDetector.resolve_local_path(raw_path)
 
         # Security: only serve media files (images + videos)
         ext = File.extname(path).downcase
