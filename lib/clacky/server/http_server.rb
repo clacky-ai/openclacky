@@ -3691,13 +3691,14 @@ module Clacky
 
         return json_response(res, 400, { error: "path is required" }) unless path && !path.empty?
 
-        # Expand ~ to the user's home directory (e.g. "~/Desktop/file.pdf").
-        # Ruby's File.exist? does NOT automatically expand ~ — that's a shell feature.
-        path = File.expand_path(path)
-
         # On WSL the file may be specified as a Windows path (e.g. "C:/Users/…").
-        # Convert it to the Linux-side path so File.exist? works.
+        # Convert it to the Linux-side path first — otherwise File.expand_path
+        # would treat the drive letter as a relative path and corrupt it.
         linux_path = Utils::EnvironmentDetector.win_to_linux_path(path)
+
+        # Expand ~ and relative paths. Safe now that any drive-letter path has
+        # already been rewritten to an absolute Linux path.
+        linux_path = File.expand_path(linux_path)
 
         return json_response(res, 404, { error: "file not found" }) unless File.exist?(linux_path)
 
