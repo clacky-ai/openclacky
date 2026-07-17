@@ -471,15 +471,24 @@ module Clacky
 
           if sec[:role] == "user"
             round_index += 1
+            # Extract serialized attachment metadata (badges) from the HTML comment
+            # emitted by render_message_sections, and strip it from the visible text.
+            display_files = nil
+            if (m = text.match(/^<!-- clacky:display_files (.+?) -->$/))
+              display_files = JSON.parse(m[1]) rescue nil
+              text = text.sub(/\n*^<!-- clacky:display_files .+? -->$/, "").strip
+            end
             # Synthetic timestamp: spread rounds backwards from archived_at
             synthetic_ts = base_time - (sections.size - round_index) * 1.0
+            user_msg = {
+              role: "user",
+              content: text,
+              created_at: synthetic_ts,
+              _from_chunk: true
+            }
+            user_msg[:display_files] = display_files if display_files
             current_round = {
-              user_msg: {
-                role: "user",
-                content: text,
-                created_at: synthetic_ts,
-                _from_chunk: true
-              },
+              user_msg: user_msg,
               events: []
             }
             rounds << current_round

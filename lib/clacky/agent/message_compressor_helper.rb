@@ -620,6 +620,12 @@ module Clacky
             lines << ""
             lines << format_message_content(content)
             lines << ""
+            # Serialize attachment metadata (badges) as an HTML comment so it
+            # survives compression yet stays invisible to MD readers and the LLM.
+            if msg[:display_files]&.any?
+              lines << "<!-- clacky:display_files #{msg[:display_files].to_json} -->"
+              lines << ""
+            end
           when "assistant"
             # If this message is itself a compressed summary, annotate the header
             # so the reader knows the original conversation is in the referenced chunk
