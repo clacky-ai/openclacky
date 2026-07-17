@@ -89,6 +89,57 @@ RSpec.describe Clacky::Utils::ParserManager do
         end
       end
     end
+
+    context "when the parser exceeds the timeout" do
+      it "kills the subprocess and returns a timeout error" do
+        parser = File.join(tmp_parsers_dir, "pdf_parser.rb")
+        File.write(parser, "sleep 30")
+        stub_const("Clacky::Utils::ParserManager::PARSE_TIMEOUT", 1)
+
+        Dir.mktmpdir do |dir|
+          path = File.join(dir, "doc.pdf")
+          File.write(path, "%PDF")
+          started = Time.now
+          result = described_class.parse(path)
+          elapsed = Time.now - started
+
+          expect(result[:success]).to be false
+          expect(result[:error]).to match(/timed out after 1s/)
+          expect(elapsed).to be < 10  # killed promptly, not waited out
+        end
+      end
+    end
+  end
+
+  describe ".interpreter_for" do
+    it "maps .rb to the running Ruby" do
+      expect(described_class.interpreter_for("pdf_parser.rb")).to eq(RbConfig.ruby)
+    end
+
+    it "maps .py to python3" do
+      expect(described_class.interpreter_for("xlsx_parser.py")).to eq("python3")
+    end
+
+    it "falls back to Ruby for unknown extensions" do
+      expect(described_class.interpreter_for("weird.sh")).to eq(RbConfig.ruby)
+    end
+  end
+
+  describe ".capture3_with_timeout" do
+    it "returns stdout and a successful status for a fast command" do
+      out, _err, status = described_class.capture3_with_timeout(
+        RbConfig.ruby, "-e", "print 'hi'", timeout: 5
+      )
+      expect(out).to eq("hi")
+      expect(status.success?).to be true
+    end
+
+    it "returns :timeout and kills a slow command" do
+      _out, _err, status = described_class.capture3_with_timeout(
+        RbConfig.ruby, "-e", "sleep 30", timeout: 1
+      )
+      expect(status).to eq(:timeout)
+    end
   end
 
   describe ".setup!" do
@@ -262,6 +313,37 @@ RSpec.describe Clacky::Utils::ParserManager do
 
     it "returns nil for unknown extension" do
       expect(described_class.parser_path_for(".unknown")).to be_nil
+    end
+  end
+
+  describe ".ensure_python_deps" do
+    let(:script) { "xlsx_parser.py" }
+
+    context "when python3 is already available" do
+      before { allow(described_class).to receive(:python3_available?).and_return(true) }
+
+      it "installs the missing lib" do
+        allow(described_class).to receive(:python_lib_present?).with("openpyxl").and_return(false)
+        allow(described_class).to receive(:pip_install).with("openpyxl").and_return(true)
+        expect(described_class.ensure_python_deps(script)).to be_nil
+      end
+
+      it "returns nil when the lib is already present" do
+        allow(described_class).to receive(:python_lib_present?).with("openpyxl").and_return(true)
+        expect(described_class.ensure_python_deps(script)).to be_nil
+      end
+    end
+
+    context "when python3 is not available" do
+      before do
+        allow(described_class).to receive(:python3_available?).and_return(false)
+      end
+
+      it "returns an error with --clt-only install instructions" do
+        error = described_class.ensure_python_deps(script)
+        expect(error).to match(/install_system_deps\.sh --clt-only/)
+        expect(error).to match(/retry/i)
+      end
     end
   end
 end

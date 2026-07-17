@@ -599,13 +599,21 @@ main() {
 
     assert_supported_os
 
+    # --clt-only: install just what ships /usr/bin/python3 (Xcode CLT on macOS,
+    # python3 on Linux) and skip Homebrew. Callers that only need python3 (e.g.
+    # the file parser) use this to avoid the interactive Homebrew sudo prompt.
+    local clt_only=false
+    [ "$1" = "--clt-only" ] && clt_only=true
+
     case "$OS" in
         macOS)
             detect_shell
             ensure_xcode_clt  || exit 1
-            detect_network_region
-            configure_homebrew_cn_mirrors
-            ensure_homebrew   || exit 1
+            if [ "$clt_only" = false ]; then
+                detect_network_region
+                configure_homebrew_cn_mirrors
+                ensure_homebrew   || exit 1
+            fi
             ;;
         Linux) ensure_linux_deps || exit 1 ;;
     esac
