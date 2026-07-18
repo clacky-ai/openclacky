@@ -222,6 +222,20 @@ RSpec.describe Clacky::ModelPricing do
         expect(result[:source]).to eq(:price)
       end
 
+      it "calculates kimi-k3 basic cost" do
+        usage = {
+          prompt_tokens: 100_000,          # 100K tokens
+          completion_tokens: 50_000         # 50K tokens
+        }
+
+        # Input:  (100_000 / 1_000_000) * $3.00 = $0.300
+        # Output: (50_000  / 1_000_000) * $15.00 = $0.750
+        # Total:  $1.050
+        result = described_class.calculate_cost(model: "kimi-k3", usage: usage)
+        expect(result[:cost]).to be_within(0.0001).of(1.050)
+        expect(result[:source]).to eq(:price)
+      end
+
       it "matches kimi-k2.5 case-insensitively" do
         usage = { prompt_tokens: 100_000, completion_tokens: 50_000 }
         result = described_class.calculate_cost(model: "Kimi-K2.5", usage: usage)
