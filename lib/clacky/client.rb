@@ -2,6 +2,7 @@
 
 require "faraday"
 require "json"
+require "resolv"
 
 module Clacky
   class Client
@@ -513,6 +514,31 @@ module Clacky
       end
     end
 
+    # Pre-resolve hostname to IP using Ruby's Resolv::DNS, bypassing the
+    # system getaddrinfo(3) resolver. On macOS, long-running processes can
+    # develop a stale resolver context after network configuration changes
+    # (WiFi reconnect, VPN, DHCP renew), causing getaddrinfo(3) to return
+    # EAI_NONAME ("nodename nor servname provided, or not known")
+    # intermittently. Resolv::DNS speaks DNS protocol directly over UDP,
+    # completely independent of the system resolver daemon (mDNSResponder).
+    #
+    # Falls back to the original URL on resolution failure so the system
+    # resolver still gets a chance.
+    private def resolve_host_once(url)
+      uri = URI.parse(url.to_s)
+      hostname = uri.host
+      return url unless hostname && !hostname.match?(/\A\d+\.\d+\.\d+\.\d+\z/)
+
+      ip = Resolv::DNS.new.getaddress(hostname).to_s
+      resolved = url.to_s.sub(hostname, ip)
+      resolved
+    rescue Resolv::ResolvError, Resolv::ResolvTimeout => e
+      if defined?(Clacky::Logger)
+        Clacky::Logger.warn("[dns] #{hostname}: #{e.message}, falling back to system resolver")
+      end
+      url
+    end
+
     def reset_connections!
       @bedrock_connection = nil
       @openai_connection = nil
@@ -523,9 +549,11 @@ module Clacky
       current_epoch = Clacky::ProxyConfig.epoch
       if @bedrock_connection.nil? ||
          (!@bedrock_connection_epoch.nil? && @bedrock_connection_epoch != current_epoch)
-        @bedrock_connection = Faraday.new(url: @base_url) do |conn|
+        resolved_url = resolve_host_once(@base_url)
+        @bedrock_connection = Faraday.new(url: resolved_url) do |conn|
           conn.headers["Content-Type"]  = "application/json"
           conn.headers["Authorization"] = "Bearer #{@api_key}"
+          conn.headers["Host"] = URI.parse(@base_url.to_s).host if resolved_url != @base_url.to_s
           conn.options.timeout      = @read_timeout || 300
           conn.options.open_timeout = 10
           conn.ssl.verify           = false
@@ -540,9 +568,11 @@ module Clacky
       current_epoch = Clacky::ProxyConfig.epoch
       if @openai_connection.nil? ||
          (!@openai_connection_epoch.nil? && @openai_connection_epoch != current_epoch)
-        @openai_connection = Faraday.new(url: @base_url) do |conn|
+        resolved_url = resolve_host_once(@base_url)
+        @openai_connection = Faraday.new(url: resolved_url) do |conn|
           conn.headers["Content-Type"]  = "application/json"
           conn.headers["Authorization"] = "Bearer #{@api_key}"
+          conn.headers["Host"] = URI.parse(@base_url.to_s).host if resolved_url != @base_url.to_s
           conn.options.timeout      = @read_timeout || 300
           conn.options.open_timeout = 10
           conn.ssl.verify           = false
@@ -557,7 +587,8 @@ module Clacky
       current_epoch = Clacky::ProxyConfig.epoch
       if @anthropic_connection.nil? ||
          (!@anthropic_connection_epoch.nil? && @anthropic_connection_epoch != current_epoch)
-        @anthropic_connection = Faraday.new(url: @base_url) do |conn|
+        resolved_url = resolve_host_once(@base_url)
+        @anthropic_connection = Faraday.new(url: resolved_url) do |conn|
           conn.headers["Content-Type"]   = "application/json"
           conn.headers["x-api-key"]      = @api_key
           conn.headers["anthropic-version"] = "2023-06-01"
@@ -570,6 +601,7 @@ module Clacky
           if @provider_id == "kimi-coding"
             conn.headers["User-Agent"] = "claude-cli/1.0.51 (external, cli)"
           end
+          conn.headers["Host"] = URI.parse(@base_url.to_s).host if resolved_url != @base_url.to_s
           conn.options.timeout      = @read_timeout || 300
           conn.options.open_timeout = 10
           conn.ssl.verify           = false

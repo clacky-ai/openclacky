@@ -211,7 +211,18 @@ module Clacky
           # connection after idle time). The Faraday connection object caches the
           # socket, so retrying without resetting it would hit the same dead socket.
           epipe = e.is_a?(Errno::EPIPE) || (e.respond_to?(:wrapped_exception) && e.wrapped_exception.is_a?(Errno::EPIPE))
-          @client.reset_connections! if epipe
+
+          # DNS resolution failures (getaddrinfo / "nodename nor servname")
+          # indicate a stale resolver context in long-running Ruby processes.
+          # On macOS, the mDNSResponder socket can become invalid after network
+          # configuration changes (WiFi reconnect, VPN, DHCP renew), causing
+          # getaddrinfo(3) to fail intermittently for the affected process.
+          # Resetting the Faraday connection forces Net::HTTP to re-initialize
+          # its underlying TCP socket, which acquires a fresh resolver context.
+          dns_failure = e.message.include?("getaddrinfo") ||
+                        e.message.include?("nodename nor servname")
+
+          @client.reset_connections! if epipe || dns_failure
 
           # Probing failure: primary still down — renew cooling-off and retry with fallback.
           if @config.probing?
