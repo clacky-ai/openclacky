@@ -8,7 +8,7 @@ require "set"
 
 module Clacky
   class SessionManager
-    SESSIONS_DIR = File.join(Dir.home, ".clacky", "sessions")
+    SESSIONS_DIR = File.join(Clacky.data_dir, "sessions")
 
     # Generate a new unique session ID (16-char hex string).
     # This is the single authoritative source for session IDs — all components
@@ -451,7 +451,7 @@ module Clacky
     # 8-char id prefix, so a snapshot dir is an orphan when its prefix matches
     # no active or trashed session file. Returns the count of removed dirs.
     def self.cleanup_orphan_snapshots(sessions_dir: SESSIONS_DIR, snapshots_root: nil)
-      snapshots_root ||= File.join(Dir.home, ".clacky", "snapshots")
+      snapshots_root ||= File.join(Clacky.data_dir, "snapshots")
       return 0 unless Dir.exist?(snapshots_root)
 
       require_relative "utils/trash_directory"

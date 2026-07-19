@@ -27,7 +27,7 @@ module Clacky
       PROMPT
 
       MAX_TOKENS = 8192
-      CACHE_DIR  = File.join(Dir.home, ".clacky", "ocr_cache")
+      CACHE_DIR  = File.join(Clacky.data_dir, "ocr_cache")
       CACHE_VERSION = 1
 
       Result = Struct.new(:status, :text, :error, keyword_init: true) do

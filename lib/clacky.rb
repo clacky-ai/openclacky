@@ -61,6 +61,14 @@ module YAMLCompat
   end
 end
 
+module Clacky
+  # Central data directory for all Clacky runtime files.
+  # Override with CLACKY_HOME env var for dev or custom installs.
+  def self.data_dir
+    ENV["CLACKY_HOME"] || File.join(Dir.home, ".clacky")
+  end
+end
+
 require_relative "clacky/version"
 require_relative "clacky/message_format/anthropic"
 require_relative "clacky/message_format/open_ai"

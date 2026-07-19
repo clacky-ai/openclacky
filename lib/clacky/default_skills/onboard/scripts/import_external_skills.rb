@@ -266,7 +266,7 @@ class ExternalSkillsImportRunner
   # @param dry_run [Boolean] when true, only preview without making changes
   # @param yes [Boolean] when true, skip confirmation prompt
   def initialize(sources: nil,
-                 target_skills_dir: File.join(Dir.home, '.clacky', 'skills'),
+                 target_skills_dir: File.join(Clacky.data_dir, 'skills'),
                  dry_run: false,
                  yes: false)
     @sources           = (sources || SOURCES) & SOURCES

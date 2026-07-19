@@ -26,7 +26,7 @@ class ZipSkillInstaller
     # If not provided, we try to infer it from the filename in the URL/path, e.g.
     # "ui-ux-pro-max-1.0.0.zip" → "ui-ux-pro-max".
     @skill_name = skill_name || infer_skill_name(zip_source)
-    @target_dir = target_dir || File.join(Dir.home, '.clacky', 'skills')
+    @target_dir = target_dir || File.join(Clacky.data_dir, 'skills')
     # When true, existing skill directories are preserved and the install for
     # that specific skill is skipped (recorded in @skipped_skills).
     # Default false keeps the legacy "overwrite" behaviour for `install`.

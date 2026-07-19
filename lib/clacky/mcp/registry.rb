@@ -25,7 +25,7 @@ module Clacky
       # Resolved at load time (not at constant evaluation) so HOME changes — e.g.
       # in tests using stub_const or Dir.mktmpdir + ENV — are honored.
       private def global_config_paths
-        [File.join(Dir.home, ".clacky", "mcp.json")]
+        [File.join(Clacky.data_dir, "mcp.json")]
       end
 
       # How long an MCP server may sit idle before we reap it. Vital for the

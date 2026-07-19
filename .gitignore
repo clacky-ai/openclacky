@@ -17,3 +17,5 @@ AGENTS.md
 .history
 coscli*
 /assets
+
+.env

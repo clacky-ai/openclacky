@@ -16,7 +16,7 @@ class BuiltinSkillsInstaller
   API_READ_TIMEOUT = 10
 
   def initialize
-    @target_dir       = File.join(Dir.home, '.clacky', 'skills')
+    @target_dir       = File.join(Clacky.data_dir, 'skills')
     @installed        = 0
     @skipped_existing = 0
     @attempted        = 0

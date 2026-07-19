@@ -14,7 +14,7 @@ module Clacky
   #   user_id: 42
   #   bound_at: "2026-07-05T00:00:00Z"
   class Identity
-    CONFIG_DIR    = File.join(Dir.home, ".clacky")
+    CONFIG_DIR    = Clacky.data_dir
     IDENTITY_FILE = File.join(CONFIG_DIR, "identity.yml")
 
     attr_reader :device_token, :user_id, :bound_at

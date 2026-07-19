@@ -3427,7 +3427,7 @@ module Clacky
       end
 
       private def mcp_config_path
-        File.join(Dir.home, ".clacky", "mcp.json")
+        File.join(Clacky.data_dir, "mcp.json")
       end
 
       private def mcp_registry

@@ -90,3 +90,17 @@ draft PR first to discuss the trade-offs.
 Participation in this project is governed by the
 [Code of Conduct](./CODE_OF_CONDUCT.md). By contributing, you agree to uphold
 it.
+
+## Local Development with Enterprise Server
+
+Point the client at a local enterprise server for end-to-end development:
+
+```bash
+export CLACKY_LICENSE_SERVER=http://localhost:3000
+export CLACKY_HOME=/tmp/clacky-dev
+bundle exec ruby bin/clacky
+```
+
+- `CLACKY_LICENSE_SERVER` — overrides the platform API host (default: `https://www.openclacky.com`). Controls skills, license, extensions, and all other platform API calls.
+- `CLACKY_HOME` — redirects all data (config, sessions, skills, logs) to an alternate directory (default: `~/.clacky`). Use this to keep dev data isolated.
+

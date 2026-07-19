@@ -510,7 +510,7 @@ module Clacky
       def self._delete_snapshots(session_id)
         return if session_id.to_s.empty?
 
-        dir = File.join(Dir.home, ".clacky", "snapshots", session_id.to_s)
+        dir = File.join(Clacky.data_dir, "snapshots", session_id.to_s)
         FileUtils.rm_rf(dir) if Dir.exist?(dir)
       end
       private_class_method :_delete_snapshots

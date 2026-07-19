@@ -25,7 +25,7 @@ module Clacky
   # This class is only responsible for platform credentials.
   # working_dir and permission_mode live in AgentConfig.
   class ChannelConfig
-    CONFIG_DIR  = File.join(Dir.home, ".clacky")
+    CONFIG_DIR  = Clacky.data_dir
     CONFIG_FILE = File.join(CONFIG_DIR, "channels.yml")
 
     # @param channels [Hash<String, Hash>] string-keyed platform configs (raw from YAML)

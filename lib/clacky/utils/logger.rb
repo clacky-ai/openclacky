@@ -15,7 +15,7 @@ module Clacky
   #   Clacky::Logger.warn("retry attempt", n: 3)
   #   Clacky::Logger.error("unhandled exception", error: e)
   module Logger
-    LOG_DIR        = File.join(Dir.home, ".clacky", "logger").freeze
+    LOG_DIR        = File.join(Clacky.data_dir, "logger").freeze
     MAX_LOG_FILES  = 7
     MUTEX          = Mutex.new
 

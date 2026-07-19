@@ -106,7 +106,7 @@ module Clacky
           @backup_dir = trash_directory.backup_dir
 
           @project_hash = trash_directory.generate_project_hash(@project_root)
-          @safety_log_dir = File.join(Dir.home, ".clacky", "safety_logs", @project_hash)
+          @safety_log_dir = File.join(Clacky.data_dir, "safety_logs", @project_hash)
           FileUtils.mkdir_p(@safety_log_dir) unless Dir.exist?(@safety_log_dir)
           @safety_log_file = File.join(@safety_log_dir, "safety.log")
         end

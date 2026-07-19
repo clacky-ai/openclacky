@@ -31,7 +31,7 @@ module Clacky
   #   license_last_heartbeat: "2025-03-05T00:00:00Z"
   #   device_id: "abc123def456..."
   class BrandConfig
-    CONFIG_DIR  = File.join(Dir.home, ".clacky")
+    CONFIG_DIR  = Clacky.data_dir
     BRAND_FILE  = File.join(CONFIG_DIR, "brand.yml")
 
     # How often to send a heartbeat (seconds) — once per day
@@ -1528,7 +1528,7 @@ module Clacky
     #     "commit"     => { "platform_version" => "1.2.0", "uploaded_at" => "2026-04-09T..." },
     #     "nss-upload" => { "platform_version" => "1.0.0", "uploaded_at" => "..." }
     #   }
-    UPLOAD_META_FILE = File.join(Dir.home, ".clacky", "skills", "upload_meta.json").freeze
+    UPLOAD_META_FILE = File.join(Clacky.data_dir, "skills", "upload_meta.json").freeze
 
     # Load upload metadata for all published local skills.
     # @return [Hash{String => Hash}]

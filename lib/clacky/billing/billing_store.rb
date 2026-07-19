@@ -10,7 +10,7 @@ module Clacky
     # Persistent storage for billing records using JSONL files
     # Records are stored in monthly files: ~/.clacky/billing/YYYY-MM.jsonl
     class BillingStore
-      BILLING_DIR = File.join(Dir.home, ".clacky", "billing")
+      BILLING_DIR = File.join(Clacky.data_dir, "billing")
 
       def initialize(billing_dir: nil)
         @billing_dir = billing_dir || ENV["CLACKY_BILLING_DIR"] || BILLING_DIR
@@ -205,7 +205,7 @@ module Clacky
           end
 
           # Also load from trashed sessions
-          trash_dir = File.join(Dir.home, ".clacky", "trash", "sessions-trash")
+          trash_dir = File.join(Clacky.data_dir, "trash", "sessions-trash")
           if Dir.exist?(trash_dir)
             Dir.glob(File.join(trash_dir, "*.json")).each do |filepath|
               session = JSON.parse(File.read(filepath), symbolize_names: true) rescue next

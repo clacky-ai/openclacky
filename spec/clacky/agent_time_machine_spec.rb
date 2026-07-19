@@ -23,7 +23,7 @@ RSpec.describe "Clacky::Agent TimeMachine" do
 
   # Helper to get the BEFORE snapshot directory for a task
   def snapshot_dir(task_id)
-    File.join(Dir.home, ".clacky", "snapshots", agent.session_id, "task-#{task_id}", "before")
+    File.join(Clacky.data_dir, "snapshots", agent.session_id, "task-#{task_id}", "before")
   end
 
   # Helper to create a file with content

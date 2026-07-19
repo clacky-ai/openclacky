@@ -143,7 +143,7 @@ module Clacky
   end
 
   class AgentConfig
-    CONFIG_DIR = File.join(Dir.home, ".clacky")
+    CONFIG_DIR = Clacky.data_dir
     CONFIG_FILE = File.join(CONFIG_DIR, "config.yml")
 
     # Default model for ClaudeCode environment

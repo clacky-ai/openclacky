@@ -21,7 +21,7 @@ module Clacky
 
       # Root directory holding per-session file snapshots.
       def self.snapshots_root
-        File.join(Dir.home, ".clacky", "snapshots")
+        File.join(Clacky.data_dir, "snapshots")
       end
 
       # Snapshot directory for a single session.

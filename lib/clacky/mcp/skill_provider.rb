@@ -61,7 +61,7 @@ module Clacky
       end
 
       private def config_paths
-        paths = [File.join(Dir.home, ".clacky", "mcp.json")]
+        paths = [File.join(Clacky.data_dir, "mcp.json")]
         paths << File.join(@working_dir, ".clacky", "mcp.json") if @working_dir
         paths
       end

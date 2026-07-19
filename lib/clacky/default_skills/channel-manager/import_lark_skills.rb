@@ -28,7 +28,7 @@ module Clacky
   module ChannelSetup
     class LarkSkillsImporter
       DEFAULT_SOURCE_DIR = File.join(Dir.home, '.agents', 'skills')
-      DEFAULT_TARGET_DIR = File.join(Dir.home, '.clacky', 'skills', 'lark-imports')
+      DEFAULT_TARGET_DIR = File.join(Clacky.data_dir, 'skills', 'lark-imports')
       SKILL_PREFIX       = 'lark-'
 
       # @param source_dir [String] directory containing lark-cli installed skills

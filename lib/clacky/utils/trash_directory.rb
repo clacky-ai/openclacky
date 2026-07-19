@@ -10,7 +10,7 @@ module Clacky
   #   ├── file-trash/      ← AI-deleted project files, keyed by project hash
   #   └── sessions-trash/  ← soft-deleted sessions (JSON + chunk MD files)
   class TrashDirectory
-    GLOBAL_TRASH_ROOT = File.join(Dir.home, ".clacky", "trash")
+    GLOBAL_TRASH_ROOT = File.join(Clacky.data_dir, "trash")
 
     def self.files_trash_dir
       File.join(GLOBAL_TRASH_ROOT, "file-trash")
@@ -76,7 +76,7 @@ module Clacky
 
     # ── Legacy migration ──────────────────────────────────────────────
 
-    OLD_TRASH_ROOT = File.join(Dir.home, ".clacky", "trash")
+    OLD_TRASH_ROOT = File.join(Clacky.data_dir, "trash")
 
     # One-time: move pre-file-trash project hash dirs from ~/.clacky/trash/
     # directly into the new file-trash/ subdirectory. Safe to call on every boot.
