@@ -376,7 +376,7 @@ RSpec.describe "chunk index injection and topics" do
       collector = Class.new do
         attr_reader :events
         def initialize; @events = []; end
-        def show_user_message(content, created_at: nil, files: []); @events << { type: :user, content: content }; end
+        def show_user_message(content, created_at: nil, files: [], editable: true); @events << { type: :user, content: content }; end
         def show_assistant_message(content, files:); @events << { type: :assistant, content: content }; end
         def show_tool_call(*); end
         def show_tool_result(*); end
