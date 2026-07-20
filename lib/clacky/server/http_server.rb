@@ -36,9 +36,10 @@ module Clacky
         @events     = events
       end
 
-      def show_user_message(content, created_at: nil, files: [])
+      def show_user_message(content, created_at: nil, files: [], editable: true)
         ev = { type: "history_user_message", session_id: @session_id, content: content }
         ev[:created_at] = created_at if created_at
+        ev[:editable] = false unless editable
         rendered = Array(files).filter_map do |f|
           url  = f[:data_url] || f["data_url"]
           name = f[:name]     || f["name"]

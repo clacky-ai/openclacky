@@ -257,8 +257,10 @@ module Clacky
             end
 
           if is_real_user_msg
-            # Start a new round at each real user message
-            current_round = { user_msg: msg, events: [] }
+            # Start a new round at each real user message.
+            # editable: true — this message still lives in the active in-memory
+            # @history, so truncate_from_created_at can locate and truncate it.
+            current_round = { user_msg: msg, events: [], editable: true }
             rounds << current_round
           elsif current_round
             current_round[:events] << msg
@@ -325,7 +327,8 @@ module Clacky
               preview_path: f[:preview_path] || f["preview_path"] }
           }
           all_files = image_files + disk_files
-          ui.show_user_message(raw_text, created_at: msg[:created_at], files: all_files)
+          ui.show_user_message(raw_text, created_at: msg[:created_at], files: all_files,
+                               editable: round[:editable] != false)
 
           round[:events].each do |ev|
             # Skip system-injected messages (e.g. synthetic skill content, memory prompts)
@@ -480,7 +483,11 @@ module Clacky
                 created_at: synthetic_ts,
                 _from_chunk: true
               },
-              events: []
+              events: [],
+              # editable: false — this message was archived into a chunk MD and no
+              # longer exists in the active in-memory @history, so it cannot be
+              # truncated/edited (truncate_from_created_at would silently no-op).
+              editable: false
             }
             rounds << current_round
           elsif current_round
