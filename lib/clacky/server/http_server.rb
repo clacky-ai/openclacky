@@ -3713,8 +3713,11 @@ module Clacky
           json_response(res, 200, { ok: true })
         when "download"
           serve_file_download(res, linux_path)
+        when "display-path"
+          display = Utils::EnvironmentDetector.linux_to_win_path(linux_path)
+          json_response(res, 200, { ok: true, path: display })
         else
-          json_response(res, 400, { error: "invalid action. Must be 'open', 'reveal' or 'download'" })
+          json_response(res, 400, { error: "invalid action. Must be 'open', 'reveal', 'download' or 'display-path'" })
         end
       rescue => e
         json_response(res, 500, { ok: false, error: e.message })
