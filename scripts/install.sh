@@ -599,7 +599,7 @@ parse_args() {
 # --------------------------------------------------------------------------
 setup_brand() {
     [ -z "$BRAND_NAME" ] && return 0
-    local clacky_dir="$HOME/.clacky"
+    local clacky_dir="${CLACKY_HOME:-$HOME/.clacky}"
     local brand_file="$clacky_dir/brand.yml"
     mkdir -p "$clacky_dir"
     print_step "Configuring brand: $BRAND_NAME"

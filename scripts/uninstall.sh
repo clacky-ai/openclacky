@@ -210,7 +210,7 @@ BRAND_COMMAND=""
 DISPLAY_NAME="OpenClacky"
 
 load_brand() {
-    local brand_file="$HOME/.clacky/brand.yml"
+    local brand_file="${CLACKY_HOME:-$HOME/.clacky}/brand.yml"
     [ -f "$brand_file" ] || return 0
     BRAND_NAME=$(awk -F': ' '/^product_name:/{gsub(/^"|"$/, "", $2); gsub(/^ +| +$/, "", $2); print $2}' "$brand_file") || true
     BRAND_COMMAND=$(awk -F': ' '/^package_name:/{gsub(/^"|"$/, "", $2); gsub(/^ +| +$/, "", $2); print $2}' "$brand_file") || true
@@ -246,7 +246,7 @@ remove_brand() {
 }
 
 remove_config() {
-    local config_dir="$HOME/.clacky"
+    local config_dir="${CLACKY_HOME:-$HOME/.clacky}"
     [ -d "$config_dir" ] || return 0
     print_warning "Configuration directory found: $config_dir"
     read -r -p "Remove configuration files (including API keys)? [y/N] " reply

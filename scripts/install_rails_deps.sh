@@ -832,7 +832,7 @@ main() {
     fi
 
     # Run system deps script if available
-    local sys_deps="$HOME/.clacky/scripts/install_system_deps.sh"
+    local sys_deps="${CLACKY_HOME:-$HOME/.clacky}/scripts/install_system_deps.sh"
     [ -f "$sys_deps" ] && { bash "$sys_deps" || print_warning "System deps install had warnings — continuing"; }
 
     case "$INSTALL_TARGET" in

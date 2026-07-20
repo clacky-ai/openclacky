@@ -215,8 +215,8 @@ parse_args() {
 # --------------------------------------------------------------------------
 setup_brand() {
     [ -z "$BRAND_NAME" ] && return 0
-    local brand_file="$HOME/.clacky/brand.yml"
-    mkdir -p "$HOME/.clacky"
+    local brand_file="${CLACKY_HOME:-$HOME/.clacky}/brand.yml"
+    mkdir -p "${CLACKY_HOME:-$HOME/.clacky}"
     print_step "Configuring brand: $BRAND_NAME"
     cat > "$brand_file" <<YAML
 product_name: "${BRAND_NAME}"
