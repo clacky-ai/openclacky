@@ -99,6 +99,26 @@ Rules:
 5. **Verify** with `clacky ext verify`. Surface any error/skip lines to the user verbatim.
 6. **Reload** the WebUI page (for panel/api changes take effect on next request — no restart needed).
 
+## Persisting user data
+
+If an API backend needs to persist **user data** that must survive uninstall +
+reinstall (team info, saved config, history), store it via `data_path(...)` in
+`handler.rb` — it returns a path under `~/.clacky/ext-data/<id>/`, **outside**
+the package tree:
+
+```ruby
+File.write(data_path("teams.json"), JSON.generate(teams))
+teams = JSON.parse(File.read(data_path("teams.json")))
+```
+
+- **Never** write user data into the package dir (`ext_dir` / `File.join(ext_dir, ...)`)
+  — uninstall deletes the whole package, so anything there is lost, and a
+  reinstall starts empty. That is a data-loss bug.
+- Package-internal writes are fine only for **disposable** runtime artifacts
+  (caches, downloaded wallpapers) that are meant to vanish on uninstall.
+- Uninstall keeps `~/.clacky/ext-data/<id>/` by default; the user opts in to
+  deleting it via a checkbox. Reinstalling the same extension reconnects to it.
+
 ## When NOT to use this skill
 
 - The user is building features in their own application that just *use* openclacky — that's normal coding, no extension container needed.

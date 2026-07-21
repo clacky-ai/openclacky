@@ -55,6 +55,11 @@ Edit the files into real, working code:
 - In `view.js`, reuse host CSS classes (`btn-primary`, `btn-secondary`, `form-input`,
   `form-textarea`, `form-label`) so the panel inherits the theme automatically.
 - In `handler.rb`, define routes relative to the `/api/ext/<id>/` mount.
+- To persist **user data** (config, saved records, history), write it via
+  `data_path("file.json")` — it lands in `~/.clacky/ext-data/<id>/`, outside the
+  package, so uninstall/reinstall preserves it. **Never** write user data into
+  the package dir (`ext_dir`); the whole package is deleted on uninstall, so
+  data there is lost. Package-internal writes are only for disposable caches.
 
 ## Step 5 — Confirm it loads
 

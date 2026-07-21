@@ -229,12 +229,28 @@ module Clacky
       @query ||= req.query || {}
     end
 
-    def data_path(*parts)
-      base = File.join(self.class.ext_dir, "data")
-      FileUtils.mkdir_p(base)
-      File.join(base, *parts.map(&:to_s))
-    end
+      def data_path(*parts)
+        base = Clacky::ExtensionLoader.data_dir_for(self.class.ext_id)
+        migrate_legacy_data!(base)
+        FileUtils.mkdir_p(base)
+        File.join(base, *parts.map(&:to_s))
+      end
 
+      # One-time move of pre-existing in-package data (older extensions wrote to
+      # <ext_dir>/data) out to the package-external data dir, so an uninstall no
+      # longer takes it with the package. Idempotent: runs only while the legacy
+      # dir still exists and the new base has not been created yet.
+      private def migrate_legacy_data!(base)
+        return if File.exist?(base)
+
+        legacy = File.join(self.class.ext_dir.to_s, "data")
+        return unless File.directory?(legacy)
+
+        FileUtils.mkdir_p(File.dirname(base))
+        FileUtils.mv(legacy, base)
+      rescue StandardError => e
+        logger.warn("legacy data migration failed: #{e.message}")
+      end
     def ext_dir
       self.class.ext_dir
     end
