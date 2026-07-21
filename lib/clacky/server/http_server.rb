@@ -6424,6 +6424,12 @@ module Clacky
       private def interrupt_all_agents
         return unless @registry && @session_manager
 
+        # Stop idle compression first: an in-flight compression must fully roll
+        # back (or complete) before the worker is killed, otherwise a hot
+        # restart's SIGKILL can leave a chunk file on disk whose chunk_path
+        # never made it into session.json (history vanishes on replay).
+        @registry.shutdown_all_idle_timers
+
         @registry.each_live_agent do |id, agent, thread|
           next unless thread&.alive?
           begin

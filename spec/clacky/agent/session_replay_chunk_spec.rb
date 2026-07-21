@@ -600,4 +600,138 @@ RSpec.describe "replay_history chunk MD expansion" do
         .to include(a_string_including("Next task"))
     end
   end
+
+  describe "replay_history recovers when chunk_path is missing (hot-restart data loss)" do
+    # basename = "<created_at strftime %Y-%m-%d-%H-%M-%S>-<session_id[0..7]>"
+    let(:session_id) { "3e29d4cb77305f66" }
+    let(:created_at) { "2026-07-21T10:25:06+08:00" }
+    let(:base_name)  { "2026-07-21-10-25-06-3e29d4cb" }
+
+    def build_recovering_agent(messages)
+      history = Clacky::MessageHistory.new(messages)
+      sm = Clacky::SessionManager.new(sessions_dir: sessions_dir)
+      sid = session_id
+      cat = created_at
+
+      agent_class = Class.new do
+        include Clacky::Agent::SessionSerializer
+
+        define_method(:initialize) do |hist, mgr, s_id, c_at|
+          @history = hist
+          @session_manager = mgr
+          @session_id = s_id
+          @created_at = c_at
+        end
+
+        def session_manager; @session_manager; end
+        def build_system_prompt; "system"; end
+      end
+
+      agent_class.new(history, sm, sid, cat)
+    end
+
+    it "expands chunk history from disk when the summary's chunk_path is nil" do
+      chunk_path = File.join(sessions_dir, "#{base_name}-chunk-1.md")
+      File.write(chunk_path, chunk_md(
+        user_content: "Recovered question",
+        assistant_content: "Recovered answer",
+        chunk: 1
+      ))
+
+      # chunk_path is nil — the state produced by a hot-restart SIGKILL
+      messages = [
+        { role: "system",    content: "System." },
+        { role: "assistant", content: "Summary.", compressed_summary: true, chunk_path: nil },
+        { role: "user",      content: "Current question", created_at: Time.now.to_f }
+      ]
+
+      agent = build_recovering_agent(messages)
+      collector = TestCollector.new
+      agent.replay_history(collector)
+
+      user_contents = collector.events.select { |e| e[:type] == :user }.map { |e| e[:content] }
+      expect(user_contents).to include(a_string_including("Recovered question"))
+      expect(user_contents).to include(a_string_including("Current question"))
+    end
+
+    it "does nothing harmful when no chunk exists on disk" do
+      messages = [
+        { role: "system",    content: "System." },
+        { role: "assistant", content: "Summary.", compressed_summary: true, chunk_path: nil },
+        { role: "user",      content: "Still here", created_at: Time.now.to_f }
+      ]
+
+      agent = build_recovering_agent(messages)
+      collector = TestCollector.new
+      expect { agent.replay_history(collector) }.not_to raise_error
+
+      user_contents = collector.events.select { |e| e[:type] == :user }.map { |e| e[:content] }
+      expect(user_contents).to include(a_string_including("Still here"))
+    end
+  end
+
+  describe "heal_missing_chunk_paths! writes the recovered path back into session.json" do
+    let(:session_id) { "3e29d4cb77305f66" }
+    let(:created_at) { "2026-07-21T10:25:06+08:00" }
+    let(:base_name)  { "2026-07-21-10-25-06-3e29d4cb" }
+
+    def build_healing_agent(messages)
+      history = Clacky::MessageHistory.new(messages)
+      sm = Clacky::SessionManager.new(sessions_dir: sessions_dir)
+      sid = session_id
+      cat = created_at
+
+      agent_class = Class.new do
+        include Clacky::Agent::SessionSerializer
+
+        define_method(:initialize) do |hist, mgr, s_id, c_at|
+          @history = hist
+          @session_manager = mgr
+          @session_id = s_id
+          @created_at = c_at
+        end
+
+        def session_manager; @session_manager; end
+        def to_session_data(**); { session_id: @session_id, created_at: @created_at, messages: @history.to_a }; end
+      end
+
+      agent_class.new(history, sm, sid, cat)
+    end
+
+    it "backfills chunk_path on a broken summary and persists it" do
+      chunk_path = File.join(sessions_dir, "#{base_name}-chunk-1.md")
+      File.write(chunk_path, chunk_md(user_content: "Q", assistant_content: "A", chunk: 1))
+
+      summary = { role: "assistant", content: "Summary.", compressed_summary: true, chunk_path: nil }
+      agent = build_healing_agent([summary])
+
+      agent.send(:heal_missing_chunk_paths!)
+
+      expect(summary[:chunk_path]).to eq(chunk_path)
+      # persisted to disk
+      saved = Dir.glob(File.join(sessions_dir, "#{base_name}.json"))
+      expect(saved).not_to be_empty
+    end
+
+    it "leaves a healthy summary untouched" do
+      chunk_path = File.join(sessions_dir, "#{base_name}-chunk-1.md")
+      File.write(chunk_path, chunk_md(user_content: "Q", assistant_content: "A", chunk: 1))
+
+      summary = { role: "assistant", content: "Summary.", compressed_summary: true, chunk_path: chunk_path }
+      agent = build_healing_agent([summary])
+
+      expect(agent.session_manager).not_to receive(:save)
+      agent.send(:heal_missing_chunk_paths!)
+      expect(summary[:chunk_path]).to eq(chunk_path)
+    end
+
+    it "does not persist when no chunk exists on disk" do
+      summary = { role: "assistant", content: "Summary.", compressed_summary: true, chunk_path: nil }
+      agent = build_healing_agent([summary])
+
+      expect(agent.session_manager).not_to receive(:save)
+      expect { agent.send(:heal_missing_chunk_paths!) }.not_to raise_error
+      expect(summary[:chunk_path]).to be_nil
+    end
+  end
 end

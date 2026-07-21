@@ -68,6 +68,7 @@ module Clacky
           }
         end
         backfill_task_meta_from_history!
+        heal_missing_chunk_paths!
 
         # Check if the session ended with an error.
         # We record the rollback intent here but do NOT truncate history immediately —
@@ -141,6 +142,31 @@ module Clacky
           cur_end = entry[:ended_at]
           entry[:ended_at] = ts.to_f if cur_end.nil? || ts.to_f > cur_end
         end
+      end
+
+      # Repair compressed_summary messages whose chunk_path is missing or points
+      # at a file that no longer exists. This happens when a hot restart's
+      # SIGKILL killed the worker after the chunk file was written to disk but
+      # before its path was persisted into session.json — the archived history
+      # then never renders on replay. Rediscover the chunk on disk from
+      # session_id + created_at and write the real path back, once, at load time.
+      private def heal_missing_chunk_paths!
+        return unless @session_id && @created_at
+
+        broken = @history.to_a.select do |m|
+          m[:compressed_summary] && !(m[:chunk_path] && File.exist?(m[:chunk_path].to_s))
+        end
+        return if broken.empty?
+
+        chunks = session_manager.chunks_for_current(@session_id, @created_at)
+        return if chunks.empty?
+
+        latest_path = chunks.last[:path]
+        broken.each { |m| m[:chunk_path] = latest_path }
+
+        session_manager.save(to_session_data(preserve_updated_at: true))
+      rescue => e
+        Clacky::Logger.warn("heal_missing_chunk_paths! failed: #{e.message}")
       end
 
       private def persisted_card_field(key)
@@ -264,7 +290,7 @@ module Clacky
             rounds << current_round
           elsif current_round
             current_round[:events] << msg
-          elsif msg[:compressed_summary] && msg[:chunk_path]
+          elsif msg[:compressed_summary]
             # Compressed summary sitting before any user rounds — expand ALL chunk
             # MD files that belong to the same session (siblings of chunk_path),
             # in chunk-index ascending order.
@@ -274,15 +300,23 @@ module Clacky
             # points at the newest chunk). Older chunks (chunk-1..chunk-N-1) are
             # referenced only as basenames inside the summary text. Expanding just
             # msg[:chunk_path] would therefore lose all prior chunks on replay.
-            chunk_rounds = sibling_chunks_of(msg[:chunk_path]).flat_map { |p|
-              parse_chunk_md_to_rounds(p)
-            }
+            #
+            # chunk_path may be blank when a hot restart's SIGKILL killed the
+            # worker after the chunk file was written but before its path was
+            # persisted into session.json. Fall back to discovering the chunks
+            # on disk from session_id + created_at so the history is not lost.
+            chunk_paths = if msg[:chunk_path].to_s.empty?
+              session_manager.chunks_for_current(@session_id, @created_at).map { |c| c[:path] }
+            else
+              sibling_chunks_of(msg[:chunk_path])
+            end
+            chunk_rounds = chunk_paths.flat_map { |p| parse_chunk_md_to_rounds(p) }
             rounds.concat(chunk_rounds)
             # After expanding, treat the last chunk round as the current round so that
             # any orphaned assistant/tool messages that follow in session.json (belonging
             # to the same task whose user message was compressed into the chunk) get
             # appended here instead of being silently discarded.
-            current_round = rounds.last
+            current_round = rounds.last unless chunk_rounds.empty?
           elsif rounds.last
             # Orphaned non-user message with no current_round yet (e.g. recent_messages
             # after compression started mid-task with no leading user message).

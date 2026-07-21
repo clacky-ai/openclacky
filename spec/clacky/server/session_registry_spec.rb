@@ -267,4 +267,39 @@ RSpec.describe Clacky::Server::SessionRegistry do
       expect(registry.get("s1")[:status]).to eq(:running)
     end
   end
+
+  describe "#shutdown_all_idle_timers" do
+    it "shuts down every session's idle timer" do
+      Dir.mktmpdir("clacky_idle_shutdown") do |dir|
+        manager  = Clacky::SessionManager.new(sessions_dir: dir)
+        registry = described_class.new(session_manager: manager, agent_config: default_config)
+
+        timer1 = double("timer1")
+        timer2 = double("timer2")
+        expect(timer1).to receive(:shutdown)
+        expect(timer2).to receive(:shutdown)
+
+        sessions = registry.instance_variable_get(:@sessions)
+        sessions["s1"] = { idle_timer: timer1 }
+        sessions["s2"] = { idle_timer: timer2 }
+        sessions["s3"] = { idle_timer: nil }
+
+        expect { registry.shutdown_all_idle_timers }.not_to raise_error
+      end
+    end
+
+    it "does not raise when a timer's shutdown fails" do
+      Dir.mktmpdir("clacky_idle_shutdown") do |dir|
+        manager  = Clacky::SessionManager.new(sessions_dir: dir)
+        registry = described_class.new(session_manager: manager, agent_config: default_config)
+
+        timer = double("timer")
+        allow(timer).to receive(:shutdown).and_raise(StandardError, "boom")
+
+        registry.instance_variable_get(:@sessions)["s1"] = { idle_timer: timer }
+
+        expect { registry.shutdown_all_idle_timers }.not_to raise_error
+      end
+    end
+  end
 end
