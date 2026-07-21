@@ -74,10 +74,6 @@ module Clacky
         @routes ||= []
       end
 
-      # One-shot guard so legacy data migration is attempted at most once per
-      # process per handler class, instead of on every data_path call.
-      attr_accessor :legacy_data_migrated
-
       def class_timeout
         @class_timeout
       end
@@ -235,25 +231,8 @@ module Clacky
 
       def data_path(*parts)
         base = Clacky::ExtensionLoader.data_dir_for(self.class.ext_id)
-        migrate_legacy_data!(base) unless self.class.legacy_data_migrated
         FileUtils.mkdir_p(base)
         File.join(base, *parts.map(&:to_s))
-      end
-
-      # One-time move of pre-existing in-package data (older extensions wrote to
-      # <ext_dir>/data) out to the package-external data dir, so an uninstall no
-      # longer takes it with the package. Runs at most once per process.
-      private def migrate_legacy_data!(base)
-        self.class.legacy_data_migrated = true
-        return if File.exist?(base)
-
-        legacy = File.join(self.class.ext_dir.to_s, "data")
-        return unless File.directory?(legacy)
-
-        FileUtils.mkdir_p(File.dirname(base))
-        FileUtils.mv(legacy, base)
-      rescue StandardError => e
-        logger.warn("legacy data migration failed: #{e.message}")
       end
     def ext_dir
       self.class.ext_dir
