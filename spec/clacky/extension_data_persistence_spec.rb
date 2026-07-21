@@ -101,5 +101,22 @@ RSpec.describe "extension data persistence outside package" do
       expect(File.exist?(File.join(data_dir, "acme", "old.json"))).to be(false)
       expect(File.read(File.join(data_dir, "acme", "current.json"))).to eq("fresh")
     end
+
+    it "attempts migration at most once per class regardless of data_path calls" do
+      pkg = File.join(installed, "acme")
+      obj = handler_instance(ext_id: "acme", ext_dir: pkg)
+      obj.data_path # first call flips the one-shot guard
+
+      # A legacy dir appearing after the guard was set must NOT trigger a move.
+      legacy = File.join(pkg, "data")
+      FileUtils.mkdir_p(legacy)
+      File.write(File.join(legacy, "late.json"), "ignored")
+      FileUtils.rm_rf(File.join(data_dir, "acme"))
+
+      obj.data_path
+
+      expect(Dir.exist?(legacy)).to be(true)
+      expect(File.exist?(File.join(data_dir, "acme", "late.json"))).to be(false)
+    end
   end
 end
