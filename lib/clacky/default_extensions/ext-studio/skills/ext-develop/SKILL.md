@@ -183,9 +183,12 @@ end
 Response helpers: `json` / `text(str)` / `send_data(bytes, content_type:, filename:)` /
 `error!(msg, status:)`. Request: `params` (path), `query`, `json_body`, `req`.
 
-- **`data_path(*parts)`** is the **official way to persist data** — it returns a path under
-  the extension's own `data/` dir (auto-created) that survives reloads and `gem update`.
-  Never write files into the extension's code dir; use `data_path`.
+- **`data_path(*parts)`** is the **official way to persist user data** — it returns a path
+  under `~/.clacky/ext-data/<id>/`, **outside** the package tree, so it survives reloads,
+  `gem update`, and even uninstall/reinstall (uninstall keeps it by default; the user opts
+  in to deleting it via a checkbox). **Never** write user data into the extension's code
+  dir (`ext_dir` / `File.join(ext_dir, ...)`) — uninstall deletes the whole package, so
+  anything there is lost. Package-internal writes are only for disposable caches.
 - Host context (white-listed): `session_manager`, `registry`, `agent_config`, `config`
   (from ext.yml), `logger`, `ext_id`, `ext_dir`.
 - Drive sessions from the backend: `create_session(prompt:, profile:, …)`,
@@ -303,7 +306,8 @@ Clacky.ext.ui.mount("session.aside", function (ctx) {
 ```
 
 **`api/handler.rb`** — stay a `Clacky::ApiExtension` subclass; add the route the panel
-calls. Persist with `data_path` (survives reloads and `gem update`), never into the code dir:
+calls. Persist user data with `data_path` (lands in `~/.clacky/ext-data/<id>/`, survives
+reloads, `gem update`, and uninstall/reinstall), never into the code dir:
 
 ```ruby
 class <Prefix>Ext < Clacky::ApiExtension
@@ -321,8 +325,10 @@ Rules while reshaping:
 - Routes in `handler.rb` are **relative** to `/api/ext/<id>/`; the `view.js` `fetch` must
   match. A mismatch is a silent 404, not a verify error.
 - Persist state with `data_path(...)`, never by writing into the extension's code dir.
-- The `ui.mount` render signature is `(container, ctx, runtime)` — returning `null` from a
-  shorter signature shows a red error box, not your UI.
+- The `ui.mount` render signature is `(container, ctx, runtime)` — `container` is the first
+  argument, not `ctx`. Writing a shorter `(ctx) => ...` signature shifts every argument, so
+  session checks misbehave. Returning `null` is safe (renders nothing); only a **thrown
+  exception** shows the red crashed-panel box.
 - Reuse host CSS classes (`btn-primary`, `btn-secondary`, `form-input`, `form-textarea`,
   `form-label`) and host services (`Clacky.Notify`, `Clacky.Modal`) instead of raw
   `alert`/`confirm`, so the panel inherits the theme.

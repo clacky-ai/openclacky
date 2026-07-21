@@ -13,4 +13,20 @@ class <%= const_prefix %>Ext < Clacky::ApiExtension
   get "/stats" do
     json(uptime: Process.clock_gettime(Process::CLOCK_MONOTONIC).round(2))
   end
+
+  # ── Persisted user data example — /api/ext/<%= slug %>/notes
+  # `data_path` returns a path under ~/.clacky/ext-data/<%= slug %>/, OUTSIDE the
+  # package, so it survives uninstall + reinstall. Store user data here — never
+  # in the package dir (ext_dir), which is deleted on uninstall.
+  # Uncomment and adapt when you need to persist data:
+  #
+  # get "/notes" do
+  #   file = data_path("notes.json")
+  #   json(notes: File.exist?(file) ? JSON.parse(File.read(file)) : [])
+  # end
+  #
+  # post "/notes" do
+  #   File.write(data_path("notes.json"), JSON.generate(json_body["notes"] || []))
+  #   json(ok: true)
+  # end
 end

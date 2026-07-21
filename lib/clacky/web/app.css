@@ -754,7 +754,7 @@ body {
   transition: background 0.12s, color 0.12s;
 }
 .btn-split-menu-item:hover {
-  background: var(--color-bg-tertiary);
+  background: var(--color-bg-hover);
   color: var(--color-text-primary);
 }
 

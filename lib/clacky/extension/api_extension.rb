@@ -229,12 +229,11 @@ module Clacky
       @query ||= req.query || {}
     end
 
-    def data_path(*parts)
-      base = File.join(self.class.ext_dir, "data")
-      FileUtils.mkdir_p(base)
-      File.join(base, *parts.map(&:to_s))
-    end
-
+      def data_path(*parts)
+        base = Clacky::ExtensionLoader.data_dir_for(self.class.ext_id)
+        FileUtils.mkdir_p(base)
+        File.join(base, *parts.map(&:to_s))
+      end
     def ext_dir
       self.class.ext_dir
     end

@@ -2362,31 +2362,66 @@ module Clacky
 
       # GET /api/store/extensions?q=&sort=
       #
-      # Public extension marketplace catalog. Anonymous (no license needed).
-      # Proxies BrandConfig#search_extensions! which hits the platform's public
-      # /api/v1/extensions endpoint. Extension archives are NOT downloadable here
-      # — they ship inside license-gated brand packages (path B distribution).
+      # Extension marketplace catalog.
+      # - Brand users (activated license): returns only extensions belonging to
+      #   the brand, via BrandConfig#fetch_brand_extensions!.
+      # - Anonymous / non-brand users: returns the public catalog via
+      #   BrandConfig#search_extensions! (proxies /api/v1/extensions).
       def api_store_extensions(req, res)
-        brand  = Clacky::BrandConfig.load
-        result = brand.search_extensions!(query: req.query["q"], sort: req.query["sort"])
+        brand = Clacky::BrandConfig.load
 
-        if result[:success]
-          installed = installed_extension_containers
-          extensions = Array(result[:extensions]).map do |ext|
-            slug = ext["name"] || ext[:name] || ext["slug"] || ext[:slug]
-            container = installed[slug]
-            ext.merge(
-              "installed"         => !container.nil?,
-              "installed_version" => container&.dig(:version)
-            )
+        if brand.activated?
+          # Brand user — show only this brand's extensions.
+          result = brand.fetch_brand_extensions!
+
+          if result[:success]
+            installed = installed_extension_containers
+            extensions = Array(result[:extensions]).map do |ext|
+              slug      = ext["name"] || ext[:name] || ext["slug"] || ext[:slug]
+              container = installed[slug]
+              # Merge local container data for self-authored extensions so that
+              # emoji / display_name show consistently between "All" and "Installed" tabs.
+              local_overrides = {}
+              if container && ext["emoji"].to_s.empty?
+                local_emoji = container.dig(:raw, "emoji") || container[:emoji]
+                local_overrides["emoji"] = local_emoji if local_emoji.to_s.strip != ""
+              end
+              ext.merge(
+                "installed"         => !ext["installed_version"].nil?,
+                "installed_version" => ext["installed_version"],
+                **local_overrides
+              )
+            end
+            json_response(res, 200, { ok: true, extensions: extensions })
+          else
+            json_response(res, 200, {
+              ok:         true,
+              extensions: [],
+              warning:    result[:error] || "Could not reach the extension store."
+            })
           end
-          json_response(res, 200, { ok: true, extensions: extensions })
         else
-          json_response(res, 200, {
-            ok:         true,
-            extensions: [],
-            warning:    result[:error] || "Could not reach the extension store."
-          })
+          # Public / anonymous user — show the full marketplace catalog.
+          result = brand.search_extensions!(query: req.query["q"], sort: req.query["sort"])
+
+          if result[:success]
+            installed = installed_extension_containers
+            extensions = Array(result[:extensions]).map do |ext|
+              slug      = ext["name"] || ext[:name] || ext["slug"] || ext[:slug]
+              container = installed[slug]
+              ext.merge(
+                "installed"         => !container.nil?,
+                "installed_version" => container&.dig(:version)
+              )
+            end
+            json_response(res, 200, { ok: true, extensions: extensions })
+          else
+            json_response(res, 200, {
+              ok:         true,
+              extensions: [],
+              warning:    result[:error] || "Could not reach the extension store."
+            })
+          end
         end
       end
 
@@ -2408,9 +2443,15 @@ module Clacky
 
         extensions = local_entries.map do |ext_id, container|
           market = market_by_slug[ext_id]
+          # For self-authored (origin: self) extensions market is nil.
+          # Fall back to local ext.yml data so name/description/author are populated.
+          local_name   = container[:name].to_s.then { |n| n.empty? ? ext_id : n }
+          local_desc   = container.dig(:raw, "description").to_s
+          local_author = container[:author].to_s
+          local_units  = units_from_container(container)
           {
             "id"                => ext_id,
-            "name"              => market ? (market["name"] || ext_id) : ext_id,
+            "name"              => market ? (market["name"] || ext_id) : local_name,
             "display_name"      => market&.dig("display_name"),
             "display_name_zh"   => market&.dig("display_name_zh"),
             "name_zh"           => market&.dig("name_zh"),
@@ -2418,15 +2459,19 @@ module Clacky
             "slug"              => ext_id,
             "version"           => market ? (market["version"] || container[:version]) : container[:version],
             "installed_version" => container[:version],
-            "description"       => market&.dig("description"),
-            "author"            => market&.dig("author"),
+            "description"       => market ? market["description"] : local_desc,
+            "author"            => market ? market["author"] : local_author,
             "icon_url"          => market&.dig("icon_url"),
-            "units"             => market&.dig("units"),
-            "homepage"          => market ? (market["homepage"] || "") : "",
+            "units"             => market ? market["units"] : local_units,
+            "homepage"          => market ? (market["homepage"] || "") : container[:homepage].to_s,
             "origin"            => market ? (market["origin"] || container[:origin]) : container[:origin],
             "hub_active"        => market&.dig("hub_active"),
             "download_count"    => market&.dig("download_count").to_i,
-            "unlisted"          => market.nil?,
+            # Only mark as unlisted when the extension was published to the
+            # marketplace (origin != "self") but is no longer listed there.
+            # Self-authored extensions (origin: self) have never been published
+            # and should never show the "unlisted" badge.
+            "unlisted"          => market.nil? && container[:origin].to_s != "self",
             "layer"             => container[:layer].to_s,
             "installed"         => true,
             "removable"         => true,
@@ -2470,6 +2515,21 @@ module Clacky
         {}
       end
 
+      # Build a units summary hash from local ext.yml contributes data,
+      # mirroring the format platform's unit_summary returns: { "api" => n, ... }
+      private def units_from_container(container)
+        contributes = container[:contributes] || {}
+        units = {}
+        units["api"]   = 1 unless (contributes["api"] || contributes[:api]).to_s.empty?
+        panels = Array(contributes["panels"] || contributes[:panels])
+        units["panel"] = panels.size if panels.any?
+        agents = Array(contributes["agents"] || contributes[:agents])
+        units["agent"] = agents.size if agents.any?
+        skills = Array(contributes["skills"] || contributes[:skills])
+        units["skill"] = skills.size if skills.any?
+        units
+      end
+
       # GET /api/store/extension?id=<slug-or-id>
       #
       # Public detail for a single marketplace extension (contributes + version
@@ -2482,7 +2542,10 @@ module Clacky
         end
 
         brand  = Clacky::BrandConfig.load
-        result = brand.extension_detail!(id)
+        # Brand-private extensions (origin=self) are not visible via the public
+        # /api/v1/extensions/:id endpoint. Activated brand users must use the
+        # license-gated POST /api/v1/licenses/extension instead.
+        result = brand.activated? ? brand.brand_extension_detail!(id) : brand.extension_detail!(id)
 
         if result[:success] && result[:extension]
           ext  = result[:extension]
@@ -2499,22 +2562,29 @@ module Clacky
           container = extension_container(id)
           if container && container[:layer] == :installed
             market = fetch_batch_market_data([id])[id]
+            # Fall back to local ext.yml for self-authored extensions.
+            local_name   = container[:name].to_s.then { |n| n.empty? ? id : n }
+            local_desc   = container.dig(:raw, "description").to_s
+            local_author = container[:author].to_s
+            local_units  = units_from_container(container)
             ext = {
               "id"                => id,
-              "name"              => market ? (market["name"] || id) : id,
+              "name"              => market ? (market["name"] || id) : local_name,
               "name_zh"           => market&.dig("name_zh"),
               "name_en"           => market&.dig("name_en"),
               "slug"              => id,
               "version"           => market ? (market["version"] || container[:version]) : container[:version],
               "installed_version" => container[:version],
-              "description"       => market&.dig("description"),
-              "author"            => market&.dig("author"),
+              "description"       => market ? market["description"] : local_desc,
+              "author"            => market ? market["author"] : local_author,
               "icon_url"          => market&.dig("icon_url"),
-              "units"             => market&.dig("units"),
-              "homepage"          => market ? (market["homepage"] || "") : "",
+              "units"             => market ? market["units"] : local_units,
+              "homepage"          => market ? (market["homepage"] || "") : container[:homepage].to_s,
               "origin"            => market ? (market["origin"] || container[:origin]) : container[:origin],
               "hub_active"        => market&.dig("hub_active"),
-              "unlisted"          => market.nil?,
+              # Only mark as unlisted when the extension was published to the
+              # marketplace (origin != "self") but is no longer listed there.
+              "unlisted"          => market.nil? && container[:origin].to_s != "self",
               "installed"         => true,
               "removable"         => true,
               "disabled"          => container[:disabled] == true,
@@ -2582,7 +2652,9 @@ module Clacky
       end
 
       def api_store_extension_uninstall(req, res)
-        id = parse_json_body(req)["id"].to_s
+        body = parse_json_body(req)
+        id = body["id"].to_s
+        purge_data = body["purge_data"] == true
         container = extension_container(id)
         if container.nil?
           json_response(res, 404, { ok: false, error: "Not installed." })
@@ -2593,7 +2665,7 @@ module Clacky
           return
         end
 
-        if Clacky::ExtensionLoader.uninstall!(id)
+        if Clacky::ExtensionLoader.uninstall!(id, purge_data: purge_data)
           json_response(res, 200, { ok: true, id: id })
         else
           json_response(res, 404, { ok: false, error: "Not installed." })
@@ -6423,6 +6495,12 @@ module Clacky
       # Interrupt every running agent thread and persist its session state.
       private def interrupt_all_agents
         return unless @registry && @session_manager
+
+        # Stop idle compression first: an in-flight compression must fully roll
+        # back (or complete) before the worker is killed, otherwise a hot
+        # restart's SIGKILL can leave a chunk file on disk whose chunk_path
+        # never made it into session.json (history vanishes on replay).
+        @registry.shutdown_all_idle_timers
 
         @registry.each_live_agent do |id, agent, thread|
           next unless thread&.alive?

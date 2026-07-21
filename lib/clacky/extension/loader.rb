@@ -47,6 +47,11 @@ module Clacky
     DISABLED_FILE = File.expand_path("~/.clacky/ext/disabled.json")
     MANIFEST      = "ext.yml"
 
+    # User data lives OUTSIDE the package tree so uninstalling (which deletes
+    # the package dir) never takes the data with it, and reinstalling the same
+    # extension transparently reconnects to it.
+    DATA_DIR      = File.expand_path("~/.clacky/ext-data")
+
     # Layers in ascending priority; later entries override earlier ones by id.
     LAYERS = %i[builtin installed local].freeze
     ORIGINS = %w[self marketplace enterprise].freeze
@@ -73,6 +78,11 @@ module Clacky
         when :installed then INSTALLED_DIR
         when :local     then LOCAL_DIR
         end
+      end
+
+      # Package-external directory holding an extension's persisted user data.
+      def data_dir_for(id)
+        File.join(DATA_DIR, id.to_s)
       end
 
       # Scan all layers, resolve overrides, return a structured Result.
@@ -172,12 +182,16 @@ module Clacky
 
       # Remove an installed extension by deleting its installed-layer dir.
       # Only the installed layer is removable (builtin ships with the gem;
-      # local is the author's own working copy). Returns true on removal.
-      def uninstall!(id)
+      # local is the author's own working copy). Package-external user data is
+      # preserved by default so a reinstall reconnects to it; pass
+      # `purge_data: true` to also delete ~/.clacky/ext-data/<id>. Returns true
+      # on removal.
+      def uninstall!(id, purge_data: false)
         dir = File.join(INSTALLED_DIR, id.to_s)
         return false unless File.directory?(dir)
 
         FileUtils.rm_rf(dir)
+        FileUtils.rm_rf(data_dir_for(id)) if purge_data
         enable!(id) # clear any stale disabled flag
         invalidate_cache!
         true
