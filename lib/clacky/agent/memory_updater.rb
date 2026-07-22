@@ -35,7 +35,7 @@ module Clacky
       # Set high enough to skip short utility tasks (commit, deploy, etc.)
       MEMORY_UPDATE_MIN_ITERATIONS = 10
 
-      MEMORIES_DIR = File.expand_path("~/.clacky/memories")
+      MEMORIES_DIR = File.join(Clacky.data_dir, "memories")
 
       # Check if memory update should be triggered for this task.
       # Only triggers when the task had enough LLM iterations,

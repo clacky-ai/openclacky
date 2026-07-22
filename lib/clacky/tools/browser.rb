@@ -154,7 +154,7 @@ module Clacky
       end
 
 
-      BROWSER_CONFIG_PATH = File.expand_path("~/.clacky/browser.yml").freeze
+      BROWSER_CONFIG_PATH = File.join(Clacky.data_dir, "browser.yml").freeze
 
       BROWSER_DIAGNOSIS_HINT = <<~HINT.strip.freeze
         Inform the user and ask if they'd like to run a diagnosis.

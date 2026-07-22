@@ -16,7 +16,7 @@ module Clacky
       # A broken adapter (syntax error, missing interface methods) is isolated:
       # it is skipped with a logged warning and never aborts the load of others.
       module UserAdapterLoader
-        DEFAULT_DIR = File.expand_path("~/.clacky/channels")
+        DEFAULT_DIR = File.join(Clacky.data_dir, "channels")
 
         # Required class/instance methods a user adapter must implement to be usable.
         REQUIRED_CLASS_METHODS    = %i[platform_id platform_config].freeze

@@ -42,15 +42,15 @@ module Clacky
   #   - hook units    → ShellHookLoader.load_extension_hooks (register at boot)
   module ExtensionLoader
     BUILTIN_DIR   = File.expand_path("../default_extensions", __dir__)
-    INSTALLED_DIR = File.expand_path("~/.clacky/ext/installed")
-    LOCAL_DIR     = File.expand_path("~/.clacky/ext/local")
-    DISABLED_FILE = File.expand_path("~/.clacky/ext/disabled.json")
+    INSTALLED_DIR = File.join(Clacky.data_dir, "ext", "installed")
+    LOCAL_DIR     = File.join(Clacky.data_dir, "ext", "local")
+    DISABLED_FILE = File.join(Clacky.data_dir, "ext", "disabled.json")
     MANIFEST      = "ext.yml"
 
     # User data lives OUTSIDE the package tree so uninstalling (which deletes
     # the package dir) never takes the data with it, and reinstalling the same
     # extension transparently reconnects to it.
-    DATA_DIR      = File.expand_path("~/.clacky/ext-data")
+    DATA_DIR      = File.join(Clacky.data_dir, "ext-data")
 
     # Layers in ascending priority; later entries override earlier ones by id.
     LAYERS = %i[builtin installed local].freeze

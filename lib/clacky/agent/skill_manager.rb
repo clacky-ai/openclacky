@@ -526,7 +526,7 @@ module Clacky
       # Base directory for long-term memories. Override in tests for isolation.
       # @return [String]
       def memories_base_dir
-        File.expand_path("~/.clacky/memories")
+        File.join(Clacky.data_dir, "memories")
       end
 
       # Parse YAML frontmatter from a memory file.

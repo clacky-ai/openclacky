@@ -19,7 +19,7 @@ module Clacky
     #   exit 0 → success
     #   exit 1 → failure
     module ParserManager
-      PARSERS_DIR         = File.expand_path("~/.clacky/parsers").freeze
+      PARSERS_DIR         = File.join(Clacky.data_dir, "parsers").freeze
       DEFAULT_PARSERS_DIR = File.expand_path("../default_parsers", __dir__).freeze
 
       PARSER_FOR = {

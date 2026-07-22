@@ -20,8 +20,8 @@ module Clacky
     #
     # Cron field order: minute hour day-of-month month day-of-week
     class Scheduler
-      SCHEDULES_FILE = File.expand_path("~/.clacky/schedules.yml")
-      TASKS_DIR      = File.expand_path("~/.clacky/tasks")
+      SCHEDULES_FILE = File.join(Clacky.data_dir, "schedules.yml")
+      TASKS_DIR      = File.join(Clacky.data_dir, "tasks")
 
       def initialize(session_registry:, session_builder:, task_runner:)
         @registry        = session_registry

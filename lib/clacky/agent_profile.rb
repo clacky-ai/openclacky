@@ -19,7 +19,7 @@ module Clacky
   # The universal behavioural rules (todo manager, tool usage, response style,
   # etc.) live in a bundled resource file at lib/clacky/prompts/base.md.
   class AgentProfile
-    USER_AGENTS_DIR = File.expand_path("~/.clacky/agents").freeze
+    USER_AGENTS_DIR = File.join(Clacky.data_dir, "agents").freeze
     BASE_PROMPT_PATH = File.expand_path("../prompts/base.md", __FILE__).freeze
 
     DEFAULT_SOUL = <<~MD.freeze

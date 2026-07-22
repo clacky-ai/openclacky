@@ -13,7 +13,7 @@ module Clacky
     # Bundled scripts are re-copied when the gem is upgraded (detected
     # via gem version stamp in ~/.clacky/scripts/.version).
     module ScriptsManager
-      SCRIPTS_DIR         = File.expand_path("~/.clacky/scripts").freeze
+      SCRIPTS_DIR         = File.join(Clacky.data_dir, "scripts").freeze
       DEFAULT_SCRIPTS_DIR = File.expand_path("../../../scripts", __dir__).freeze
       VERSION_FILE        = File.join(SCRIPTS_DIR, ".version").freeze
 

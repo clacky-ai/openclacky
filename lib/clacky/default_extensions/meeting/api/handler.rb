@@ -11,7 +11,7 @@ require "tmpdir"
 class MeetingExt < Clacky::ApiExtension
   timeout 30
 
-  MEETINGS_ROOT = File.expand_path("~/.clacky/meetings")
+  MEETINGS_ROOT = File.join(Clacky.data_dir, "meetings")
   VOCABULARY_PATH = File.join(MEETINGS_ROOT, "vocabulary.txt")
   # Always injected into STT vocabulary — these are our own wake words / brand
   # names and must not be droppable by the user's saved list.

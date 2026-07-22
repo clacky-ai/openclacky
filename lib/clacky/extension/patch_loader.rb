@@ -37,7 +37,7 @@ module Clacky
   #   gem_version: "0.7.0"
   #   on_mismatch: disable                         # disable | warn (default disable)
   module PatchLoader
-    DEFAULT_DIR  = File.expand_path("~/.clacky/patches")
+    DEFAULT_DIR  = File.join(Clacky.data_dir, "patches")
     DISABLED_DIR = "_disabled"
 
     Result = Struct.new(:applied, :disabled, :skipped, keyword_init: true)

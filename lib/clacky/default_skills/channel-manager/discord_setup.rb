@@ -29,6 +29,7 @@ require "uri"
 require "openssl"
 require "cgi"
 require "yaml"
+require "clacky"
 
 DISCORD_API_BASE      = "https://discord.com/api/v10"
 DISCORD_OAUTH_BASE    = "https://discord.com/oauth2/authorize"
@@ -83,7 +84,7 @@ def discord_get(path, bot_token:, timeout: 15)
 end
 
 def saved_bot_token
-  yml_path = File.expand_path("~/.clacky/channels.yml")
+  yml_path = File.join(Clacky.data_dir, "channels.yml")
   return nil unless File.exist?(yml_path)
   data = YAML.safe_load(File.read(yml_path), permitted_classes: [Symbol], aliases: true) rescue nil
   data&.dig("channels", "discord", "bot_token") || data&.dig(:channels, :discord, :bot_token)

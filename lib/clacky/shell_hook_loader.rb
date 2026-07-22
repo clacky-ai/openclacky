@@ -44,7 +44,7 @@ module Clacky
   # PLACE on the tool call (complete replacement — no merge); the first deny
   # stops the chain.
   class ShellHookLoader
-    DEFAULT_PATH            = File.expand_path("~/.clacky/hooks.yml")
+    DEFAULT_PATH            = File.join(Clacky.data_dir, "hooks.yml")
     DEFAULT_TIMEOUT         = 10
     REWRITE_DEFAULT_TIMEOUT = 60
     DENY_EXIT_CODE          = 2

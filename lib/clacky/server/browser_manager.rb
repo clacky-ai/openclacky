@@ -33,7 +33,7 @@ module Clacky
   # class-level @@mcp_process variables directly.  BrowserManager holds the
   # single mutable state; the mutex lives here too.
   class BrowserManager
-    BROWSER_CONFIG_PATH = File.expand_path("~/.clacky/browser.yml").freeze
+    BROWSER_CONFIG_PATH = File.join(Clacky.data_dir, "browser.yml").freeze
 
     class << self
       def instance

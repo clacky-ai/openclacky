@@ -1363,7 +1363,7 @@ module Clacky
         avatar_abs = unit&.spec&.[]("avatar_abs").to_s
         return avatar_abs unless avatar_abs.empty?
 
-        user_png = File.expand_path("~/.clacky/agents/#{id}/avatar.png")
+        user_png = File.join(Clacky.data_dir, "agents", id.to_s, "avatar.png")
         File.file?(user_png) ? user_png : nil
       end
 
@@ -2095,7 +2095,7 @@ module Clacky
         lang = body["lang"].to_s.strip
         soul_content = lang == "zh" ? DEFAULT_SOUL_MD_ZH : DEFAULT_SOUL_MD
 
-        agents_dir = File.expand_path("~/.clacky/agents")
+        agents_dir = File.join(Clacky.data_dir, "agents")
         FileUtils.mkdir_p(agents_dir)
         soul_path = File.join(agents_dir, "SOUL.md")
         unless File.exist?(soul_path)
@@ -5010,7 +5010,7 @@ module Clacky
       # ~/.clacky/agents/USER.md and ~/.clacky/agents/SOUL.md. These
       # endpoints let the Web UI read and edit those files.
 
-      PROFILE_USER_AGENTS_DIR  = File.expand_path("~/.clacky/agents").freeze
+      PROFILE_USER_AGENTS_DIR  = File.join(Clacky.data_dir, "agents").freeze
       PROFILE_MAX_BYTES = 50_000  # Hard limit; prevents runaway content.
 
       # GET /api/profile
@@ -5096,7 +5096,7 @@ module Clacky
       # stored under ~/.clacky/memories/. These endpoints let the user
       # inspect, edit, create, and delete them from the Web UI.
 
-      MEMORIES_DIR    = File.expand_path("~/.clacky/memories").freeze
+      MEMORIES_DIR    = File.join(Clacky.data_dir, "memories").freeze
       MEMORY_MAX_BYTES = 50_000
 
       # GET /api/memories
@@ -5412,7 +5412,7 @@ module Clacky
         body = req.body.to_s
         return json_response(res, 400, { error: "Empty body" }) if body.empty?
 
-        clacky_dir = File.expand_path("~/.clacky")
+        clacky_dir = Clacky.data_dir
         stamp      = Time.now.strftime("%Y%m%d-%H%M%S")
         tmp_archive = File.join(Dir.tmpdir, "clacky-restore-#{stamp}.tar.gz")
         tmp_backup  = File.join(Dir.tmpdir, "clacky-pre-restore-#{stamp}")

@@ -18,7 +18,7 @@ module Clacky
     #   * Config lives in ~/.clacky/backup.yml, separate from config.yml so
     #     it never mixes with API keys.
     class BackupManager
-      CLACKY_DIR  = File.expand_path("~/.clacky")
+      CLACKY_DIR  = Clacky.data_dir
       CONFIG_FILE = File.join(CLACKY_DIR, "backup.yml")
 
       # Always excluded — regenerable or disposable.

@@ -21,6 +21,7 @@ require "securerandom"
 require "cgi"
 require "shellwords"
 require "openssl"
+require "clacky"
 
 # ---------------------------------------------------------------------------
 # Config
@@ -49,7 +50,7 @@ GIVEN_QRCODE_ID = QRCODE_ID_IDX ? ARGV[QRCODE_ID_IDX + 1] : nil
 # Logging (suppress in --fetch-qr mode so stdout is clean JSON)
 # ---------------------------------------------------------------------------
 
-WEIXIN_LOG_FILE = File.expand_path("~/.clacky/weixin_setup_debug.log")
+WEIXIN_LOG_FILE = File.join(Clacky.data_dir, "weixin_setup_debug.log")
 def wlog(msg)
   File.open(WEIXIN_LOG_FILE, "a") { |f| f.puts("[#{Time.now.strftime("%H:%M:%S")}] #{msg}") }
 rescue StandardError
