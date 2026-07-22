@@ -68,7 +68,9 @@ you consult from whichever path you're on.
 ## Reference: the contracts
 
 Read the relevant reference doc with `web_fetch` before writing code — don't guess field
-names, hook events, adapter methods, or the `Clacky.ext` WebUI contract.
+names, hook events, adapter methods, or the `Clacky.ext` WebUI contract. These docs are
+long (well over the default cap); pass `max_length: 20000` so you get the whole page in one
+fetch instead of a truncated head full of nav chrome.
 
 ### Authoritative documentation
 
@@ -76,6 +78,7 @@ names, hook events, adapter methods, or the `Clacky.ext` WebUI contract.
 - **ext.yml manifest — every field (names, avatar, title_zh, order, …)** → https://www.openclacky.com/docs/ext-manifest
 - Panels (WebUI) → https://www.openclacky.com/docs/extend-webui
 - API backends → https://www.openclacky.com/docs/extend-api
+- **Calling the host's native APIs from a panel (sessions, trash/file-recovery, skills, memories, cron, billing, media)** → https://www.openclacky.com/docs/extend-host-api
 - Agents (prompt, avatar, panels/skills wiring) → https://www.openclacky.com/docs/agent-config
 - Channel adapters → https://www.openclacky.com/docs/extend-channel-adapter
 - Patches → https://www.openclacky.com/docs/extend-patches
@@ -152,6 +155,13 @@ Clacky.WS.send({ type: "..." });            // send a WebSocket message to the a
 
 - Prefer `Clacky.Xxx.method(...)` — the recommended, forward-stable form. Never test with
   `window.Sessions` / `"Sessions" in window` (see Hard rules).
+
+A panel can also `fetch("/api/...")` the host's own REST endpoints directly (same origin,
+auth is automatic) — sessions, trash/**file-recovery**, skills, memories, cron, billing,
+media, and more each have a ready-made endpoint. Before telling a user a feature "can't be
+done" (e.g. "delete a file but keep it recoverable"), check whether the host already
+exposes it — `web_fetch` https://www.openclacky.com/docs/extend-host-api for the callable
+list. Don't rebuild what the host already provides.
 
 ### API backend: the `Clacky::ApiExtension` contract
 
