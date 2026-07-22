@@ -260,8 +260,8 @@ module Clacky
         "name" => "Kimi (Moonshot)",
         "base_url" => "https://api.moonshot.cn/v1",
         "api" => "openai-completions",
-        "default_model" => "kimi-k2.6",
-        "models" => ["kimi-k2.6", "kimi-k2.5"],
+        "default_model" => "kimi-k3",
+        "models" => ["kimi-k3", "kimi-k2.7-code", "kimi-k2.7-code-highspeed", "kimi-k2.6", "kimi-k2.5"],
         # Moonshot operates two regional endpoints with identical APIs & model
         # lineup — mainland China (.cn) and international (.ai). These are the
         # pay-as-you-go Open Platform endpoints; the subscription-billed
@@ -277,9 +277,9 @@ module Clacky
           { "label" => "Mainland China", "label_key" => "settings.models.baseurl.variant.mainland_cn",   "base_url" => "https://api.moonshot.cn/v1", "region" => "cn"   }.freeze,
           { "label" => "International",  "label_key" => "settings.models.baseurl.variant.international", "base_url" => "https://api.moonshot.ai/v1", "region" => "intl" }.freeze
         ].freeze,
-        # k2.5 / k2.6 are multimodal; legacy k2 text-only models need model_capabilities override if added.
+        # k3 / k2.7-code / k2.5 / k2.6 are multimodal; legacy k2 text-only models need model_capabilities override if added.
         "capabilities" => { "vision" => true }.freeze,
-        "default_ocr_model" => "kimi-k2.5",
+        "default_ocr_model" => "kimi-k3",
         "website_url" => "https://platform.moonshot.cn/console/api-keys"
       }.freeze,
 

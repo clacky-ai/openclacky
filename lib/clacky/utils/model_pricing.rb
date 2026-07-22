@@ -237,6 +237,55 @@ module Clacky
         }
       },
 
+      # Kimi K3 flagship model (1M context, native vision, tool calling).
+      # Source: https://platform.moonshot.ai (USD / 1M tokens)
+      "kimi-k3" => {
+        input: {
+          default: 3.00,                   # $3.00/MTok cache miss
+          over_200k: 3.00
+        },
+        output: {
+          default: 15.00,                  # $15.00/MTok
+          over_200k: 15.00
+        },
+        cache: {
+          write: 3.00,                     # no separate write charge; bill at miss rate
+          read: 0.30                       # $0.30/MTok cache hit
+        }
+      },
+
+      # Kimi K2.7 Code (256K context, multimodal coding model).
+      # Source: https://platform.moonshot.ai (USD / 1M tokens)
+      "kimi-k2.7-code" => {
+        input: {
+          default: 0.95,                   # $0.95/MTok cache miss
+          over_200k: 0.95
+        },
+        output: {
+          default: 4.00,                   # $4.00/MTok
+          over_200k: 4.00
+        },
+        cache: {
+          write: 0.95,                     # no separate write charge; bill at miss rate
+          read: 0.19                       # $0.19/MTok cache hit
+        }
+      },
+
+      "kimi-k2.7-code-highspeed" => {
+        input: {
+          default: 1.90,                   # $1.90/MTok cache miss
+          over_200k: 1.90
+        },
+        output: {
+          default: 8.00,                   # $8.00/MTok
+          over_200k: 8.00
+        },
+        cache: {
+          write: 1.90,                     # no separate write charge; bill at miss rate
+          read: 0.38                       # $0.38/MTok cache hit
+        }
+      },
+
       # Google Gemini 3 series (via Vertex AI). Tiered at 200K input tokens
       # for Pro; Flash has flat pricing.
       "gemini-3.1-pro" => {

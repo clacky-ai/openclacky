@@ -22,7 +22,12 @@ RSpec.describe "WebSearch smoke tests", :smoke do
 
   shared_examples "live search provider" do |provider, required: true|
     it "returns results from #{provider}" do
-      results = tool.send(:"search_#{provider}", query, 5)
+      results = begin
+        tool.send(:"search_#{provider}", query, 5)
+      rescue Net::OpenTimeout, Net::ReadTimeout, Errno::ECONNREFUSED, SocketError => e
+        skip "#{provider} unreachable in this environment (#{e.class})" unless required
+        []
+      end
 
       if !required && results.empty?
         skip "#{provider} returned no results (may require cookies/auth in this environment)"

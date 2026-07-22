@@ -596,7 +596,7 @@ module Clacky
       return content if content.nil? || content.empty?
 
       # Rewrite markdown image syntax ![alt](file:///path) → proxy URL
-      content = content.gsub(/!\[([^\]]*)\]\(((?:file:\/\/)?\/[^)]+)\)/) do |_match|
+      content = content.gsub(/!\[([^\]]*)\]\(((?:file:\/\/)?(?:~\/|\/)[^)]+)\)/) do |_match|
         alt  = Regexp.last_match(1)
         href = Regexp.last_match(2)
 
@@ -611,7 +611,7 @@ module Clacky
       end
 
       # Rewrite <video src="file:///path/vid.mp4" ...> → proxy URL
-      content = content.gsub(/<video\b([^>]*)\bsrc="((?:file:\/\/)?\/[^"]+)"([^>]*)>/) do |_match|
+      content = content.gsub(/<video\b([^>]*)\bsrc="((?:file:\/\/)?(?:~\/|\/)[^"]+)"([^>]*)>/) do |_match|
         pre  = Regexp.last_match(1) || ""
         href = Regexp.last_match(2)
         post = Regexp.last_match(3) || ""
@@ -627,7 +627,7 @@ module Clacky
       end
 
       # Rewrite <audio src="file:///path/audio.wav" ...> → proxy URL
-      content = content.gsub(/<audio\b([^>]*)\bsrc="((?:file:\/\/)?\/[^"]+)"([^>]*)>/) do |_match|
+      content = content.gsub(/<audio\b([^>]*)\bsrc="((?:file:\/\/)?(?:~\/|\/)[^"]+)"([^>]*)>/) do |_match|
         pre  = Regexp.last_match(1) || ""
         href = Regexp.last_match(2)
         post = Regexp.last_match(3) || ""
@@ -643,7 +643,7 @@ module Clacky
       end
 
       # Rewrite video/audio markdown links [text](file:///path) → proxy URL
-      content = content.gsub(/(?<!!)\[([^\]]*)\]\(((?:file:\/\/)?\/[^)]+)\)/) do |_match|
+      content = content.gsub(/(?<!!)\[([^\]]*)\]\(((?:file:\/\/)?(?:~\/|\/)[^)]+)\)/) do |_match|
         text = Regexp.last_match(1)
         href = Regexp.last_match(2)
 

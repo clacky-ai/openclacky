@@ -782,6 +782,41 @@ module Clacky
     rescue StandardError => e
       { success: false, error: "Network error: #{e.message}" }
     end
+
+    # Fetch detail for a single brand-private extension via the license-gated
+    # POST /api/v1/licenses/extension_detail endpoint.
+    # The public /api/v1/extensions/:id intentionally omits origin=self extensions,
+    # so activated brand users must use this signed request instead.
+    # Returns { success:, extension:, error: }.
+    def brand_extension_detail!(id)
+      return { success: false, error: "License not activated" } unless activated?
+
+      user_id   = parse_user_id_from_key(@license_key)
+      ts        = Time.now.utc.to_i.to_s
+      nonce     = SecureRandom.hex(16)
+      message   = "#{user_id}:#{@device_id}:#{ts}:#{nonce}"
+
+      payload = {
+        key_hash:  Digest::SHA256.hexdigest(@license_key),
+        user_id:   user_id.to_s,
+        device_id: @device_id,
+        timestamp: ts,
+        nonce:     nonce,
+        signature: OpenSSL::HMAC.hexdigest("SHA256", @license_key, message),
+        id:        id.to_s
+      }
+
+      response = api_post("/api/v1/licenses/extension", payload)
+
+      if response[:success]
+        { success: true, extension: response[:data]["extension"] }
+      else
+        { success: false, error: response[:error] || "Extension not found" }
+      end
+    rescue StandardError => e
+      { success: false, error: "Network error: #{e.message}" }
+    end
+
     # Extensions bundled into the activated license's distribution are free and
     # unencrypted. They are fetched over the same license-HMAC scheme as brand
     # skills and installed into the ExtensionLoader `installed` layer.

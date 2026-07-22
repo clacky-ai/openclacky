@@ -25,8 +25,6 @@ contributes:
       prompt: agents/ext-developer/system_prompt.md
       avatar: agents/ext-developer/avatar.png
       panels: [studio]
-      skills: [ext-scaffold, ext-debug, ext-publish]
+      skills: [ext-develop]
   skills:
-    - id: ext-scaffold
-    - id: ext-debug
-    - id: ext-publish
+    - id: ext-develop

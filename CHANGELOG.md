@@ -4,6 +4,35 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
+## [1.4.1] - 2026-07-20
+
+### Added
+- Extension README edit/validate flow and screenshot upload in ext-studio publish
+- Kimi k3 and k2.7-code models added to Kimi preset
+- New session split-button with improved styling
+- Rename-on-name-conflict flow in ext-studio publish
+- Skip OpenClacky AI Keys card for branded onboarding
+
+### Improved
+- Secondary API host added with reduced failover latency
+- Extensions default sort changed to most-installed (downloads first)
+
+### Fixed
+- WSL file panel "Copy Path" now copies Windows-accessible UNC path via `wslpath` (C-5693)
+- Edit button hidden on compressed user messages archived to chunk (C-5723)
+- Message-edit Enter key blocked during IME composition (C-5742)
+- Markdown images with `file://~/` tilde paths now render correctly (C-5747)
+- Local `file://` path resolution unified for Windows drive letters (C-5746, C-5708)
+- Brand extension installs under its real ID, not as unpacked (C-5735)
+- Backup success status no longer stays displayed forever (C-5711)
+- `grep` tool defaults to recursive behavior
+- `display_name` fields included in installed extensions API response
+- Published list reloads after setup entry point and publish
+- Unpublish button size matches iterate button in ext-studio
+- `device_token` correctly passed in screenshot upload multipart fields
+- MCP tool list rendering fixed and display styling improved
+- Uninstall script now removes all openclacky gem versions
+
 ## [1.4.0] - 2026-07-14
 
 ### Added

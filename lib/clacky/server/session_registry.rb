@@ -496,6 +496,15 @@ module Clacky
         snapshot.each { |id, agent, thread| yield id, agent, thread }
       end
 
+      # Shut down every session's idle-compression timer, waiting for any
+      # in-flight compression to roll back cleanly. Called on worker shutdown
+      # so a hot restart's SIGKILL cannot tear a compression apart between
+      # writing the chunk file and persisting its chunk_path into session.json.
+      def shutdown_all_idle_timers
+        timers = @mutex.synchronize { @sessions.values.filter_map { |s| s[:idle_timer] } }
+        timers.each { |t| t.shutdown rescue nil }
+      end
+
       private def persist_and_release(id, session)
         agent = session[:agent]
         @session_manager&.save(agent.to_session_data(status: :success, preserve_updated_at: true)) if agent

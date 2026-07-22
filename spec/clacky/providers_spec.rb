@@ -39,7 +39,7 @@ RSpec.describe Clacky::Providers do
         expect(described_class.supports?("minimax", :vision)).to be false
       end
 
-      it "returns true for kimi (k2.5/k2.6 are multimodal)" do
+      it "returns true for kimi (k3/k2.7-code/k2.5/k2.6 are multimodal)" do
         expect(described_class.supports?("kimi", :vision)).to be true
       end
 
@@ -303,7 +303,7 @@ RSpec.describe Clacky::Providers do
       # The subscription-billed Coding Plan endpoint is its own preset, not
       # an endpoint_variant of "kimi" — different domain (api.kimi.com vs
       # api.moonshot.{cn,ai}), different model alias (kimi-for-coding vs
-      # kimi-k2.5/k2.6), different transport (anthropic-messages vs
+      # kimi-k3/k2.7-code/k2.5/k2.6), different transport (anthropic-messages vs
       # openai-completions). These tests guard that the routing actually
       # discriminates instead of folding into the PAYG preset.
       it "recognises the canonical /coding base URL" do

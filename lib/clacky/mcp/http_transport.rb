@@ -126,7 +126,7 @@ module Clacky
       private def consume_sse(res)
         buffer = String.new
         res.read_body do |chunk|
-          buffer << chunk
+          buffer << chunk.gsub("\r\n", "\n").gsub("\r", "\n")
           while (idx = buffer.index("\n\n"))
             event = buffer.slice!(0, idx + 2)
             data_lines = event.each_line.map(&:chomp).select { |l| l.start_with?("data:") }

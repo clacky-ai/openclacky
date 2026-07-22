@@ -24,17 +24,19 @@ module Clacky
   #   # result => { success: true, data: {...} }
   #   #        or { success: false, error: "...", data: {} }
   class PlatformHttpClient
-    # Primary CDN-accelerated endpoint
-    PRIMARY_HOST  = "https://www.openclacky.com"
+    # Primary endpoint
+    PRIMARY_HOST   = "https://www.openclacky.com"
+    # Secondary CDN-accelerated endpoint (China mainland)
+    SECONDARY_HOST = "https://api.1024code.com"
     # Direct fallback — bypasses EdgeOne, used when the primary times out
-    FALLBACK_HOST = "https://openclacky.up.railway.app"
+    FALLBACK_HOST  = "https://openclacky.up.railway.app"
 
     # Number of attempts per domain (1 = no retry within the same domain)
-    ATTEMPTS_PER_HOST = 2
+    ATTEMPTS_PER_HOST = 1
     # Initial back-off between retries within the same domain (seconds)
     INITIAL_BACKOFF   = 0.5
     # Connection / read timeouts (seconds) for API calls
-    OPEN_TIMEOUT  = 8
+    OPEN_TIMEOUT  = 5
     READ_TIMEOUT  = 15
     # Read timeout for streaming large file downloads (seconds)
     DOWNLOAD_READ_TIMEOUT = 120
@@ -53,12 +55,12 @@ module Clacky
 
     # Auto-detects the target host(s):
     #   - When CLACKY_LICENSE_SERVER is set → single host (dev override, no failover)
-    #   - Otherwise                   → [PRIMARY_HOST, FALLBACK_HOST]
+    #   - Otherwise                   → [PRIMARY_HOST, SECONDARY_HOST, FALLBACK_HOST]
     def initialize
       if (override = ENV["CLACKY_LICENSE_SERVER"]) && !override.empty?
         @hosts = [override]
       else
-        @hosts = [PRIMARY_HOST, FALLBACK_HOST]
+        @hosts = [PRIMARY_HOST, SECONDARY_HOST, FALLBACK_HOST]
       end
     end
 

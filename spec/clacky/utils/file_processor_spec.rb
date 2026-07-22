@@ -463,6 +463,27 @@ RSpec.describe Clacky::Utils::FileProcessor do
       expect(result).to eq(content)
     end
 
+    it "rewrites a file://~/ tilde path, expanding ~ to the real home" do
+      Dir.mktmpdir(nil, File.expand_path("~")) do |dir|
+        img = File.join(dir, "photo.png")
+        File.binwrite(img, "PNG")
+        rel = img.sub(%r{\A#{Regexp.escape(File.expand_path("~"))}/}, "")
+
+        content = "![pic](file://~/#{rel})"
+        result = described_class.rewrite_local_image_urls(content)
+
+        expected_path = CGI.escape("file://~/#{rel}")
+        expect(result).to include("![pic](/api/local-image?path=#{expected_path}&v=")
+        expect(result).to match(/&v=\d+\)/)
+      end
+    end
+
+    it "does not match ~user (other account) tilde paths" do
+      content = "![pic](file://~someuser/photo.png)"
+      result = described_class.rewrite_local_image_urls(content)
+      expect(result).to eq(content)
+    end
+
     it "returns nil/empty content as-is" do
       expect(described_class.rewrite_local_image_urls(nil)).to be_nil
       expect(described_class.rewrite_local_image_urls("")).to eq("")

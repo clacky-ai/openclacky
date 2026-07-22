@@ -70,21 +70,21 @@ RSpec.describe Clacky::PlatformHttpClient, "#download_file" do
       expect(calls).to eq([primary_url])
     end
 
-    it "retries the primary host twice, then swaps to fallback host" do
+    it "retries the primary host once, then swaps to fallback host" do
       err = Clacky::PlatformHttpClient::RetryableNetworkError.new("Timeout")
-      calls = stub_stream([err, err, :ok])
+      calls = stub_stream([err, :ok])
       allow(client).to receive(:sleep) # skip back-off
 
       result = client.download_file(primary_url, dest)
 
       expect(result[:success]).to be true
-      # 2 attempts on primary + 1 successful on fallback
-      expect(calls).to eq([primary_url, primary_url, fallback_url])
+      # 1 attempt on primary + 1 successful on fallback (ATTEMPTS_PER_HOST = 1)
+      expect(calls).to eq([primary_url, fallback_url])
     end
 
     it "reports a structured failure when every host is exhausted" do
       err = Clacky::PlatformHttpClient::RetryableNetworkError.new("Connection error: reset")
-      stub_stream([err, err, err, err])
+      stub_stream([err, err])
       allow(client).to receive(:sleep)
 
       result = client.download_file(primary_url, dest)
@@ -99,14 +99,14 @@ RSpec.describe Clacky::PlatformHttpClient, "#download_file" do
     it "does NOT swap host for non-primary URLs (e.g. S3 presigned URLs)" do
       external = "https://openclacky-skills.s3.amazonaws.com/abc.zip?sig=xyz"
       err = Clacky::PlatformHttpClient::RetryableNetworkError.new("Timeout")
-      calls = stub_stream([err, err])
+      calls = stub_stream([err])
       allow(client).to receive(:sleep)
 
       result = client.download_file(external, dest)
 
       expect(result[:success]).to be false
-      # Only two attempts against the original host — no rewritten URL.
-      expect(calls).to eq([external, external])
+      # Only one attempt against the original host — no rewritten URL (ATTEMPTS_PER_HOST = 1).
+      expect(calls).to eq([external])
     end
   end
 
@@ -114,7 +114,6 @@ RSpec.describe Clacky::PlatformHttpClient, "#download_file" do
     it "preserves path + query when swapping to the fallback host" do
       url = "#{described_class::PRIMARY_HOST}/path/a/b?x=1&y=2"
       calls = stub_stream([
-        Clacky::PlatformHttpClient::RetryableNetworkError.new("Timeout"),
         Clacky::PlatformHttpClient::RetryableNetworkError.new("Timeout"),
         :ok
       ])
