@@ -1085,6 +1085,54 @@ module Clacky
       end
     end
 
+    # List knowledge bases available to the activated License.
+    def knowledge_list
+      response = knowledge_request("/api/v1/licenses/knowledge_bases")
+      return response unless response[:success]
+
+      { success: true, knowledge_bases: response[:data]["knowledge_bases"] || [] }
+    end
+
+    # Browse the directory tree for one licensed knowledge base.
+    def knowledge_tree(knowledge_base_id:)
+      response = knowledge_request(
+        "/api/v1/licenses/knowledge/tree",
+        knowledge_base_id:
+      )
+      return response unless response[:success]
+
+      { success: true, tree: response[:data]["tree"] || [] }
+    end
+
+    # Search one licensed knowledge base. The server also enforces this bound.
+    def knowledge_search(knowledge_base_id:, query:, limit: 10)
+      response = knowledge_request(
+        "/api/v1/licenses/knowledge/search",
+        knowledge_base_id:,
+        query: query.to_s,
+        limit: limit.to_i.clamp(1, 50)
+      )
+      return response unless response[:success]
+
+      { success: true, results: response[:data]["results"] || [] }
+    end
+
+    # Read a source URI within one licensed knowledge base.
+    def knowledge_read(knowledge_base_id:, uri:)
+      response = knowledge_request(
+        "/api/v1/licenses/knowledge/read",
+        knowledge_base_id:,
+        uri: uri.to_s
+      )
+      return response unless response[:success]
+
+      {
+        success: true,
+        uri: response[:data]["uri"],
+        content: response[:data]["content"]
+      }
+    end
+
     # Install (or update) a single brand skill by downloading and extracting its zip.
     # skill_info: a hash from fetch_brand_skills! with at least name + latest_version.download_url + version
     # encrypted: whether the ZIP contains AES-encrypted .enc files + MANIFEST.enc.json (true)
@@ -1957,6 +2005,36 @@ module Clacky
     # Returns { success:, data:, error: }.
     private def api_post(path, payload)
       platform_client.post(path, payload)
+    end
+
+    private def knowledge_request(path, fields = {})
+      return { success: false, error: "License not activated" } unless activated?
+
+      user_id = parse_user_id_from_key(@license_key).to_s
+      timestamp = Time.now.utc.to_i.to_s
+      nonce = SecureRandom.hex(16)
+      message = "#{user_id}:#{@device_id}:#{timestamp}:#{nonce}"
+      payload = {
+        key_hash: Digest::SHA256.hexdigest(@license_key),
+        user_id:,
+        device_id: @device_id,
+        timestamp:,
+        nonce:,
+        signature: OpenSSL::HMAC.hexdigest("SHA256", @license_key, message)
+      }.merge(fields)
+
+      response = api_post(path, payload)
+      return { success: true, data: response[:data] || {} } if response[:success]
+
+      { success: false, error: filter_license_secret(response[:error] || "Knowledge request failed") }
+    rescue StandardError => e
+      message = e.message.to_s.strip
+      message = "Knowledge request failed" if message.empty?
+      { success: false, error: filter_license_secret(message) }
+    end
+
+    private def filter_license_secret(message)
+      message.to_s.gsub(@license_key.to_s, "[FILTERED]")
     end
 
     # Lazy-initialised PlatformHttpClient. Host selection is automatic.
