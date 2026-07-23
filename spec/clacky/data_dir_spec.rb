@@ -10,7 +10,9 @@ RSpec.describe "CLACKY_HOME path policy" do
   canonical_fallback = File.join(project_root, "lib", "clacky.rb")
   forbidden_patterns = [
     %r{File\.expand_path\(["']~/\.clacky},
-    /File\.join\(Dir\.home,\s*["']\.clacky["']/
+    /File\.join\(Dir\.home,\s*["']\.clacky["']/,
+    /Pathname\.new.*ENV.*HOME.*\.clacky/,
+    /Dir\.home.*\.clacky/
   ].freeze
 
   it "routes runtime data paths through Clacky.data_dir" do

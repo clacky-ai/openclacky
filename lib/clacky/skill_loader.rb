@@ -142,7 +142,7 @@ module Clacky
     # Load skills from ~/.clacky/skills/ (user global)
     # @return [Array<Skill>]
     def load_global_clacky_skills
-      global_clacky_dir = Pathname.new(ENV.fetch("HOME", "~")).join(".clacky", "skills")
+      global_clacky_dir = Pathname.new(Clacky.data_dir).join("skills")
       load_skills_from_directory(global_clacky_dir, :global_clacky)
     end
 
@@ -248,7 +248,7 @@ module Clacky
       # Determine directory path
       skill_dir = case location
       when :global
-        Pathname.new(ENV.fetch("HOME", "~")).join(".clacky", "skills", name)
+        Pathname.new(Clacky.data_dir).join("skills", name)
       when :project
         Pathname.new(@working_dir).join(".clacky", "skills", name)
       else
@@ -326,7 +326,7 @@ module Clacky
 
       source_path = case source_type
       when :global_clacky
-        Pathname.new(ENV.fetch("HOME", "~")).join(".clacky")
+        Pathname.new(Clacky.data_dir)
       when :project_clacky
         Pathname.new(@working_dir)
       else
