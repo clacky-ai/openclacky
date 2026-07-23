@@ -55,18 +55,18 @@ module Clacky
     # Test API connection by sending a minimal request.
     # Returns { success: true } or { success: false, error: "..." }.
     def test_connection(model:)
-      model = Providers.resolve_api_model(base_url: @base_url, api_key: @api_key, model: model)
+      api_model = Providers.resolve_api_model(base_url: @base_url, api_key: @api_key, model: model)
       if bedrock?
         body = MessageFormat::Bedrock.build_request_body(
-          [{ role: :user, content: "hi" }], model, [], 16
+          [{ role: :user, content: "hi" }], api_model, [], 16
         ).to_json
-        response = bedrock_connection.post(bedrock_endpoint(model)) { |r| r.body = body }
+        response = bedrock_connection.post(bedrock_endpoint(api_model)) { |r| r.body = body }
       elsif anthropic_format?
-        minimal_body = { model: model, max_tokens: 16,
+        minimal_body = { model: api_model, max_tokens: 16,
                          messages: [{ role: "user", content: "hi" }] }.to_json
         response = anthropic_connection.post(anthropic_messages_path) { |r| r.body = minimal_body }
       else
-        minimal_body = { model: model, max_tokens: 16,
+        minimal_body = { model: api_model, max_tokens: 16,
                          messages: [{ role: "user", content: "hi" }] }.to_json
         response = openai_connection.post("chat/completions") { |r| r.body = minimal_body }
       end
@@ -88,17 +88,17 @@ module Clacky
 
     # Send a messages array and return the reply text.
     def send_messages(messages, model:, max_tokens:)
-      model = Providers.resolve_api_model(base_url: @base_url, api_key: @api_key, model: model)
+      api_model = Providers.resolve_api_model(base_url: @base_url, api_key: @api_key, model: model)
       if bedrock?
-        body     = MessageFormat::Bedrock.build_request_body(messages, model, [], max_tokens)
-        response = bedrock_connection.post(bedrock_endpoint(model)) { |r| r.body = body.to_json }
+        body     = MessageFormat::Bedrock.build_request_body(messages, api_model, [], max_tokens)
+        response = bedrock_connection.post(bedrock_endpoint(api_model)) { |r| r.body = body.to_json }
         parse_simple_bedrock_response(response)
       elsif anthropic_format?
-        body     = MessageFormat::Anthropic.build_request_body(messages, model, [], max_tokens, false)
+        body     = MessageFormat::Anthropic.build_request_body(messages, api_model, [], max_tokens, false)
         response = anthropic_connection.post(anthropic_messages_path) { |r| r.body = body.to_json }
         parse_simple_anthropic_response(response)
       else
-        body     = { model: model, max_tokens: max_tokens, messages: messages }
+        body     = { model: api_model, max_tokens: max_tokens, messages: messages }
         response = openai_connection.post("chat/completions") { |r| r.body = body.to_json }
         parse_simple_openai_response(response)
       end
