@@ -5797,6 +5797,9 @@ module Clacky
           {
             id:                id,
             name:              preset["name"],
+            # Optional i18n key for the display name (localised per UI language);
+            # frontend falls back to `name` when absent or untranslated.
+            name_key:          preset["name_key"],
             base_url:          preset["base_url"],
             default_model:     preset["default_model"],
             models:            preset["models"] || [],

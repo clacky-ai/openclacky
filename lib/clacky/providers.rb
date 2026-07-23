@@ -376,6 +376,70 @@ module Clacky
         "website_url" => "https://open.bigmodel.cn/usercenter/apikeys"
       }.freeze,
 
+      # Volcengine Ark (Doubao) — ByteDance's model platform, OpenAI-compatible.
+      # Exposes three functionally-equivalent endpoints (Pay-as-you-go / Coding
+      # Plan / Agent Plan) that share the same model lineup and capability
+      # profile, so a single preset with endpoint_variants is the right shape.
+      # Without a preset match, base_urls like /api/coding/v3 fell through to the
+      # conservative "assume vision=true" default and inlined images into
+      # text-only models (e.g. glm-5.2), which Ark rejects. The vision matrix
+      # below is the source of truth so text-only models route through the OCR
+      # sidecar instead.
+      "volcengine-ark" => {
+        "name" => "Volcengine Ark (Doubao)",
+        "name_key" => "provider.name.volcengine_ark",
+        "base_url" => "https://ark.cn-beijing.volces.com/api/v3",
+        "api" => "openai-completions",
+        "default_model" => "doubao-seed-2.0-pro",
+        "models" => [
+          "doubao-seed-evolving",
+          "doubao-seed-2.1-pro",
+          "doubao-seed-2.1-turbo",
+          "doubao-seed-2.0-code",
+          "doubao-seed-2.0-pro",
+          "doubao-seed-2.0-lite",
+          "minimax-m3",
+          "minimax-m2.7",
+          "kimi-k2.7-code",
+          "kimi-k2.6",
+          "glm-5.2",
+          "deepseek-v4-pro",
+          "deepseek-v4-flash"
+        ],
+        "endpoint_variants" => [
+          { "label" => "Pay-as-you-go", "label_key" => "settings.models.baseurl.variant.ark_payg",   "base_url" => "https://ark.cn-beijing.volces.com/api/v3", "alias_group" => "payg" }.freeze,
+          { "label" => "Coding Plan",   "label_key" => "settings.models.baseurl.variant.ark_coding", "base_url" => "https://ark.cn-beijing.volces.com/api/coding/v3" }.freeze,
+          { "label" => "Agent Plan",    "label_key" => "settings.models.baseurl.variant.ark_agent",  "base_url" => "https://ark.cn-beijing.volces.com/api/plan/v3" }.freeze
+        ].freeze,
+        # Pay-as-you-go billing endpoint requires versioned model ids, while the
+        # Coding/Agent Plan endpoints accept the short display names. Users pick
+        # the intuitive short name; on the payg endpoint we transparently swap
+        # it for the versioned id the billing API expects. Only models whose ids
+        # actually differ are listed here.
+        "api_model_aliases" => {
+          "payg" => {
+            "glm-5.2"            => "glm-5-2-260617",
+            "deepseek-v4-pro"    => "deepseek-v4-pro-260425",
+            "deepseek-v4-flash"  => "deepseek-v4-flash-260425",
+            "doubao-seed-2.1-pro"   => "doubao-seed-2-1-pro-260628",
+            "doubao-seed-2.1-turbo" => "doubao-seed-2-1-turbo-260628",
+            "doubao-seed-2.0-pro"   => "doubao-seed-2-0-pro-260215",
+            "doubao-seed-2.0-lite"  => "doubao-seed-2-0-lite-260428",
+            "doubao-seed-2.0-code"  => "doubao-seed-2-0-code-preview-260215"
+          }.freeze
+        }.freeze,
+        # Most Doubao/multimodal models accept image input; GLM-5.2 and
+        # DeepSeek-V4 on Ark are text-only.
+        "capabilities" => { "vision" => true }.freeze,
+        "model_capabilities" => {
+          "glm-5.2"           => { "vision" => false }.freeze,
+          "deepseek-v4-pro"   => { "vision" => false }.freeze,
+          "deepseek-v4-flash" => { "vision" => false }.freeze
+        }.freeze,
+        "default_ocr_model" => "doubao-seed-2.0-lite",
+        "website_url" => "https://console.volcengine.com/ark/region:cn-beijing/overview"
+      }.freeze,
+
       "openai" => {
         "name" => "OpenAI (GPT)",
         "base_url" => "https://api.openai.com/v1",
@@ -788,7 +852,51 @@ module Clacky
         nil
       end
 
-      # Resolve the capabilities hash for a given provider+model.
+      # Translate a display model name into the real model id the target
+      # endpoint expects. Some providers expose the same model under different
+      # ids per billing endpoint (e.g. Volcengine Ark's pay-as-you-go API needs
+      # versioned ids like "doubao-seed-2-0-pro-260215" while the Coding/Agent
+      # Plan endpoints accept the short "doubao-seed-2.0-pro"). Users always see
+      # and pick the short name; this swaps it just before the request goes out.
+      #
+      # Returns the original model unchanged when no alias applies (unknown
+      # provider, endpoint without an alias group, or model not in the map).
+      #
+      # @param base_url [String, nil] the configured base_url (identifies endpoint)
+      # @param api_key  [String, nil] the configured api_key (provider fallback)
+      # @param model    [String, nil] the display model name
+      # @return [String, nil] the real model id to send, or the input unchanged
+      def resolve_api_model(base_url:, api_key: nil, model:)
+        return model if model.nil?
+
+        provider_id = resolve_provider(base_url: base_url, api_key: api_key)
+        return model unless provider_id
+
+        preset = PRESETS[provider_id]
+        aliases = preset && preset["api_model_aliases"]
+        return model unless aliases.is_a?(Hash)
+
+        group = alias_group_for_base_url(preset, base_url)
+        return model unless group
+
+        aliases.dig(group, model.to_s) || model
+      end
+
+      # Find which alias group the given base_url belongs to by matching it
+      # against the preset's endpoint_variants. Uses exact base_url equality
+      # (after normalising trailing slash) so "/api/v3" never leaks into the
+      # "/api/coding/v3" match.
+      def alias_group_for_base_url(preset, base_url)
+        return nil if base_url.nil?
+        variants = preset["endpoint_variants"]
+        return nil unless variants.is_a?(Array)
+
+        normalized = base_url.to_s.chomp("/")
+        variant = variants.find do |v|
+          v.is_a?(Hash) && v["base_url"].to_s.chomp("/") == normalized
+        end
+        variant && variant["alias_group"]
+      end
       #
       # Resolution order (most specific wins):
       #   1. PRESETS[provider_id]["model_capabilities"][model_name] — per-model

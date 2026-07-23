@@ -55,6 +55,7 @@ module Clacky
     # Test API connection by sending a minimal request.
     # Returns { success: true } or { success: false, error: "..." }.
     def test_connection(model:)
+      model = Providers.resolve_api_model(base_url: @base_url, api_key: @api_key, model: model)
       if bedrock?
         body = MessageFormat::Bedrock.build_request_body(
           [{ role: :user, content: "hi" }], model, [], 16
@@ -87,6 +88,7 @@ module Clacky
 
     # Send a messages array and return the reply text.
     def send_messages(messages, model:, max_tokens:)
+      model = Providers.resolve_api_model(base_url: @base_url, api_key: @api_key, model: model)
       if bedrock?
         body     = MessageFormat::Bedrock.build_request_body(messages, model, [], max_tokens)
         response = bedrock_connection.post(bedrock_endpoint(model)) { |r| r.body = body.to_json }
@@ -127,6 +129,7 @@ module Clacky
     #   a single synthetic invocation is fired after the response is received,
     #   so UI plumbing can be exercised end-to-end without the proxy work.
     def send_messages_with_tools(messages, model:, tools:, max_tokens:, enable_caching: false, reasoning_effort: nil, on_chunk: nil)
+      api_model = Providers.resolve_api_model(base_url: @base_url, api_key: @api_key, model: model)
       caching_enabled = enable_caching && supports_prompt_caching?(model)
       cloned = deep_clone(messages)
 
@@ -141,13 +144,13 @@ module Clacky
       response =
         if bedrock?
           streaming_used = !on_chunk.nil?
-          send_bedrock_request(cloned, model, tools, max_tokens, caching_enabled, reasoning_effort: reasoning_effort, on_chunk: wrapped_on_chunk)
+          send_bedrock_request(cloned, api_model, tools, max_tokens, caching_enabled, reasoning_effort: reasoning_effort, on_chunk: wrapped_on_chunk)
         elsif anthropic_format?
           streaming_used = !on_chunk.nil?
-          send_anthropic_request(cloned, model, tools, max_tokens, caching_enabled, reasoning_effort: reasoning_effort, on_chunk: wrapped_on_chunk)
+          send_anthropic_request(cloned, api_model, tools, max_tokens, caching_enabled, reasoning_effort: reasoning_effort, on_chunk: wrapped_on_chunk)
         else
           streaming_used = !on_chunk.nil?
-          send_openai_request(cloned, model, tools, max_tokens, caching_enabled, reasoning_effort: reasoning_effort, on_chunk: wrapped_on_chunk)
+          send_openai_request(cloned, api_model, tools, max_tokens, caching_enabled, reasoning_effort: reasoning_effort, on_chunk: wrapped_on_chunk, capability_model: model)
         end
       t1 = Process.clock_gettime(Process::CLOCK_MONOTONIC)
 
@@ -333,17 +336,20 @@ module Clacky
 
     # ── OpenAI request / response ─────────────────────────────────────────────
 
-    def send_openai_request(messages, model, tools, max_tokens, caching_enabled, reasoning_effort: nil, on_chunk: nil)
+    def send_openai_request(messages, model, tools, max_tokens, caching_enabled, reasoning_effort: nil, on_chunk: nil, capability_model: nil)
       # Apply cache_control markers to messages when caching is enabled.
       # OpenRouter proxies Claude with the same cache_control field convention as Anthropic direct.
       messages = apply_message_caching(messages) if caching_enabled
 
-      # Vision support is resolved against the request's actual model (which may
-      # differ from @model after a runtime switch or fallback override), so the
-      # conversion layer strips image_url blocks for non-vision models.
+      # Vision support is resolved against the display model name, which is the
+      # key our capability table is declared with. `model` may be an
+      # endpoint-specific API id (e.g. Ark payg's "glm-5-2-260617") that the
+      # table can't match — so the caller passes the display name separately
+      # via capability_model to keep the vision judgement accurate.
+      cap_model = capability_model || model
       body = MessageFormat::OpenAI.build_request_body(
         messages, model, tools, max_tokens, caching_enabled,
-        vision_supported: Providers.supports?(@provider_id, :vision, model_name: model),
+        vision_supported: Providers.supports?(@provider_id, :vision, model_name: cap_model),
         reasoning_effort: reasoning_effort
       )
       return send_openai_stream_request(body, on_chunk) if on_chunk

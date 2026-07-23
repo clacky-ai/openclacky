@@ -257,6 +257,95 @@ RSpec.describe Clacky::Providers do
       end
     end
 
+    context "Volcengine Ark (Doubao) three endpoints" do
+      # Regression guard: Ark base_urls (Pay-as-you-go / Coding Plan / Agent
+      # Plan) must resolve to the volcengine-ark preset so text-only models
+      # (glm-5.2, DeepSeek-V4) report vision=false and route through OCR
+      # instead of being inlined into a model that rejects image input.
+      it "recognises all three endpoints" do
+        %w[
+          https://ark.cn-beijing.volces.com/api/v3
+          https://ark.cn-beijing.volces.com/api/coding/v3
+          https://ark.cn-beijing.volces.com/api/plan/v3
+        ].each do |url|
+          expect(described_class.find_by_base_url(url)).to eq("volcengine-ark")
+        end
+      end
+
+      it "recognises endpoint subpaths" do
+        expect(described_class.find_by_base_url("https://ark.cn-beijing.volces.com/api/coding/v3/chat/completions"))
+          .to eq("volcengine-ark")
+      end
+
+      it "enforces vision matrix across all endpoints" do
+        %w[
+          https://ark.cn-beijing.volces.com/api/v3
+          https://ark.cn-beijing.volces.com/api/coding/v3
+          https://ark.cn-beijing.volces.com/api/plan/v3
+        ].each do |url|
+          id = described_class.find_by_base_url(url)
+          expect(described_class.supports?(id, :vision, model_name: "glm-5.2"))
+            .to be(false), "expected vision=false at #{url} for glm-5.2"
+          expect(described_class.supports?(id, :vision, model_name: "deepseek-v4-pro"))
+            .to be(false), "expected vision=false at #{url} for deepseek-v4-pro"
+          expect(described_class.supports?(id, :vision, model_name: "doubao-seed-2.0-pro"))
+            .to be(true), "expected vision=true at #{url} for doubao-seed-2.0-pro"
+          expect(described_class.supports?(id, :vision, model_name: "kimi-k2.7-code"))
+            .to be(true), "expected vision=true at #{url} for kimi-k2.7-code"
+        end
+      end
+
+      it "resolves default model and OCR model" do
+        expect(described_class.default_model("volcengine-ark")).to eq("doubao-seed-2.0-pro")
+        expect(described_class::PRESETS["volcengine-ark"]["default_ocr_model"]).to eq("doubao-seed-2.0-lite")
+      end
+
+      describe ".resolve_api_model" do
+        let(:base) { "https://ark.cn-beijing.volces.com" }
+
+        it "swaps display names for versioned ids on the pay-as-you-go endpoint" do
+          {
+            "doubao-seed-2.0-pro"   => "doubao-seed-2-0-pro-260215",
+            "doubao-seed-2.0-lite"  => "doubao-seed-2-0-lite-260428",
+            "doubao-seed-2.0-code"  => "doubao-seed-2-0-code-preview-260215",
+            "doubao-seed-2.1-pro"   => "doubao-seed-2-1-pro-260628",
+            "doubao-seed-2.1-turbo" => "doubao-seed-2-1-turbo-260628",
+            "glm-5.2"               => "glm-5-2-260617",
+            "deepseek-v4-pro"       => "deepseek-v4-pro-260425",
+            "deepseek-v4-flash"     => "deepseek-v4-flash-260425"
+          }.each do |display, real|
+            expect(described_class.resolve_api_model(base_url: "#{base}/api/v3", model: display))
+              .to eq(real), "expected #{display} -> #{real} on payg"
+          end
+        end
+
+        it "keeps display names unchanged on Coding and Agent Plan endpoints" do
+          ["#{base}/api/coding/v3", "#{base}/api/plan/v3"].each do |url|
+            expect(described_class.resolve_api_model(base_url: url, model: "doubao-seed-2.0-pro"))
+              .to eq("doubao-seed-2.0-pro")
+            expect(described_class.resolve_api_model(base_url: url, model: "glm-5.2"))
+              .to eq("glm-5.2")
+          end
+        end
+
+        it "leaves models without an alias unchanged on payg" do
+          ["doubao-seed-evolving", "kimi-k2.7-code", "minimax-m3"].each do |m|
+            expect(described_class.resolve_api_model(base_url: "#{base}/api/v3", model: m)).to eq(m)
+          end
+        end
+
+        it "normalises a trailing slash on the endpoint url" do
+          expect(described_class.resolve_api_model(base_url: "#{base}/api/v3/", model: "doubao-seed-2.1-turbo"))
+            .to eq("doubao-seed-2-1-turbo-260628")
+        end
+
+        it "leaves models unchanged for unrelated providers" do
+          expect(described_class.resolve_api_model(base_url: "https://api.openai.com/v1", model: "doubao-seed-2.0-pro"))
+            .to eq("doubao-seed-2.0-pro")
+        end
+      end
+    end
+
     context "MiniMax two regional endpoints" do
       it "recognises mainland (.com)" do
         expect(described_class.find_by_base_url("https://api.minimaxi.com/v1"))

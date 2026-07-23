@@ -286,6 +286,42 @@ module Clacky
         }
       },
 
+      # Volcengine Ark (Doubao) — priced in CNY, converted at 1 USD = 6.7730 CNY
+      # (2026-07-23) and rounded up to the cent. Ark tiers by input length in K
+      # tokens; we map (32,128] → default and (128,256] → over_200k, matching
+      # the coarse two-tier structure used elsewhere. Single-tier [0,256] models
+      # use the same value for both. cache.write bills at the miss (input) rate.
+      "doubao-seed-evolving" => {
+        input:  { default: 0.89, over_200k: 0.89 },
+        output: { default: 4.43, over_200k: 4.43 },
+        cache:  { write: 0.89, read: 0.18 }
+      },
+      "doubao-seed-2.1-pro" => {
+        input:  { default: 0.89, over_200k: 0.89 },
+        output: { default: 4.43, over_200k: 4.43 },
+        cache:  { write: 0.89, read: 0.18 }
+      },
+      "doubao-seed-2.1-turbo" => {
+        input:  { default: 0.45, over_200k: 0.45 },
+        output: { default: 2.22, over_200k: 2.22 },
+        cache:  { write: 0.45, read: 0.09 }
+      },
+      "doubao-seed-2.0-pro" => {
+        input:  { default: 0.71, over_200k: 1.42 },
+        output: { default: 3.55, over_200k: 7.09 },
+        cache:  { write: 0.71, read: 0.15 }
+      },
+      "doubao-seed-2.0-code" => {
+        input:  { default: 0.71, over_200k: 1.42 },
+        output: { default: 3.55, over_200k: 7.09 },
+        cache:  { write: 0.71, read: 0.15 }
+      },
+      "doubao-seed-2.0-lite" => {
+        input:  { default: 0.14, over_200k: 0.27 },
+        output: { default: 0.80, over_200k: 1.60 },
+        cache:  { write: 0.14, read: 0.03 }
+      },
+
       # Google Gemini 3 series (via Vertex AI). Tiered at 200K input tokens
       # for Pro; Flash has flat pricing.
       "gemini-3.1-pro" => {
