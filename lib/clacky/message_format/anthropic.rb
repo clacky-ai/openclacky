@@ -66,6 +66,7 @@ module Clacky
         system_text = system_messages.map { |m| extract_text(m[:content]) }.join("\n\n")
 
         api_messages = regular_messages.map { |msg| to_api_message(msg, caching_enabled) }
+        api_messages = merge_consecutive_tool_results(api_messages)
         api_tools    = tools&.map { |t| to_api_tool(t) }
 
         if caching_enabled && api_tools&.any?
@@ -88,6 +89,34 @@ module Clacky
         return nil if effort.nil? || effort.to_s.empty?
         s = effort.to_s
         %w[low medium high].include?(s) ? s : nil
+      end
+
+      # Merge consecutive tool_result user messages into a single user message.
+      # Anthropic requires all tool_results for an assistant turn to appear in
+      # a SINGLE user message immediately following the assistant. When an
+      # assistant calls multiple tools, the canonical format produces one
+      # role:"tool" message per result, which to_api_message converts into
+      # separate role:"user" messages — breaking the Anthropic contract.
+      private_class_method def self.merge_consecutive_tool_results(api_messages)
+        result = []
+        pending = nil
+
+        api_messages.each do |msg|
+          if msg[:role] == "user" && msg[:content].is_a?(Array) &&
+             msg[:content].any? { |b| b.is_a?(Hash) && b[:type] == "tool_result" }
+            if pending
+              pending[:content] += msg[:content]
+            else
+              pending = msg
+              result << pending
+            end
+          else
+            pending = nil
+            result << msg
+          end
+        end
+
+        result
       end
 
       # ── Response parsing ──────────────────────────────────────────────────────

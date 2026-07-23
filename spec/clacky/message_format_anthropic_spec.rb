@@ -102,6 +102,46 @@ RSpec.describe Clacky::MessageFormat::Anthropic do
     end
   end
 
+  describe ".merge_consecutive_tool_results" do
+    it "merges consecutive tool_result user messages into one" do
+      msgs = [
+        { role: "assistant", content: [{ type: "text", text: "calling tools" },
+                                       { type: "tool_use", id: "t1", name: "grep", input: {} },
+                                       { type: "tool_use", id: "t2", name: "terminal", input: {} }] },
+        { role: "user", content: [{ type: "tool_result", tool_use_id: "t1", content: "result1" }] },
+        { role: "user", content: [{ type: "tool_result", tool_use_id: "t2", content: "result2" }] }
+      ]
+
+      merged = described_class.send(:merge_consecutive_tool_results, msgs)
+      expect(merged.size).to eq(2)
+      expect(merged[1][:content].size).to eq(2)
+      expect(merged[1][:content][0][:tool_use_id]).to eq("t1")
+      expect(merged[1][:content][1][:tool_use_id]).to eq("t2")
+    end
+
+    it "does not merge when a non-tool_result message separates them" do
+      msgs = [
+        { role: "assistant", content: [{ type: "tool_use", id: "t1", name: "grep", input: {} }] },
+        { role: "user", content: [{ type: "tool_result", tool_use_id: "t1", content: "r1" }] },
+        { role: "user", content: [{ type: "text", text: "interrupting message" }] },
+        { role: "user", content: [{ type: "tool_result", tool_use_id: "t2", content: "r2" }] }
+      ]
+
+      merged = described_class.send(:merge_consecutive_tool_results, msgs)
+      expect(merged.size).to eq(4)
+    end
+
+    it "leaves a single tool_result message unchanged" do
+      msgs = [
+        { role: "assistant", content: [{ type: "tool_use", id: "t1", name: "grep", input: {} }] },
+        { role: "user", content: [{ type: "tool_result", tool_use_id: "t1", content: "ok" }] }
+      ]
+
+      merged = described_class.send(:merge_consecutive_tool_results, msgs)
+      expect(merged).to eq(msgs)
+    end
+  end
+
   describe "tool_use / tool_result id sanitization in build_request_body" do
     let(:model) { "claude-sonnet-4" }
     let(:tools) { [] }
