@@ -10,7 +10,7 @@ module Clacky
     # Fields that are internal to the agent and must not be sent to the API.
     INTERNAL_FIELDS = %i[
       task_id created_at system_injected session_context memory_update
-      subagent_instructions subagent_result token_usage
+      subagent_instructions subagent_result subagent_transcript token_usage
       compressed_summary chunk_path truncated transient
       chunk_index chunk_count
     ].freeze
@@ -68,6 +68,20 @@ module Clacky
     # history (e.g. compaction, rollback on 400 errors).
     def delete_where(&block)
       @messages.reject!(&block)
+      self
+    end
+
+    # Attach a key/value onto the most recent tool result message matching the
+    # given tool_call_id. Handles both OpenAI-style (role:"tool", tool_call_id)
+    # and Anthropic-style (role:"user" with tool_result blocks) messages.
+    # No-op if no matching message is found.
+    def attach_to_tool_result(tool_call_id, key, value)
+      msg = @messages.reverse.find do |m|
+        (m[:role] == "tool" && m[:tool_call_id] == tool_call_id) ||
+          (m[:role] == "user" && m[:content].is_a?(Array) &&
+            m[:content].any? { |b| b.is_a?(Hash) && b[:type] == "tool_result" && b[:tool_use_id] == tool_call_id })
+      end
+      msg[key] = value if msg
       self
     end
 

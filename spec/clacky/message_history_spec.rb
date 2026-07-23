@@ -584,4 +584,63 @@ RSpec.describe Clacky::MessageHistory do
       expect(history.to_a.last).to equal(msg)  # same Hash instance
     end
   end
+
+  # ─────────────────────────────────────────────
+  # attach_to_tool_result
+  # ─────────────────────────────────────────────
+  describe "#attach_to_tool_result" do
+    let(:transcript) { { skill: "demo", iterations: 2, events: [{ role: "assistant", content: "hi" }] } }
+
+    it "attaches to an OpenAI-format tool result (role: tool)" do
+      history.append(assistant_with_tool_calls)
+      history.append(tool_result_msg("tc_1"))
+
+      history.attach_to_tool_result("tc_1", :subagent_transcript, transcript)
+
+      expect(history.to_a.last[:subagent_transcript]).to eq(transcript)
+    end
+
+    it "attaches to an Anthropic-format tool result (role: user with tool_result block)" do
+      history.append({ role: "user",
+                       content: [{ type: "tool_result", tool_use_id: "tc_9", content: "ok" }],
+                       task_id: 1, created_at: Time.now.to_f })
+
+      history.attach_to_tool_result("tc_9", :subagent_transcript, transcript)
+
+      expect(history.to_a.last[:subagent_transcript]).to eq(transcript)
+    end
+
+    it "is a no-op when no matching tool result exists" do
+      history.append(tool_result_msg("tc_1"))
+
+      history.attach_to_tool_result("does_not_exist", :subagent_transcript, transcript)
+
+      expect(history.to_a.last).not_to have_key(:subagent_transcript)
+    end
+
+    it "returns self for chaining" do
+      history.append(tool_result_msg("tc_1"))
+      expect(history.attach_to_tool_result("tc_1", :subagent_transcript, transcript)).to eq(history)
+    end
+  end
+
+  # ─────────────────────────────────────────────
+  # subagent_transcript persistence vs LLM payload
+  # ─────────────────────────────────────────────
+  describe "subagent_transcript internal field" do
+    let(:transcript) { { skill: "demo", iterations: 1, events: [] } }
+
+    it "is preserved by to_a (persisted to session)" do
+      history.append(tool_result_msg("tc_1", subagent_transcript: transcript))
+      expect(history.to_a.last[:subagent_transcript]).to eq(transcript)
+    end
+
+    it "is stripped by to_api (never sent to the LLM)" do
+      history.append(assistant_with_tool_calls)
+      history.append(tool_result_msg("tc_1", subagent_transcript: transcript))
+
+      api_messages = history.to_api
+      expect(api_messages).to all(satisfy { |m| !m.key?(:subagent_transcript) })
+    end
+  end
 end

@@ -103,6 +103,15 @@ module Clacky
                      question: question, context: context, options: options }
       end
 
+      def show_subagent_start(skill: nil, iterations: nil, cost_usd: nil)
+        @events << { type: "subagent_start", session_id: @session_id,
+                     skill: skill, iterations: iterations, cost_usd: cost_usd }
+      end
+
+      def show_subagent_end
+        @events << { type: "subagent_end", session_id: @session_id }
+      end
+
       # Ignore all other UI methods (progress, errors, etc.) during history replay
       def method_missing(name, *args, **kwargs); end
       def respond_to_missing?(name, include_private = false); true; end

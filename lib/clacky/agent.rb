@@ -105,6 +105,7 @@ module Clacky
       @ui = ui  # UIController for direct UI interaction
       @debug_logs = []  # Debug logs for troubleshooting
       @pending_injections = []     # Pending inline skill injections to flush after observe()
+      @pending_subagent_transcript = nil # Subagent trail to attach to the next tool result (observe)
       @pending_script_tmpdirs = [] # Decrypted-script tmpdirs that live for the agent's lifetime
       @pending_error_rollback = false  # Deferred rollback flag set by restore_session on error
       @last_run_interrupted = false    # Set when run() exits via AgentInterrupted; tells the next run() to keep the task-start snapshot (continuation of the same task across a relay, not a brand-new task)
@@ -1139,6 +1140,8 @@ module Clacky
         @history.append(truncated.merge(task_id: @current_task_id))
       end
 
+      attach_pending_subagent_transcript(response)
+
       # Append a follow-up `role:"user"` message for any image payloads that
       # could not be delivered inside the tool message.
       #
@@ -1180,6 +1183,24 @@ module Clacky
           task_id:          @current_task_id
         })
       end
+    end
+
+    # Attach the captured subagent transcript (set by execute_skill_with_subagent)
+    # to the invoke_skill tool result message just appended by observe(). The
+    # transcript rides on the tool message as :subagent_transcript — an internal
+    # field stripped before the LLM call but persisted to session.json and
+    # replayed to the WebUI. Cleared after attaching so it fires exactly once.
+    private def attach_pending_subagent_transcript(response)
+      transcript = @pending_subagent_transcript
+      return unless transcript
+
+      @pending_subagent_transcript = nil
+
+      skill_call = Array(response[:tool_calls]).find { |tc| (tc[:name] || tc.dig(:function, :name)) == "invoke_skill" }
+      target_id = skill_call && skill_call[:id]
+      return unless target_id
+
+      @history.attach_to_tool_result(target_id, :subagent_transcript, transcript)
     end
 
     # Cap oversized tool result content to keep a single tool message from
@@ -1540,6 +1561,41 @@ module Clacky
       parts << (last_response || "(No response)")
 
       parts.join("\n")
+    end
+
+    # Extract the subagent's own message trail for persistence/replay.
+    # Returns a trimmed, LLM-free array of {role, content, tool_calls} hashes
+    # capturing only what the subagent did after the fork — system-injected
+    # scaffolding (fork instructions, ack) is dropped. Stored on the parent's
+    # invoke_skill tool result under :subagent_transcript so the WebUI can
+    # render a collapsible sub-process without polluting the main thread.
+    def extract_subagent_transcript(subagent, skill_identifier)
+      parent_count = subagent.instance_variable_get(:@parent_message_count) || 0
+      new_messages = subagent.history.to_a[parent_count..] || []
+
+      events = new_messages.filter_map do |m|
+        next if m[:system_injected]
+        role = m[:role].to_s
+        next unless %w[assistant tool user].include?(role)
+
+        entry = { role: role }
+        entry[:content] = m[:content] if m[:content] && !m[:content].to_s.empty?
+        if m[:tool_calls].is_a?(Array) && !m[:tool_calls].empty?
+          entry[:tool_calls] = m[:tool_calls].map do |tc|
+            func = tc[:function] || tc
+            { name: func[:name] || tc[:name], arguments: func[:arguments] || tc[:arguments] || {} }
+          end
+        end
+        entry[:tool_call_id] = m[:tool_call_id] if m[:tool_call_id]
+        entry.key?(:content) || entry.key?(:tool_calls) ? entry : nil
+      end
+
+      {
+        skill: skill_identifier,
+        iterations: subagent.iterations,
+        cost_usd: subagent.total_cost.round(4),
+        events: events
+      }
     end
 
     # Deep clone helper for messages using Marshal

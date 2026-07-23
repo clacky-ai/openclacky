@@ -639,6 +639,13 @@ module Clacky
         # Generate summary
         summary = generate_subagent_summary(subagent)
 
+        # Capture the subagent's own message trail (everything it appended after
+        # the fork) so the parent session can persist and later replay the full
+        # subagent process — not just the collapsed summary. Stored transiently
+        # on the parent agent; observe() attaches it to the invoke_skill tool
+        # result message. Kept out of the LLM payload via INTERNAL_FIELDS.
+        @pending_subagent_transcript = extract_subagent_transcript(subagent, skill.identifier)
+
         # Mutate the subagent_instructions message in-place to become the result summary
         @history.mutate_last_matching(->(m) { m[:subagent_instructions] }) do |m|
           m[:content] = summary

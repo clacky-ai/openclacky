@@ -641,11 +641,53 @@ module Clacky
 
             ui.show_tool_result(blk[:content].to_s)
           end
+          replay_subagent_transcript(msg, ui)
 
         when "tool"
           # OpenAI-format tool result
           ui.show_tool_result(msg[:content].to_s)
+          replay_subagent_transcript(msg, ui)
         end
+      end
+
+      # Replay a subagent transcript stored on a tool result message. Emits a
+      # bracketed sequence of UI events the frontend can render as a collapsible
+      # sub-process block: subagent_start → (assistant_message / tool_call /
+      # tool_result)* → subagent_end. No-op when the message carries no transcript.
+      def replay_subagent_transcript(msg, ui)
+        transcript = msg[:subagent_transcript]
+        return unless transcript.is_a?(Hash)
+
+        events = transcript[:events] || transcript["events"] || []
+        return if events.empty?
+
+        ui.show_subagent_start(
+          skill:      transcript[:skill]      || transcript["skill"],
+          iterations: transcript[:iterations] || transcript["iterations"],
+          cost_usd:   transcript[:cost_usd]   || transcript["cost_usd"]
+        )
+
+        events.each do |ev|
+          role = (ev[:role] || ev["role"]).to_s
+          content = ev[:content] || ev["content"]
+          tool_calls = ev[:tool_calls] || ev["tool_calls"]
+
+          case role
+          when "assistant"
+            text = extract_text_from_content(content).to_s.strip
+            ui.show_assistant_message(text, files: []) unless text.empty?
+            Array(tool_calls).each do |tc|
+              name = tc[:name] || tc["name"] || ""
+              args_raw = tc[:arguments] || tc["arguments"] || {}
+              args = args_raw.is_a?(String) ? (JSON.parse(args_raw) rescue args_raw) : args_raw
+              ui.show_tool_call(name, args)
+            end
+          when "tool", "user"
+            ui.show_tool_result(extract_text_from_content(content).to_s)
+          end
+        end
+
+        ui.show_subagent_end
       end
 
       # Replace the system message in @messages with a freshly built system prompt.
