@@ -77,6 +77,27 @@ module Clacky
         "InvokeSkill(#{skill})"
       end
 
+      # Format the tool result for the LLM.
+      # Converts the raw Hash into a markdown string so the LLM can directly
+      # read the subagent output without parsing a JSON wrapper. JSON-encoding
+      # the result as a nested string caused models to miss the "result" field
+      # and hallucinate that the subagent returned nothing.
+      # @param result [Hash, String] Tool execution result
+      # @return [String] LLM-friendly formatted result
+      def format_result_for_llm(result)
+        if result.is_a?(String)
+          result
+        elsif result[:error]
+          "Error: #{result[:error]}"
+        elsif result[:skill_type] == "subagent"
+          subagent_result = result[:result].to_s.strip
+          subagent_result = "(subagent produced no output)" if subagent_result.empty?
+          "Subagent executed successfully.\n\n#{subagent_result}"
+        else
+          "Skill content expanded"
+        end
+      end
+
       # Format the tool result for display
       # @param result [Hash] Tool execution result
       # @return [String] Formatted result summary
