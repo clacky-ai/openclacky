@@ -2671,7 +2671,6 @@ body {
 .session-banner { flex-shrink: 0; }
 .session-composer {
   flex-shrink: 0;
-  margin-bottom: -9px;
   display: flex;
   padding-inline: 24px;
 }
