@@ -309,11 +309,14 @@ RSpec.describe Clacky::Tools::Terminal do
   # Security integration (make_safe is applied to `command` only)
   # ---------------------------------------------------------------------------
   describe "security layer" do
-    it "blocks sudo commands before spawning a PTY" do
+    it "allows sudo commands (logged for audit)" do
       result = tool.execute(command: "sudo ls /")
-      expect(result[:security_blocked]).to eq(true)
-      expect(result[:error]).to match(/\[Security\]/)
-      expect(result).not_to have_key(:session_id)
+      expect(result[:security_blocked]).to be_nil
+      # sudo is allowed — should spawn a PTY (session_id present) or fail
+      # naturally if the system doesn't have passwordless sudo
+      expect(result).to have_key(:session_id).or have_key(:exit_code).or have_key(:error)
+      # Clean up if session was spawned
+      tool.execute(session_id: result[:session_id], kill: true) if result[:session_id]
     end
 
     it "moves rm'd files into the project trash via the safe-rm shell function" do

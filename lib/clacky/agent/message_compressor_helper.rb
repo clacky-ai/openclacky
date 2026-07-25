@@ -122,6 +122,13 @@ module Clacky
       #   handle_compression_response, so recent task progress is preserved.
       # @return [Hash, nil] Compression context or nil if not needed
       def compress_messages_if_needed(force: false, pull_back_from_tail: 0)
+        # Subagents must not proactively compress — their history is a clone of the
+        # parent's and will be discarded when the subagent exits. The parent will
+        # compress its own history after the subagent returns, so doing it here is
+        # pure waste (same data compressed twice). Context-overflow recovery
+        # (force: true) is still allowed as a safety net for long-running subagents.
+        return nil if @is_subagent && !force
+
         # Check if compression is enabled
         return nil unless @config.enable_compression
 

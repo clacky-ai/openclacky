@@ -19,17 +19,18 @@ module Clacky
     # Responsibilities (applied to the `command` string BEFORE it is handed
     # to a shell / PTY for execution):
     #
-    #   1. Block hard-dangerous commands:       sudo, pkill clacky, eval, exec,
+    #   1. Block hard-dangerous commands:       pkill clacky, eval, exec,
     #                                           `...`, | sh, | bash,
     #                                           redirect to /etc /usr /bin.
     #   2. Rewrite `curl ... | bash` → save     script to a file for manual
     #                                           review instead of exec.
-    #   3. Protect credential/secret files:     .env, .ssh/, .aws/ — block
+    #   3. Protect credential/secret files:     .ssh/, .aws/ — block
     #                                           writes to these only. Other
     #                                           "project" files (Gemfile,
-    #                                           README.md, package.json, …)
-    #                                           are NOT protected — editing
-    #                                           them is a normal dev task.
+    #                                           README.md, package.json,
+    #                                           .env, …) are NOT protected —
+    #                                           editing them is a normal dev
+    #                                           task.
     #
     # Note on `rm`:
     #   `rm` is NOT rewritten here — it's intercepted at runtime by a shell
@@ -135,7 +136,10 @@ module Clacky
           when /^curl.*\|\s*(sh|bash)/
             replace_curl_pipe_command(command)
           when /^sudo\s+/
-            block_sudo_command(command)
+            # sudo is allowed — the user is in control and takes responsibility.
+            # Still log it for audit trail.
+            log_warning("sudo command executed: #{command}")
+            command
           when />\s*\/dev\/null\s*$/
             allow_dev_null_redirect(command)
           when /^(mv|cp|mkdir|touch|echo)\s+/
@@ -173,10 +177,6 @@ module Clacky
           else
             command
           end
-        end
-
-        def block_sudo_command(_command)
-          raise SecurityError, "sudo commands are not allowed for security reasons"
         end
 
         def allow_dev_null_redirect(command)
@@ -273,8 +273,6 @@ module Clacky
         SECRET_WRITE_PATTERNS = [
           %r{(?:\A|/)\.ssh/},
           %r{(?:\A|/)\.aws/},
-          /(?:\A|\/)\.env(?:\.|\z)/,
-          /\.env\z/
         ].freeze
 
         def validate_secret_write(path)
@@ -319,7 +317,7 @@ module Clacky
         end
 
         private :replace_chmod_command,
-                :replace_curl_pipe_command, :block_sudo_command,
+                :replace_curl_pipe_command,
                 :allow_dev_null_redirect, :validate_and_allow,
                 :validate_general_command,
                 :validate_file_path, :validate_secret_write,
