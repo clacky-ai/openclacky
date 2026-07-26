@@ -269,39 +269,6 @@ RSpec.describe "Compression chunk MD archiving" do
       end
     end
 
-    describe "#parse_continues_previous" do
-      let(:compressor) { described_class.new(nil) }
-
-      it "returns true only for an explicit true tag" do
-        expect(compressor.parse_continues_previous("<continues_previous>true</continues_previous>")).to be true
-      end
-
-      it "returns false for an explicit false tag" do
-        expect(compressor.parse_continues_previous("<continues_previous>false</continues_previous>")).to be false
-      end
-
-      it "returns false when the tag is missing" do
-        expect(compressor.parse_continues_previous("<topics>x</topics><summary>y</summary>")).to be false
-      end
-
-      it "returns false for nil or empty content" do
-        expect(compressor.parse_continues_previous(nil)).to be false
-        expect(compressor.parse_continues_previous("")).to be false
-      end
-
-      it "is case-insensitive and tolerant of whitespace" do
-        expect(compressor.parse_continues_previous("<continues_previous> TRUE </continues_previous>")).to be true
-      end
-
-      it "strips the tag from the rebuilt summary content" do
-        result = compressor.parse_compressed_result(
-          "<continues_previous>true</continues_previous>\n<summary>Body</summary>",
-          chunk_path: "/tmp/chunk-1.md"
-        )
-        expect(result.first[:content]).not_to include("continues_previous")
-      end
-    end
-
     describe "#parse_compressed_result" do
       let(:compressor) { described_class.new(nil) }
 
@@ -786,9 +753,19 @@ RSpec.describe "Compression chunk MD archiving" do
       a
     end
 
-    # Simulates one full compression round: seed history, invoke the helper
-    # with a fake LLM response, return [chunk_path, summary_message].
+    # Simulates one ACTIVE compression round (triggers when token/message
+    # thresholds are exceeded during normal use). Always creates a new chunk.
     def run_compression_round(agent, round_number)
+      run_compression_round_internal(agent, round_number, force_new_chunk: true)
+    end
+
+    # Simulates one IDLE compression round (triggers when user is idle).
+    # Always merges into the previous chunk when one exists.
+    def run_idle_compression_round(agent, round_number)
+      run_compression_round_internal(agent, round_number, force_new_chunk: false)
+    end
+
+    def run_compression_round_internal(agent, round_number, force_new_chunk:)
       # Seed history: system + several user/assistant turns + some recent msgs
       system = { role: "system", content: "System prompt" }
 
@@ -816,7 +793,8 @@ RSpec.describe "Compression chunk MD archiving" do
         recent_messages: recent_messages,
         original_token_count: 50_000,
         original_message_count: all.size,
-        compression_level: round_number
+        compression_level: round_number,
+        force_new_chunk: force_new_chunk
       }
 
       # Insert the compression instruction (as the real flow does)
@@ -881,55 +859,25 @@ RSpec.describe "Compression chunk MD archiving" do
       expect(indexes).to eq([1, 2, 3, 4, 5])
     end
 
-    # ── chunk merging: <continues_previous> drives overwrite-in-place ──────────
+    # ── chunk merging: idle compression always merges ──────────────────────────
     #
-    # Same as run_compression_round but lets the caller control the LLM-judged
-    # continuation flag, so we can exercise the merge vs new-chunk branch.
-    def run_compression_round_with_continuation(agent, round_number, continues:)
-      system = { role: "system", content: "System prompt" }
-      pre_existing = agent.history.to_a
-      new_turns = 6.times.flat_map do |i|
-        [
-          { role: "user", content: "round #{round_number} user msg #{i}" },
-          { role: "assistant", content: "round #{round_number} reply #{i}" }
-        ]
-      end
-      if pre_existing.empty?
-        agent.history = Clacky::MessageHistory.new([system, *new_turns])
-      else
-        agent.history.replace_all(pre_existing + new_turns)
-      end
+    # Idle compression (force_new_chunk: false) always merges into the previous
+    # chunk when one exists. Active compression (force_new_chunk: true) always
+    # creates a new chunk regardless.
 
-      all = agent.history.to_a
-      recent_messages = all.last(4)
-      compression_context = {
-        recent_messages: recent_messages,
-        original_token_count: 50_000,
-        original_message_count: all.size,
-        compression_level: round_number
-      }
-      agent.history.append({ role: "user", content: "compress please", system_injected: true })
-
-      fake_response = {
-        content: "<topics>Round #{round_number} topics</topics>\n" \
-                 "<continues_previous>#{continues}</continues_previous>\n" \
-                 "<summary>Round #{round_number} summary body</summary>"
-      }
-      agent.send(:handle_compression_response, fake_response, compression_context)
+    it "idle compression merges into the previous chunk" do
+      # First compression is active (no previous chunk exists yet) → chunk-1
+      run_compression_round(full_agent, 1)
+      # Second is idle → merges into chunk-1
+      run_idle_compression_round(full_agent, 2)
 
       sm = Clacky::SessionManager.new(sessions_dir: sessions_dir)
-      [sm.chunks_for_current(agent.session_id, agent.created_at),
-       agent.history.to_a.find { |m| m[:compressed_summary] }]
-    end
+      chunks = sm.chunks_for_current(full_agent.session_id, full_agent.created_at)
 
-    it "merges into the previous chunk when LLM says <continues_previous>true</continues_previous>" do
-      run_compression_round_with_continuation(full_agent, 1, continues: false)
-      chunks_after_merge, summary = run_compression_round_with_continuation(full_agent, 2, continues: true)
+      # Only ONE chunk file exists — round 2 merged into chunk-1
+      expect(chunks.map { |c| c[:index] }).to eq([1])
 
-      # Only ONE chunk file exists — round 2 merged into chunk-1 instead of creating chunk-2
-      expect(chunks_after_merge.map { |c| c[:index] }).to eq([1])
-
-      merged_path = chunks_after_merge.first[:path]
+      merged_path = chunks.first[:path]
       content = File.read(merged_path)
 
       # Both rounds' content live in the single chunk
@@ -940,28 +888,61 @@ RSpec.describe "Compression chunk MD archiving" do
       expect(content).to include("merged_count: 2")
       expect(content).to include("Round 1 topics")
       expect(content).to include("Round 2 topics")
-
-      # The summary references the merged chunk and does NOT list it as a previous chunk
-      expect(summary[:content]).to include("chunk-1.md")
-      expect(summary[:content]).not_to include("Previous chunks")
     end
 
-    it "creates a new chunk when LLM says false, even after a prior merge" do
-      run_compression_round_with_continuation(full_agent, 1, continues: false)
-      run_compression_round_with_continuation(full_agent, 2, continues: true)   # merged into chunk-1
-      chunks, summary = run_compression_round_with_continuation(full_agent, 3, continues: false) # new chunk-2
+    it "active compression creates a new chunk even after idle merges" do
+      run_compression_round(full_agent, 1)         # active → chunk-1
+      run_idle_compression_round(full_agent, 2)    # idle  → merged into chunk-1
+      _chunk3, summary = run_compression_round(full_agent, 3)  # active → new chunk-2
 
+      sm = Clacky::SessionManager.new(sessions_dir: sessions_dir)
+      chunks = sm.chunks_for_current(full_agent.session_id, full_agent.created_at)
       expect(chunks.map { |c| c[:index] }).to eq([1, 2])
       # New summary indexes the earlier chunk-1 as a previous chunk
       expect(summary[:content]).to include("Previous chunks")
       expect(summary[:content]).to include("chunk-1.md")
     end
 
-    it "does not merge on the first compression even if LLM says true (no previous chunk)" do
-      chunks, _summary = run_compression_round_with_continuation(full_agent, 1, continues: true)
-      # No previous chunk existed, so a fresh chunk-1 is created
+    it "first compression always creates chunk-1 regardless" do
+      # Even idle compression creates chunk-1 when no previous chunk exists
+      run_idle_compression_round(full_agent, 1)
+
+      sm = Clacky::SessionManager.new(sessions_dir: sessions_dir)
+      chunks = sm.chunks_for_current(full_agent.session_id, full_agent.created_at)
       expect(chunks.map { |c| c[:index] }).to eq([1])
       expect(File.read(chunks.first[:path])).not_to include("merged_count")
+    end
+
+    it "multiple idle compressions in a row all merge into the same chunk" do
+      run_compression_round(full_agent, 1)  # active → chunk-1
+      3.times { |i| run_idle_compression_round(full_agent, i + 2) }  # all idle → all merge
+
+      chunks = Clacky::SessionManager.new(sessions_dir: sessions_dir)
+        .chunks_for_current(full_agent.session_id, full_agent.created_at)
+      expect(chunks.map { |c| c[:index] }).to eq([1])
+
+      content = File.read(chunks.first[:path])
+      expect(content).to include("merged_count: 4")  # 1 base + 3 merges
+      expect(content).to include("round 1 user msg")
+      expect(content).to include("round 4 user msg")
+    end
+
+    it "mixed active and idle compressions create appropriate chunks" do
+      run_compression_round(full_agent, 1)         # active  → chunk-1
+      run_idle_compression_round(full_agent, 2)    # idle    → merged into chunk-1
+      run_compression_round(full_agent, 3)         # active  → chunk-2
+      run_idle_compression_round(full_agent, 4)    # idle    → merged into chunk-2
+      run_compression_round(full_agent, 5)         # active  → chunk-3
+
+      chunks = Clacky::SessionManager.new(sessions_dir: sessions_dir)
+        .chunks_for_current(full_agent.session_id, full_agent.created_at)
+      expect(chunks.map { |c| c[:index] }).to eq([1, 2, 3])
+
+      # Chunk-2 has content from rounds 3 AND 4 (round 4 was idle → merged)
+      c2 = File.read(chunks.find { |c| c[:index] == 2 }[:path])
+      expect(c2).to include("round 3 user msg")
+      expect(c2).to include("round 4 user msg")
+      expect(c2).to include("merged_count: 2")
     end
   end
 end

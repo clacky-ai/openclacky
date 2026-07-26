@@ -39,14 +39,10 @@ module Clacky
 
       REQUIRED RESPONSE FORMAT:
       First output a <topics> line listing 3-6 key topic phrases (comma-separated, concise).
-      Then output a <continues_previous> line: "true" if this conversation is a direct
-      continuation of the SAME task/topic as the PREVIOUS chunk shown below, "false" if it
-      has moved on to a different task or topic. If there is no previous chunk, output "false".
       Then output the full summary wrapped in <summary> tags.
 
       Example format:
       <topics>Rails setup, database config, deploy pipeline, Tailwind CSS</topics>
-      <continues_previous>false</continues_previous>
       <summary>
       ...full summary text...
       </summary>
@@ -58,8 +54,7 @@ module Clacky
       - Errors encountered and fixes applied
       - Current work status and pending tasks
 
-      Begin your response NOW. Remember: PURE TEXT only, starting with <topics> then
-      <continues_previous> then <summary>.
+      Begin your response NOW. Remember: PURE TEXT only, starting with <topics> then <summary>.
     PROMPT
 
     def initialize(client, model: nil)
@@ -77,9 +72,6 @@ module Clacky
     #
     # @param messages [Array<Hash>] Original conversation messages
     # @param recent_messages [Array<Hash>] Recent messages to keep uncompressed (optional)
-    # @param previous_topics [String, nil] Topics of the most recent chunk on disk,
-    #   shown to the LLM so it can decide whether the current conversation is a
-    #   continuation (drives the <continues_previous> output for chunk merging).
     # @return [Hash] Compression instruction message to insert, or nil if nothing to compress
     def build_compression_message(messages, recent_messages: [], previous_topics: nil)
       # Get messages to compress (exclude system message and recent messages)
@@ -88,14 +80,9 @@ module Clacky
       # If nothing to compress, return nil
       return nil if messages_to_compress.empty?
 
-      content = COMPRESSION_PROMPT
-      if previous_topics && !previous_topics.strip.empty?
-        content = "#{COMPRESSION_PROMPT}\n\nPREVIOUS CHUNK TOPICS (for <continues_previous> judgement): #{previous_topics}"
-      end
-
       {
         role: "user",
-        content: content,
+        content: COMPRESSION_PROMPT,
         system_injected: true
       }
     end
@@ -154,15 +141,6 @@ module Clacky
       m ? m[1].strip : nil
     end
 
-    # Parse the <continues_previous> tag. Returns true only when the LLM
-    # explicitly says "true"; missing tag or any other value → false.
-    # This conservative default ensures we never merge unless the model is sure.
-    def parse_continues_previous(content)
-      return false if content.nil? || content.to_s.empty?
-      m = content.to_s.match(/<continues_previous>(.*?)<\/continues_previous>/m)
-      m ? m[1].strip.downcase == "true" : false
-    end
-
     def parse_compressed_result(result, chunk_path: nil, topics: nil, previous_chunks: [])
       # Return the compressed result as a single user message (role: "user").
       #
@@ -192,11 +170,8 @@ module Clacky
       if content.empty?
         []
       else
-        # Strip out the <topics> and <continues_previous> blocks — they're
-        # metadata for chunk handling, not for AI context.
-        content_without_topics = content.gsub(/<topics>.*?<\/topics>\n*/m, "")
-                                        .gsub(/<continues_previous>.*?<\/continues_previous>\n*/m, "")
-                                        .strip
+        # Strip out the <topics> block — it's metadata for chunk handling, not for AI context.
+        content_without_topics = content.gsub(/<topics>.*?<\/topics>\n*/m, "").strip
 
         # Build previous chunks index section — links to older chunk files so the AI
         # can find earlier conversations without keeping all prior compressed_summary

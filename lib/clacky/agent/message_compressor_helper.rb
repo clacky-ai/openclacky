@@ -200,20 +200,18 @@ module Clacky
         recent_messages = get_recent_messages_with_tool_pairs(all_messages, target_recent_count)
         recent_messages = [] if recent_messages.nil?
 
-        # Surface the most recent chunk's topics so the compression LLM can judge
-        # whether this conversation continues the same task (drives chunk merging).
-        previous_topics = nil
-        if @session_id && @created_at
-          latest = session_manager.chunks_for_current(@session_id, @created_at).last
-          previous_topics = latest && latest[:topics]
-        end
-
         # Build compression instruction message (to be inserted into conversation)
         compression_message = @message_compressor.build_compression_message(
-          all_messages, recent_messages: recent_messages, previous_topics: previous_topics
+          all_messages, recent_messages: recent_messages
         )
 
         return nil if compression_message.nil?
+
+        # Active (non-forced) compression means we've accumulated enough
+        # conversation to hit the normal thresholds — always create a new chunk.
+        # Idle / context-overflow compressions (force: true) always merge into
+        # the previous chunk to avoid fragmenting small batches.
+        force_new_chunk = !force
 
         # Return compression context for agent to handle
         {
@@ -222,7 +220,8 @@ module Clacky
           pulled_back_messages: pulled_back_messages,
           original_token_count: total_tokens,
           original_message_count: @history.size,
-          compression_level: @compression_level
+          compression_level: @compression_level,
+          force_new_chunk: force_new_chunk
         }
       end
 
@@ -265,12 +264,11 @@ module Clacky
         topics = @message_compressor.parse_topics(compressed_content)
 
         # Decide whether to MERGE into the previous chunk or create a NEW one.
-        # The LLM judges (via <continues_previous>) whether this conversation is a
-        # direct continuation of the previous chunk's task. Merging avoids tiny
-        # fragmented chunks (e.g. a long task compressed mid-flight into 2-message
-        # chunks) that pollute the topics index and degrade recall.
+        # Active compression (force_new_chunk: true) always creates a new chunk.
+        # Idle / overflow compression always merges into the previous chunk if
+        # one exists, avoiding tiny fragmented chunks that pollute the topics index.
         latest_chunk = existing_chunks.last
-        continues = latest_chunk && @message_compressor.parse_continues_previous(compressed_content)
+        continues = latest_chunk && !compression_context[:force_new_chunk]
 
         if continues
           chunk_path = merge_into_previous_chunk(
