@@ -10,7 +10,6 @@ module Clacky
       "llm.error.403.api_key_revoked"   => "API 密钥已被撤销，请前往控制台重新生成",
       "llm.error.403.api_key_expired"   => "API 密钥已过期，请前往控制台重新生成",
       "llm.error.403.quota_exceeded"    => "API Key 配额已超限，请在管理后台调整配额或关闭限制",
-      "llm.error.quota_exceeded"        => "API Key 配额已超限，请在管理后台调整配额或关闭限制",
       "llm.error.403.access_denied"     => "访问被拒绝，请检查 API 密钥权限",
       "llm.error.403.default"           => "访问被拒绝",
       "llm.error.endpoint_not_found"    => "API 端点不存在，请检查服务地址配置",

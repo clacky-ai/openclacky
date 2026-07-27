@@ -10,7 +10,6 @@ module Clacky
       "llm.error.403.api_key_revoked"   => "API key has been revoked, please generate a new one",
       "llm.error.403.api_key_expired"   => "API key has expired, please generate a new one",
       "llm.error.403.quota_exceeded"    => "API key quota exceeded. Please update the quota or disable the limit in the admin console",
-      "llm.error.quota_exceeded"        => "API key quota exceeded. Please update the quota or disable the limit in the admin console",
       "llm.error.403.access_denied"     => "Access denied, please check your API key permissions",
       "llm.error.403.default"           => "Access denied",
       "llm.error.endpoint_not_found"    => "API endpoint not found, please check your service URL",
