@@ -537,6 +537,10 @@ module Clacky
         name_invalid = !valid_slug.call(@name) || @name.length > 64
 
         if name_invalid
+          # Preserve the original non-slug name as name_zh (display name) if not already set.
+          # e.g. name: "中英翻译" → name_zh = "中英翻译", name falls back to dir slug.
+          @name_zh ||= @name
+
           if valid_slug.call(dir_slug)
             # Recoverable: fall back to directory name, record a warning
             @warnings << "Invalid name '#{@name}' in metadata; using directory name '#{dir_slug}' instead."
