@@ -44,13 +44,27 @@ RSpec.describe Clacky::BrandConfig, "#install_brand_skill! integrity & cleanup" 
     }
   end
 
-  it "removes dest_dir when downloaded ZIP is empty" do
+  it "preserves the previously installed version when the new download is corrupt" do
+    # Pre-existing installed version on disk.
+    FileUtils.mkdir_p(dest_dir)
+    File.write(File.join(dest_dir, "SKILL.md.enc"), "old-version")
+
     subject = make_subject_with_stubbed_download(->(dest) { File.binwrite(dest, "") })
 
     result = subject.install_brand_skill!(skill_info(slug), encrypted: true)
 
     expect(result[:success]).to be false
     expect(result[:error]).to match(/Empty ZIP/)
+    # The old version must survive a failed update.
+    expect(File.read(File.join(dest_dir, "SKILL.md.enc"))).to eq("old-version")
+  end
+
+  it "does not create a dest_dir when a fresh install fails" do
+    subject = make_subject_with_stubbed_download(->(dest) { File.binwrite(dest, "") })
+
+    result = subject.install_brand_skill!(skill_info(slug), encrypted: true)
+
+    expect(result[:success]).to be false
     expect(Dir.exist?(dest_dir)).to be false
   end
 
@@ -79,11 +93,31 @@ RSpec.describe Clacky::BrandConfig, "#install_brand_skill! integrity & cleanup" 
     expect(File.exist?(File.join(dest_dir, "MANIFEST.enc.json"))).to be true
   end
 
-  it "leaves the ZIP file removed on failure (no .zip leftover)" do
+  it "atomically replaces the previously installed version on a successful update" do
+    # Pre-existing version with a stale file that the new package no longer ships.
+    FileUtils.mkdir_p(dest_dir)
+    File.write(File.join(dest_dir, "SKILL.md.enc"), "old-version")
+    File.write(File.join(dest_dir, "stale.txt"), "gone")
+
+    subject = make_subject_with_stubbed_download(->(dest) {
+      build_zip(dest, "SKILL.md.enc" => "new-version")
+    })
+
+    result = subject.install_brand_skill!(skill_info(slug), encrypted: true)
+
+    expect(result[:success]).to be true
+    expect(File.read(File.join(dest_dir, "SKILL.md.enc"))).to eq("new-version")
+    # Stale files from the old version must not linger after replacement.
+    expect(File.exist?(File.join(dest_dir, "stale.txt"))).to be false
+  end
+
+  it "leaves no staging artifacts on failure (no temp zip or staging dir)" do
     subject = make_subject_with_stubbed_download(->(dest) { File.binwrite(dest, "") })
 
     subject.install_brand_skill!(skill_info(slug), encrypted: true)
 
-    expect(File.exist?(File.join(tmp_dir, "brand_skills", "#{slug}.zip"))).to be false
+    root = File.join(tmp_dir, "brand_skills")
+    expect(Dir.glob(File.join(root, ".#{slug}-*.zip"))).to be_empty
+    expect(Dir.glob(File.join(root, ".staging-#{slug}-*"))).to be_empty
   end
 end
