@@ -4,6 +4,28 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
+## [1.5.2] - 2026-07-27
+
+### Added
+- Starter prompts for ext-developer agent on new session page
+- Secondary gateway endpoint for OpenClacky provider with auto-fallback after all retries exhausted
+- Subagent save support and invoke_skill format improvements
+
+### Improved
+- Curly quotes wrapping for starter prompt text
+- Brand license badge now distinguishes unreachable vs expiring states
+
+### Fixed
+- HTTP 429 quota_exceeded now shows correct "quota exceeded" error instead of "rate limit" and stops retrying
+- Search query filter now applies correctly to brand extensions in marketplace
+- Billing page colors unified to warm palette
+- Sub-model switching and card display now use saved provider_id correctly
+- Device revoked error message now includes 15-minute wait hint
+- Extension detail page routes by source param for brand/public distinction
+- Non-slug skill names preserved as name_zh fallback for Chinese matching
+- Sudo and .env writes unblocked in subagent; double-compression skipped
+- Claude tool call ID handling fixed
+
 ## [1.5.1] - 2026-07-24
 
 ### Fixed
