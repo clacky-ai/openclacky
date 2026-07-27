@@ -213,7 +213,7 @@ module Clacky
     private def rebuild_client_for_current_model!
       @client = Clacky::Client.new(
         @config.api_key,
-        base_url: @config.base_url,
+        base_url: @config.effective_base_url,
         model: @config.model_name,
         anthropic_format: @config.anthropic_format?
       )

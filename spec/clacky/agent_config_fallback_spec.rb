@@ -183,4 +183,72 @@ RSpec.describe Clacky::AgentConfig, "fallback state machine" do
       expect(result).to be_nil
     end
   end
+
+  # ── URL fallback state machine ─────────────────────────────────────────────
+
+  describe "URL fallback" do
+    describe "#url_fallback_active?" do
+      it "is false by default" do
+        expect(config.url_fallback_active?).to be false
+      end
+    end
+
+    describe "#effective_base_url" do
+      it "returns the primary base_url when no URL fallback is active" do
+        expect(config.effective_base_url).to eq("https://api.openclacky.com/v1")
+      end
+
+      it "returns the fallback URL after activate_url_fallback!" do
+        config.activate_url_fallback!("https://llm.1024code.com")
+        expect(config.effective_base_url).to eq("https://llm.1024code.com")
+      end
+    end
+
+    describe "#activate_url_fallback!" do
+      before { config.activate_url_fallback!("https://llm.1024code.com") }
+
+      it "sets url_fallback_active? to true" do
+        expect(config.url_fallback_active?).to be true
+      end
+
+      it "is idempotent — calling again keeps it active" do
+        config.activate_url_fallback!("https://llm.1024code.com")
+        expect(config.url_fallback_active?).to be true
+        expect(config.effective_base_url).to eq("https://llm.1024code.com")
+      end
+    end
+
+    describe "#fallback_base_url_for_current_provider" do
+      it "returns the fallback_base_url from the openclacky provider preset" do
+        expect(config.fallback_base_url_for_current_provider).to eq("https://llm.1024code.com")
+      end
+
+      context "with a non-openclacky provider (e.g. OpenRouter)" do
+        let(:config) do
+          Clacky::AgentConfig.new(
+            models: [
+              {
+                "type"    => "default",
+                "model"   => "anthropic/claude-sonnet-4-6",
+                "api_key" => "sk-or-test",
+                "base_url" => "https://openrouter.ai/api/v1"
+              }
+            ]
+          )
+        end
+
+        it "returns nil (no URL fallback for this provider)" do
+          expect(config.fallback_base_url_for_current_provider).to be_nil
+        end
+      end
+
+      context "with no model configured" do
+        let(:config) { Clacky::AgentConfig.new(models: []) }
+
+        it "returns nil gracefully" do
+          expect(config.fallback_base_url_for_current_provider).to be_nil
+        end
+      end
+    end
+  end
 end

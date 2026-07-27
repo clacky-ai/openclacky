@@ -21,6 +21,7 @@ module Clacky
       "llm.error.request_timeout"       => "请求超时（已重试 %<retries>d 次）",
       "llm.error.network_failed"        => "网络连接失败（已重试 %<retries>d 次）",
       "llm.error.service_unavailable"   => "服务暂时不可用（已重试 %<retries>d 次）",
+      "llm.warn.switching_to_fallback_url" => "主节点无法连接，正在切换到备用节点：%<url>s",
       "platform.error.invalid_proof"        => "许可证密钥无效，请检查后重试。",
       "platform.error.invalid_signature"    => "请求签名无效。",
       "platform.error.nonce_replayed"       => "检测到重复请求，请重试。",

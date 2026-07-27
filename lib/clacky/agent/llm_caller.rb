@@ -201,6 +201,20 @@ module Clacky
             sleep retry_delay
             retry
           else
+            # All retries exhausted for a timeout. Try the secondary gateway URL if available.
+            if !@config.url_fallback_active?
+              fallback_url = @config.fallback_base_url_for_current_provider
+              if fallback_url
+                @config.activate_url_fallback!(fallback_url)
+                rebuild_client_for_current_model!
+                retries = 0
+                @ui&.show_warning(
+                  I18n.t("llm.warn.switching_to_fallback_url", url: fallback_url)
+                )
+                retry
+              end
+            end
+
             raise AgentError.new("[LLM] #{I18n.t("llm.error.request_timeout", retries: max_retries)}", raw_message: e.message)
           end
 
@@ -234,6 +248,21 @@ module Clacky
             sleep retry_delay
             retry
           else
+            # All retries on the primary endpoint exhausted for a network-level
+            # failure (DNS/TCP/TLS). Try the secondary gateway URL if available.
+            if !@config.url_fallback_active?
+              fallback_url = @config.fallback_base_url_for_current_provider
+              if fallback_url
+                @config.activate_url_fallback!(fallback_url)
+                rebuild_client_for_current_model!
+                retries = 0
+                @ui&.show_warning(
+                  I18n.t("llm.warn.switching_to_fallback_url", url: fallback_url)
+                )
+                retry
+              end
+            end
+
             # Don't show_error here — let the outer rescue block handle it to avoid duplicates.
             # Progress cleanup is the caller's responsibility (via its own ensure block).
             raise AgentError.new("[LLM] #{I18n.t("llm.error.network_failed", retries: max_retries)}", raw_message: e.message)
@@ -272,6 +301,25 @@ module Clacky
           sleep retry_delay
           retry
         else
+          # All retries on the current endpoint exhausted.
+          # If a secondary gateway URL is configured and not yet tried, switch
+          # to it now, rebuild the client, and reset the retry counter so the
+          # same request gets a fresh MAX_RETRIES_ON_FALLBACK budget on the
+          # new endpoint.  This is a one-shot switch — url_fallback_active?
+          # prevents a second switch if the fallback URL also fails.
+          if !@config.url_fallback_active?
+            fallback_url = @config.fallback_base_url_for_current_provider
+            if fallback_url
+              @config.activate_url_fallback!(fallback_url)
+              rebuild_client_for_current_model!
+              retries = 0
+              @ui&.show_warning(
+                I18n.t("llm.warn.switching_to_fallback_url", url: fallback_url)
+              )
+              retry
+            end
+          end
+
           # Don't show_error here — let the outer rescue block handle it to avoid duplicates.
           # Progress cleanup is the caller's responsibility (via its own ensure block).
           raise AgentError.new("[LLM] #{I18n.t("llm.error.service_unavailable", retries: current_max)}", raw_message: e.message)

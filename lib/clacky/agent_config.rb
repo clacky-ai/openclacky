@@ -1053,6 +1053,48 @@ module Clacky
       end
     end
 
+    # ── URL-level fallback ─────────────────────────────────────────────────
+    # Independent from the model-name fallback above.  When all max_retries
+    # on the primary endpoint are exhausted, the caller may switch to a
+    # secondary gateway URL (same model, different host) via these methods.
+    # The URL fallback is intentionally one-shot per session — we do not
+    # probe or reset it automatically, keeping the logic simple.
+
+    # Look up the fallback base URL for the current model's provider.
+    # Returns nil if the provider has no secondary gateway configured.
+    # @return [String, nil]
+    def fallback_base_url_for_current_provider
+      m = current_model
+      return nil unless m
+
+      provider_id = Clacky::Providers.resolve_provider(
+        base_url: m["base_url"],
+        api_key:  m["api_key"]
+      )
+      return nil unless provider_id
+
+      Clacky::Providers.fallback_base_url(provider_id)
+    end
+
+    # Activate the URL fallback: override base_url with the secondary gateway.
+    # Idempotent — safe to call multiple times.
+    # @param fallback_url [String] the secondary gateway URL
+    def activate_url_fallback!(fallback_url)
+      @url_fallback_active = true
+      @url_fallback_base_url = fallback_url
+    end
+
+    # Returns true when the secondary gateway URL is in use.
+    def url_fallback_active?
+      @url_fallback_active == true
+    end
+
+    # The effective base URL for API calls.
+    # Returns the URL-fallback override when active, otherwise the model's configured base_url.
+    def effective_base_url
+      @url_fallback_active ? @url_fallback_base_url : base_url
+    end
+
     # Get current model configuration.
     #
     # Resolution order:

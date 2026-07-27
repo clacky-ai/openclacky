@@ -21,6 +21,7 @@ module Clacky
       "llm.error.request_timeout"       => "Request timed out after %<retries>d retries",
       "llm.error.network_failed"        => "Network connection failed after %<retries>d retries",
       "llm.error.service_unavailable"   => "Service unavailable after %<retries>d retries",
+      "llm.warn.switching_to_fallback_url" => "Primary endpoint unreachable. Switching to fallback gateway: %<url>s",
       "platform.error.invalid_proof"        => "Invalid license key — please check and try again.",
       "platform.error.invalid_signature"    => "Invalid request signature.",
       "platform.error.nonce_replayed"       => "Duplicate request detected. Please try again.",
