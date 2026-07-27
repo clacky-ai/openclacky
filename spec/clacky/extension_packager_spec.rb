@@ -44,6 +44,15 @@ RSpec.describe Clacky::ExtensionPackager do
         .to raise_error(described_class::Error, /no container found/)
     end
 
+    it "refuses to pack when the folder name diverges from the ext.yml id" do
+      scaffold("demo")
+      yml = File.join(local, "demo", "ext.yml")
+      File.write(yml, File.read(yml).sub(/^id:.*$/, "id: renamed-ext"))
+
+      expect { described_class.pack("demo", source_dir: local, out_dir: out) }
+        .to raise_error(described_class::Error, /folder is 'demo'.*id 'renamed-ext'/)
+    end
+
     it "refuses to pack a container carrying an encrypted skill" do
       dir = scaffold("enc")
       FileUtils.mkdir_p(File.join(dir, "skills", "secret"))
