@@ -59,7 +59,33 @@ module Clacky
           end
         end
 
-        if reasoning_effort && !reasoning_effort.to_s.empty?
+        # GLM (Zhipu / Z.ai) models support a native top-level "thinking" field
+        # for extended reasoning, separate from the OpenAI-standard
+        # reasoning_effort. Map the shared reasoning_effort setting to both
+        # fields so GLM activates its thinking mode correctly.
+        #
+        # GLM-5.x only recognises "max" and "high" effort levels; other values
+        # collapse to "high". When thinking is explicitly disabled, send
+        # thinking:{type:"disabled"} which GLM honours.
+        #
+        # Zero side-effects: when reasoning_effort is nil/empty the request
+        # body is unchanged, preserving the provider default.
+        if model.to_s.match?(/^glm-[45]/)
+          effort_str = reasoning_effort.to_s
+          if %w[off nothink disabled].include?(effort_str)
+            body[:thinking] = { type: "disabled" }
+          elsif !effort_str.empty?
+            glm_effort =
+              case effort_str
+              when "max", "xhigh" then "max"
+              when "high"          then "high"
+              when "medium", "low" then "high"   # GLM collapses these to "high"
+              else                      "max"
+              end
+            body[:thinking] = { type: "enabled" }
+            body[:reasoning_effort] = glm_effort
+          end
+        elsif reasoning_effort && !reasoning_effort.to_s.empty?
           body[:reasoning_effort] = reasoning_effort.to_s
         end
 
