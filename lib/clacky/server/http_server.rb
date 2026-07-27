@@ -2276,19 +2276,23 @@ module Clacky
 
         Clacky::Logger.debug("[Brand] api_brand_status: expired=#{brand.expired?} grace_exceeded=#{brand.grace_period_exceeded?} expires_at=#{brand.license_expires_at&.iso8601 || "nil"}")
 
-        warning = nil
+        warning      = nil
+        warning_type = nil
         if brand.expired?
-          warning = "Your #{brand.product_name} license has expired. Please renew to continue."
+          warning      = "Your #{brand.product_name} license has expired. Please renew to continue."
+          warning_type = "expired"
         elsif brand.grace_period_exceeded?
-          warning = "License server unreachable for more than 3 days. Please check your connection."
+          warning      = "License server unreachable for more than 3 days. Please check your connection."
+          warning_type = "unreachable"
         elsif brand.license_expires_at && !brand.expired?
           days_remaining = ((brand.license_expires_at - Time.now.utc) / 86_400).ceil
           if days_remaining <= 7
-            warning = "Your #{brand.product_name} license expires in #{days_remaining} day#{"s" if days_remaining != 1}. Please renew soon."
+            warning      = "Your #{brand.product_name} license expires in #{days_remaining} day#{"s" if days_remaining != 1}. Please renew soon."
+            warning_type = "expiring"
           end
         end
 
-        Clacky::Logger.debug("[Brand] api_brand_status: warning=#{warning.inspect}")
+        Clacky::Logger.debug("[Brand] api_brand_status: warning=#{warning.inspect} warning_type=#{warning_type.inspect}")
 
         json_response(res, 200, {
           branded:          true,
@@ -2297,6 +2301,7 @@ module Clacky
           homepage_url:     brand.homepage_url,
           logo_url:         brand.logo_url,
           warning:          warning,
+          warning_type:     warning_type,
           test_mode:        @brand_test,
           user_licensed:    brand.user_licensed?,
           license_user_id:  brand.license_user_id

@@ -9000,10 +9000,11 @@ body.setup-mode[data-theme="dark"] {
   padding-top: 0.75rem;
   border-top: 1px solid var(--color-border-primary);
 }
-.badge-active    { color: var(--color-success); }
-.badge-expired   { color: var(--color-error); }
-.badge-expiring  { color: var(--color-warning); }
-.badge-inactive  { color: var(--color-text-secondary); }
+.badge-active       { color: var(--color-success); }
+.badge-expired      { color: var(--color-error); }
+.badge-expiring     { color: var(--color-warning); }
+.badge-unreachable  { color: var(--color-text-secondary); }
+.badge-inactive     { color: var(--color-text-secondary); }
 
 /* Support QR code */
 .brand-support-contact {
