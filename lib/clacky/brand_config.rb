@@ -40,6 +40,16 @@ module Clacky
     # Grace period for offline heartbeat failures (3 days)
     HEARTBEAT_GRACE_PERIOD = 3 * 86_400
 
+    # Per-slug locks serializing concurrent brand-skill installs. Each Agent
+    # spawns its own background sync thread, so several may try to install the
+    # same skill at once; a shared per-slug mutex collapses that to one download.
+    @install_locks       = {}
+    @install_locks_guard = Mutex.new
+
+    def self.install_lock_for(slug)
+      @install_locks_guard.synchronize { @install_locks[slug] ||= Mutex.new }
+    end
+
     attr_reader :product_name, :package_name, :license_key, :license_activated_at,
                 :license_expires_at, :license_last_heartbeat, :device_id,
                 :logo_url, :support_contact, :license_user_id,
@@ -1106,72 +1116,91 @@ module Clacky
 
       require "zip"
 
-      dest_dir = File.join(brand_skills_dir, slug)
-      FileUtils.mkdir_p(dest_dir)
+      # Serialize installs of the same slug so concurrent background syncs (one
+      # per Agent) don't redundantly download the same ZIP or race on the same
+      # destination directory.
+      install_lock = self.class.install_lock_for(slug)
+      install_lock.synchronize do
+        dest_dir = File.join(brand_skills_dir, slug)
 
-      # Download the zip file to a temp path via PlatformHttpClient so the
-      # primary → fallback host failover applies uniformly to every download.
-      tmp_zip = File.join(brand_skills_dir, "#{slug}.zip")
-      dl = platform_client.download_file(url, tmp_zip)
-      raise dl[:error].to_s unless dl[:success]
+        # Download and extract into a unique staging directory, never touching
+        # dest_dir until everything succeeds. A failed or corrupt download must
+        # never destroy the already-installed version.
+        stage_id   = "#{Process.pid}.#{SecureRandom.hex(4)}"
+        stage_dir  = File.join(brand_skills_dir, ".staging-#{slug}-#{stage_id}")
+        tmp_zip    = File.join(brand_skills_dir, ".#{slug}-#{stage_id}.zip")
+        FileUtils.mkdir_p(stage_dir)
 
-      zip_size = File.size?(tmp_zip).to_i
-      raise "Empty ZIP downloaded for #{slug}" if zip_size < 22  # min valid zip = empty central directory
+        begin
+          # Download the zip file to a temp path via PlatformHttpClient so the
+          # primary → fallback host failover applies uniformly to every download.
+          dl = platform_client.download_file(url, tmp_zip)
+          raise dl[:error].to_s unless dl[:success]
 
-      # Extract into dest_dir (overwrite existing files).
-      # Auto-detect whether the zip has a single root folder to strip.
-      # Uses get_input_stream instead of entry.extract to avoid rubyzip 3.x
-      # path-safety restrictions on absolute destination paths.
-      # Uses chunked read + size verification for robustness.
-      Zip::File.open(tmp_zip) do |zip|
-        entries  = zip.entries.reject(&:directory?)
-        top_dirs = entries.map { |e| e.name.split("/").first }.uniq
-        has_root = top_dirs.length == 1 && entries.any? { |e| e.name.include?("/") }
+          zip_size = File.size?(tmp_zip).to_i
+          raise "Empty ZIP downloaded for #{slug}" if zip_size < 22  # min valid zip = empty central directory
 
-        entries.each do |entry|
-          rel_path = if has_root
-                       parts = entry.name.split("/")
-                       parts[1..].join("/")
-                     else
-                       entry.name
-                     end
+          # Extract into stage_dir.
+          # Auto-detect whether the zip has a single root folder to strip.
+          # Uses get_input_stream instead of entry.extract to avoid rubyzip 3.x
+          # path-safety restrictions on absolute destination paths.
+          # Uses chunked read + size verification for robustness.
+          Zip::File.open(tmp_zip) do |zip|
+            entries  = zip.entries.reject(&:directory?)
+            top_dirs = entries.map { |e| e.name.split("/").first }.uniq
+            has_root = top_dirs.length == 1 && entries.any? { |e| e.name.include?("/") }
 
-          next if rel_path.nil? || rel_path.empty?
+            entries.each do |entry|
+              rel_path = if has_root
+                           parts = entry.name.split("/")
+                           parts[1..].join("/")
+                         else
+                           entry.name
+                         end
 
-          out = File.join(dest_dir, rel_path)
-          FileUtils.mkdir_p(File.dirname(out))
+              next if rel_path.nil? || rel_path.empty?
 
-          # Chunked copy with size verification
-          written = 0
-          File.open(out, "wb") do |f|
-            entry.get_input_stream do |input|
-              while (chunk = input.read(65536))
-                f.write(chunk)
-                written += chunk.bytesize
+              out = File.join(stage_dir, rel_path)
+              FileUtils.mkdir_p(File.dirname(out))
+
+              # Chunked copy with size verification
+              written = 0
+              File.open(out, "wb") do |f|
+                entry.get_input_stream do |input|
+                  while (chunk = input.read(65536))
+                    f.write(chunk)
+                    written += chunk.bytesize
+                  end
+                end
+              end
+
+              # Verify file size matches ZIP entry declaration
+              if written != entry.size
+                raise "Size mismatch for #{entry.name}: expected #{entry.size}, got #{written}"
               end
             end
           end
 
-          # Verify file size matches ZIP entry declaration
-          if written != entry.size
-            raise "Size mismatch for #{entry.name}: expected #{entry.size}, got #{written}"
-          end
+          # Everything extracted successfully — atomically swap staging into
+          # place. Only now is the previous version removed.
+          FileUtils.rm_rf(dest_dir)
+          FileUtils.mv(stage_dir, dest_dir)
+
+          record_installed_skill(slug, version, skill_info["description"],
+                                 encrypted: encrypted,
+                                 description_zh: skill_info["description_zh"],
+                                 name_zh: skill_info["name_zh"])
+
+          { success: true, name: slug, version: version }
+        rescue StandardError, ScriptError => e
+          # Only clean up our own staging artifacts; the installed version in
+          # dest_dir is left untouched so a failed update never loses a skill.
+          { success: false, error: e.message }
+        ensure
+          FileUtils.rm_f(tmp_zip)
+          FileUtils.rm_rf(stage_dir) if Dir.exist?(stage_dir)
         end
       end
-
-      FileUtils.rm_f(tmp_zip)
-
-
-      record_installed_skill(slug, version, skill_info["description"],
-                             encrypted: encrypted,
-                             description_zh: skill_info["description_zh"],
-                             name_zh: skill_info["name_zh"])
-
-      { success: true, name: slug, version: version }
-    rescue StandardError, ScriptError => e
-      FileUtils.rm_f(tmp_zip) if defined?(tmp_zip) && tmp_zip
-      FileUtils.rm_rf(dest_dir) if defined?(dest_dir) && dest_dir
-      { success: false, error: e.message }
     end
 
     # Install a mock brand skill for brand-test mode.
