@@ -3,6 +3,7 @@
 require "fileutils"
 require "tmpdir"
 require "open-uri"
+require "psych"
 require "zip"
 
 module Clacky
@@ -38,6 +39,7 @@ module Clacky
           raise Error, "no container found at #{container_dir} (expected #{MANIFEST})"
         end
 
+        refuse_id_folder_mismatch!(slug, container_dir)
         verify_container!(slug, container_dir)
         refuse_protected!(slug, container_dir)
 
@@ -94,6 +96,21 @@ module Clacky
         end
       ensure
         Clacky::ExtensionLoader.invalidate_cache!
+      end
+
+      # The container's identity must be the same on both sides of the publish
+      # boundary: the client keys extensions by folder name, the marketplace
+      # keys them by ext.yml `id`. If they diverge, a rename on one side alone
+      # lets a container masquerade under a name the uniqueness check never saw.
+      private def refuse_id_folder_mismatch!(slug, container_dir)
+        manifest = File.join(container_dir, MANIFEST)
+        data     = Psych.safe_load(File.read(manifest), permitted_classes: [], aliases: true) || {}
+        declared = data["id"].to_s.strip
+        return if declared == slug
+
+        raise Error,
+              "extension id mismatch: folder is '#{slug}' but #{MANIFEST} declares id '#{declared}'. " \
+              "Rename the folder or the id so they match before packing."
       end
 
       # Packing is for authored (open) containers. Anything already protected or
