@@ -14,6 +14,7 @@ module Clacky
       "llm.error.403.default"           => "Access denied",
       "llm.error.endpoint_not_found"    => "API endpoint not found, please check your service URL",
       "llm.error.rate_limit_429"        => "Rate limit exceeded, please wait a moment",
+      "llm.error.quota_exhausted"       => "API quota exhausted (key usage limit reached). Please raise the quota or upgrade your plan in the console",
       "llm.error.server_error"          => "Service temporarily unavailable (%<status>d), retrying...",
       "llm.error.unexpected"            => "Unexpected error (%<status>d)",
       "llm.error.html_response"         => "Service temporarily unavailable (received HTML error page), retrying...",

@@ -77,6 +77,12 @@ RSpec.describe Clacky::Client do
         .to raise_error(Clacky::RetryableError, /Rate limit/)
     end
 
+    it "raises non-retryable AgentError on 429 with quota_exceeded code" do
+      resp = fake_response(status: 429, body: '{"error":{"code":"quota_exceeded","message":"key quota exceeded"}}')
+      expect { client.send(:raise_error, resp) }
+        .to raise_error(Clacky::AgentError, /quota exhausted/)
+    end
+
     it "raises AgentError on 401" do
       resp = fake_response(status: 401, body: '{"error":{"message":"Unauthorized"}}')
       expect { client.send(:raise_error, resp) }
