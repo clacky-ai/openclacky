@@ -25,6 +25,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 - Non-slug skill names preserved as name_zh fallback for Chinese matching
 - Sudo and .env writes unblocked in subagent; double-compression skipped
 - Claude tool call ID handling fixed
+- Brand skill preserved when auto-update download fails (C-5754)
+- Extension packing rejected when folder name diverges from ext.yml id (C-5752)
 
 ## [1.5.1] - 2026-07-24
 
