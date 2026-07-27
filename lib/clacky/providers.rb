@@ -152,6 +152,14 @@ module Clacky
         # after max retries. The model name stays the same — only the endpoint
         # changes. Nil / absent means no URL fallback for this provider.
         "fallback_base_url" => "https://llm.1024code.com",
+        # Two selectable endpoints exposed in the Base URL dropdown:
+        #   Primary   — global CDN, lowest latency for most regions.
+        #   Secondary — China-optimised relay (1024code.com), useful when
+        #               the primary is unreachable from mainland China.
+        "endpoint_variants" => [
+          { "label" => "Primary (Global)",  "label_key" => "settings.models.baseurl.variant.openclacky_primary",   "base_url" => "https://api.openclacky.com" }.freeze,
+          { "label" => "Secondary (China)", "label_key" => "settings.models.baseurl.variant.openclacky_secondary", "base_url" => "https://llm.1024code.com"   }.freeze
+        ].freeze,
         "website_url" => "https://www.openclacky.com/ai-keys"
       }.freeze,
 
