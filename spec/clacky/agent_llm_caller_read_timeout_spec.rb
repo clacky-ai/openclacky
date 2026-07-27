@@ -173,6 +173,8 @@ RSpec.describe Clacky::Agent, "read-timeout hint injection" do
     it "raises AgentError mentioning timeout after exhausting the retry budget" do
       allow(client).to receive(:send_messages_with_tools)
         .and_raise(Faraday::TimeoutError.new("read timeout"))
+      # Prevent URL fallback from rebuilding the client and hitting a real endpoint
+      allow(agent).to receive(:rebuild_client_for_current_model!)
 
       expect { agent.run("impossible task") }
         .to raise_error(Clacky::AgentError, /timed out after/i)
