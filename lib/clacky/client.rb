@@ -616,7 +616,12 @@ module Clacky
       when 401       then I18n.t("llm.error.invalid_api_key")
       when 403       then I18n.t("llm.error.403.#{error_code || "default"}")
       when 404       then I18n.t("llm.error.endpoint_not_found")
-      when 429       then I18n.t("llm.error.rate_limit_429")
+      when 429
+        if error_code == "quota_exceeded"
+          I18n.t("llm.error.403.quota_exceeded")
+        else
+          I18n.t("llm.error.rate_limit_429")
+        end
       when 500..599  then I18n.t("llm.error.server_error", status: response.status)
       else                extract_error_message(error_body, response.body)
       end
@@ -670,7 +675,12 @@ module Clacky
         raise AgentError.new("[LLM] #{translated}", raw_message: error_message)
       when 404
         raise AgentError.new("[LLM] #{I18n.t("llm.error.endpoint_not_found")}", raw_message: error_message)
-      when 429 then raise RetryableError, "[LLM] #{I18n.t("llm.error.rate_limit_429")}"
+      when 429
+        if error_code == "quota_exceeded"
+          raise AgentError.new("[LLM] #{I18n.t("llm.error.403.quota_exceeded")}", raw_message: error_message)
+        else
+          raise RetryableError, "[LLM] #{I18n.t("llm.error.rate_limit_429")}"
+        end
       when 500..599 then raise RetryableError, "[LLM] #{I18n.t("llm.error.server_error", status: response.status)}"
       else raise AgentError.new("[LLM] #{I18n.t("llm.error.unexpected", status: response.status)}", raw_message: error_message)
       end
