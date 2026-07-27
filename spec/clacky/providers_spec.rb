@@ -80,12 +80,12 @@ RSpec.describe Clacky::Providers do
     end
 
     context "for providers with mixed model capabilities" do
-      it "returns false for mimo (default text-only), true for mimo-v2-omni" do
+      it "returns false for mimo (default text-only), true for mimo-v2.5 (omni)" do
         expect(described_class.supports?("mimo", :vision)).to be false
         expect(described_class.supports?("mimo", :vision,
-                                         model_name: "mimo-v2-pro")).to be false
+                                         model_name: "mimo-v2.5-pro")).to be false
         expect(described_class.supports?("mimo", :vision,
-                                         model_name: "mimo-v2-omni")).to be true
+                                         model_name: "mimo-v2.5")).to be true
       end
 
       it "returns false for glm (default text-only), true for glm-5v-turbo" do
@@ -253,6 +253,40 @@ RSpec.describe Clacky::Providers do
           # vision model still reports true (per-model override).
           expect(described_class.supports?(id, :vision, model_name: "glm-5v-turbo"))
             .to be(true), "expected vision=true at #{url} for glm-5v-turbo"
+        end
+      end
+    end
+
+    context "MiMo (Xiaomi) two billing endpoints" do
+      # The Token Plan subscription endpoint (token-plan-cn.xiaomimimo.com) is a
+      # distinct domain from the pay-as-you-go API (api.xiaomimimo.com) but
+      # serves the same V2.5 lineup, so both must resolve to "mimo" — otherwise
+      # Token Plan users hit "unknown provider" and the vision=true default
+      # leaks images into the text-only mimo-v2.5-pro.
+      it "recognises pay-as-you-go and Token Plan endpoints" do
+        %w[
+          https://api.xiaomimimo.com/v1
+          https://token-plan-cn.xiaomimimo.com/v1
+        ].each do |url|
+          expect(described_class.find_by_base_url(url)).to eq("mimo")
+        end
+      end
+
+      it "recognises endpoint subpaths" do
+        expect(described_class.find_by_base_url("https://token-plan-cn.xiaomimimo.com/v1/chat/completions"))
+          .to eq("mimo")
+      end
+
+      it "enforces vision matrix across both endpoints" do
+        %w[
+          https://api.xiaomimimo.com/v1
+          https://token-plan-cn.xiaomimimo.com/v1
+        ].each do |url|
+          id = described_class.find_by_base_url(url)
+          expect(described_class.supports?(id, :vision, model_name: "mimo-v2.5-pro"))
+            .to be(false), "expected vision=false at #{url} for mimo-v2.5-pro"
+          expect(described_class.supports?(id, :vision, model_name: "mimo-v2.5"))
+            .to be(true), "expected vision=true at #{url} for mimo-v2.5"
         end
       end
     end

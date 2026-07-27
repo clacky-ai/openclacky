@@ -348,13 +348,30 @@ module Clacky
         "base_url" => "https://api.xiaomimimo.com/v1",
         "api" => "openai-completions",
         "default_model" => "mimo-v2.5-pro",
-        "models" => ["mimo-v2.5-pro", "mimo-v2-pro", "mimo-v2-omni"],
-        # MiMo-V2-Pro is text-only; MiMo-V2-Omni supports vision (omni = multimodal).
+        # The MiMo-V2 family (mimo-v2-pro / mimo-v2-omni) was retired on
+        # 2026-06-30 and the model ids are no longer accepted by the API. The
+        # current lineup is the V2.5 series:
+        #   - mimo-v2.5-pro: text reasoning flagship, no vision
+        #   - mimo-v2.5: native omni-modal (image/video/audio/text), vision-capable
+        # Source: https://platform.xiaomimimo.com/docs/zh-CN/model
+        "models" => ["mimo-v2.5-pro", "mimo-v2.5"],
         "capabilities" => { "vision" => false }.freeze,
         "model_capabilities" => {
-          "mimo-v2-omni" => { "vision" => true }.freeze
+          "mimo-v2.5" => { "vision" => true }.freeze
         }.freeze,
-        "default_ocr_model" => "mimo-v2-omni",
+        "default_ocr_model" => "mimo-v2.5",
+        # Xiaomi serves the same V2.5 lineup from two billing endpoints: the
+        # pay-as-you-go API (api.xiaomimimo.com) and the Token Plan subscription
+        # endpoint (token-plan-cn.xiaomimimo.com). Both accept identical model
+        # ids and share one capability profile, so a single preset with
+        # endpoint_variants recognises both. Without this, users on the Token
+        # Plan endpoint fell through to "unknown provider" and the conservative
+        # vision=true default applied to every model — sending images to the
+        # text-only mimo-v2.5-pro, which rejects image input.
+        "endpoint_variants" => [
+          { "label" => "Pay-as-you-go", "label_key" => "settings.models.baseurl.variant.mimo_payg",        "base_url" => "https://api.xiaomimimo.com/v1",          "region" => "cn" }.freeze,
+          { "label" => "Token Plan",    "label_key" => "settings.models.baseurl.variant.mimo_token_plan", "base_url" => "https://token-plan-cn.xiaomimimo.com/v1", "region" => "cn" }.freeze
+        ].freeze,
         "website_url" => "https://platform.xiaomimimo.com/"
       }.freeze,
 
