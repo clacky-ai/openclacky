@@ -10941,6 +10941,19 @@ body.setup-mode[data-theme="dark"] {
   flex-wrap: wrap;
 }
 
+/* ── Disclaimer notice ──────────────────────────────────────────────── */
+.billing-disclaimer {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.75rem;
+  color: var(--color-text-tertiary);
+  padding: 0.4rem 0.75rem;
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border-primary);
+  border-radius: 6px;
+}
+
 /* ── Period Button Group ─────────────────────────────────────────────── */
 .billing-period-group {
   display: flex;
