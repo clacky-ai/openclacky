@@ -77,7 +77,33 @@ module Clacky
         body[:system] = system_text unless system_text.empty?
         body[:tools]  = api_tools   if api_tools&.any?
 
-        if (effort = normalized_effort(reasoning_effort))
+        # Kimi (Moonshot Coding Plan) models routed through the Anthropic
+        # /v1/messages format expect thinking:{type:"enabled"} — the native
+        # Anthropic "adaptive" type is Claude-specific and is silently ignored
+        # by the Kimi backend, so thinking never actually activates on K3.
+        #
+        # K3 additionally supports a "max" effort level (strongest reasoning)
+        # beyond the standard low/medium/high triple. The generic
+        # normalized_effort() helper drops "max" because it only whitelists
+        # the standard three levels, making K3's signature strongest-reasoning
+        # mode unreachable through this format adapter.
+        #
+        # This branch only changes K3's wire format; every other model keeps
+        # using the adaptive path below unchanged. When reasoning_effort is
+        # nil/empty we leave the body untouched (provider default), and we
+        # never emit output_config for "on" so the backend can pick its own
+        # default — both behaviours match the official kimi CLI.
+        if model.to_s.match?(/\A(kimi-)?k3/i)
+          effort_str = reasoning_effort.to_s
+          k3_effort =
+            case effort_str
+            when "max", "xhigh"              then "max"
+            when "high", "medium", "low"     then effort_str
+            else                                  nil
+            end
+          body[:thinking] = { type: "enabled" }
+          body[:output_config] = { effort: k3_effort } if k3_effort
+        elsif (effort = normalized_effort(reasoning_effort))
           body[:thinking] = { type: "adaptive" }
           body[:output_config] = { effort: effort }
         end
