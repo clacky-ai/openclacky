@@ -1061,19 +1061,34 @@ module Clacky
     # probe or reset it automatically, keeping the logic simple.
 
     # Look up the fallback base URL for the current model's provider.
-    # Returns nil if the provider has no secondary gateway configured.
+    # Returns nil if:
+    #   - provider cannot be determined
+    #   - provider is not openclacky (URL failover is only supported for the
+    #     OpenClacky gateway; other providers have no secondary endpoint)
+    #   - current base_url is already the fallback URL (user picked the
+    #     Secondary/China node directly — switching to the same URL does nothing)
     # @return [String, nil]
     def fallback_base_url_for_current_provider
       m = current_model
       return nil unless m
 
-      provider_id = Clacky::Providers.resolve_provider(
-        base_url: m["base_url"],
-        api_key:  m["api_key"]
-      )
-      return nil unless provider_id
+      # Use strict URL matching to identify the provider — no inference.
+      # resolve_provider would incorrectly return "openclacky" for localhost
+      # addresses and clacky-* api keys, triggering unwanted failover.
+      # find_by_base_url only matches registered preset URLs, so localhost
+      # and other non-openclacky endpoints correctly return nil.
+      provider_id = Clacky::Providers.find_by_base_url(m["base_url"])
+      return nil unless provider_id == "openclacky"
 
-      Clacky::Providers.fallback_base_url(provider_id)
+      fallback_url = Clacky::Providers.fallback_base_url(provider_id)
+      return nil unless fallback_url
+
+      # Don't offer a fallback when the current base_url is already the
+      # fallback endpoint — switching to the same URL accomplishes nothing.
+      current_base = m["base_url"].to_s.chomp("/")
+      return nil if current_base == fallback_url.to_s.chomp("/")
+
+      fallback_url
     end
 
     # Activate the URL fallback: override base_url with the secondary gateway.
