@@ -379,8 +379,8 @@ module Clacky
         "name" => "GLM (Z.ai / Zhipu)",
         "base_url" => "https://open.bigmodel.cn/api/paas/v4",
         "api" => "openai-completions",
-        "default_model" => "glm-5.1",
-        "models" => ["glm-5.1", "glm-5", "glm-5-turbo", "glm-5v-turbo", "glm-4.7"],
+        "default_model" => "glm-5.2",
+        "models" => ["glm-5.2", "glm-5.1", "glm-5", "glm-5-turbo", "glm-5v-turbo", "glm-4.7"],
         # Zhipu / Z.ai expose four functionally-equivalent endpoints:
         # two regional sites (mainland open.bigmodel.cn + international api.z.ai)
         # each with a general-billing and a Coding-Plan subpath. They share the
