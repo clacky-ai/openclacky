@@ -233,8 +233,60 @@ RSpec.describe Clacky::MessageFormat::OpenAI do
       end
     end
 
+    context "for MiMo-V2.5 models" do
+      let(:model) { "mimo-v2.5-pro" }
+
+      it "uses max_completion_tokens instead of max_tokens" do
+        body = described_class.build_request_body(
+          messages, model, tools, max_tokens, false
+        )
+        expect(body[:max_completion_tokens]).to eq(max_tokens)
+        expect(body).not_to have_key(:max_tokens)
+      end
+
+      it "maps reasoning_effort to thinking enabled" do
+        body = described_class.build_request_body(
+          messages, model, tools, max_tokens, false, reasoning_effort: "high"
+        )
+        expect(body[:thinking]).to eq({ type: "enabled" })
+        expect(body).not_to have_key(:reasoning_effort)
+      end
+
+      it "maps reasoning_effort 'off' to thinking disabled" do
+        body = described_class.build_request_body(
+          messages, model, tools, max_tokens, false, reasoning_effort: "off"
+        )
+        expect(body[:thinking]).to eq({ type: "disabled" })
+      end
+
+      it "omits thinking when reasoning_effort is nil" do
+        body = described_class.build_request_body(
+          messages, model, tools, max_tokens, false, reasoning_effort: nil
+        )
+        expect(body).not_to have_key(:thinking)
+        expect(body).not_to have_key(:reasoning_effort)
+      end
+
+      it "works with the omni-modal variant mimo-v2.5" do
+        body = described_class.build_request_body(
+          messages, "mimo-v2.5", tools, max_tokens, false, reasoning_effort: "medium"
+        )
+        expect(body[:thinking]).to eq({ type: "enabled" })
+        expect(body[:max_completion_tokens]).to eq(max_tokens)
+      end
+    end
+
     context "for generic OpenAI-compatible models" do
       let(:model) { "deepseek-v4-pro" }
+
+      it "uses max_tokens (not max_completion_tokens)" do
+        body = described_class.build_request_body(
+          messages, model, tools, max_tokens, false
+        )
+        expect(body[:max_tokens]).to eq(max_tokens)
+        expect(body).not_to have_key(:max_completion_tokens)
+      end
+
 
       it "passes reasoning_effort through unchanged" do
         body = described_class.build_request_body(

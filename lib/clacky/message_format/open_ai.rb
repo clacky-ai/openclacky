@@ -47,7 +47,9 @@ module Clacky
       def build_request_body(messages, model, tools, max_tokens, caching_enabled, vision_supported: true, reasoning_effort: nil)
         api_messages = messages.map { |msg| normalize_message_content(msg, vision_supported: vision_supported) }
 
-        body = { model: model, max_tokens: max_tokens, messages: api_messages }
+        # MiMo-V2.5 (Xiaomi) uses max_completion_tokens instead of max_tokens.
+        token_field = model.to_s.match?(/^mimo-v2/i) ? :max_completion_tokens : :max_tokens
+        body = { model: model, token_field => max_tokens, messages: api_messages }
 
         if tools&.any?
           if caching_enabled
@@ -101,6 +103,16 @@ module Clacky
               when "medium", "low" then "low"
               else                      "max"
               end
+          end
+        elsif model.to_s.match?(/^mimo-v2/i)
+          # MiMo-V2.5 (Xiaomi) controls reasoning via a top-level
+          # thinking:{type:...} field rather than reasoning_effort. Map the
+          # internal reasoning_effort value to thinking on/off so MiMo does
+          # not receive an unsupported parameter.
+          if %w[off nothink disabled].include?(effort_str)
+            body[:thinking] = { type: "disabled" }
+          elsif !effort_str.empty?
+            body[:thinking] = { type: "enabled" }
           end
         elsif reasoning_effort && !effort_str.empty?
           body[:reasoning_effort] = effort_str
