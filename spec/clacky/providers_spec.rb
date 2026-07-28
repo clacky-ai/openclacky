@@ -552,8 +552,8 @@ RSpec.describe Clacky::Providers do
       expect(described_class.max_output_for("kimi-k3")).to eq(65_536)
     end
 
-    it "returns 16_384 for Kimi K2-series (keeps default)" do
-      expect(described_class.max_output_for("kimi-k2.6")).to eq(16_384)
+    it "returns nil for Kimi K2-series (falls back to global default)" do
+      expect(described_class.max_output_for("kimi-k2.6")).to be_nil
     end
 
     it "returns 65_536 for MiMo-V2.5-Pro" do

@@ -549,10 +549,8 @@ module Clacky
     MODEL_MAX_OUTPUT = [
       { pattern: /glm/i,           limit: 65_536 }, # GLM-5.2: 128K output ceiling; 64K ample for reasoning+answer
       { pattern: /kimi-k3/i,       limit: 65_536 }, # Kimi K3: max_completion_tokens=131072 (max 1M); 64K ample
-      { pattern: /kimi/i,          limit: 16_384 }, # Kimi K2-series: ~8K practical output, keep default
       { pattern: /mimo-v2\.5-pro/i, limit: 65_536 }, # MiMo-V2.5-Pro: max_completion_tokens=131072; 64K ample
-      { pattern: /mimo/i,           limit: 32_768 }, # MiMo-V2.5: max_completion_tokens=32768; full default ceiling
-      { pattern: /deepseek/i,      limit: 16_384 }  # DeepSeek V-series: ~8K output, keep default
+      { pattern: /mimo/i,           limit: 32_768 }  # MiMo-V2.5: max_completion_tokens=32768; full default ceiling
     ].freeze
 
     class << self
