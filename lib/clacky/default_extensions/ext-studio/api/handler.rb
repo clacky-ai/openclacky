@@ -362,7 +362,7 @@ class ExtStudioExt < Clacky::ApiExtension
   post "/develop" do
     idea = presence(json_body["idea"])
     name = idea ? "扩展开发: #{idea[0, 40]}" : "扩展开发"
-    sid  = create_session(name: name, prompt: idea, profile: "ext-developer", source: :setup)
+    sid  = create_session(name: name, prompt: idea, profile: "ext-developer")
     json(ok: true, session_id: sid)
   end
 
