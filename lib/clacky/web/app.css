@@ -8191,6 +8191,127 @@ body {
   border-radius: 4px;
 }
 
+/* ── Markdown split-pane layout ─────────────────────────────────────────── */
+.code-editor-modal--md {
+  max-width: 1280px;
+  width: 98%;
+  height: 90vh;
+  max-height: 960px;
+}
+.code-editor-body--split {
+  display: flex;
+  flex-direction: row;
+  overflow: hidden;
+}
+.code-editor-split-left {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  border-right: 1px solid var(--color-border-primary);
+  display: flex;
+  flex-direction: column;
+}
+.code-editor-split-left .cm-editor {
+  height: 100%;
+  flex: 1;
+}
+.code-editor-split-left > .cm-editor {
+  height: 100%;
+}
+.code-editor-split-divider {
+  display: none;
+}
+.code-editor-split-right {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.code-editor-markdown-preview {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0 1.25rem;
+  font-size: 0.875rem;
+  line-height: 1.7;
+  color: var(--color-text-primary);
+}
+.code-editor-markdown-preview h1,
+.code-editor-markdown-preview h2,
+.code-editor-markdown-preview h3,
+.code-editor-markdown-preview h4 {
+  margin-top: 1.25em;
+  margin-bottom: 0.5em;
+  font-weight: 600;
+}
+.code-editor-markdown-preview h1:first-child,
+.code-editor-markdown-preview h2:first-child,
+.code-editor-markdown-preview h3:first-child { margin-top: 0; }
+.code-editor-markdown-preview h1 { font-size: 1.375rem; }
+.code-editor-markdown-preview h2 { font-size: 1.125rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.25em; }
+.code-editor-markdown-preview h3 { font-size: 1rem; }
+.code-editor-markdown-preview p  { margin: 0.5em 0; }
+.code-editor-markdown-preview ul,
+.code-editor-markdown-preview ol { padding-left: 1.5em; margin: 0.5em 0; }
+.code-editor-markdown-preview li { margin: 0.2em 0; }
+.code-editor-markdown-preview code {
+  font-family: var(--font-mono, 'SF Mono', 'Fira Code', monospace);
+  font-size: 0.8125em;
+  background: rgba(128, 128, 128, 0.15);
+  border-radius: 4px;
+  padding: 0.15em 0.4em;
+}
+.code-editor-markdown-preview pre {
+  background: rgba(128, 128, 128, 0.15);
+  border-radius: 8px;
+  padding: 0.875em;
+  overflow-x: auto;
+  margin: 0.625em 0;
+}
+.code-editor-markdown-preview pre code {
+  background: none;
+  padding: 0;
+  font-size: 0.8125rem;
+}
+.code-editor-markdown-preview blockquote {
+  border-left: 3px solid var(--color-accent-primary, #7c3aed);
+  margin: 0.75em 0;
+  padding: 0.25em 1em;
+  color: var(--color-text-secondary);
+}
+.code-editor-markdown-preview a {
+  color: var(--color-accent-primary);
+  text-decoration: none;
+}
+.code-editor-markdown-preview a:hover { text-decoration: underline; }
+.code-editor-markdown-preview img {
+  display: inline;
+  vertical-align: middle;
+  max-width: 100%;
+  height: auto;
+}
+.code-editor-markdown-preview hr {
+  border: none;
+  border-top: 1px solid var(--color-border-primary);
+  margin: 1.25em 0;
+}
+.code-editor-markdown-preview table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 0.75em 0;
+  font-size: 0.8125rem;
+}
+.code-editor-markdown-preview th,
+.code-editor-markdown-preview td {
+  border: 1px solid var(--color-border-primary);
+  padding: 0.375em 0.75em;
+  text-align: left;
+}
+.code-editor-markdown-preview th {
+  background: rgba(128, 128, 128, 0.15);
+  font-weight: 600;
+}
+
 /* ── Skills sidebar section ──────────────────────────────────────────────── */
 #skill-list-items { padding: 0 0.5rem 0.5rem; display: flex; flex-direction: column; gap: 2px; }
 
