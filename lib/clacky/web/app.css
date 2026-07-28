@@ -11076,7 +11076,7 @@ body.setup-mode[data-theme="dark"] {
 .billing-share-btn:hover {
   background: var(--color-bg-tertiary);
   color: var(--color-text-primary);
-  border-color: var(--color-text-secondary);
+  border-color: var(--color-accent-primary);
 }
 .billing-clear-popup {
   position: absolute;
