@@ -337,6 +337,13 @@ module Clacky
     # ── OpenAI request / response ─────────────────────────────────────────────
 
     def send_openai_request(messages, model, tools, max_tokens, caching_enabled, reasoning_effort: nil, on_chunk: nil, capability_model: nil)
+      # Override max_tokens when the model declares a higher output ceiling
+      # in Providers::MODEL_MAX_OUTPUT. Without this, strong models (GLM-5.2,
+      # Kimi-K3, MiMo-V2.5) are throttled to the 16K global default.
+      model_for_limit = capability_model || model
+      model_limit = Providers.max_output_for(model_for_limit)
+      max_tokens = model_limit if model_limit
+
       # Apply cache_control markers to messages when caching is enabled.
       # OpenRouter proxies Claude with the same cache_control field convention as Anthropic direct.
       messages = apply_message_caching(messages) if caching_enabled

@@ -541,4 +541,37 @@ RSpec.describe Clacky::Providers do
       expect(described_class.anthropic_format_for_model?("ghost-provider", "any-model")).to be false
     end
   end
+
+  describe ".max_output_for" do
+    it "returns 65_536 for GLM models" do
+      expect(described_class.max_output_for("glm-5.2")).to eq(65_536)
+      expect(described_class.max_output_for("glm-5.1")).to eq(65_536)
+    end
+
+    it "returns 65_536 for Kimi K3 models" do
+      expect(described_class.max_output_for("kimi-k3")).to eq(65_536)
+    end
+
+    it "returns nil for Kimi K2-series (falls back to global default)" do
+      expect(described_class.max_output_for("kimi-k2.6")).to be_nil
+    end
+
+    it "returns 65_536 for MiMo-V2.5-Pro" do
+      expect(described_class.max_output_for("mimo-v2.5-pro")).to eq(65_536)
+    end
+
+    it "returns 32_768 for MiMo-V2.5 (non-pro)" do
+      expect(described_class.max_output_for("mimo-v2.5")).to eq(32_768)
+    end
+
+    it "returns nil for models without a declared limit" do
+      expect(described_class.max_output_for("gpt-5.5")).to be_nil
+      expect(described_class.max_output_for("claude-opus-4-7")).to be_nil
+    end
+
+    it "returns nil for nil or empty model name" do
+      expect(described_class.max_output_for(nil)).to be_nil
+      expect(described_class.max_output_for("")).to be_nil
+    end
+  end
 end
