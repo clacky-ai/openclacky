@@ -963,6 +963,38 @@ module Clacky
         return true unless caps.key?(key)
         caps[key] != false
       end
+
+      # Per-model maximum output token limits.
+      #
+      # Different models support vastly different output ceilings (e.g. GLM-5.2
+      # supports 128K output, while DeepSeek/Kimi cap around 8-16K). The Agent
+      # global default (@max_tokens = 16384) is tuned for the lowest common
+      # denominator (GPT-4o). This table lets each model family declare its own
+      # practical output ceiling so strong models aren't artificially throttled.
+      #
+      # Entries are matched top-to-bottom against the model name; the first
+      # match wins. Models not listed here fall back to the global default.
+      #
+      # NOTE: thinking-mode models (GLM, Kimi, DeepSeek) share the output budget
+      # between reasoning_content and the final answer, so a generous value is
+      # needed to leave headroom for deep reasoning + complete output.
+      MODEL_MAX_OUTPUT = [
+        { pattern: /glm/i,        limit: 65_536 },  # GLM-5.2 supports 128K; 64K is ample headroom
+        { pattern: /kimi/i,       limit: 16_384 },  # Kimi K-series
+        { pattern: /deepseek/i,   limit: 16_384 }   # DeepSeek V-series
+      ].freeze
+
+      # Resolve the max output token limit for a given model name.
+      # Returns nil when no declaration matches — the caller should then fall
+      # back to the global default (@max_tokens).
+      #
+      # @param model_name [String] The model name (e.g. "glm-5.2")
+      # @return [Integer, nil] The max output limit, or nil if undeclared
+      def max_output_for(model_name)
+        return nil if model_name.nil? || model_name.to_s.empty?
+        entry = MODEL_MAX_OUTPUT.find { |e| model_name.to_s.match?(e[:pattern]) }
+        entry&.[](:limit)
+      end
     end
   end
 end
