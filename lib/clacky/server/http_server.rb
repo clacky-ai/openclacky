@@ -2492,11 +2492,11 @@ module Clacky
             "origin"            => market ? (market["origin"] || container[:origin]) : container[:origin],
             "hub_active"        => market&.dig("hub_active"),
             "download_count"    => market&.dig("download_count").to_i,
-            # Only mark as unlisted when the extension was published to the
-            # marketplace (origin != "self") but is no longer listed there.
-            # Self-authored extensions (origin: self) have never been published
-            # and should never show the "unlisted" badge.
-            "unlisted"          => market.nil? && container[:origin].to_s != "self",
+            # Mark as unlisted when:
+            # - market is nil (extension no longer exists on the platform), OR
+            # - platform batch API explicitly returned unlisted:true (brand-private
+            #   extension removed from all distributions but not yet soft-deleted).
+            "unlisted"          => market.nil? || market["unlisted"] == true,
             "layer"             => container[:layer].to_s,
             "installed"         => true,
             "removable"         => true,
@@ -2582,7 +2582,7 @@ module Clacky
             "installed"         => !container.nil?,
             "installed_version" => container&.dig(:version),
             "removable"         => container && container[:layer] == :installed,
-            "disabled"          => container ? container[:disabled] == true : false
+            "disabled"          => container ? container[:disabled] == true : false,
           )
           json_response(res, 200, { ok: true, extension: ext })
         else
@@ -2609,9 +2609,7 @@ module Clacky
               "homepage"          => market ? (market["homepage"] || "") : container[:homepage].to_s,
               "origin"            => market ? (market["origin"] || container[:origin]) : container[:origin],
               "hub_active"        => market&.dig("hub_active"),
-              # Only mark as unlisted when the extension was published to the
-              # marketplace (origin != "self") but is no longer listed there.
-              "unlisted"          => market.nil? && container[:origin].to_s != "self",
+              "unlisted"          => market.nil? || market["unlisted"] == true,
               "installed"         => true,
               "removable"         => true,
               "disabled"          => container[:disabled] == true,
