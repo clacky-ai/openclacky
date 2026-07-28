@@ -59,8 +59,51 @@ module Clacky
           end
         end
 
-        if reasoning_effort && !reasoning_effort.to_s.empty?
-          body[:reasoning_effort] = reasoning_effort.to_s
+        # ── Model-specific reasoning_effort / thinking mode mapping ────────
+        # Different model families expose extended reasoning through different
+        # API fields. We map the shared reasoning_effort setting to each
+        # family's native parameters.
+        #
+        # Zero side-effects: when reasoning_effort is nil/empty the request
+        # body is unchanged, preserving the provider default for all models.
+        effort_str = reasoning_effort.to_s
+
+        if model.to_s.match?(/^glm-[45]/i)
+          # GLM (Zhipu / Z.ai) supports a native top-level "thinking" field
+          # ({type: "enabled"|"disabled"}) plus a restricted reasoning_effort
+          # that only accepts "max" or "high". Other effort levels collapse
+          # to "high". Send both fields so GLM activates thinking correctly.
+          if %w[off nothink disabled].include?(effort_str)
+            body[:thinking] = { type: "disabled" }
+          elsif !effort_str.empty?
+            glm_effort =
+              case effort_str
+              when "max", "xhigh" then "max"
+              when "high"          then "high"
+              when "medium", "low" then "high"   # GLM collapses these to "high"
+              else                      "max"
+              end
+            body[:thinking] = { type: "enabled" }
+            body[:reasoning_effort] = glm_effort
+          end
+        elsif model.to_s.match?(/^kimi-k3/i)
+          # Kimi K3 reasoning_effort only accepts low/high/max (default max).
+          # Thinking is always enabled and cannot be turned off; "off" maps
+          # to the lowest intensity "low". Unsupported effort levels (medium,
+          # xhigh) would be rejected or ignored by the server.
+          if %w[off nothink disabled].include?(effort_str)
+            body[:reasoning_effort] = "low"
+          elsif !effort_str.empty?
+            body[:reasoning_effort] =
+              case effort_str
+              when "max", "xhigh"  then "max"
+              when "high"          then "high"
+              when "medium", "low" then "low"
+              else                      "max"
+              end
+          end
+        elsif reasoning_effort && !effort_str.empty?
+          body[:reasoning_effort] = effort_str
         end
 
         body
