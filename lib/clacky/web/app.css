@@ -5376,7 +5376,7 @@ body {
 }
 .field-input-row .field-input { flex: 1; }
 .btn-toggle-key {
-  background: var(--color-border-secondary);
+  background: var(--color-bg-primary);
   border: 1px solid var(--color-border-primary);
   border-radius: 6px;
   color: var(--color-text-secondary);
@@ -5384,8 +5384,19 @@ body {
   padding: 0.25rem 0.5rem;
   cursor: pointer;
   flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
-.btn-toggle-key:hover { color: var(--color-text-primary); }
+.btn-toggle-key:hover {
+  color: var(--color-text-primary);
+  background: var(--color-bg-hover);
+}
+.btn-toggle-key:active {
+  background: var(--color-bg-hover);
+  filter: brightness(0.94);
+  transform: scale(0.95);
+}
 .field-checkbox {
   width: 1rem;
   height: 1rem;
@@ -5778,14 +5789,15 @@ body {
   max-height: 90vh;
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  /* Do NOT use overflow:hidden here — it clips absolutely-positioned dropdowns
+     inside the modal (e.g. the provider custom-select). Border-radius still
+     applies because there is no overflow to clip. */
+  overflow: visible;
 }
 .model-edit-modal-content {
   max-width: 500px;
 }
-.model-edit-modal-content .modal-body {
-  overflow-y: auto;
-}
+/* overflow override for model-edit modal is applied after .modal-content .modal-body below */
 .modal-content .modal-header {
   display: flex;
   align-items: center;
@@ -5822,6 +5834,12 @@ body {
   flex-direction: column;
   gap: 0.875rem;
   padding: 1.25rem;
+}
+/* model-edit modal: allow absolutely-positioned dropdowns to escape the body.
+   Must come after .modal-content .modal-body to win the cascade. */
+.modal-content.model-edit-modal-content .modal-body {
+  overflow: visible;
+  padding-bottom: 0;
 }
 .modal-content .modal-footer {
   display: flex;
@@ -6205,6 +6223,9 @@ body {
 .model-test-result {
   font-size: 0.75rem;
   flex: 1;
+}
+.model-test-result:empty {
+  display: none;
 }
 .result-ok      { color: var(--color-success); }
 .result-fail    { color: var(--color-error); }
