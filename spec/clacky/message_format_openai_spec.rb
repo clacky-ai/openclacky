@@ -150,6 +150,109 @@ RSpec.describe Clacky::MessageFormat::OpenAI do
     end
   end
 
+  describe ".build_request_body reasoning_effort mapping" do
+    let(:messages) { [{ role: "user", content: "Hi" }] }
+    let(:tools) { [] }
+    let(:max_tokens) { 1024 }
+
+    context "for GLM models" do
+      let(:model) { "glm-5.2" }
+
+      it "maps 'high' to thinking enabled + reasoning_effort high" do
+        body = described_class.build_request_body(
+          messages, model, tools, max_tokens, false, reasoning_effort: "high"
+        )
+        expect(body[:thinking]).to eq({ type: "enabled" })
+        expect(body[:reasoning_effort]).to eq("high")
+      end
+
+      it "maps 'max' to thinking enabled + reasoning_effort max" do
+        body = described_class.build_request_body(
+          messages, model, tools, max_tokens, false, reasoning_effort: "max"
+        )
+        expect(body[:thinking]).to eq({ type: "enabled" })
+        expect(body[:reasoning_effort]).to eq("max")
+      end
+
+      it "collapses 'medium' to thinking enabled + reasoning_effort high" do
+        body = described_class.build_request_body(
+          messages, model, tools, max_tokens, false, reasoning_effort: "medium"
+        )
+        expect(body[:thinking]).to eq({ type: "enabled" })
+        expect(body[:reasoning_effort]).to eq("high")
+      end
+
+      it "maps 'off' to thinking disabled without reasoning_effort" do
+        body = described_class.build_request_body(
+          messages, model, tools, max_tokens, false, reasoning_effort: "off"
+        )
+        expect(body[:thinking]).to eq({ type: "disabled" })
+        expect(body).not_to have_key(:reasoning_effort)
+      end
+
+      it "adds no thinking or reasoning_effort when reasoning_effort is nil" do
+        body = described_class.build_request_body(
+          messages, model, tools, max_tokens, false, reasoning_effort: nil
+        )
+        expect(body).not_to have_key(:thinking)
+        expect(body).not_to have_key(:reasoning_effort)
+      end
+    end
+
+    context "for Kimi K3 models" do
+      let(:model) { "kimi-k3" }
+
+      it "maps 'high' to reasoning_effort high" do
+        body = described_class.build_request_body(
+          messages, model, tools, max_tokens, false, reasoning_effort: "high"
+        )
+        expect(body[:reasoning_effort]).to eq("high")
+        expect(body).not_to have_key(:thinking)
+      end
+
+      it "maps 'max' to reasoning_effort max" do
+        body = described_class.build_request_body(
+          messages, model, tools, max_tokens, false, reasoning_effort: "max"
+        )
+        expect(body[:reasoning_effort]).to eq("max")
+      end
+
+      it "maps 'off' to reasoning_effort low (cannot disable thinking)" do
+        body = described_class.build_request_body(
+          messages, model, tools, max_tokens, false, reasoning_effort: "off"
+        )
+        expect(body[:reasoning_effort]).to eq("low")
+      end
+
+      it "adds no reasoning_effort when reasoning_effort is nil" do
+        body = described_class.build_request_body(
+          messages, model, tools, max_tokens, false, reasoning_effort: nil
+        )
+        expect(body).not_to have_key(:reasoning_effort)
+        expect(body).not_to have_key(:thinking)
+      end
+    end
+
+    context "for generic OpenAI-compatible models" do
+      let(:model) { "deepseek-v4-pro" }
+
+      it "passes reasoning_effort through unchanged" do
+        body = described_class.build_request_body(
+          messages, model, tools, max_tokens, false, reasoning_effort: "high"
+        )
+        expect(body[:reasoning_effort]).to eq("high")
+        expect(body).not_to have_key(:thinking)
+      end
+
+      it "adds no reasoning_effort when nil" do
+        body = described_class.build_request_body(
+          messages, model, tools, max_tokens, false, reasoning_effort: nil
+        )
+        expect(body).not_to have_key(:reasoning_effort)
+      end
+    end
+  end
+
   describe ".normalize_block" do
     it "returns nil for empty text blocks" do
       result = described_class.normalize_block(
