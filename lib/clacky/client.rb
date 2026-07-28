@@ -352,6 +352,16 @@ module Clacky
         vision_supported: Providers.supports?(@provider_id, :vision, model_name: cap_model),
         reasoning_effort: reasoning_effort
       )
+
+      # Override max_tokens with the model-specific output ceiling when one is
+      # declared in Providers::MODEL_MAX_OUTPUT. The global default (16384) is
+      # tuned for the lowest common denominator (GPT-4o); thinking-capable
+      # models with much larger output budgets need more room — especially since
+      # reasoning_content and the final answer share the same output quota.
+      # Models not in the table keep the default.
+      model_limit = Clacky::Providers.max_output_for(model)
+      body[:max_tokens] = model_limit if model_limit
+
       return send_openai_stream_request(body, on_chunk) if on_chunk
 
       response = openai_connection.post("chat/completions") { |r| r.body = body.to_json }
