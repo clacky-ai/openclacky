@@ -537,6 +537,24 @@ module Clacky
 
     MEDIA_KINDS = %w[image video audio stt video_understanding].freeze
 
+    # Per-model maximum output token limits.
+    #
+    # The Agent global default (@max_tokens = 16_384) is tuned for the lowest
+    # common denominator. Strong reasoning models (GLM-5.2, Kimi-K3, MiMo-V2.5)
+    # support 64K–128K output but are artificially throttled to 16K, causing
+    # truncation on long reasoning chains and code generation.
+    #
+    # Entries are matched top-to-bottom; the first match wins. Models not
+    # listed here fall back to the global default.
+    MODEL_MAX_OUTPUT = [
+      { pattern: /glm/i,           limit: 65_536 }, # GLM-5.2: 128K output ceiling; 64K ample for reasoning+answer
+      { pattern: /kimi-k3/i,       limit: 65_536 }, # Kimi K3: max_completion_tokens=131072 (max 1M); 64K ample
+      { pattern: /kimi/i,          limit: 16_384 }, # Kimi K2-series: ~8K practical output, keep default
+      { pattern: /mimo-v2\.5-pro/i, limit: 65_536 }, # MiMo-V2.5-Pro: max_completion_tokens=131072; 64K ample
+      { pattern: /mimo/i,           limit: 32_768 }, # MiMo-V2.5: max_completion_tokens=32768; full default ceiling
+      { pattern: /deepseek/i,      limit: 16_384 }  # DeepSeek V-series: ~8K output, keep default
+    ].freeze
+
     class << self
       # Check if a provider preset exists
       # @param provider_id [String] The provider identifier (e.g., "anthropic", "openrouter")
@@ -574,6 +592,18 @@ module Clacky
       def api_type(provider_id)
         preset = PRESETS[provider_id]
         preset&.dig("api")
+      end
+
+      # Resolve the per-model maximum output token limit.
+      # Returns nil when no MODEL_MAX_OUTPUT entry matches — callers should
+      # then fall back to the global default (@max_tokens).
+      #
+      # @param model_name [String] The model name (e.g. "glm-5.2")
+      # @return [Integer, nil] The max output limit, or nil if undeclared
+      def max_output_for(model_name)
+        return nil if model_name.nil? || model_name.to_s.empty?
+        entry = MODEL_MAX_OUTPUT.find { |e| model_name.to_s.match?(e[:pattern]) }
+        entry&.[](:limit)
       end
 
       # Resolve the API type for a specific provider+model pair.
