@@ -472,6 +472,12 @@ module Clacky
       # endpoints don't charge separately for cache writes (Z.ai's page lists
       # "Cached Input Storage: Limited-time Free"), so bill writes at the
       # regular input miss rate for safe "displayed ≤ actual" behaviour.
+      "glm-5.2" => {
+        input:  { default: 1.40, over_200k: 1.40 },
+        output: { default: 4.40, over_200k: 4.40 },
+        cache:  { write: 1.40, read: 0.26 }
+      },
+
       "glm-5.1" => {
         input:  { default: 1.40, over_200k: 1.40 },
         output: { default: 4.40, over_200k: 4.40 },
@@ -786,6 +792,8 @@ module Clacky
         # (mainland bigmodel.cn vs intl z.ai) the user configured.
         # Strict anchored match so unrelated strings like "glm-5-x-foo"
         # don't silently borrow a nearby model's rate.
+        when /^glm-5\.2$/i
+          "glm-5.2"
         when /^glm-5\.1$/i
           "glm-5.1"
         when /^glm-5v-turbo$/i
