@@ -476,7 +476,13 @@ module Clacky
       @current_model_id = id
       @current_model_index = index
 
-      @session_model_overlay = nil if previous_id != id
+      if previous_id != id
+        @session_model_overlay = nil
+        # Reset URL fallback when switching models — the new model has its own
+        # base_url and the old fallback endpoint is irrelevant (or even wrong).
+        @url_fallback_active = false
+        @url_fallback_base_url = nil
+      end
 
       true
     end
@@ -492,8 +498,15 @@ module Clacky
       index = @models.find_index { |m| m["model"].to_s.downcase == name_str }
       return false if index.nil?
 
+      previous_id = @current_model_id
       @current_model_id = @models[index]["id"]
       @current_model_index = index
+
+      if previous_id != @current_model_id
+        # Reset URL fallback when switching models — same rationale as switch_model_by_id.
+        @url_fallback_active = false
+        @url_fallback_base_url = nil
+      end
 
       true
     end
