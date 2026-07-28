@@ -3783,9 +3783,10 @@ module Clacky
 
       # POST /api/file-action
       # Unified file action endpoint — open locally or download.
-      # Body: { path: String, action: "open" | "download" }
+      # Body: { path: String, action: "open" | "download" | "save" }
       #   open:     opens the file with the OS default handler (local deployments).
       #   download: returns the file as a download (remote deployments).
+      #   save:     writes content back to the file. Body must include { content: String }.
       def api_file_action(req, res)
         body = parse_json_body(req)
         path = body["path"]
@@ -3799,7 +3800,10 @@ module Clacky
         linux_path = Utils::EnvironmentDetector.win_to_linux_path(path)
         linux_path = File.expand_path(linux_path)
 
-        return json_response(res, 404, { error: "file not found" }) unless File.exist?(linux_path)
+        # For save action, the file may not exist yet — skip the existence check.
+        unless action == "save"
+          return json_response(res, 404, { error: "file not found" }) unless File.exist?(linux_path)
+        end
 
         case action
         when "open"
@@ -3814,8 +3818,14 @@ module Clacky
         when "display-path"
           display = Utils::EnvironmentDetector.linux_to_win_path(linux_path)
           json_response(res, 200, { ok: true, path: display })
+        when "save"
+          content = body["content"]
+          return json_response(res, 400, { error: "content is required" }) if content.nil?
+          FileUtils.mkdir_p(File.dirname(linux_path))
+          File.write(linux_path, content, encoding: "UTF-8")
+          json_response(res, 200, { ok: true })
         else
-          json_response(res, 400, { error: "invalid action. Must be 'open', 'reveal', 'download' or 'display-path'" })
+          json_response(res, 400, { error: "invalid action. Must be 'open', 'reveal', 'download', 'display-path' or 'save'" })
         end
       rescue => e
         json_response(res, 500, { ok: false, error: e.message })
