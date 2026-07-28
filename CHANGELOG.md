@@ -4,6 +4,30 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
+## [1.5.3] - 2026-07-28
+
+### Added
+- Per-model max output token limits (MODEL_MAX_OUTPUT) applied automatically when sending requests
+- GLM-5.2 added to preset model lineup with pricing table
+- MiMo-V2.5 thinking mode support with max_completion_tokens
+- reasoning_effort mapped to GLM thinking mode and Kimi-K3 thinking levels
+- File-tree save support added to CodeEditor with markdown split-preview panel
+- Unlisted badge and source=brand routing for brand-private extensions
+
+### Improved
+- Markdown preview styles refined: hr, inline images, tables, modal sizing
+- OpenAI client refactored with token_field_for and apply_reasoning_params helpers
+
+### Fixed
+- URL fallback state (base URL) now resets correctly when switching models in quick switch
+- Kimi K3 now uses correct thinking:{type:'enabled'} format for Anthropic client
+- MiMo preset aligned with V2.5 lineup and Token Plan endpoint
+- ext-studio sessions no longer incorrectly tagged as setup sessions (C-5722)
+- localhost URLs no longer trigger OpenClacky failover (find_by_base_url guard)
+- API key toggle icon default and click states corrected
+- Share button on billing page now uses SVG icon instead of emoji
+- Share button hover border color uses accent-primary token
+
 ## [1.5.2] - 2026-07-27
 
 ### Added
