@@ -201,11 +201,7 @@ class ExtStudioExt < Clacky::ApiExtension
       error!("extension not found: #{ext_id}", status: 404) unless container
 
       readme_path = File.join(container[:dir], "README.md")
-      if readme.strip.empty?
-        File.delete(readme_path) if File.exist?(readme_path)
-      else
-        File.write(readme_path, readme, encoding: "utf-8")
-      end
+      File.write(readme_path, readme, encoding: "utf-8")
     end
 
     json(ok: true, ext_id: ext_id, saved_to: published ? "platform" : "local")
