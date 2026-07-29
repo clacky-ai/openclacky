@@ -773,7 +773,7 @@ module Clacky
 
       def api_list_sessions(req, res)
         query        = URI.decode_www_form(req.query_string.to_s).to_h
-        limit        = [query["limit"].to_i.then { |n| n > 0 ? n : 20 }, 50].min
+        limit        = [query["limit"].to_i.then { |n| n > 0 ? n : 15 }, 50].min
         before       = query["before"].to_s.strip.then  { |v| v.empty? ? nil : v }
         q            = query["q"].to_s.strip.then       { |v| v.empty? ? nil : v }
         q_scope      = query["q_scope"].to_s.strip.then { |v| %w[name content].include?(v) ? v : "name" }
@@ -6366,9 +6366,9 @@ module Clacky
 
         when "list_sessions"
           stats = @registry.cron_stats
-          page = @registry.list(limit: 21, exclude_type: "cron")
-          has_more = page.size > 20
-          all_sessions = page.first(20)
+          page = @registry.list(limit: 16, exclude_type: "cron")
+          has_more = page.size > 15
+          all_sessions = page.first(15)
           conn.send_json(type: "session_list", sessions: all_sessions, has_more: has_more,
                          cron_count: stats[:count], latest_cron_updated_at: stats[:latest_updated_at])
 
