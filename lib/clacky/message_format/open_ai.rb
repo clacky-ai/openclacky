@@ -212,12 +212,24 @@ module Clacky
       private_class_method def self.apply_reasoning_params(body, model, reasoning_effort)
         effort_str = reasoning_effort.to_s
 
-        if model.to_s.match?(/^glm-[45]/i)
+        if model.to_s.match?(%r{(?:^|/)glm-[45]}i)
           # GLM (Zhipu / Z.ai) supports a native top-level "thinking" field
           # ({type: "enabled"|"disabled"}) plus a restricted reasoning_effort
           # that only accepts "max" or "high". Other effort levels collapse
           # to "high". Send both fields so GLM activates thinking correctly.
-          if %w[off nothink disabled].include?(effort_str)
+          #
+          # Model-id detection tolerates namespaced ids used by OpenRouter
+          # and other proxy gateways ("zhipu/glm-5.2", "openrouter/zhipu/glm-5"),
+          # not just the bare ids served by bigmodel.cn / api.z.ai. The pattern
+          # anchors at a word boundary so unrelated ids ("myglm-5-custom") do
+          # not accidentally enter the GLM branch.
+          #
+          # "none" and "minimal" map to thinking:{type:"disabled"} which
+          # GLM-4.5+ honours across all versions (verified via live API
+          # matrix: glm-4.5/4.6/4.7/5/5.2). "none" is a valid effort value
+          # in the whitelist, so it must reach the wire rather than being
+          # swallowed by normalize_reasoning_effort.
+          if %w[off nothink disabled none minimal].include?(effort_str)
             body[:thinking] = { type: "disabled" }
           elsif !effort_str.empty?
             glm_effort =

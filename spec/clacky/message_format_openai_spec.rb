@@ -190,6 +190,40 @@ RSpec.describe Clacky::MessageFormat::OpenAI do
         expect(body).not_to have_key(:reasoning_effort)
       end
 
+      it "maps 'none' to thinking disabled without reasoning_effort" do
+        body = described_class.build_request_body(
+          messages, model, tools, max_tokens, false, reasoning_effort: "none"
+        )
+        expect(body[:thinking]).to eq({ type: "disabled" })
+        expect(body).not_to have_key(:reasoning_effort)
+      end
+
+      it "maps 'minimal' to thinking disabled without reasoning_effort" do
+        body = described_class.build_request_body(
+          messages, model, tools, max_tokens, false, reasoning_effort: "minimal"
+        )
+        expect(body[:thinking]).to eq({ type: "disabled" })
+        expect(body).not_to have_key(:reasoning_effort)
+      end
+
+      it "matches namespaced GLM ids used by OpenRouter / proxy gateways" do
+        %w[zhipu/glm-5.2 openrouter/zhipu/glm-5].each do |namespaced|
+          body = described_class.build_request_body(
+            messages, namespaced, tools, max_tokens, false, reasoning_effort: "max"
+          )
+          expect(body[:thinking]).to eq({ type: "enabled" })
+          expect(body[:reasoning_effort]).to eq("max")
+        end
+      end
+
+      it "does not match non-GLM ids that merely contain the substring" do
+        body = described_class.build_request_body(
+          messages, "myglm-5-custom", tools, max_tokens, false, reasoning_effort: "high"
+        )
+        expect(body).not_to have_key(:thinking)
+        expect(body[:reasoning_effort]).to eq("high")
+      end
+
       it "adds no thinking or reasoning_effort when reasoning_effort is nil" do
         body = described_class.build_request_body(
           messages, model, tools, max_tokens, false, reasoning_effort: nil

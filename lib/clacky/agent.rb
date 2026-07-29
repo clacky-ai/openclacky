@@ -51,7 +51,12 @@ module Clacky
     attr_accessor :pinned
     attr_accessor :channel_info
 
-    REASONING_EFFORTS = %w[low medium high xhigh].freeze
+    # Whitelist of reasoning_effort values Clacky recognises. The set covers
+    # the union of OpenAI's ladder (low/medium/high) and GLM's ladder
+    # (minimal/low/medium/high/xhigh/max, plus "none" to disable thinking).
+    # Provider-specific mapping happens downstream in MessageFormat::OpenAI —
+    # see the GLM branch in apply_reasoning_params for the canonical translation.
+    REASONING_EFFORTS = %w[minimal low medium high xhigh max none].freeze
 
     def permission_mode
       @config&.permission_mode&.to_s || ""
@@ -64,7 +69,7 @@ module Clacky
     private def normalize_reasoning_effort(value)
       return nil if value.nil?
       str = value.to_s.strip.downcase
-      return nil if str.empty? || str == "off" || str == "none"
+      return nil if str.empty? || str == "off"
       return str if REASONING_EFFORTS.include?(str)
       nil
     end
