@@ -532,23 +532,21 @@ RSpec.describe Clacky::ModelPricing do
     end
   end
 
-  # MiniMax pricing — identical across mainland (.com) and international (.io)
-  # endpoints per the team's verification.
-  # Source: https://platform.minimaxi.com (Pay-as-You-Go)
+  # MiniMax pricing — identical across the international (.io) and mainland
+  # China (.com) endpoints per the team's verification.
+  # Source: https://platform.minimax.io/docs/api-reference/api-overview
+  # (Pay-as-You-Go)
   describe "MiniMax pricing" do
-    it "bills MiniMax-M2.5 with its distinct cache-read rate" do
-      usage = {
-        prompt_tokens: 100_000,
-        completion_tokens: 50_000,
-        cache_read_input_tokens: 20_000
-      }
-      result = described_class.calculate_cost(model: "MiniMax-M2.5", usage: usage)
-      # Regular input: (100_000 - 20_000) / 1M * $0.30  = $0.024
-      # Cache read:     20_000 / 1M * $0.03             = $0.0006
-      # Output:         50_000 / 1M * $1.20             = $0.06
-      # Total: $0.0846
-      expect(result[:cost]).to be_within(0.0001).of(0.0846)
-      expect(result[:source]).to eq(:price)
+    it "returns N/A for retired MiniMax models (M2.5 is no longer listed)" do
+      # MiniMax-M2.5 was removed from the lineup (only M3 and M2.7 remain in
+      # providers.rb), so it must fall through to nil cost instead of
+      # silently borrowing a neighbouring model's rate.
+      result = described_class.calculate_cost(
+        model: "MiniMax-M2.5",
+        usage: { prompt_tokens: 1_000_000, completion_tokens: 0 }
+      )
+      expect(result[:cost]).to be_nil,   "expected N/A for MiniMax-M2.5, got #{result[:cost]}"
+      expect(result[:source]).to be_nil, "expected nil source for MiniMax-M2.5, got #{result[:source]}"
     end
 
     it "bills MiniMax-M2.7 with its higher cache-read rate" do
@@ -704,7 +702,7 @@ RSpec.describe Clacky::ModelPricing do
     end
 
     it "returns nil cost for unregistered MiniMax variants" do
-      %w[minimax-m2.5-highspeed m2-her minimax-abab6].each do |m|
+      %w[minimax-m2.5-highspeed minimax-m2.5 m2-her minimax-abab6].each do |m|
         result = described_class.calculate_cost(
           model: m,
           usage: { prompt_tokens: 1_000_000, completion_tokens: 0 }
