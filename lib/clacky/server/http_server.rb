@@ -2266,7 +2266,16 @@ module Clacky
         brand = Clacky::BrandConfig.load
 
         unless brand.branded?
-          json_response(res, 200, { branded: false })
+          refresh_pending = false
+          if brand.distribution_refresh_due?
+            trigger_async_distribution_refresh!
+            refresh_pending = true
+          end
+
+          json_response(res, 200, {
+            branded: false,
+            distribution_refresh_pending: refresh_pending
+          })
           return
         end
 
