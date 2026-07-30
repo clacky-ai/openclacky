@@ -106,18 +106,24 @@ gem install openclacky
 
 ### Docker
 
-构建：
+#### 预构建镜像（GHCR）
+
+镜像在版本 tag（`v*`）时自动发布到 GitHub Container Registry。
 
 ```bash
-git clone https://github.com/clacky-ai/openclacky.git
-cd openclacky
-docker build -t openclacky .
+# 将 <owner> 替换为仓库所有者（如 clacky-ai 或你的 fork）
+docker pull ghcr.io/<owner>/openclacky:latest
+# 或固定某个版本：
+# docker pull ghcr.io/<owner>/openclacky:1.5.3
 ```
 
 **Linux:**
 
 ```bash
-docker run -d --network=host -e CLACKY_ACCESS_KEY="" openclacky
+docker run -d --name openclacky --network=host \
+  -e CLACKY_ACCESS_KEY="" \
+  -v openclacky-data:/root/.clacky \
+  ghcr.io/<owner>/openclacky:latest
 ```
 
 `--network=host` 使容器与宿主机共享网络栈，Agent 可直接访问宿主机上运行的 Chrome 远程调试端口。
@@ -125,18 +131,31 @@ docker run -d --network=host -e CLACKY_ACCESS_KEY="" openclacky
 **macOS / Windows:**
 
 ```bash
-docker run -d -p 7070:7070 -e CLACKY_ACCESS_KEY="" openclacky
+docker run -d --name openclacky -p 7070:7070 \
+  -e CLACKY_ACCESS_KEY="" \
+  -v openclacky-data:/root/.clacky \
+  ghcr.io/<owner>/openclacky:latest
 ```
 
 > **注意：** macOS/Windows 不支持 `--network=host`，浏览器自动化功能可能受限。
 
 启动后访问 **http://localhost:7070**。
 
+#### 从源码构建
+
+```bash
+git clone https://github.com/clacky-ai/openclacky.git
+cd openclacky
+# 可选：设置 OCI 镜像版本标签
+docker build --build-arg VERSION=1.5.3 -t openclacky .
+docker run -d -p 7070:7070 -e CLACKY_ACCESS_KEY="" openclacky
+```
+
 环境变量：
 
 | 变量 | 说明 |
 |---|---|
-| `CLACKY_ACCESS_KEY` | 设置访问密钥保护 Web UI（留空 = 公开模式） |
+| `CLACKY_ACCESS_KEY` | 设置访问密钥保护 Web UI（留空 = 公开模式；绑定 `0.0.0.0` 时必须设置该环境变量） |
 
 ## 快速开始
 

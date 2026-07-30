@@ -110,18 +110,24 @@ gem install openclacky
 
 ### Docker
 
-ビルド:
+#### ビルド済みイメージ（GHCR）
+
+バージョンタグ（`v*`）が付くと GitHub Container Registry にイメージが自動公開されます。
 
 ```bash
-git clone https://github.com/clacky-ai/openclacky.git
-cd openclacky
-docker build -t openclacky .
+# <owner> をリポジトリオーナーに置き換えてください（例: clacky-ai またはあなたのフォーク）
+docker pull ghcr.io/<owner>/openclacky:latest
+# またはバージョンを固定する場合:
+# docker pull ghcr.io/<owner>/openclacky:1.5.3
 ```
 
 **Linux:**
 
 ```bash
-docker run -d --network=host -e CLACKY_ACCESS_KEY="" openclacky
+docker run -d --name openclacky --network=host \
+  -e CLACKY_ACCESS_KEY="" \
+  -v openclacky-data:/root/.clacky \
+  ghcr.io/<owner>/openclacky:latest
 ```
 
 `--network=host` は、コンテナ内のエージェントがホスト上で動作する Chrome のリモートデバッグポートに到達するために必要です。
@@ -129,18 +135,31 @@ docker run -d --network=host -e CLACKY_ACCESS_KEY="" openclacky
 **macOS / Windows:**
 
 ```bash
-docker run -d -p 7070:7070 -e CLACKY_ACCESS_KEY="" openclacky
+docker run -d --name openclacky -p 7070:7070 \
+  -e CLACKY_ACCESS_KEY="" \
+  -v openclacky-data:/root/.clacky \
+  ghcr.io/<owner>/openclacky:latest
 ```
 
 > **注意:** macOS/Windows では `--network=host` がサポートされていないため、ブラウザの自動化が制限される場合があります。
 
 起動後、**http://localhost:7070** を開いてください。
 
+#### ソースからビルド
+
+```bash
+git clone https://github.com/clacky-ai/openclacky.git
+cd openclacky
+# オプション: OCI イメージバージョンラベルを設定
+docker build --build-arg VERSION=1.5.3 -t openclacky .
+docker run -d -p 7070:7070 -e CLACKY_ACCESS_KEY="" openclacky
+```
+
 環境変数:
 
 | 変数 | 説明 |
 |---|---|
-| `CLACKY_ACCESS_KEY` | アクセスキーで Web UI を保護します（空の場合はパブリックモード） |
+| `CLACKY_ACCESS_KEY` | アクセスキーで Web UI を保護します（空の場合はパブリックモード；`0.0.0.0` にバインドする場合は必須） |
 
 
 ## クイックスタート
