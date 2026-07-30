@@ -1,0 +1,13 @@
+.git
+.github
+.clacky
+vendor
+spec
+docs
+tmp
+coverage
+pkg
+*.gem
+.rspec_status
+AGENTS.md
+CLAUDE.md
