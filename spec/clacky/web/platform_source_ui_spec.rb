@@ -7,6 +7,11 @@ RSpec.describe "Platform source WebUI" do
   let(:i18n) { File.read(File.join(web_dir, "i18n.js")) }
   let(:brand_store) { File.read(File.join(web_dir, "features/brand/store.js")) }
   let(:brand_view) { File.read(File.join(web_dir, "features/brand/view.js")) }
+  let(:save_platform_source) do
+    settings[
+      /async function _savePlatformSource.*?(?=\n  async function _waitForPlatformSourceRestart)/m
+    ]
+  end
 
   it "renders Save and Restore controls for the platform source" do
     expect(index).to include('id="btn-save-clacky-license-server"')
@@ -22,6 +27,10 @@ RSpec.describe "Platform source WebUI" do
       'const OFFICIAL_PLATFORM_SOURCE = "https://www.openclacky.com";'
     )
     expect(settings).to include("_savePlatformSource(OFFICIAL_PLATFORM_SOURCE)")
+  end
+
+  it "retries brand recovery after saving an unchanged source" do
+    expect(save_platform_source).to include("Brand.refresh()")
   end
 
   it "re-emits refreshed brand status and polls while source branding is pending" do
