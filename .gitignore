@@ -17,10 +17,3 @@ AGENTS.md
 .history
 coscli*
 /assets
-
-# local deploy secrets — never commit
-.deploy_access_key
-.deploy_access_key.*
-
-# local-only host notes (internal IPs / deploy paths)
-/docs/dev-loop-code-docker.md

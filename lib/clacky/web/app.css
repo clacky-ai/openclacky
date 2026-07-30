@@ -1014,13 +1014,6 @@ body {
 }
 
 
-/* ── Sidebar divider actions group ───────────────────────────────────────── */
-.sidebar-divider-actions {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
 /* ── Project folders in session sidebar ──────────────────────────────────── */
 .project-group {
   margin: 0.15rem 0 0.45rem;
