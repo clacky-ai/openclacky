@@ -263,6 +263,27 @@ RSpec.describe Clacky::BrandConfig do
     end
   end
 
+  describe "#deactivate!" do
+    it "removes brand.yml and every installed brand Skill" do
+      with_temp_brand_file do |brand_file|
+        config = described_class.new(
+          "product_name" => "Enterprise",
+          "license_key" => "0000002A-00000007-DEADBEEF-CAFEBABE-A1B2C3D4"
+        )
+        config.save
+        skill_dir = File.join(config.brand_skills_dir, "private-skill")
+        FileUtils.mkdir_p(skill_dir)
+        File.write(File.join(skill_dir, "SKILL.md.enc"), "encrypted")
+
+        result = config.deactivate!
+
+        expect(result).to eq(success: true)
+        expect(File).not_to exist(brand_file)
+        expect(Dir).not_to exist(config.brand_skills_dir)
+      end
+    end
+  end
+
   # ── #activate_mock! ───────────────────────────────────────────────────────
 
   describe "#activate_mock!" do

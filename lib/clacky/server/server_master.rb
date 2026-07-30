@@ -4,6 +4,8 @@ require "socket"
 require "tmpdir"
 require_relative "../banner"
 require_relative "../version"
+require_relative "../agent_config"
+require_relative "../platform_http_client"
 
 module Clacky
   module Server
@@ -129,6 +131,11 @@ module Clacky
           "CLACKY_INHERIT_FD"  => @socket.fileno.to_s,
           "CLACKY_MASTER_PID"  => Process.pid.to_s
         }
+        selected_source = Clacky::AgentConfig.load.clacky_license_server.to_s.strip
+        unless selected_source.empty?
+          env["CLACKY_LICENSE_SERVER"] =
+            selected_source == Clacky::PlatformHttpClient::PRIMARY_HOST ? nil : selected_source
+        end
         # Keep the socket fd open across exec — mark it as non-CLOEXEC.
         @socket.close_on_exec = false
 

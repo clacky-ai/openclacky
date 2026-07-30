@@ -165,7 +165,8 @@ module Clacky
                   :memory_update_enabled, :skill_evolution,
                   :max_running_agents, :max_idle_agents,
                   :default_working_dir,
-                  :proxy_url
+                  :proxy_url,
+                  :clacky_license_server
 
     def initialize(options = {})
       @permission_mode = validate_permission_mode(options[:permission_mode])
@@ -222,6 +223,7 @@ module Clacky
       # ignored — set proxy_url here to route Clacky's outbound HTTP through
       # a proxy. Leave nil to go direct.
       @proxy_url = options[:proxy_url]
+      @clacky_license_server = options[:clacky_license_server]
 
       # Per-session virtual model overlay.
       # When set, #current_model returns a *merged* hash (the resolved @models
@@ -414,7 +416,7 @@ module Clacky
       memory_update_enabled
       skill_evolution max_running_agents max_idle_agents
       default_working_dir
-      proxy_url
+      proxy_url clacky_license_server
     ].freeze
 
     # Serialize the current agent configuration to YAML.
@@ -434,7 +436,8 @@ module Clacky
         "max_running_agents" => @max_running_agents,
         "max_idle_agents" => @max_idle_agents,
         "default_working_dir" => @default_working_dir,
-        "proxy_url" => @proxy_url
+        "proxy_url" => @proxy_url,
+        "clacky_license_server" => @clacky_license_server
       }
       YAML.dump("settings" => settings, "models" => persistable_models)
     end
