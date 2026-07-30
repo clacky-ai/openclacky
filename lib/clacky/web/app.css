@@ -803,7 +803,7 @@ body {
   margin-bottom: 6px;
   border-bottom: 1px solid var(--color-border-secondary);
 }
-#ext-slot-sidebar-nav      { padding: 6px 0 4px; }
+#ext-slot-sidebar-nav      { padding: 10px 0 0px; }
 #ext-slot-sidebar-nav-bottom {
   padding: 8px 0 10px;
   margin-top: 6px;
@@ -2619,19 +2619,20 @@ body {
 
 .session-aside-collapse {
   position: absolute;
-  top: 7px;
-  right: 8px;
+  top: 4px;
+  right: 0.5rem;
   z-index: 11;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 1.625rem;
-  height: 1.625rem;
-  border: none;
-  background: transparent;
-  color: var(--color-text-tertiary);
+  width: 2rem;
+  height: 2rem;
+  border: 1px solid var(--color-border-primary);
+  background: var(--color-bg-secondary);
+  color: var(--color-text-secondary);
   border-radius: var(--radius-sm);
   cursor: pointer;
+  box-shadow: var(--shadow-sm, 0 2px 8px rgba(0,0,0,0.06));
   transition: background-color var(--transition-base), color var(--transition-base);
 }
 .session-aside-collapse:hover { background: var(--color-bg-hover); color: var(--color-text-primary); }
