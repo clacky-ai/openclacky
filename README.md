@@ -150,7 +150,7 @@ Open **http://localhost:7070** after starting.
 ```bash
 git clone https://github.com/clacky-ai/openclacky.git
 cd openclacky
-# optional: pin the published gem version
+# optional: set the OCI image version label
 docker build --build-arg VERSION=1.5.3 -t openclacky .
 docker run -d -p 7070:7070 -e CLACKY_ACCESS_KEY="" openclacky
 ```

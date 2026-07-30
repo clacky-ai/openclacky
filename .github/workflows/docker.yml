@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Gem version to install (e.g. 1.5.3). Defaults to tag without v, or lib/clacky/version.rb."
+        description: "Image version label/tag (e.g. 1.5.3). Defaults to tag without v, or lib/clacky/version.rb."
         required: false
         type: string
 
