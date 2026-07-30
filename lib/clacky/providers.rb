@@ -29,12 +29,14 @@ module Clacky
         "name" => "OpenClacky",
         "base_url" => "https://api.openclacky.com",
         "api" => "bedrock",
-        "default_model" => "abs-claude-sonnet-4-6",
+        "default_model" => "abs-claude-sonnet-5",
         "models" => [
           "abs-claude-fable-5",
+          "abs-claude-opus-5",
           "abs-claude-opus-4-8",
           "abs-claude-opus-4-7",
           "abs-claude-opus-4-6",
+          "abs-claude-sonnet-5",
           "abs-claude-sonnet-4-6",
           "abs-claude-sonnet-4-5",
           "abs-claude-haiku-4-5",
@@ -134,9 +136,11 @@ module Clacky
         # no injection happens when the default model is already lite-class.
         "lite_models" => {
           "abs-claude-fable-5"    => "abs-claude-haiku-4-5",
+          "abs-claude-opus-5"     => "abs-claude-haiku-4-5",
           "abs-claude-opus-4-8"   => "abs-claude-haiku-4-5",
           "abs-claude-opus-4-7"   => "abs-claude-haiku-4-5",
           "abs-claude-opus-4-6"   => "abs-claude-haiku-4-5",
+          "abs-claude-sonnet-5"   => "abs-claude-haiku-4-5",
           "abs-claude-sonnet-4-6" => "abs-claude-haiku-4-5",
           "abs-claude-sonnet-4-5" => "abs-claude-haiku-4-5",
           "dsk-deepseek-v4-pro"   => "dsk-deepseek-v4-flash",
@@ -145,7 +149,9 @@ module Clacky
         # Fallback chain: if a model is unavailable, try the next one in order.
         # Keys are primary model names; values are the fallback model to use instead.
         "fallback_models" => {
-          "abs-claude-fable-5"    => "abs-claude-opus-4-8",
+          "abs-claude-fable-5"    => "abs-claude-opus-5",
+          "abs-claude-opus-5"     => "abs-claude-opus-4-8",
+          "abs-claude-sonnet-5"   => "abs-claude-sonnet-4-6",
           "abs-claude-sonnet-4-6" => "abs-claude-sonnet-4-5"
         },
         # Secondary gateway URL used when the primary base_url is unreachable
