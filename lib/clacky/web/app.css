@@ -845,7 +845,7 @@ body {
 .sidebar-divider-actions {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 0.5rem;
 }
 
 /* ── New Session button ──────────────────────────────────────────────────── */
@@ -1018,7 +1018,116 @@ body {
 .sidebar-divider-actions {
   display: flex;
   align-items: center;
+  gap: 0.5rem;
+}
+
+/* ── Project folders in session sidebar ──────────────────────────────────── */
+.project-group {
+  margin: 0.15rem 0 0.45rem;
+  border: 1px solid transparent;
+  border-radius: 8px;
+}
+.project-group.active {
+  border-color: var(--color-border-secondary);
+  background: color-mix(in srgb, var(--color-bg-secondary) 80%, transparent);
+}
+.project-group-header {
+  display: flex;
+  align-items: flex-start;
   gap: 0.25rem;
+  padding: 0.4rem 0.35rem 0.35rem 0.25rem;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.project-group-header:hover {
+  background: var(--color-bg-hover);
+}
+.project-group-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.1rem;
+  height: 1.1rem;
+  margin-top: 0.1rem;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--color-text-tertiary);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.project-group-main {
+  min-width: 0;
+  flex: 1;
+}
+.project-group-name {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--color-text-primary);
+  line-height: 1.25;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.project-group-path {
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  color: var(--color-text-tertiary);
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.project-group-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.1rem;
+  opacity: 0;
+  transition: opacity 0.12s;
+  flex-shrink: 0;
+}
+.project-group-header:hover .project-group-actions,
+.project-group.active .project-group-actions {
+  opacity: 1;
+}
+.project-group-body {
+  padding: 0 0 0.2rem 0.55rem;
+}
+.project-group-body .session-item {
+  margin-left: 0.15rem;
+}
+.project-group-empty {
+  padding: 0.35rem 0.55rem 0.55rem;
+  font-size: 0.72rem;
+  color: var(--color-text-tertiary);
+}
+.project-group-more {
+  display: block;
+  width: calc(100% - 0.3rem);
+  margin: 0.1rem 0.15rem 0.25rem;
+  padding: 0.28rem 0.45rem;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--color-text-tertiary);
+  font-size: 0.7rem;
+  font-family: var(--font-sans);
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+.project-group-more:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-secondary);
+}
+.project-ungrouped-label {
+  margin: 0.55rem 0.4rem 0.2rem;
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-text-tertiary);
 }
 
 /* ── Magnifier / icon-sm button ──────────────────────────────────────────── */

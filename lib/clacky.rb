@@ -79,6 +79,7 @@ require_relative "clacky/agent_config"
 require_relative "clacky/agent_profile"
 require_relative "clacky/providers"
 require_relative "clacky/session_manager"
+require_relative "clacky/project_manager"
 require_relative "clacky/idle_compression_timer"
 
 # Agent modules

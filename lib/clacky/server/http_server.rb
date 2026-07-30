@@ -23,6 +23,7 @@ require_relative "scheduler"
 require_relative "../brand_config"
 require_relative "channel"
 require_relative "../banner"
+require_relative "../project_manager"
 require_relative "../utils/file_processor"
 
 module Clacky
@@ -174,7 +175,7 @@ module Clacky
         - 将大目标拆解为可执行的小步骤
       MD
 
-      def initialize(host: "127.0.0.1", port: 7070, agent_config:, client_factory:, brand_test: false, sessions_dir: nil, socket: nil, master_pid: nil)
+      def initialize(host: "127.0.0.1", port: 7070, agent_config:, client_factory:, brand_test: false, sessions_dir: nil, projects_file: nil, socket: nil, master_pid: nil)
         @host           = host
         @port           = port
         @agent_config   = agent_config
@@ -187,6 +188,7 @@ module Clacky
         @restart_script = File.expand_path($0)
         @restart_argv   = ARGV.dup
         @session_manager = Clacky::SessionManager.new(sessions_dir: sessions_dir)
+        @project_manager = Clacky::ProjectManager.new(file_path: projects_file)
         @registry        = SessionRegistry.new(
           session_manager:  @session_manager,
           session_restorer: method(:build_session_from_data),
@@ -518,6 +520,8 @@ module Clacky
         end
 
         case [method, path]
+        when ["GET",    "/api/projects"]      then api_list_projects(res)
+        when ["POST",   "/api/projects"]      then api_open_project(req, res)
         when ["GET",    "/api/sessions"]      then api_list_sessions(req, res)
         when ["POST",   "/api/sessions"]      then api_create_session(req, res)
         when ["GET",    "/api/cron-tasks"]    then api_list_cron_tasks(res)
@@ -673,6 +677,15 @@ module Clacky
             api_browse_dirs(req, res)
           elsif method == "POST" && path == "/api/dirs/mkdir"
             api_dirs_mkdir(req, res)
+          elsif method == "PATCH" && path.match?(%r{^/api/projects/[^/]+$})
+            project_id = path.sub("/api/projects/", "")
+            api_update_project(project_id, req, res)
+          elsif method == "POST" && path.match?(%r{^/api/projects/[^/]+/touch$})
+            project_id = path.sub(%r{^/api/projects/}, "").sub(%r{/touch$}, "")
+            api_touch_project(project_id, res)
+          elsif method == "DELETE" && path.match?(%r{^/api/projects/[^/]+$})
+            project_id = path.sub("/api/projects/", "")
+            api_delete_project(project_id, res)
           elsif method == "GET" && path.match?(%r{^/api/sessions/[^/]+/files$})
             session_id = path.sub("/api/sessions/", "").sub("/files", "")
             api_session_files(session_id, req, res)
@@ -771,6 +784,51 @@ module Clacky
 
       # ── REST API ──────────────────────────────────────────────────────────────
 
+      def api_list_projects(res)
+        json_response(res, 200, { projects: @project_manager.list })
+      end
+
+      def api_open_project(req, res)
+        body = parse_json_body(req) || {}
+        path = body["path"].to_s.strip
+        name = body["name"]
+        return json_response(res, 400, { error: "path is required" }) if path.empty?
+
+        project = @project_manager.open(path, name: name)
+        json_response(res, 200, { project: project })
+      rescue ArgumentError => e
+        json_response(res, 422, { error: e.message })
+      rescue StandardError => e
+        json_response(res, 500, { error: e.message })
+      end
+
+      def api_update_project(project_id, req, res)
+        body = parse_json_body(req) || {}
+        name = body["name"]
+        return json_response(res, 400, { error: "name is required" }) if name.nil? || name.to_s.strip.empty?
+
+        project = @project_manager.rename(project_id, name)
+        return json_response(res, 404, { error: "Project not found" }) unless project
+
+        json_response(res, 200, { project: project })
+      rescue ArgumentError => e
+        json_response(res, 422, { error: e.message })
+      end
+
+      def api_touch_project(project_id, res)
+        project = @project_manager.touch(project_id)
+        return json_response(res, 404, { error: "Project not found" }) unless project
+
+        json_response(res, 200, { project: project })
+      end
+
+      def api_delete_project(project_id, res)
+        ok = @project_manager.remove(project_id)
+        return json_response(res, 404, { error: "Project not found" }) unless ok
+
+        json_response(res, 200, { ok: true })
+      end
+
       def api_list_sessions(req, res)
         query        = URI.decode_www_form(req.query_string.to_s).to_h
         limit        = [query["limit"].to_i.then { |n| n > 0 ? n : 15 }, 50].min
@@ -821,7 +879,13 @@ module Clacky
         source = %w[manual cron channel setup].include?(raw_source) ? raw_source.to_sym : :manual
 
         raw_dir = body["working_dir"].to_s.strip
-        working_dir = raw_dir.empty? ? default_working_dir : File.expand_path(raw_dir)
+        working_dir = if raw_dir.empty?
+                       default_working_dir
+                     else
+                       # Keep session working_dir keys aligned with ProjectManager
+                       # so sidebar grouping matches even for symlink / relative paths.
+                       @project_manager.normalize_path(raw_dir) || File.expand_path(raw_dir)
+                     end
 
         # Optional model override — passed as a stable model id (matches the
         # id returned by GET /api/config). Name-based override was removed:

@@ -71,7 +71,7 @@
           <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>
         </svg>
       </button>
-      <button id="notify-toggle-header" class="theme-toggle-btn" data-i18n-title="notify.tooltip.off" title="Sound on task complete"></button>
+      <button id="notify-toggle-header" class="theme-toggle-btn" data-i18n-title="notify.tooltip.off" title="Task alerts"></button>
 
     </div>
   </header>
@@ -128,7 +128,7 @@
 
       <!-- Chat Group -->
       <div id="chat-section">
-        <!-- Header: "Sessions" label + [+ New] button -->
+        <!-- Header: "Sessions" label + new session (open project lives in split menu) -->
         <div class="sidebar-divider">
           <span data-i18n="sidebar.chat">Sessions</span>
           <div class="sidebar-divider-actions">
@@ -148,6 +148,9 @@
                   </svg>
                 </button>
                 <div class="btn-split-menu">
+                  <button class="btn-split-menu-item" id="btn-new-session-open-project">
+                    <span data-i18n="projects.open">Open project</span>
+                  </button>
                   <button class="btn-split-menu-item" id="btn-new-session-goto-advanced">
                     <span data-i18n="sessions.advancedOptions">Advanced options</span>
                   </button>
@@ -1585,6 +1588,8 @@
 <script src="/features/extensions/view.js"></script>
 <script src="/features/backup/store.js"></script>
 <script src="/features/backup/view.js"></script>
+<script src="/features/projects/store.js"></script>
+<script src="/features/projects/view.js"></script>
 <script src="/features/new-session/store.js"></script>
 <script src="/features/new-session/view.js"></script>
 <script src="/features/model-tester/store.js"></script>
