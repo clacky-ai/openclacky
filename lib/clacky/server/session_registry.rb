@@ -203,7 +203,7 @@ module Clacky
       #   [ ...all_pinned_matching (newest-first), ...non_pinned (newest-first, limited) ]
       #
       # source and profile are orthogonal — either can be nil independently.
-      def list(limit: nil, before: nil, q: nil, q_scope: "name", date: nil, type: nil, exclude_type: nil, include_pinned: true)
+      def list(limit: nil, before: nil, q: nil, q_scope: "name", date: nil, type: nil, exclude_type: nil, include_pinned: true, project_id: nil, exclude_project: false)
         return [] unless @session_manager
 
         live = @mutex.synchronize do
@@ -243,6 +243,13 @@ module Clacky
           excluded = Array(exclude_type)
           all = all.reject { |s| excluded.include?(s_source(s)) }
         end
+
+        # ── project_id filter — when provided, return ONLY sessions belonging
+        #    to the given project (no limit applied by default).
+        all = all.select { |s| s[:project_id].to_s == project_id.to_s } if project_id
+
+        # ── exclude_project filter — exclude sessions that belong to any project.
+        all = all.reject { |s| s[:project_id].to_s.strip != "" } if exclude_project
 
         # ── date filter (YYYY-MM-DD, matches created_at prefix) ──────────────
         all = all.select { |s| s[:created_at].to_s.start_with?(date) } if date
@@ -367,6 +374,7 @@ module Clacky
           reasoning_effort: ls&.dig(:reasoning_effort) || s.dig(:config, :reasoning_effort),
           pinned:        s[:pinned] || false,
           channel_info:  s[:channel_info],
+          project_id:    s[:project_id],
         }
       end
 
@@ -550,6 +558,7 @@ module Clacky
           agent_profile:   agent.agent_profile.name,
           pinned:          agent.pinned || false,
           latest_latency:  agent.latest_latency,
+          project_id:      agent.project_id,
         }
       end
     end

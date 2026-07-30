@@ -842,10 +842,44 @@ body {
 .sidebar-divider:has(.sidebar-divider-actions) {
   justify-content: space-between;
 }
+/* Sessions divider: suppress the rule line (buttons fill the right side) */
+.sidebar-divider--no-rule::after {
+  display: none;
+}
 .sidebar-divider-actions {
   display: flex;
   align-items: center;
   gap: 4px;
+}
+
+/* ── Chat section collapse ───────────────────────────────────────────────── */
+#chat-section-header {
+  cursor: pointer;
+  z-index: 20;
+}
+.chat-section-title {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  white-space: nowrap;
+  flex: 0 0 auto;
+}
+.chat-section-chevron {
+  flex-shrink: 0;
+  color: var(--color-text-muted);
+  opacity: 0;
+  transition: transform 0.2s ease, opacity 0.15s ease;
+  margin-left: 1px;
+}
+#chat-section-header:hover .chat-section-chevron {
+  opacity: 1;
+}
+.chat-header-collapsed .chat-section-chevron {
+  opacity: 1;
+  transform: rotate(-90deg);
+}
+.chat-section-collapsed {
+  display: none;
 }
 
 /* ── New Session button ──────────────────────────────────────────────────── */
@@ -1503,21 +1537,29 @@ body {
 /* Actions button (⋯) on session list items — visible only on hover */
 .session-actions-btn {
   flex-shrink: 0;
-  display: none;
+  display: flex;
   align-items: center;
   justify-content: center;
-  width: 1.5rem;
+  width: 0;
   height: 1.5rem;
+  overflow: hidden;
   background: transparent;
   border: none;
   border-radius: 4px;
   color: var(--color-text-muted);
   cursor: pointer;
   padding: 0;
-  transition: background .15s, color .15s;
+  opacity: 0;
+  pointer-events: none;
+  transition: background .15s, color .15s, width .15s, opacity .15s;
   align-self: center;
 }
-.session-item:hover .session-actions-btn { display: flex; }
+.session-item:hover .session-actions-btn,
+.session-item.active .session-actions-btn {
+  width: 1.5rem;
+  opacity: 1;
+  pointer-events: auto;
+}
 .session-actions-btn:hover {
   background: var(--color-border-primary);
   color: var(--color-text-primary);
@@ -10742,6 +10784,28 @@ body.setup-mode[data-theme="dark"] {
   font-size: 0.6875rem;
   color: var(--color-text-muted);
 }
+.trash-session-project-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.125rem 0.4rem;
+  border-radius: 4px;
+  background: var(--color-bg-tertiary, var(--color-bg-primary));
+  border: 1px solid var(--color-border-primary);
+  color: var(--color-text-secondary);
+  font-size: 0.625rem;
+  white-space: nowrap;
+  max-width: 8rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.trash-session-project-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--color-text-muted);
+  flex-shrink: 0;
+}
 .trash-session-card-actions {
   display: flex;
   align-items: center;
@@ -10838,6 +10902,38 @@ body.setup-mode[data-theme="dark"] {
   background: var(--color-accent-primary);
   border-color: var(--color-accent-primary);
   color: #fff;
+}
+/* Project filter dropdown */
+.trash-filter-project-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.2rem 0.45rem 0.2rem 0.55rem;
+  border-radius: 5px;
+  border: 1px solid var(--color-border-primary);
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition: border-color 0.14s, color 0.14s;
+}
+.trash-filter-project-wrap:focus-within {
+  border-color: var(--color-accent-primary);
+  color: var(--color-text-primary);
+}
+.trash-filter-project-icon {
+  flex-shrink: 0;
+  pointer-events: none;
+}
+.trash-filter-project-select {
+  font-size: 0.6875rem;
+  color: inherit;
+  background: transparent;
+  border: none;
+  outline: none;
+  cursor: pointer;
+  padding: 0;
+  max-width: 130px;
+  appearance: auto;
 }
 .trash-actions {
   display: flex;
@@ -13000,7 +13096,7 @@ body.setup-mode[data-theme="dark"] {
     margin-left: 0 !important;
   }
   /* active session: always show ⋯ button (no hover on touch) */
-  .session-item.active .session-actions-btn { display: flex; }
+  .session-item.active .session-actions-btn { width: 1.5rem; opacity: 1; pointer-events: auto; }
   #sidebar.hidden {
     transform: translateX(-100%);
     margin-left: 0 !important;
@@ -13496,3 +13592,571 @@ body.setup-mode[data-theme="dark"] {
     background: var(--color-bg-primary);
   }
 }
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   Projects sidebar section
+   ══════════════════════════════════════════════════════════════════════════════ */
+
+/* ── Empty hint ────────────────────────────────────────────────────────────── */
+.project-empty-hint {
+  padding: 0.375rem 0.75rem;
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+}
+
+/* ── Section-level collapse ────────────────────────────────────────────────── */
+.projects-section-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  cursor: pointer;
+}
+.projects-section-chevron {
+  flex-shrink: 0;
+  color: var(--color-text-muted);
+  opacity: 0;
+  transition: transform 0.2s ease, opacity 0.15s ease;
+  margin-left: 1px;
+}
+#projects-section-header:hover .projects-section-chevron {
+  opacity: 1;
+}
+.projects-section-collapsed .projects-section-chevron {
+  opacity: 1;
+  transform: rotate(-90deg);
+}
+.project-list-collapsed {
+  display: none;
+}
+
+/* ── Project group header row ──────────────────────────────────────────────── */
+.project-group-header {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.3125rem 0.625rem;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  user-select: none;
+  transition: background var(--transition-fast);
+}
+.project-group-header:hover {
+  background: var(--color-bg-hover);
+}
+
+.project-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.8125rem;
+  color: var(--color-text-primary);
+}
+
+/* Actions button (⋯) — shown only on hover */
+.project-actions-btn {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 0;
+  height: 1.375rem;
+  overflow: hidden;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  padding: 0;
+  opacity: 0;
+  pointer-events: none;
+  transition: background var(--transition-fast), color var(--transition-fast), opacity var(--transition-fast), width var(--transition-fast);
+}
+.project-group-header:hover .project-actions-btn {
+  width: 1.375rem;
+  opacity: 1;
+  pointer-events: auto;
+}
+.project-actions-btn:hover {
+  background: var(--color-border-primary);
+  color: var(--color-text-primary);
+}
+
+/* ── Session group (indented children) ────────────────────────────────────── */
+.project-session-group {
+  padding-left: 0.875rem;
+  margin-top: 0.08rem;
+}
+
+.project-sessions-empty {
+  padding: 0.25rem 0.5rem 0.25rem 0.625rem;
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+}
+
+/* ── Project hover tooltip ─────────────────────────────────────────────────── */
+.project-tooltip {
+  position: fixed;
+  z-index: 1200;
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border-primary);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0,0,0,.10), 0 2px 8px rgba(0,0,0,.06);
+  padding: 0.75rem 0.875rem 0.75rem 1.125rem; /* extra left padding = visual gap */
+  min-width: 13rem;
+  max-width: 18rem;
+  animation: fadeIn 0.12s ease;
+}
+/* Transparent bridge on the left side fills the gap between sidebar and tooltip */
+.project-tooltip::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: -8px;
+  width: 8px;
+  height: 100%;
+}
+[data-theme="dark"] .project-tooltip {
+  box-shadow: 0 8px 28px rgba(0,0,0,.55), 0 2px 8px rgba(0,0,0,.35);
+}
+
+.project-tooltip-header {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-bottom: 0.75rem;
+}
+.project-tooltip-icon {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-text-secondary);
+  line-height: 0;
+}
+.project-tooltip-icon svg {
+  display: block;
+  flex-shrink: 0;
+}
+.project-tooltip-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--color-text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.project-tooltip-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+.project-tooltip-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.75rem;
+  color: var(--color-text-secondary);
+  min-width: 0;
+}
+.project-tooltip-row--clickable {
+  cursor: pointer;
+  border-radius: 4px;
+  margin: 0 -0.25rem;
+  padding: 0.15rem 0.25rem;
+  transition: background var(--transition-fast);
+}
+.project-tooltip-row--clickable:hover {
+  background: var(--color-bg-hover);
+}
+
+.project-tooltip-divider {
+  height: 1px;
+  background: var(--color-border-primary);
+  margin: 0.25rem 0;
+}
+
+.project-tooltip-row-icon {
+  flex-shrink: 0;
+  color: var(--color-text-muted);
+  display: flex;
+  align-items: center;
+  line-height: 0;
+}
+.project-tooltip-row-icon svg {
+  display: block;
+  flex-shrink: 0;
+}
+.project-tooltip-row-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 1.4;
+}
+
+/* ── Project context menu (rename / delete) ────────────────────────────────── */
+.project-actions-menu {
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border-primary);
+  border-radius: 8px;
+  box-shadow: 0 6px 20px rgba(0,0,0,.08), 0 2px 6px rgba(0,0,0,.04);
+  padding: 0.25rem;
+  min-width: 9rem;
+  z-index: 1000;
+  animation: fadeIn 0.15s ease;
+}
+[data-theme="dark"] .project-actions-menu {
+  box-shadow: 0 8px 24px rgba(0,0,0,.5), 0 2px 6px rgba(0,0,0,.3);
+}
+.project-actions-menu-item {
+  display: block;
+  width: 100%;
+  padding: 0.375rem 0.625rem;
+  border: none;
+  background: transparent;
+  border-radius: 5px;
+  cursor: pointer;
+  color: var(--color-text-primary);
+  font-size: 0.8125rem;
+  text-align: left;
+  transition: background .12s ease, color .12s ease;
+}
+.project-actions-menu-item:hover {
+  background: var(--color-bg-hover);
+}
+.project-actions-menu-item.danger {
+  color: var(--color-error);
+  margin-top: 0.25rem;
+  position: relative;
+}
+.project-actions-menu-item.danger::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: -0.1875rem;
+  height: 1px;
+  background: var(--color-border-secondary);
+}
+.project-actions-menu-item.danger:hover {
+  background: var(--color-error-bg);
+}
+
+/* ── Organize menu (view-mode toggle) ──────────────────────────────────────── */
+.project-organize-menu {
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border-primary);
+  border-radius: 8px;
+  box-shadow: 0 6px 20px rgba(0,0,0,.08), 0 2px 6px rgba(0,0,0,.04);
+  padding: 0.25rem;
+  min-width: 10rem;
+  z-index: 1000;
+  animation: fadeIn 0.15s ease;
+}
+[data-theme="dark"] .project-organize-menu {
+  box-shadow: 0 8px 24px rgba(0,0,0,.5), 0 2px 6px rgba(0,0,0,.3);
+}
+.project-organize-divider {
+  height: 1px;
+  background: var(--color-border-primary);
+  margin: 0.25rem 0.375rem;
+}
+.project-organize-section-label {
+  padding: 0.25rem 0.625rem 0.125rem;
+  font-size: 0.6875rem;
+  color: var(--color-text-secondary);
+  font-weight: 500;
+  letter-spacing: 0.01em;
+}
+.project-organize-item {
+  display: block;
+  width: 100%;
+  padding: 0.375rem 0.625rem;
+  border: none;
+  background: transparent;
+  border-radius: 5px;
+  cursor: pointer;
+  color: var(--color-text-primary);
+  font-size: 0.8125rem;
+  text-align: left;
+  transition: background .12s ease, color .12s ease;
+}
+.project-organize-item:hover {
+  background: var(--color-bg-hover);
+}
+.project-organize-item.active {
+  color: var(--color-accent-primary);
+  font-weight: 500;
+}
+
+/* ── Flat mode ─────────────────────────────────────────────────────────────── */
+.project-session-tag {
+  padding: 0 0.625rem 0.1rem;
+  font-size: 0.6875rem;
+  font-weight: 500;
+  color: var(--project-color, var(--color-accent-primary));
+  opacity: 0.85;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── Project icon badge (sidebar header) ─────────────────────────────────── */
+.project-icon-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 1rem;
+  height: 1rem;
+}
+.project-icon-badge svg {
+  display: block;
+}
+
+/* ── Create-project modal: input row (trigger + name input) ──────────────── */
+.create-project-input-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+/* Trigger button (icon preview) */
+.project-icon-trigger {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 6px;
+  border: 1px solid var(--color-border-primary);
+  background: transparent;
+  color: var(--color-text-primary);
+  cursor: pointer;
+  padding: 0;
+  transition: background 0.15s, border-color 0.15s, color 0.15s, transform 0.1s;
+}
+.project-icon-trigger:hover {
+  background: var(--color-bg-hover);
+  border-color: var(--color-border-secondary);
+}
+.project-icon-trigger svg {
+  display: block;
+  pointer-events: none;
+}
+
+/* Name input fills remaining space */
+.create-project-name-input {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Source folders section */
+.create-project-folder-section {
+  margin-top: 0.75rem;
+}
+
+.create-project-folder-label {
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: var(--color-text-secondary);
+  margin-bottom: 0.4rem;
+}
+
+.create-project-folder-area {
+  border: 1px solid var(--color-border-primary);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-secondary);
+  min-height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.4rem 0.6rem;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+.create-project-folder-area:hover {
+  border-color: var(--color-border-secondary);
+  background: var(--color-bg-hover);
+}
+
+.create-project-folder-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+  color: var(--color-text-muted);
+  font-size: 0.78rem;
+  pointer-events: none;
+}
+.create-project-folder-empty svg {
+  opacity: 0.5;
+  width: 18px;
+  height: 18px;
+}
+
+/* Selected folder card */
+.create-project-folder-card {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  width: 100%;
+  color: var(--color-text-primary);
+  font-size: 0.8rem;
+  cursor: default;
+}
+.create-project-folder-card > svg {
+  flex-shrink: 0;
+  color: var(--color-accent-primary);
+  width: 14px;
+  height: 14px;
+}
+.create-project-folder-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.create-project-folder-remove {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.25rem;
+  height: 1.25rem;
+  border-radius: 4px;
+  border: none;
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  padding: 0;
+  transition: background 0.12s, color 0.12s;
+}
+.create-project-folder-remove:hover {
+  background: rgba(0, 0, 0, 0.09);
+  color: var(--color-text-primary);
+}
+
+/* ── Project picker popup (floating panel) ───────────────────────────────── */
+.project-picker-popup {
+  display: none;          /* hidden by default; JS shows it via style.display */
+  position: fixed;
+  z-index: 9999;
+  background: var(--color-bg-primary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.18);
+  padding: 0.75rem;
+  user-select: none;
+}
+
+/* "No color" option — grey with a diagonal slash */
+.project-picker-color-none {
+  background: var(--color-bg-tertiary);
+  position: relative;
+  overflow: hidden;
+}
+.project-picker-color-none::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    to bottom right,
+    transparent calc(50% - 1px),
+    var(--color-error) calc(50% - 1px),
+    var(--color-error) calc(50% + 1px),
+    transparent calc(50% + 1px)
+  );
+}
+
+/* Color row */
+.project-picker-colors {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+.project-picker-color-option {
+  width: 1.6rem;
+  height: 1.6rem;
+  border-radius: 50%;
+  border: 2.5px solid transparent;
+  cursor: pointer;
+  padding: 0;
+  transition: transform 0.1s, box-shadow 0.1s;
+  flex-shrink: 0;
+}
+.project-picker-color-option:hover {
+  transform: scale(1.15);
+}
+.project-picker-color-option--selected {
+  box-shadow: 0 0 0 2px var(--color-bg-primary), 0 0 0 4px var(--color-text-primary);
+}
+
+/* Divider */
+.project-picker-divider {
+  height: 1px;
+  background: var(--color-border);
+  margin: 0.5rem 0;
+}
+
+/* Icon grid */
+.project-picker-icons {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 0.25rem;
+}
+.project-picker-icon-option {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: var(--radius-sm);
+  border: 1.5px solid transparent;
+  background: transparent;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  padding: 0;
+  transition: background var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast);
+}
+.project-picker-icon-option:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+.project-picker-icon-option--selected {
+  background: var(--color-accent-subtle, rgba(236,72,153,0.12));
+  border-color: var(--color-accent-primary);
+  color: var(--color-accent-primary);
+}
+.project-picker-icon-option svg {
+  pointer-events: none;
+}
+
+/* Done button */
+.project-picker-footer {
+  margin-top: 0.5rem;
+  display: flex;
+  justify-content: flex-end;
+}
+.project-picker-done-btn {
+  font-size: 0.8125rem;
+  padding: 0.3rem 0.875rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-secondary);
+  color: var(--color-text-primary);
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+.project-picker-done-btn:hover {
+  background: var(--color-bg-hover);
+}
+
+

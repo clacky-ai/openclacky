@@ -50,6 +50,7 @@ module Clacky
                 :reasoning_effort
     attr_accessor :pinned
     attr_accessor :channel_info
+    attr_accessor :project_id
 
     REASONING_EFFORTS = %w[low medium high xhigh].freeze
 

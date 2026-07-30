@@ -29,6 +29,9 @@ module Clacky
         # Restore channel info for IM platform sessions
         @channel_info = session_data[:channel_info]
 
+        # Restore project association (nil = no project)
+        @project_id = session_data[:project_id]
+
         # Restore cache statistics if available
         @cache_stats = session_data.dig(:stats, :cache_stats) || {
           cache_creation_input_tokens: 0,
@@ -234,6 +237,7 @@ module Clacky
             sub_model: @config.session_model_overlay_name
           },
           channel_info: @channel_info,
+          project_id:   @project_id,
           stats: stats_data,
           messages: @history.to_a
         }

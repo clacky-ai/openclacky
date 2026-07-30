@@ -17,6 +17,7 @@ require "yaml"
 require "date"
 require "open3"
 require_relative "session_registry"
+require_relative "project_manager"
 require_relative "git_panel"
 require_relative "web_ui_controller"
 require_relative "scheduler"
@@ -187,6 +188,7 @@ module Clacky
         @restart_script = File.expand_path($0)
         @restart_argv   = ARGV.dup
         @session_manager = Clacky::SessionManager.new(sessions_dir: sessions_dir)
+        @project_manager = Clacky::Server::ProjectManager.new
         @registry        = SessionRegistry.new(
           session_manager:  @session_manager,
           session_restorer: method(:build_session_from_data),
@@ -520,6 +522,8 @@ module Clacky
         case [method, path]
         when ["GET",    "/api/sessions"]      then api_list_sessions(req, res)
         when ["POST",   "/api/sessions"]      then api_create_session(req, res)
+        when ["GET",    "/api/projects"]      then api_list_projects(res)
+        when ["POST",   "/api/projects"]      then api_create_project(req, res)
         when ["GET",    "/api/cron-tasks"]    then api_list_cron_tasks(res)
         when ["POST",   "/api/cron-tasks"]    then api_create_cron_task(req, res)
         when ["GET",    "/api/skills"]         then api_list_skills(res)
@@ -688,6 +692,9 @@ module Clacky
           elsif method == "PATCH" && path.match?(%r{^/api/sessions/[^/]+$})
             session_id = path.sub("/api/sessions/", "")
             api_rename_session(session_id, req, res)
+          elsif method == "PATCH" && path.match?(%r{^/api/sessions/[^/]+/project$})
+            session_id = path.sub("/api/sessions/", "").sub("/project", "")
+            api_update_session_project(session_id, req, res)
           elsif method == "PATCH" && path.match?(%r{^/api/sessions/[^/]+/model$})
             session_id = path.sub("/api/sessions/", "").sub("/model", "")
             api_switch_session_model(session_id, req, res)
@@ -763,6 +770,12 @@ module Clacky
           elsif method == "DELETE" && path.match?(%r{^/api/memories/[^/]+$})
             filename = URI.decode_www_form_component(path.sub("/api/memories/", ""))
             api_memories_delete(filename, res)
+          elsif method == "PATCH" && path.match?(%r{^/api/projects/[^/]+$})
+            project_id = path.sub("/api/projects/", "")
+            api_update_project(project_id, req, res)
+          elsif method == "DELETE" && path.match?(%r{^/api/projects/[^/]+$})
+            project_id = path.sub("/api/projects/", "")
+            api_delete_project(project_id, res)
           else
             not_found(res)
           end
@@ -837,11 +850,37 @@ module Clacky
           return json_response(res, 400, { error: "Model not found in configuration" })
         end
 
+        # Optional project association — validate the project exists if provided
+        project_id_override = body["project_id"].to_s.strip
+        project_id_override = nil if project_id_override.empty?
+        if project_id_override && @project_manager.find(project_id_override).nil?
+          return json_response(res, 400, { error: "Project not found" })
+        end
+
+        # If no explicit working_dir was given but the project has one, inherit it.
+        if raw_dir.empty? && project_id_override
+          project = @project_manager.find(project_id_override)
+          if project && project[:working_dir].to_s.strip != ""
+            working_dir = File.expand_path(project[:working_dir])
+          end
+        end
+
         # Create working directory if it doesn't exist
         # Allow multiple sessions in the same directory
         FileUtils.mkdir_p(working_dir)
 
         session_id = build_session(name: name, working_dir: working_dir, profile: profile, source: source, model_id: model_id_override)
+
+        # Persist project_id into the session file right away if provided
+        if project_id_override
+          agent = nil
+          @registry.with_session(session_id) { |s| agent = s[:agent] }
+          if agent
+            agent.project_id = project_id_override
+            @session_manager.save(agent.to_session_data)
+          end
+        end
+
         broadcast_session_update(session_id)
         json_response(res, 201, { session: @registry.session_summary(session_id) })
       end
@@ -4921,7 +4960,8 @@ module Clacky
             file_size:   s[:file_size] || 0,
             model:       s[:model],
             working_dir: s[:working_dir],
-            source:      s[:source]
+            source:      s[:source],
+            project_id:  s[:project_id]
           }
         end
 
@@ -4950,6 +4990,15 @@ module Clacky
         unless @session_manager.restore_session(session_id)
           json_response(res, 404, { ok: false, error: "Session not found in trash: #{session_id}" })
           return
+        end
+
+        # If the session belonged to a project that no longer exists, clear
+        # the stale project_id so it falls back to the regular session list.
+        restored_data = @session_manager.load(session_id)
+        if restored_data && restored_data[:project_id]
+          unless @project_manager.find(restored_data[:project_id])
+            @session_manager.save(restored_data.merge(project_id: nil))
+          end
         end
 
         # Load the restored session into the registry so it behaves like any
@@ -5888,6 +5937,113 @@ module Clacky
         json_response(res, 200, { events: collected, has_more: result[:has_more] })
       end
 
+      # ── Project API ───────────────────────────────────────────────────────────
+
+      # GET /api/projects — list all projects
+      def api_list_projects(res)
+        projects = @project_manager.all
+        json_response(res, 200, { projects: projects })
+      end
+
+      # POST /api/projects — create a new project
+      # Body: { name:, description:?, color:?, icon:?, working_dir:? }
+      def api_create_project(req, res)
+        body        = parse_json_body(req)
+        name        = body["name"].to_s.strip
+        return json_response(res, 400, { error: "name is required" }) if name.empty?
+
+        description = body["description"]
+        color       = body["color"]
+        icon        = body["icon"]
+        working_dir = body["working_dir"].to_s.strip
+        working_dir = working_dir.empty? ? nil : File.expand_path(working_dir)
+
+        project = @project_manager.create(name: name, description: description, color: color, icon: icon, working_dir: working_dir)
+        json_response(res, 201, { project: project })
+      rescue => e
+        json_response(res, 500, { error: e.message })
+      end
+
+      # PATCH /api/projects/:id — update a project
+      # Body: { name:?, description:?, color:?, working_dir:? } — only provided fields are changed
+      def api_update_project(project_id, req, res)
+        body = parse_json_body(req)
+        return json_response(res, 404, { error: "Project not found" }) if @project_manager.find(project_id).nil?
+
+        kwargs = {}
+        kwargs[:name]        = body["name"]        if body.key?("name")
+        kwargs[:description] = body["description"] if body.key?("description")
+        kwargs[:color]       = body["color"]        if body.key?("color")
+        kwargs[:icon]        = body["icon"]         if body.key?("icon")
+        if body.key?("working_dir")
+          raw_wd = body["working_dir"].to_s.strip
+          kwargs[:working_dir] = raw_wd.empty? ? nil : File.expand_path(raw_wd)
+        end
+
+        project = @project_manager.update(project_id, **kwargs)
+        return json_response(res, 404, { error: "Project not found" }) unless project
+
+        json_response(res, 200, { project: project })
+      rescue ArgumentError => e
+        json_response(res, 400, { error: e.message })
+      rescue => e
+        json_response(res, 500, { error: e.message })
+      end
+
+      # DELETE /api/projects/:id — delete a project and all its sessions (soft-delete to trash)
+      def api_delete_project(project_id, res)
+        return json_response(res, 404, { error: "Project not found" }) unless @project_manager.find(project_id)
+
+        @project_manager.delete(project_id)
+
+        # Soft-delete all sessions that belonged to this project.
+        @session_manager.all_sessions.each do |session_data|
+          next unless session_data[:project_id].to_s == project_id
+
+          sid = session_data[:session_id]
+          in_registry = @registry.exist?(sid)
+          on_disk     = !@session_manager.load(sid).nil?
+
+          @registry.delete(sid) if in_registry
+          @session_manager.soft_delete(sid) if on_disk
+
+          broadcast(sid, { type: "session_deleted", session_id: sid })
+          unsubscribe_all(sid)
+        end
+
+        json_response(res, 200, { ok: true })
+      rescue => e
+        json_response(res, 500, { error: e.message })
+      end
+
+      # PATCH /api/sessions/:id/project — move a session into or out of a project
+      # Body: { project_id: "<id>" } to assign, { project_id: null } to remove
+      def api_update_session_project(session_id, req, res)
+        body       = parse_json_body(req)
+        new_pid    = body.key?("project_id") ? body["project_id"] : :__unset
+
+        return json_response(res, 400, { error: "project_id key is required" }) if new_pid == :__unset
+
+        # Validate the target project exists (skip when clearing)
+        if new_pid && @project_manager.find(new_pid.to_s).nil?
+          return json_response(res, 400, { error: "Project not found" })
+        end
+
+        return json_response(res, 404, { error: "Session not found" }) unless @registry.ensure(session_id)
+
+        agent = nil
+        @registry.with_session(session_id) { |s| agent = s[:agent] }
+        return json_response(res, 404, { error: "Session not found" }) unless agent
+
+        agent.project_id = new_pid ? new_pid.to_s : nil
+        @session_manager.save(agent.to_session_data)
+        broadcast_session_update(session_id)
+
+        json_response(res, 200, { ok: true, project_id: agent.project_id })
+      rescue => e
+        json_response(res, 500, { error: e.message })
+      end
+
       def api_rename_session(session_id, req, res)
         body = parse_json_body(req)
         new_name = body["name"]&.to_s&.strip
@@ -6365,12 +6521,28 @@ module Clacky
           interrupt_session(session_id)
 
         when "list_sessions"
-          stats = @registry.cron_stats
-          page = @registry.list(limit: 16, exclude_type: "cron")
+          stats    = @registry.cron_stats
+          page     = @registry.list(limit: 16, exclude_type: "cron", exclude_project: true)
           has_more = page.size > 15
           all_sessions = page.first(15)
+          projects = @project_manager.all
+          # Include ALL sessions that belong to any project, regardless of the
+          # 15-item pagination limit.  We merge them into the same `sessions`
+          # array; the client deduplicates by id in `setAll`.
+          if projects.any?
+            project_ids = projects.map { |p| p[:id] }
+            project_sessions = project_ids.flat_map do |pid|
+              @registry.list(project_id: pid, exclude_type: "cron")
+            end
+            # Deduplicate: project sessions that are already in the first page
+            # will be replaced by the enriched version from `all_sessions`.
+            paged_ids = all_sessions.map { |s| s[:id] }.to_set
+            extra_project_sessions = project_sessions.reject { |s| paged_ids.include?(s[:id]) }
+            all_sessions = all_sessions + extra_project_sessions
+          end
           conn.send_json(type: "session_list", sessions: all_sessions, has_more: has_more,
-                         cron_count: stats[:count], latest_cron_updated_at: stats[:latest_updated_at])
+                         cron_count: stats[:count], latest_cron_updated_at: stats[:latest_updated_at],
+                         projects: projects)
 
         when "run_task"
           # Client sends this after subscribing to guarantee it's ready to receive
