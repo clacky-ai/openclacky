@@ -110,18 +110,24 @@ see more: https://www.openclacky.com/docs/installation
 
 ### Docker
 
-Build:
+#### Pre-built image (GHCR)
+
+Images are published to GitHub Container Registry on version tags (`v*`).
 
 ```bash
-git clone https://github.com/clacky-ai/openclacky.git
-cd openclacky
-docker build -t openclacky .
+# Replace <owner> with the repo owner (e.g. clacky-ai or your fork)
+docker pull ghcr.io/<owner>/openclacky:latest
+# or pin a release:
+# docker pull ghcr.io/<owner>/openclacky:1.5.3
 ```
 
 **Linux:**
 
 ```bash
-docker run -d --network=host -e CLACKY_ACCESS_KEY="" openclacky
+docker run -d --name openclacky --network=host \
+  -e CLACKY_ACCESS_KEY="" \
+  -v openclacky-data:/root/.clacky \
+  ghcr.io/<owner>/openclacky:latest
 ```
 
 `--network=host` is required so the agent inside the container can reach Chrome's remote debugging port running on the host.
@@ -129,18 +135,31 @@ docker run -d --network=host -e CLACKY_ACCESS_KEY="" openclacky
 **macOS / Windows:**
 
 ```bash
-docker run -d -p 7070:7070 -e CLACKY_ACCESS_KEY="" openclacky
+docker run -d --name openclacky -p 7070:7070 \
+  -e CLACKY_ACCESS_KEY="" \
+  -v openclacky-data:/root/.clacky \
+  ghcr.io/<owner>/openclacky:latest
 ```
 
 > **Note:** On macOS/Windows, `--network=host` is not supported — browser automation may be limited.
 
 Open **http://localhost:7070** after starting.
 
+#### Build from source
+
+```bash
+git clone https://github.com/clacky-ai/openclacky.git
+cd openclacky
+# optional: pin the published gem version
+docker build --build-arg VERSION=1.5.3 -t openclacky .
+docker run -d -p 7070:7070 -e CLACKY_ACCESS_KEY="" openclacky
+```
+
 Environment variables:
 
 | Variable | Description |
 |---|---|
-| `CLACKY_ACCESS_KEY` | Protect the Web UI with an access key (empty = public mode) |
+| `CLACKY_ACCESS_KEY` | Protect the Web UI with an access key (empty = public mode; env must be present when binding `0.0.0.0`) |
 
 
 ## Quick Start

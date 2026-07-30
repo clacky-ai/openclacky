@@ -1,0 +1,103 @@
+name: Docker
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Gem version to install (e.g. 1.5.3). Defaults to tag without v, or lib/clacky/version.rb."
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  IMAGE_NAME: openclacky
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: meta
+        run: |
+          set -euo pipefail
+          if [ -n "${{ inputs.version }}" ]; then
+            VERSION="${{ inputs.version }}"
+          elif [[ "${GITHUB_REF_TYPE}" == "tag" && "${GITHUB_REF_NAME}" == v* ]]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          else
+            VERSION="$(ruby -e 'print File.read("lib/clacky/version.rb")[/VERSION\s*=\s*"([^"]+)"/, 1]')"
+          fi
+          if [ -z "$VERSION" ]; then
+            echo "Unable to resolve VERSION" >&2
+            exit 1
+          fi
+          OWNER_LC="$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')"
+          IMAGE="ghcr.io/${OWNER_LC}/${IMAGE_NAME}"
+          TAGS="${IMAGE}:${VERSION}"
+          # Only promote :latest for stable semver (no pre-release suffix)
+          if [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            TAGS="${TAGS},${IMAGE}:latest"
+          fi
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "image=${IMAGE}" >> "$GITHUB_OUTPUT"
+          echo "tags=${TAGS}" >> "$GITHUB_OUTPUT"
+          echo "Resolved version=${VERSION} image=${IMAGE}"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          build-args: |
+            VERSION=${{ steps.meta.outputs.version }}
+          labels: |
+            org.opencontainers.image.title=openclacky
+            org.opencontainers.image.description=OpenClacky AI agent CLI and Web UI
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.version=${{ steps.meta.outputs.version }}
+            org.opencontainers.image.revision=${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Smoke test image
+        run: |
+          set -euo pipefail
+          IMAGE="${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.version }}"
+          docker pull "$IMAGE"
+          docker run -d --name openclacky-smoke \
+            -e CLACKY_ACCESS_KEY= \
+            -p 7070:7070 \
+            "$IMAGE"
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:7070/health | grep -q '"status"'; then
+              echo "Health check passed"
+              docker rm -f openclacky-smoke
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Health check failed" >&2
+          docker logs openclacky-smoke || true
+          docker rm -f openclacky-smoke || true
+          exit 1
