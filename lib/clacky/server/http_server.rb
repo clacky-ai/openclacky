@@ -2221,6 +2221,13 @@ module Clacky
       #   * All exceptions are swallowed; a refresh failure must not crash the
       #     server or leak through the web stack.
       def trigger_async_distribution_refresh!
+        refresh_source = worker_clacky_license_server
+        source_current = -> { effective_clacky_license_server == refresh_source }
+        unless source_current.call
+          Clacky::Logger.debug("[Brand] distribution refresh skipped — worker source is stale")
+          return
+        end
+
         BRAND_DIST_REFRESH_MUTEX.synchronize do
           if @@brand_dist_refresh_inflight
             Clacky::Logger.debug("[Brand] distribution refresh already in flight, skipping")
@@ -2233,7 +2240,7 @@ module Clacky
           Clacky::Logger.info("[Brand] async distribution refresh starting...")
           begin
             brand  = Clacky::BrandConfig.load
-            result = brand.refresh_distribution!
+            result = brand.refresh_distribution!(&source_current)
             if result[:success]
               Clacky::Logger.info("[Brand] async distribution refresh OK")
             else
@@ -2241,7 +2248,7 @@ module Clacky
             end
             # Free-mode skill sync: branded + unactivated installs need their
             # creator's free skills auto-installed for the "no serial number" UX.
-            brand.sync_free_skills_async!
+            brand.sync_free_skills_async! if source_current.call
           rescue StandardError => e
             Clacky::Logger.warn("[Brand] async distribution refresh raised: #{e.class}: #{e.message}")
           ensure
@@ -5679,6 +5686,14 @@ module Clacky
       private def effective_clacky_license_server
         source = @agent_config.clacky_license_server.to_s.strip
         source = ENV["CLACKY_LICENSE_SERVER"].to_s.strip if source.empty?
+        source = Clacky::PlatformHttpClient::PRIMARY_HOST if source.empty?
+        normalize_http_origin(source)
+      rescue ArgumentError
+        source
+      end
+
+      private def worker_clacky_license_server
+        source = ENV["CLACKY_LICENSE_SERVER"].to_s.strip
         source = Clacky::PlatformHttpClient::PRIMARY_HOST if source.empty?
         normalize_http_origin(source)
       rescue ArgumentError

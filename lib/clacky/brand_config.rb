@@ -414,6 +414,8 @@ module Clacky
     #     private platform source is available.
     #   * On success: apply_distribution + save + stamp
     #     @distribution_last_refreshed_at.
+    #   * When a block is provided, discard the response unless it still
+    #     confirms that the platform source is current.
     #   * On failure: log and return without touching the timestamp (so we
     #     retry on next trigger).
     #
@@ -444,6 +446,11 @@ module Clacky
       response = platform_client.get(path)
 
       if response[:success] && response[:data].is_a?(Hash) && response[:data]["distribution"].is_a?(Hash)
+        if block_given? && !yield
+          Clacky::Logger.info("[Brand] refresh_distribution! discarded — platform source changed")
+          return { success: false, message: "Platform source changed during refresh" }
+        end
+
         apply_distribution(response[:data]["distribution"])
         @distribution_last_refreshed_at = Time.now.utc
         save

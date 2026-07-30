@@ -189,4 +189,60 @@ RSpec.describe Clacky::Server::HttpServer, "platform source settings" do
       expect(http_server).not_to have_received(:schedule_restart)
     end
   end
+
+  describe "an in-flight distribution refresh" do
+    it "does not restore the old source brand after switching to the official source" do
+      brand_file = File.join(tmpdir, "brand.yml")
+      stub_const("Clacky::BrandConfig::BRAND_FILE", brand_file)
+      stub_const("Clacky::BrandConfig::CONFIG_DIR", tmpdir)
+
+      started = Queue.new
+      release = Queue.new
+      fake_client = instance_double(Clacky::PlatformHttpClient)
+      allow(fake_client).to receive(:get) do
+        started << true
+        release.pop
+        {
+          success: true,
+          data: {
+            "distribution" => {
+              "product_name" => "Old Enterprise",
+              "package_name" => nil
+            }
+          }
+        }
+      end
+      allow(Clacky::PlatformHttpClient).to receive(:new).and_return(fake_client)
+
+      brand = Clacky::BrandConfig.new({})
+      allow(brand).to receive(:sync_free_skills_async!)
+      allow(Clacky::BrandConfig).to receive(:load).and_return(brand)
+
+      ClimateControl.modify(
+        "CLACKY_LICENSE_SERVER" => "https://enterprise.example.com"
+      ) do
+        agent_config.clacky_license_server = "https://enterprise.example.com"
+        server.send(:trigger_async_distribution_refresh!)
+        Timeout.timeout(2) { started.pop }
+
+        agent_config.clacky_license_server = Clacky::PlatformHttpClient::PRIMARY_HOST
+        release << true
+
+        Timeout.timeout(2) do
+          loop do
+            inflight = described_class::BRAND_DIST_REFRESH_MUTEX.synchronize do
+              described_class.class_variable_get(:@@brand_dist_refresh_inflight)
+            end
+            break unless inflight
+
+            sleep 0.01
+          end
+        end
+      end
+
+      expect(brand.product_name).to be_nil
+      expect(File).not_to exist(brand_file)
+      expect(brand).not_to have_received(:sync_free_skills_async!)
+    end
+  end
 end
