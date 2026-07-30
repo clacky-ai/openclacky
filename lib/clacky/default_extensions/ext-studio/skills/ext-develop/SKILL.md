@@ -294,7 +294,7 @@ contributes:
 classes; swap the body for the real UI, POST to your own route:
 
 ```js
-Clacky.ext.ui.mount("session.aside", function (ctx) {
+Clacky.ext.ui.mount("session.aside", function (container, ctx) {
   var el = document.createElement("div");
   el.style.padding = "16px";
   var input = document.createElement("input");
