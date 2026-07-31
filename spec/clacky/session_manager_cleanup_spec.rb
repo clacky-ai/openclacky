@@ -19,13 +19,14 @@ RSpec.describe Clacky::SessionManager, "#cleanup_by_count" do
 
   # Write a session JSON directly so we control created_at / pinned without
   # triggering save's own cleanup pass.
-  def write_session(id:, created_at:, pinned: false)
+  def write_session(id:, created_at:, pinned: false, hidden: false)
     filename = manager.send(:generate_filename, id, created_at)
     data = {
       session_id: id,
       created_at: created_at,
       updated_at: created_at,
       pinned:     pinned,
+      hidden:     hidden,
       messages:   []
     }
     File.write(File.join(temp_dir, filename), JSON.generate(data))
@@ -63,6 +64,20 @@ RSpec.describe Clacky::SessionManager, "#cleanup_by_count" do
 
     expect(evicted).to eq(1)
     expect(active_ids).to contain_exactly("pin", "ccc", "ddd")
+    expect(trashed_ids).to contain_exactly("bbb")
+  end
+
+  it "never soft-deletes hidden sessions and does not count them toward the cap" do
+    write_session(id: "hid", hidden: true, created_at: "2026-01-01T00:00:00Z") # oldest, hidden
+    write_session(id: "bbb", created_at: "2026-02-01T00:00:00Z")
+    write_session(id: "ccc", created_at: "2026-03-01T00:00:00Z")
+    write_session(id: "ddd", created_at: "2026-04-01T00:00:00Z")
+
+    # keep=2 applies only to the 3 non-hidden sessions -> 1 oldest non-hidden evicted.
+    evicted = manager.cleanup_by_count(keep: 2)
+
+    expect(evicted).to eq(1)
+    expect(active_ids).to contain_exactly("hid", "ccc", "ddd")
     expect(trashed_ids).to contain_exactly("bbb")
   end
 

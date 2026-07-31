@@ -263,7 +263,7 @@ module Clacky
     # submitted immediately (the session starts running); display_message
     # controls the user-facing bubble shown in place of the raw prompt.
     def create_session(name: nil, prompt: nil, working_dir: nil, profile: "general",
-                       source: :manual, display_message: nil)
+                       source: :manual, display_message: nil, hidden: false)
       error!("server not ready", status: 503) unless @http_server
 
       session_id = @http_server.send(
@@ -271,7 +271,8 @@ module Clacky
         name: name,
         working_dir: working_dir,
         profile: profile,
-        source: source
+        source: source,
+        hidden: hidden
       )
 
       submit_task(session_id, prompt, display_message: display_message) if prompt && !prompt.strip.empty?
