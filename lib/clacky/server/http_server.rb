@@ -2221,6 +2221,13 @@ module Clacky
       #   * All exceptions are swallowed; a refresh failure must not crash the
       #     server or leak through the web stack.
       def trigger_async_distribution_refresh!
+        refresh_source = worker_clacky_license_server
+        source_current = -> { effective_clacky_license_server == refresh_source }
+        unless source_current.call
+          Clacky::Logger.debug("[Brand] distribution refresh skipped — worker source is stale")
+          return
+        end
+
         BRAND_DIST_REFRESH_MUTEX.synchronize do
           if @@brand_dist_refresh_inflight
             Clacky::Logger.debug("[Brand] distribution refresh already in flight, skipping")
@@ -2233,7 +2240,7 @@ module Clacky
           Clacky::Logger.info("[Brand] async distribution refresh starting...")
           begin
             brand  = Clacky::BrandConfig.load
-            result = brand.refresh_distribution!
+            result = brand.refresh_distribution!(&source_current)
             if result[:success]
               Clacky::Logger.info("[Brand] async distribution refresh OK")
             else
@@ -2241,7 +2248,7 @@ module Clacky
             end
             # Free-mode skill sync: branded + unactivated installs need their
             # creator's free skills auto-installed for the "no serial number" UX.
-            brand.sync_free_skills_async!
+            brand.sync_free_skills_async! if source_current.call
           rescue StandardError => e
             Clacky::Logger.warn("[Brand] async distribution refresh raised: #{e.class}: #{e.message}")
           ensure
@@ -2266,7 +2273,16 @@ module Clacky
         brand = Clacky::BrandConfig.load
 
         unless brand.branded?
-          json_response(res, 200, { branded: false })
+          refresh_pending = false
+          if brand.distribution_refresh_due?
+            trigger_async_distribution_refresh!
+            refresh_pending = true
+          end
+
+          json_response(res, 200, {
+            branded: false,
+            distribution_refresh_pending: refresh_pending
+          })
           return
         end
 
@@ -2385,11 +2401,16 @@ module Clacky
       # Deactivates (unbinds) the current brand license and clears all brand state.
       # Brand skills are removed from disk. Returns 200 on success.
       private def api_brand_deactivate(res)
-        brand  = Clacky::BrandConfig.load
-        result = brand.deactivate!
-        # Reload skill_loader without brand config so brand skills are no longer visible.
-        @skill_loader = Clacky::SkillLoader.new(working_dir: nil, brand_config: Clacky::BrandConfig.new({}))
+        deactivate_brand!
         json_response(res, 200, { ok: true })
+      end
+
+      private def deactivate_brand!
+        Clacky::BrandConfig.load.deactivate!
+        @skill_loader = Clacky::SkillLoader.new(
+          working_dir: nil,
+          brand_config: Clacky::BrandConfig.new({})
+        )
       end
 
       # GET /api/brand/skills
@@ -3292,7 +3313,10 @@ module Clacky
       # Responds 200 first, then waits briefly for WEBrick to flush the response before exec.
       def api_restart(req, res)
         json_response(res, 200, { ok: true, message: "Restarting…" })
+        schedule_restart
+      end
 
+      private def schedule_restart
         Thread.new do
           sleep 0.5  # Let WEBrick flush the HTTP response
 
@@ -5593,7 +5617,8 @@ module Clacky
           enable_compression: @agent_config.enable_compression,
           enable_prompt_caching: @agent_config.enable_prompt_caching,
           memory_update_enabled: @agent_config.memory_update_enabled,
-          proxy_url: @agent_config.proxy_url.to_s
+          proxy_url: @agent_config.proxy_url.to_s,
+          clacky_license_server: effective_clacky_license_server
         })
       end
 
@@ -5601,6 +5626,16 @@ module Clacky
       def api_update_settings(req, res)
         body = parse_json_body(req)
         return json_response(res, 400, { error: "Invalid JSON" }) unless body
+
+        source_requested = body.key?("clacky_license_server")
+        normalized_source = nil
+        if source_requested
+          begin
+            normalized_source = normalize_http_origin(body["clacky_license_server"])
+          rescue ArgumentError => e
+            return json_response(res, 422, { ok: false, error: e.message })
+          end
+        end
 
         if body.key?("enable_compression")
           @agent_config.enable_compression = !!body["enable_compression"]
@@ -5628,10 +5663,67 @@ module Clacky
           end
         end
 
+        source_changed = source_requested &&
+                         normalized_source != effective_clacky_license_server
+        deactivate_brand! if source_changed
+        @agent_config.clacky_license_server = normalized_source if source_requested
+
         @agent_config.save
-        json_response(res, 200, { ok: true })
+        payload = { ok: true }
+        if source_requested
+          payload.merge!(
+            clacky_license_server: normalized_source,
+            source_changed: source_changed,
+            restarting: source_changed
+          )
+        end
+        json_response(res, 200, payload)
+        schedule_restart if source_changed
       rescue => e
         json_response(res, 422, { error: e.message })
+      end
+
+      private def effective_clacky_license_server
+        source = @agent_config.clacky_license_server.to_s.strip
+        source = ENV["CLACKY_LICENSE_SERVER"].to_s.strip if source.empty?
+        source = Clacky::PlatformHttpClient::PRIMARY_HOST if source.empty?
+        normalize_http_origin(source)
+      rescue ArgumentError
+        source
+      end
+
+      private def worker_clacky_license_server
+        source = ENV["CLACKY_LICENSE_SERVER"].to_s.strip
+        source = Clacky::PlatformHttpClient::PRIMARY_HOST if source.empty?
+        normalize_http_origin(source)
+      rescue ArgumentError
+        source
+      end
+
+      private def normalize_http_origin(value)
+        raw = value.to_s.strip
+        uri = URI.parse(raw)
+        scheme = uri.scheme.to_s.downcase
+        host = uri.host.to_s.downcase
+        path = uri.path.to_s
+
+        valid = uri.is_a?(URI::HTTP) &&
+                %w[http https].include?(scheme) &&
+                !host.empty? &&
+                uri.userinfo.nil? &&
+                (path.empty? || path == "/") &&
+                uri.query.nil? &&
+                uri.fragment.nil?
+        unless valid
+          raise ArgumentError,
+                "clacky_license_server must be an HTTP/HTTPS origin without credentials, path, query, or fragment"
+        end
+
+        default_port = scheme == "https" ? 443 : 80
+        port_suffix = uri.port == default_port ? "" : ":#{uri.port}"
+        "#{scheme}://#{host}#{port_suffix}"
+      rescue URI::InvalidURIError
+        raise ArgumentError, "clacky_license_server is not a valid URL"
       end
 
       # DEPRECATED: this endpoint previously accepted the entire models array

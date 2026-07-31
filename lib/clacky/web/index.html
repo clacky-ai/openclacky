@@ -1112,6 +1112,26 @@
               <span data-i18n="settings.brand.title">Brand &amp; License</span>
             </div>
 
+            <!-- Platform source -->
+            <div class="platform-source-card">
+              <p class="platform-source-desc" data-i18n="settings.brand.source.desc">
+                Choose the platform source for licenses and marketplace content. Changing it unbinds the current license and removes brand Skills.
+              </p>
+              <div class="platform-source-field">
+                <label class="platform-source-label" for="settings-clacky-license-server" data-i18n="settings.brand.source.label">Platform Source</label>
+                <div class="platform-source-row">
+                  <input type="url" id="settings-clacky-license-server" class="field-input"
+                         placeholder="https://www.openclacky.com"
+                         autocomplete="off" spellcheck="false">
+                  <button type="button" id="btn-save-clacky-license-server" class="btn-settings-action"
+                          data-i18n="settings.brand.source.save">Save</button>
+                  <button type="button" id="btn-restore-clacky-license-server" class="btn-settings-action"
+                          data-i18n="settings.brand.source.restore">Restore</button>
+                </div>
+                <div id="settings-clacky-license-server-status" class="model-test-result"></div>
+              </div>
+            </div>
+
             <!-- Current brand status (shown when already activated) -->
             <div id="brand-status-card" class="brand-status-card" style="display:none">
               <div class="brand-status-main">

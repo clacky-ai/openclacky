@@ -5,6 +5,10 @@ require "fileutils"
 require "yaml"
 
 RSpec.describe Clacky::BrandConfig do
+  around do |example|
+    ClimateControl.modify("CLACKY_LICENSE_SERVER" => nil) { example.run }
+  end
+
   # Same helper pattern as brand_config_spec.rb — isolates brand.yml to a tmpdir
   # so tests never touch the user's real ~/.clacky/brand.yml.
   def with_temp_brand_file(data = nil)
@@ -27,6 +31,15 @@ RSpec.describe Clacky::BrandConfig do
     it "returns false when not branded" do
       config = described_class.new({})
       expect(config.distribution_refresh_due?).to be false
+    end
+
+    it "returns true when a private source has no local brand yet" do
+      ClimateControl.modify(
+        "CLACKY_LICENSE_SERVER" => "https://enterprise.example.com"
+      ) do
+        config = described_class.new({})
+        expect(config.distribution_refresh_due?).to be true
+      end
     end
 
     it "returns false when already activated" do
@@ -89,6 +102,43 @@ RSpec.describe Clacky::BrandConfig do
           expect(fake_client).not_to have_received(:get).with(anything) if RSpec::Mocks.space.proxy_for(fake_client).instance_variable_get(:@method_doubles)&.key?(:get)
         end
       end
+
+      it "fetches and persists the deployment brand for a private source" do
+        ClimateControl.modify(
+          "CLACKY_LICENSE_SERVER" => "https://enterprise.example.com"
+        ) do
+          with_temp_brand_file do |brand_file|
+            expect(fake_client).to receive(:get)
+              .with("/api/v1/distributions/lookup")
+              .and_return(
+                success: true,
+                data: {
+                  "distribution" => {
+                    "product_name" => "Enterprise Platform",
+                    "package_name" => nil,
+                    "logo_url" => "https://enterprise.example.com/logo/icon.png"
+                  }
+                }
+              )
+
+            config = described_class.new({})
+            result = config.refresh_distribution!
+
+            expect(result[:success]).to be true
+            expect(config.product_name).to eq("Enterprise Platform")
+            expect(config.package_name).to be_nil
+            expect(config.logo_url).to eq(
+              "https://enterprise.example.com/logo/icon.png"
+            )
+            expect(config.distribution_refresh_due?).to be false
+
+            saved = YAML.safe_load(File.read(brand_file))
+            expect(saved["product_name"]).to eq("Enterprise Platform")
+            expect(saved["package_name"]).to be_nil
+            expect(saved["distribution_last_refreshed_at"]).to be_a(String)
+          end
+        end
+      end
     end
 
     context "when already activated" do
@@ -117,6 +167,39 @@ RSpec.describe Clacky::BrandConfig do
 
           expect(result[:success]).to be false
           expect(result[:message]).to match(/package_name/i)
+        end
+      end
+
+      it "refreshes the deployment brand again after the interval" do
+        ClimateControl.modify(
+          "CLACKY_LICENSE_SERVER" => "https://enterprise.example.com"
+        ) do
+          with_temp_brand_file do
+            old_ts = (
+              Time.now.utc - Clacky::BrandConfig::HEARTBEAT_INTERVAL - 60
+            ).iso8601
+            config = described_class.new(
+              "product_name" => "Enterprise Platform",
+              "distribution_last_refreshed_at" => old_ts
+            )
+            expect(fake_client).to receive(:get)
+              .with("/api/v1/distributions/lookup")
+              .and_return(
+                success: true,
+                data: {
+                  "distribution" => {
+                    "product_name" => "Renamed Platform",
+                    "package_name" => nil
+                  }
+                }
+              )
+
+            result = config.refresh_distribution!
+
+            expect(result[:success]).to be true
+            expect(config.product_name).to eq("Renamed Platform")
+            expect(config.distribution_refresh_due?).to be false
+          end
         end
       end
     end

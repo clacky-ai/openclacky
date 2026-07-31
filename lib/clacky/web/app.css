@@ -9186,6 +9186,42 @@ body.setup-mode[data-theme="dark"] {
 }
 
 /* ── Brand & License settings section ───────────────────────────────────── */
+.platform-source-card {
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border-primary);
+  border-radius: 10px;
+  padding: 1rem 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+.platform-source-desc {
+  font-size: 0.8125rem;
+  color: var(--color-text-secondary);
+  line-height: 1.5;
+  margin: 0;
+}
+.platform-source-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+.platform-source-label {
+  font-size: 0.75rem;
+  color: var(--color-text-secondary);
+}
+.platform-source-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+.platform-source-row .field-input {
+  flex: 1;
+  min-width: 12rem;
+  font-family: var(--font-mono, monospace);
+}
+
 .brand-status-card {
   background: var(--color-bg-secondary);
   border: 1px solid var(--color-border-primary);
@@ -14201,5 +14237,4 @@ body.setup-mode[data-theme="dark"] {
 .project-picker-done-btn:hover {
   background: var(--color-bg-hover);
 }
-
 

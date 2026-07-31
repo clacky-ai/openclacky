@@ -1180,4 +1180,22 @@ RSpec.describe Clacky::AgentConfig do
       end
     end
   end
+
+  describe "#clacky_license_server" do
+    it "is nil when the user has not saved a platform source" do
+      expect(described_class.new.clacky_license_server).to be_nil
+    end
+
+    it "round-trips through YAML save/load" do
+      with_temp_config do |config_file|
+        described_class.new(
+          models: [],
+          clacky_license_server: "https://enterprise.example.com"
+        ).save(config_file)
+
+        loaded = described_class.load(config_file)
+        expect(loaded.clacky_license_server).to eq("https://enterprise.example.com")
+      end
+    end
+  end
 end

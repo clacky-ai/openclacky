@@ -54,7 +54,12 @@ RSpec.describe Clacky::Server::HttpServer, "GET /api/brand/status" do
 
   context "when not branded" do
     it "returns branded: false without brand fields" do
-      brand = instance_double(Clacky::BrandConfig, branded?: false, activated?: false)
+      brand = instance_double(
+        Clacky::BrandConfig,
+        branded?: false,
+        activated?: false,
+        distribution_refresh_due?: false
+      )
       allow(Clacky::BrandConfig).to receive(:load).and_return(brand)
 
       res = fake_res
@@ -63,6 +68,26 @@ RSpec.describe Clacky::Server::HttpServer, "GET /api/brand/status" do
       body = parsed_body(res)
       expect(body["branded"]).to be(false)
       expect(body).not_to have_key("homepage_url")
+    end
+
+    it "starts an async source-brand refresh and reports it as pending" do
+      brand = instance_double(
+        Clacky::BrandConfig,
+        branded?: false,
+        activated?: false,
+        distribution_refresh_due?: true
+      )
+      allow(Clacky::BrandConfig).to receive(:load).and_return(brand)
+      expect(server).to receive(:trigger_async_distribution_refresh!)
+
+      res = fake_res
+      server.send(:api_brand_status, res)
+
+      body = parsed_body(res)
+      expect(body).to include(
+        "branded" => false,
+        "distribution_refresh_pending" => true
+      )
     end
   end
 
