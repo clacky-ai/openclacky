@@ -7567,7 +7567,7 @@ body {
 }
 .extensions-filter-tab-active {
   color: var(--color-text-primary);
-  border-bottom-color: var(--color-accent, #6366f1);
+  border-bottom-color: var(--color-accent-primary);
 }
 .extensions-search {
   flex: 1;
