@@ -685,6 +685,14 @@ RSpec.describe Clacky::Tools::Terminal do
       # And must disclose the overflow path in a way the LLM can parse.
       expect(result[:output]).to include(result[:full_output_file])
       expect(result[:output]).to include("grep")
+
+      # Smart truncation: the in-context output must include BOTH the head
+      # (first lines) and the tail (last lines, e.g. error summaries),
+      # separated by a "...[truncated]..." marker. Previously only the
+      # head was shown, hiding errors that appear at the end of output.
+      expect(result[:output]).to include("payload-line-number-1\n")
+      expect(result[:output]).to include("payload-line-number-#{n_lines}")
+      expect(result[:output]).to match(/\.\.\.\[\d+ lines, \d+ chars total, truncated\]\.\.\./)
     ensure
       File.delete(result[:full_output_file]) if result && result[:full_output_file] && File.exist?(result[:full_output_file])
     end
@@ -737,6 +745,65 @@ RSpec.describe Clacky::Tools::Terminal do
     it "returns nil/empty inputs unchanged" do
       expect(tool.send(:truncate_long_lines, nil)).to be_nil
       expect(tool.send(:truncate_long_lines, "")).to eq("")
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # smart_truncate: head+tail truncation keeps error messages visible.
+  # ---------------------------------------------------------------------------
+  describe "#smart_truncate" do
+    it "returns short text unchanged" do
+      text = "line1\nline2\nline3\n"
+      expect(tool.send(:smart_truncate, text, 100)).to eq(text)
+    end
+
+    it "returns empty string unchanged" do
+      expect(tool.send(:smart_truncate, "", 100)).to eq("")
+    end
+
+    it "includes both head and tail when truncating" do
+      # 100 lines × 20 chars = 2000 bytes
+      text = (1..100).map { |i| "line-#{i.to_s.rjust(3, '0')}-padding" }.join("\n")
+      result = tool.send(:smart_truncate, text, 400)
+      expect(result).to include("line-001")
+      expect(result).to include("line-100")
+      expect(result).to match(/\.\.\.\[100 lines, \d+ chars total, truncated\]\.\.\./)
+    end
+
+    it "stays within the char budget (plus marker overhead)" do
+      text = (1..500).map { |i| "payload-line-number-#{i}" }.join("\n")
+      result = tool.send(:smart_truncate, text, 3800)
+      # marker adds ~60 chars; allow small slack
+      expect(result.bytesize).to be <= 3800 + 100
+    end
+
+    it "handles multi-byte UTF-8 without invalid encoding" do
+      # Mix ASCII and 3-byte UTF-8 (e.g. CJK)
+      text = (1..200).map { |i| "行#{i}-数据填充ABCDEFGHIJ" }.join("\n")
+      result = tool.send(:smart_truncate, text, 1000)
+      expect(result.valid_encoding?).to eq(true)
+      expect(result).to include("行1")
+      expect(result).to include("行200")
+    end
+
+    it "aligns tail to line boundary when cut mid-line" do
+      text = (1..100).map { |i| "line-#{i.to_s.rjust(3, '0')}" }.join("\n")
+      result = tool.send(:smart_truncate, text, 400)
+      # The tail portion after the marker should start at a line boundary
+      # (i.e., the character after the marker's "\n\n" should be the start
+      # of a line, not a fragment).
+      marker = result.match(/\.\.\.\[\d+ lines, \d+ chars total, truncated\]\.\.\.\n\n/)
+      expect(marker).not_to be_nil
+      after_marker = marker.post_match
+      # after_marker should start with a full line like "line-XXX" or similar
+      expect(after_marker).to match(/\Aline-\d/)
+    end
+
+    it "handles single very long line (no newlines) gracefully" do
+      text = "x" * 10_000
+      result = tool.send(:smart_truncate, text, 1000)
+      expect(result.bytesize).to be <= 1000 + 100
+      expect(result).to include("truncated")
     end
   end
 
