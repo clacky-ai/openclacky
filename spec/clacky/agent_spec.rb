@@ -81,7 +81,43 @@ RSpec.describe Clacky::Agent do
       expect(agent.total_cost).to be > 0
     end
 
+    context "when the tool call is a terminal command" do
+      let(:tool_call_response) do
+        mock_api_response(
+          content: nil,
+          tool_calls: [mock_tool_call(name: "terminal", args: '{"command":"echo hi"}')]
+        )
+      end
 
+      it "injects CLACKY_SESSION_ID into the terminal tool's env" do
+        captured_args = nil
+        allow_any_instance_of(Clacky::Tools::Terminal).to receive(:execute) do |_instance, **kwargs|
+          captured_args = kwargs
+          { output: "hi", exit_code: 0 }
+        end
+
+        agent.run("run echo")
+
+        expect(captured_args).not_to be_nil
+        expect(captured_args[:env]).to include("CLACKY_SESSION_ID" => agent.session_id)
+      end
+
+      it "does not override an env var explicitly set by the AI, but adds CLACKY_SESSION_ID alongside it" do
+        tool_call_response[:tool_calls] = [
+          mock_tool_call(name: "terminal", args: '{"command":"echo hi","env":{"FOO":"bar"}}')
+        ]
+
+        captured_args = nil
+        allow_any_instance_of(Clacky::Tools::Terminal).to receive(:execute) do |_instance, **kwargs|
+          captured_args = kwargs
+          { output: "hi", exit_code: 0 }
+        end
+
+        agent.run("run echo")
+
+        expect(captured_args[:env]).to include(:FOO => "bar", "CLACKY_SESSION_ID" => agent.session_id)
+      end
+    end
   end
 
   describe "#add_hook" do

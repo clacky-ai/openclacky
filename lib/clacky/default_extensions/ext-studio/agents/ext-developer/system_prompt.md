@@ -143,3 +143,18 @@ main product, and apply every rule below whenever you propose or write code:
   Ruby and carry supply-chain risk.
 - After editing `view.js`, `handler.rb`, or a `SKILL.md`, tell the user to reload the
   WebUI page — hot reload is per-request, no restart needed.
+- After you finish editing extension files, call this once at the very end to trigger
+  a reload button in the UI (if it doesn't appear, the user can manually refresh the browser):
+  ```
+  curl -s --noproxy '*' -X POST "http://${CLACKY_SERVER_HOST}:${CLACKY_SERVER_PORT}/api/ui/show_ext_refresh" \
+    -H "Content-Type: application/json" \
+    -d "{\"session_id\": \"${CLACKY_SESSION_ID}\"}"
+  ```
+  (`--noproxy '*'` prevents shell proxy env vars from silently intercepting this loopback call.)
+- If the extension contributes a `session.aside` panel, also call this right after the above
+  to open the panel automatically:
+  ```
+  curl -s --noproxy '*' -X POST "http://${CLACKY_SERVER_HOST}:${CLACKY_SERVER_PORT}/api/ui/open_aside" \
+    -H "Content-Type: application/json" \
+    -d "{\"session_id\": \"${CLACKY_SESSION_ID}\"}"
+  ```

@@ -1280,4 +1280,62 @@ RSpec.describe Clacky::Server::HttpServer do
       stuck_threads.each(&:join)
     end
   end
+
+  # ── UI notification endpoints (AI-initiated curl callbacks) ──────────────
+  #
+  # These endpoints exist so the AI can proactively signal the frontend after
+  # completing a task (e.g. "I edited extension files, show the reload
+  # button") by calling `curl` from the terminal tool. See system_prompt.md
+  # in ext-developer for the caller side.
+  describe "POST /api/ui/open_aside" do
+    it "broadcasts an open_aside event to the given session" do
+      with_server(agent_config: agent_config) do |server|
+        expect(server).to receive(:broadcast).with("sess-1", { type: "open_aside" })
+
+        req = fake_req(method: "POST", path: "/api/ui/open_aside",
+                       body: { session_id: "sess-1" })
+        res = fake_res
+        dispatch(server, req, res)
+
+        expect(res.status).to eq(200)
+        expect(parsed_body(res)["ok"]).to eq(true)
+      end
+    end
+
+    it "returns 400 when session_id is missing" do
+      with_server(agent_config: agent_config) do |server|
+        req = fake_req(method: "POST", path: "/api/ui/open_aside", body: {})
+        res = fake_res
+        dispatch(server, req, res)
+
+        expect(res.status).to eq(400)
+      end
+    end
+  end
+
+  describe "POST /api/ui/show_ext_refresh" do
+    it "broadcasts a show_ext_refresh event to the given session" do
+      with_server(agent_config: agent_config) do |server|
+        expect(server).to receive(:broadcast).with("sess-2", { type: "show_ext_refresh" })
+
+        req = fake_req(method: "POST", path: "/api/ui/show_ext_refresh",
+                       body: { session_id: "sess-2" })
+        res = fake_res
+        dispatch(server, req, res)
+
+        expect(res.status).to eq(200)
+        expect(parsed_body(res)["ok"]).to eq(true)
+      end
+    end
+
+    it "returns 400 when session_id is missing" do
+      with_server(agent_config: agent_config) do |server|
+        req = fake_req(method: "POST", path: "/api/ui/show_ext_refresh", body: {})
+        res = fake_res
+        dispatch(server, req, res)
+
+        expect(res.status).to eq(400)
+      end
+    end
+  end
 end

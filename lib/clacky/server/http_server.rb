@@ -602,7 +602,10 @@ module Clacky
         when ["GET",    "/api/billing/daily"]     then api_billing_daily(req, res)
         when ["GET",    "/api/billing/records"]   then api_billing_records(req, res)
         when ["GET",    "/api/billing/sessions"]  then api_billing_sessions(req, res)
-        when ["DELETE", "/api/billing/clear"]     then api_billing_clear(req, res)        when ["PATCH",  "/api/sessions/:id/model"] then api_switch_session_model(req, res)
+        when ["DELETE", "/api/billing/clear"]     then api_billing_clear(req, res)
+        when ["POST",   "/api/ui/open_aside"]       then api_ui_open_aside(req, res)
+        when ["POST",   "/api/ui/show_ext_refresh"] then api_ui_show_ext_refresh(req, res)
+        when ["PATCH",  "/api/sessions/:id/model"] then api_switch_session_model(req, res)
         when ["PATCH",  "/api/sessions/:id/working_dir"] then api_change_session_working_dir(req, res)
         else
           if method == "POST" && path.match?(%r{^/api/channels/[^/]+/send$})
@@ -1205,6 +1208,14 @@ module Clacky
         result = Hash.new { |h, k| h[k] = [] }
         add = ->(pid, agent) { result[pid] << agent unless result[pid].include?(agent) }
 
+        # Force a fresh load_all so last_result is up-to-date before we read it
+        # below. Without this, panel_agents_script (the first thing rendered in
+        # webui_ext_script_tags) would use a stale last_result while
+        # container_ext_script_tags (called later) would trigger the real rescan —
+        # causing registerPanelAgents to miss newly-created extensions on the very
+        # first page load after they are written to disk.
+        Clacky::ExtensionLoader.load_all
+
         agent_data = agent_profile_data
         agent_data.each do |name, data|
           ext_id = data["_ext_id"]
@@ -1215,7 +1226,10 @@ module Clacky
           end
         end
 
-        all_agent_ids = agent_data.keys
+        # Always include "general" — it is the implicit default profile for sessions
+        # that have no custom agent assigned.  Without this, attach: [\"*\"] panels
+        # would never appear in general-profile sessions when no named agent dirs exist.
+        all_agent_ids = (agent_data.keys + ["general"]).uniq
         Array(Clacky::ExtensionLoader.last_result&.panels).each do |unit|
           full_id = "#{unit.ext_id}/#{unit.id}"
           attach = Array(unit.spec["attach"])
@@ -3003,6 +3017,41 @@ module Clacky
         deleted = store.clear(scope: scope.to_sym)
 
         json_response(res, 200, { ok: true, deleted: deleted, scope: scope })
+      rescue => e
+        json_response(res, 500, { error: e.message })
+      end
+
+      # POST /api/ui/open_aside
+      # Broadcasts an open_aside event to the specified session's WebSocket clients,
+      # causing the browser to open the right-side panel.
+      # Body: { session_id: "..." }
+      def api_ui_open_aside(req, res)
+        body = parse_json_body(req) || {}
+        session_id = body["session_id"].to_s.strip
+        if session_id.empty?
+          json_response(res, 400, { error: "session_id is required" })
+          return
+        end
+        broadcast(session_id, { type: "open_aside" })
+        json_response(res, 200, { ok: true })
+      rescue => e
+        json_response(res, 500, { error: e.message })
+      end
+
+      # POST /api/ui/show_ext_refresh
+      # Broadcasts a show_ext_refresh event to the specified session's WebSocket clients,
+      # causing the browser to display a one-click "reload extensions" button.
+      # Called by the AI after editing extension files so the user knows to reload.
+      # Body: { session_id: "..." }
+      def api_ui_show_ext_refresh(req, res)
+        body = parse_json_body(req) || {}
+        session_id = body["session_id"].to_s.strip
+        if session_id.empty?
+          json_response(res, 400, { error: "session_id is required" })
+          return
+        end
+        broadcast(session_id, { type: "show_ext_refresh" })
+        json_response(res, 200, { ok: true })
       rescue => e
         json_response(res, 500, { error: e.message })
       end

@@ -1007,6 +1007,14 @@ module Clacky
           # Inject working_dir so tools don't rely on Dir.chdir global state
           args[:working_dir] = @working_dir if @working_dir
 
+          # Inject CLACKY_SESSION_ID into every terminal invocation so skills/system
+          # prompts can reliably curl our own HTTP API (e.g. POST /api/ui/show_ext_refresh)
+          # without the AI needing to know or guess the session id. Merges with (and never
+          # overrides) any env the AI explicitly passed.
+          if call[:name] == "terminal" && @session_id
+            args[:env] = { "CLACKY_SESSION_ID" => @session_id.to_s }.merge(args[:env] || {})
+          end
+
           # For terminal: stream live stdout chunks to the UI as they arrive,
           # so the user sees real-time output (e.g. build logs) instead of a
           # blank spinner. The UI buffers lines for Ctrl+O fullscreen view

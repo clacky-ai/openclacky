@@ -3445,6 +3445,32 @@ body {
   color: var(--color-text-secondary);
 }
 .msg-success   { color: var(--color-success); align-self: flex-start; font-size: 0.8125rem; }
+
+/* ── Ext-developer reload hint ─────────────────────────────────────────────── */
+.msg-ext-refresh-hint {
+  align-self: flex-start;
+  margin: 0 -1rem;
+}
+.btn-ext-refresh {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.375rem 0.75rem;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--color-accent-primary);
+  background: transparent;
+  border: 1px solid var(--color-accent-primary);
+  border-radius: 0.375rem;
+  cursor: pointer;
+  transition: background 0.15s, opacity 0.15s;
+}
+.btn-ext-refresh:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-accent-primary) 10%, transparent);
+}
+.btn-ext-refresh:disabled {
+  cursor: default;
+}
 .tool-name     { color: var(--color-warning); font-weight: 600; }
 .progress-msg  { color: var(--color-accent-primary); font-size: 0.75rem; align-self: center; }
 
