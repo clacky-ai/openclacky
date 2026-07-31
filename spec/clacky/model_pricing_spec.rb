@@ -40,6 +40,106 @@ RSpec.describe Clacky::ModelPricing do
       end
     end
     
+    context "with Claude Sonnet 5" do
+      let(:model) { "abs-claude-sonnet-5" }
+
+      it "calculates cost for basic input/output (flat rate, no 200K tier)" do
+        usage = {
+          prompt_tokens: 100_000,
+          completion_tokens: 50_000
+        }
+
+        # Input: (100,000 / 1,000,000) * $3 = $0.30
+        # Output: (50,000 / 1,000,000) * $15 = $0.75
+        # Total: $1.05
+        result = described_class.calculate_cost(model: model, usage: usage)
+        expect(result[:cost]).to be_within(0.001).of(1.05)
+        expect(result[:source]).to eq(:price)
+      end
+
+      it "uses the same flat rate above the 200K threshold (no tiering)" do
+        usage = {
+          prompt_tokens: 250_000,
+          completion_tokens: 50_000
+        }
+
+        # Input: (250,000 / 1,000,000) * $3 = $0.75 (same rate as ≤200K)
+        # Output: (50,000 / 1,000,000) * $15 = $0.75
+        # Total: $1.50
+        result = described_class.calculate_cost(model: model, usage: usage)
+        expect(result[:cost]).to be_within(0.001).of(1.50)
+        expect(result[:source]).to eq(:price)
+      end
+
+      it "calculates cost with cache write and read" do
+        usage = {
+          prompt_tokens: 100_000,
+          completion_tokens: 50_000,
+          cache_creation_input_tokens: 20_000,
+          cache_read_input_tokens: 30_000
+        }
+
+        # Regular input (non-cached): (70,000 / 1,000,000) * $3 = $0.21
+        # Output: (50,000 / 1,000,000) * $15 = $0.75
+        # Cache write: (20,000 / 1,000,000) * $3.75 = $0.075
+        # Cache read: (30,000 / 1,000,000) * $0.30 = $0.009
+        # Total: $1.044
+        result = described_class.calculate_cost(model: model, usage: usage)
+        expect(result[:cost]).to be_within(0.001).of(1.044)
+        expect(result[:source]).to eq(:price)
+      end
+
+      it "does not collide with claude-sonnet-4-5 (regression guard)" do
+        result = described_class.calculate_cost(model: "abs-claude-sonnet-4-5", usage: { prompt_tokens: 100_000, completion_tokens: 50_000 })
+        # claude-sonnet-4.5 pricing: $3 input / $15 output — same numbers here
+        # by coincidence, so assert via normalize_model_name instead to catch
+        # any future accidental merge of the two pricing keys.
+        expect(described_class.normalize_model_name("abs-claude-sonnet-4-5")).to eq("claude-sonnet-4.5")
+        expect(described_class.normalize_model_name("abs-claude-sonnet-5")).to eq("claude-sonnet-5")
+      end
+    end
+
+    context "with Claude Opus 5" do
+      let(:model) { "abs-claude-opus-5" }
+
+      it "calculates cost for basic input/output (flat rate, no 200K tier)" do
+        usage = {
+          prompt_tokens: 100_000,
+          completion_tokens: 50_000
+        }
+
+        # Input: (100,000 / 1,000,000) * $5 = $0.50
+        # Output: (50,000 / 1,000,000) * $25 = $1.25
+        # Total: $1.75
+        result = described_class.calculate_cost(model: model, usage: usage)
+        expect(result[:cost]).to be_within(0.001).of(1.75)
+        expect(result[:source]).to eq(:price)
+      end
+
+      it "calculates cost with cache write and read" do
+        usage = {
+          prompt_tokens: 100_000,
+          completion_tokens: 50_000,
+          cache_creation_input_tokens: 20_000,
+          cache_read_input_tokens: 30_000
+        }
+
+        # Regular input (non-cached): (70,000 / 1,000,000) * $5 = $0.35
+        # Output: (50,000 / 1,000,000) * $25 = $1.25
+        # Cache write: (20,000 / 1,000,000) * $6.25 = $0.125
+        # Cache read: (30,000 / 1,000,000) * $0.50 = $0.015
+        # Total: $1.74
+        result = described_class.calculate_cost(model: model, usage: usage)
+        expect(result[:cost]).to be_within(0.001).of(1.74)
+        expect(result[:source]).to eq(:price)
+      end
+
+      it "does not collide with claude-opus-4-5 (regression guard)" do
+        expect(described_class.normalize_model_name("abs-claude-opus-4-8")).to eq("claude-opus-4.5")
+        expect(described_class.normalize_model_name("abs-claude-opus-5")).to eq("claude-opus-5")
+      end
+    end
+
     context "with Claude Sonnet 4.5" do
       let(:model) { "claude-sonnet-4.5" }
       

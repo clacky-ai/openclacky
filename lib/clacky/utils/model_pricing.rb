@@ -23,6 +23,39 @@ module Clacky
         }
       },
 
+      # Claude Sonnet 5 / Opus 5 (2026) — flat rate, no 200K tier (matches
+      # llm_proxy's costMap: single price regardless of prompt length).
+      # Source: openclacky-platform/llm_proxy/internal/proxy/proxy.go
+      "claude-sonnet-5" => {
+        input: {
+          default: 3.00,               # $3/MTok, same for all tiers
+          over_200k: 3.00
+        },
+        output: {
+          default: 15.00,              # $15/MTok, same for all tiers
+          over_200k: 15.00
+        },
+        cache: {
+          write: 3.75,                 # $3.75/MTok cache write
+          read: 0.30                   # $0.30/MTok cache read
+        }
+      },
+
+      "claude-opus-5" => {
+        input: {
+          default: 5.00,               # $5/MTok, same for all tiers
+          over_200k: 5.00
+        },
+        output: {
+          default: 25.00,              # $25/MTok, same for all tiers
+          over_200k: 25.00
+        },
+        cache: {
+          write: 6.25,                 # $6.25/MTok cache write
+          read: 0.50                   # $0.50/MTok cache read
+        }
+      },
+
       "claude-opus-4.5" => {
         input: {
           default: 5.00,              # $5/MTok for prompts ≤ 200K tokens
@@ -741,6 +774,15 @@ module Clacky
         case model
         when /claude.*fable.*5/i
           "claude-fable-5"
+        # Claude Sonnet 5 / Opus 5 (2026) — anchored on the literal "sonnet-5"
+        # / "opus-5" substring (no "4" in between) so this never collides
+        # with "sonnet-4-5" / "opus-4-5", which are handled by the 4.x
+        # tiered-pricing branches below. Also matches Bedrock cross-region
+        # prefixes like "global.anthropic.claude-sonnet-5".
+        when /claude.*sonnet-5(?!\d)/i
+          "claude-sonnet-5"
+        when /claude.*opus-5(?!\d)/i
+          "claude-opus-5"
         when /claude.*opus.*4[.-]?[5-9]/i
           "claude-opus-4.5"
         when /claude.*sonnet.*4[.-]?[5-9]/i
