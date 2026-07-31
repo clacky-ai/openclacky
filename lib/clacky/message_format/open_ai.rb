@@ -195,10 +195,16 @@ module Clacky
       # ── Private helpers ───────────────────────────────────────────────────────
 
       # Returns the token-limit field name for the given model.
-      # Most OpenAI-compatible APIs use :max_tokens; MiMo-V2.5 (Xiaomi) uses
-      # :max_completion_tokens to cap the combined thinking + answer length.
+      # Most OpenAI-compatible APIs use :max_tokens; MiMo-V2.5 (Xiaomi) and
+      # MiniMax-M3 use :max_completion_tokens to cap the combined thinking +
+      # answer length (M3 documents max_completion_tokens over the legacy
+      # max_tokens field).
       private_class_method def self.token_field_for(model)
-        model.to_s.match?(/^mimo-v2/i) ? :max_completion_tokens : :max_tokens
+        if model.to_s.match?(/^mimo-v2/i) || model.to_s.match?(/^minimax-m3$/i)
+          :max_completion_tokens
+        else
+          :max_tokens
+        end
       end
 
       # Apply model-specific reasoning / thinking parameters to the request body.
@@ -255,6 +261,23 @@ module Clacky
             body[:thinking] = { type: "disabled" }
           elsif !effort_str.empty?
             body[:thinking] = { type: "enabled" }
+          end
+        elsif model.to_s.match?(/^minimax-m3$/i)
+          # MiniMax-M3 controls thinking via a top-level "thinking" field with
+          # { type: "adaptive" | "disabled" } — the same envelope shape MiMo
+          # uses, but with MiniMax-specific values. Adaptive thinking is the
+          # server default when the field is omitted, so we only send the
+          # field to explicitly switch modes:
+          #   - reasoning_effort "off"/"disabled"  → thinking disabled
+          #     (M3 answers directly; M2.7 keeps thinking on regardless).
+          #   - any other effort                   → adaptive thinking (M3
+          #     decides per request); we let the server pick the intensity.
+          # M2.7 cannot disable thinking and ignores this field, so sending
+          # it is harmless for the rest of the MiniMax lineup.
+          if %w[off nothink disabled].include?(effort_str)
+            body[:thinking] = { type: "disabled" }
+          elsif !effort_str.empty?
+            body[:thinking] = { type: "adaptive" }
           end
         elsif reasoning_effort && !effort_str.empty?
           body[:reasoning_effort] = effort_str

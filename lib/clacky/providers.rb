@@ -250,28 +250,35 @@ module Clacky
 
       "minimax" => {
         "name" => "Minimax",
-        "base_url" => "https://api.minimaxi.com/v1",
+        "base_url" => "https://api.minimax.io/v1",
         "api" => "openai-completions",
         "default_model" => "MiniMax-M3",
-        "models" => ["MiniMax-M3", "MiniMax-M2.7", "MiniMax-M2.5"],
+        "models" => ["MiniMax-M3", "MiniMax-M2.7"],
         # MiniMax operates two regional endpoints with identical APIs & model
-        # lineup — mainland China (.com) and international (.io). Listing both
-        # lets find_by_base_url identify either one as provider "minimax",
-        # so capability checks (vision=false) fire correctly regardless of
-        # which endpoint the user configured.
+        # lineup — international (.io) and mainland China (.com). Each region
+        # exposes both an OpenAI-compatible /v1 base URL and an
+        # Anthropic-compatible /anthropic base URL for the same models, so both
+        # URLs per region are listed. find_by_base_url matches any of them as
+        # provider "minimax", so capability checks (vision=false) fire
+        # correctly regardless of which endpoint the user configured.
         "endpoint_variants" => [
-          { "label" => "Mainland China", "label_key" => "settings.models.baseurl.variant.mainland_cn",    "base_url" => "https://api.minimaxi.com/v1", "region" => "cn"   }.freeze,
-          { "label" => "International",  "label_key" => "settings.models.baseurl.variant.international",  "base_url" => "https://api.minimax.io/v1",   "region" => "intl" }.freeze
+          { "label" => "International · OpenAI", "label_key" => "settings.models.baseurl.variant.international_openai", "base_url" => "https://api.minimax.io/v1",       "region" => "intl" }.freeze,
+          { "label" => "International · Anthropic", "label_key" => "settings.models.baseurl.variant.international_anthropic", "base_url" => "https://api.minimax.io/anthropic", "region" => "intl" }.freeze,
+          { "label" => "Mainland China · OpenAI", "label_key" => "settings.models.baseurl.variant.mainland_cn_openai", "base_url" => "https://api.minimaxi.com/v1",       "region" => "cn"   }.freeze,
+          { "label" => "Mainland China · Anthropic", "label_key" => "settings.models.baseurl.variant.mainland_cn_anthropic", "base_url" => "https://api.minimaxi.com/anthropic", "region" => "cn"   }.freeze
         ].freeze,
-        # MiniMax M2.x does not support multimodal/vision input on this endpoint.
-        # M3 (released 2026-06-01) is natively multimodal and accepts image
-        # input, so it overrides the provider-level vision=false below.
+        # MiniMax M2.7 is text-only on this endpoint. M3 (released 2026-06-01)
+        # is natively multimodal — it accepts both image and video input
+        # (OpenAI-style image_url / video_url content parts on the OpenAI
+        # endpoint, and native Anthropic image/video blocks on the /anthropic
+        # endpoint) — so it overrides the provider-level vision=false below.
+        # M3 exposes a 1,000,000-token context window (M2.7: 204,800).
         "capabilities" => { "vision" => false }.freeze,
         "model_capabilities" => {
           "MiniMax-M3" => { "vision" => true }.freeze
         }.freeze,
         "default_ocr_model" => "MiniMax-M3",
-        "website_url" => "https://www.minimaxi.com/user-center/basic-information/interface-key"
+        "website_url" => "https://platform.minimax.io/"
       }.freeze,
 
       "kimi" => {
