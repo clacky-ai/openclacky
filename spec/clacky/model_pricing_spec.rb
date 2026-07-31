@@ -637,16 +637,14 @@ RSpec.describe Clacky::ModelPricing do
   # Source: https://platform.minimax.io/docs/api-reference/api-overview
   # (Pay-as-You-Go)
   describe "MiniMax pricing" do
-    it "returns N/A for retired MiniMax models (M2.5 is no longer listed)" do
-      # MiniMax-M2.5 was removed from the lineup (only M3 and M2.7 remain in
-      # providers.rb), so it must fall through to nil cost instead of
-      # silently borrowing a neighbouring model's rate.
+    it "bills MiniMax-M2.5 at its list price" do
+      # MiniMax-M2.5 is still listed on https://www.minimax.io/models/text
+      # and available via the API (MiniMax-M2.5 and MiniMax-M2.5-highspeed).
       result = described_class.calculate_cost(
         model: "MiniMax-M2.5",
         usage: { prompt_tokens: 1_000_000, completion_tokens: 0 }
       )
-      expect(result[:cost]).to be_nil,   "expected N/A for MiniMax-M2.5, got #{result[:cost]}"
-      expect(result[:source]).to be_nil, "expected nil source for MiniMax-M2.5, got #{result[:source]}"
+      expect(result[:cost]).to be_within(0.01).of(0.30)
     end
 
     it "bills MiniMax-M2.7 with its higher cache-read rate" do
@@ -802,7 +800,7 @@ RSpec.describe Clacky::ModelPricing do
     end
 
     it "returns nil cost for unregistered MiniMax variants" do
-      %w[minimax-m2.5-highspeed minimax-m2.5 m2-her minimax-abab6].each do |m|
+      %w[m2-her minimax-abab6].each do |m|
         result = described_class.calculate_cost(
           model: m,
           usage: { prompt_tokens: 1_000_000, completion_tokens: 0 }

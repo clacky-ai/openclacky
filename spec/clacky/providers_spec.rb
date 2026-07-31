@@ -392,41 +392,29 @@ RSpec.describe Clacky::Providers do
     end
 
     context "MiniMax regional endpoints" do
-      it "recognises mainland China OpenAI endpoint (.com)" do
+      it "recognises mainland China endpoint (.com)" do
         expect(described_class.find_by_base_url("https://api.minimaxi.com/v1"))
           .to eq("minimax")
       end
 
-      it "recognises mainland China Anthropic endpoint (.com)" do
-        expect(described_class.find_by_base_url("https://api.minimaxi.com/anthropic"))
-          .to eq("minimax")
-      end
-
-      it "recognises international OpenAI endpoint (.io)" do
+      it "recognises international endpoint (.io)" do
         expect(described_class.find_by_base_url("https://api.minimax.io/v1"))
-          .to eq("minimax")
-      end
-
-      it "recognises international Anthropic endpoint (.io)" do
-        expect(described_class.find_by_base_url("https://api.minimax.io/anthropic"))
           .to eq("minimax")
       end
 
       it "enforces vision=false on every regional endpoint" do
         [
           "https://api.minimaxi.com/v1",
-          "https://api.minimaxi.com/anthropic",
-          "https://api.minimax.io/v1",
-          "https://api.minimax.io/anthropic"
+          "https://api.minimax.io/v1"
         ].each do |url|
           expect(described_class.supports?(described_class.find_by_base_url(url), :vision))
             .to be(false), "expected vision=false at #{url}"
         end
       end
 
-      it "lists the current lineup (M3 + M2.7) and M3 overrides vision" do
+      it "lists the current lineup (M3 + M2.7 + M2.5) and M3 overrides vision" do
         preset = described_class::PRESETS["minimax"]
-        expect(preset["models"]).to eq(["MiniMax-M3", "MiniMax-M2.7"])
+        expect(preset["models"]).to eq(["MiniMax-M3", "MiniMax-M2.7", "MiniMax-M2.5"])
         expect(described_class.supports?("minimax", :vision, model_name: "MiniMax-M3"))
           .to be(true)
         expect(described_class.supports?("minimax", :vision, model_name: "MiniMax-M2.7"))

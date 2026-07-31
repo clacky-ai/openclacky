@@ -557,6 +557,15 @@ module Clacky
       # rest of this file; normalize_model_name() lowercases incoming model
       # names before lookup.
 
+      # M2.5 — high-throughput text model, optimised for coding and agent tasks
+      # (40,960-token context window). Listed at Pay-as-You-Go prices.
+      # Source: https://www.minimax.io/models/text (MiniMax-M2.5 product page).
+      "minimax-m2.5" => {
+        input:  { default: 0.30, over_200k: 0.30 },
+        output: { default: 1.20, over_200k: 1.20 },
+        cache:  { write: 0.30, read: 0.03 }
+      },
+
       # M3 (released 2026-06-01) is MiniMax's multimodal flagship (image +
       # video input, 1,000,000-token context window). Official pricing is
       # tiered by context length (≤512K vs 512K–1M); per the project's
@@ -852,6 +861,8 @@ module Clacky
           "minimax-m3"
         when /^minimax-m2\.7$/i
           "minimax-m2.7"
+        when /^minimax-m2\.5(-highspeed)?$/i
+          "minimax-m2.5"
 
         # Qwen (Alibaba DashScope) — strict anchored match per registered
         # model id in providers.rb. qwen3.7-* is the latest flagship line;
