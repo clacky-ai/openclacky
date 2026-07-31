@@ -105,7 +105,7 @@ RSpec.describe "Agent file processing" do
         injected = agent.history.to_a.select { |e| e[:system_injected] }.last
         expect(injected[:content]).to include("Parse failed: pdftotext: command not found")
         expect(injected[:content]).to include("Action required: fix the parser at #{parser_path}")
-        expect(injected[:content]).to include("ruby #{parser_path} #{path}")
+        expect(injected[:content]).to include("#{RbConfig.ruby} #{parser_path} #{path}")
       end
     end
 

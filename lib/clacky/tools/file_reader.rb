@@ -402,8 +402,9 @@ module Clacky
         message_lines << "Parser error: #{ref.parse_error}" if ref.parse_error
         if ref.parser_path
           expected_preview = "#{path}.preview.md"
+          interp = Utils::ParserManager.interpreter_for(File.basename(ref.parser_path))
           message_lines << "Parser script: #{ref.parser_path}"
-          message_lines << "To fix: edit the parser, then run: ruby #{ref.parser_path} #{path} > #{expected_preview}"
+          message_lines << "To fix: edit the parser, then run: #{interp} #{ref.parser_path} #{path} > #{expected_preview}"
           message_lines << "After a successful parse, re-run file_reader on this file."
         end
         {

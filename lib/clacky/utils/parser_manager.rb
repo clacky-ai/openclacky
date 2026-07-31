@@ -26,8 +26,8 @@ module Clacky
         ".pdf"  => "pdf_parser.rb",
         ".doc"  => "doc_parser.rb",
         ".docx" => "docx_parser.rb",
-        ".xlsx" => "xlsx_parser.rb",
-        ".xls"  => "xlsx_parser.rb",
+        ".xlsx" => "xlsx_parser.py",
+        ".xls"  => "xlsx_parser.py",
         ".pptx" => "pptx_parser.rb",
         ".ppt"  => "pptx_parser.rb",
         ".wps"  => "wps_parser.rb",
@@ -35,7 +35,17 @@ module Clacky
         ".dps"  => "wps_parser.rb",
       }.freeze
 
-      # Ensure ~/.clacky/parsers/ exists and all default parsers are present.
+      # Map a parser script's extension to the interpreter that runs it.
+      # Lets PARSER_FOR point at scripts in any language (see extract_version).
+      INTERPRETER_FOR = { ".rb" => RbConfig.ruby, ".py" => "python3" }.freeze
+
+      # Third-party libraries a given Python parser needs at runtime.
+      PYTHON_PARSER_LIBS = { "xlsx_parser.py" => "openpyxl" }.freeze
+
+      # Hard ceiling on how long a single parser subprocess may run. A runaway
+      # parser (huge/malformed file) is killed rather than hanging the caller
+      # forever and starving the machine.
+      PARSE_TIMEOUT = 60
       # Called at Agent startup (idempotent — safe to run every time).
       #
       # Copies every file from default_parsers/ (not just the entry-point .rb
@@ -137,23 +147,121 @@ module Clacky
                    parser_path: parser_path }
         end
 
-        raw_stdout, raw_stderr, status = Open3.capture3(RbConfig.ruby, parser_path, file_path)
+        interpreter = interpreter_for(script)
+
+        # Python parsers need Python + their libs present before parsing.
+        # ensure_python_deps returns an error string if python3 is missing or
+        # a lib can't be installed — the caller surfaces it as parse_error.
+        if interpreter == "python3"
+          dep_error = ensure_python_deps(script)
+          return { success: false, text: nil, error: dep_error, parser_path: parser_path } if dep_error
+        end
+
+        raw_stdout, raw_stderr, status =
+          capture3_with_timeout(interpreter, parser_path, file_path, timeout: PARSE_TIMEOUT)
 
         # capture3 returns ASCII-8BIT across the subprocess boundary on Ruby 2.6+.
         # Normalise both streams to UTF-8 immediately so all downstream code is clean.
-        stdout = Clacky::Utils::Encoding.to_utf8(raw_stdout)
-        stderr = Clacky::Utils::Encoding.to_utf8(raw_stderr)
+        stdout = Clacky::Utils::Encoding.to_utf8(raw_stdout.to_s)
+        stderr = Clacky::Utils::Encoding.to_utf8(raw_stderr.to_s)
 
         # Filter out Ruby/Bundler version warnings that pollute stderr
         clean_stderr = stderr.lines.reject { |l| l.match?(/warning:|already initialized constant/) }.join.strip
 
-        if status.success? && stdout.strip.length > 0
+        if status == :timeout
+          { success: false, text: nil,
+            error: "Parser timed out after #{PARSE_TIMEOUT}s (file too large or malformed)",
+            parser_path: parser_path }
+        elsif status.success? && stdout.strip.length > 0
           { success: true, text: stdout.strip, error: nil, parser_path: parser_path }
         else
           { success: false, text: nil,
             error: clean_stderr.empty? ? "Parser exited with code #{status.exitstatus}" : clean_stderr,
             parser_path: parser_path }
         end
+      end
+
+      # Map a parser script to its interpreter (Ruby, Python, ...).
+      def self.interpreter_for(script)
+        INTERPRETER_FOR[File.extname(script)] || RbConfig.ruby
+      end
+
+      # Run a subprocess with a hard timeout. On timeout the whole process
+      # GROUP is killed (TERM, 2s grace, then KILL) so grandchildren spawned
+      # by the parser die too. Mirrors mcp/stdio_transport.rb's kill sequence.
+      #
+      # Returns [stdout, stderr, status] — status is a Process::Status on
+      # normal exit, or the symbol :timeout when the subprocess was killed.
+      def self.capture3_with_timeout(*cmd, timeout:)
+        stdin, stdout, stderr, wait_thr = Open3.popen3(*cmd, pgroup: true)
+        stdin.close
+        pgid = Process.getpgid(wait_thr.pid)
+
+        out_thr = Thread.new { stdout.read }
+        err_thr = Thread.new { stderr.read }
+
+        if wait_thr.join(timeout)
+          [out_thr.value, err_thr.value, wait_thr.value]
+        else
+          kill_process_group(pgid)
+          out_thr.kill
+          err_thr.kill
+          [nil, "timed out", :timeout]
+        end
+      ensure
+        [stdout, stderr].each { |io| io&.close rescue nil }
+      end
+
+      # Terminate a process group: TERM, wait up to 2s, then KILL.
+      def self.kill_process_group(pgid)
+        Process.kill("TERM", -pgid)
+      rescue Errno::ESRCH, Errno::EPERM
+      else
+        deadline = Time.now + 2
+        sleep 0.05 while process_group_alive?(pgid) && Time.now < deadline
+        begin
+          Process.kill("KILL", -pgid) if process_group_alive?(pgid)
+        rescue Errno::ESRCH, Errno::EPERM
+        end
+      end
+
+      def self.process_group_alive?(pgid)
+        Process.kill(0, -pgid)
+        true
+      rescue Errno::ESRCH, Errno::EPERM
+        false
+      end
+
+      # Ensure Python 3 and the libs a Python parser needs are present,
+      # installing on demand. Returns nil on success, or an error string.
+      #
+      # If python3 is missing, returns an error instructing the caller (the
+      # LLM via terminal tool) to run install_system_deps.sh --clt-only — we
+      # do NOT run it here because it blocks for 100+ seconds (CLT download).
+      # If python3 exists, probe + install the missing lib via pip --user.
+      def self.ensure_python_deps(script)
+        lib = PYTHON_PARSER_LIBS[script]
+
+        unless python3_available?
+          return "Python 3 is required to parse this file. " \
+                 "Run: bash ~/.clacky/scripts/install_system_deps.sh --clt-only\n" \
+                 "Then retry."
+        end
+
+        return nil if lib.nil? || python_lib_present?(lib)
+        pip_install(lib) ? nil : "Failed to install #{lib} (required to parse this file)."
+      end
+
+      def self.python3_available?
+        system("python3", "--version", out: File::NULL, err: File::NULL)
+      end
+
+      def self.python_lib_present?(lib)
+        system("python3", "-c", "import #{lib}", out: File::NULL, err: File::NULL)
+      end
+
+      def self.pip_install(lib)
+        system("python3", "-m", "pip", "install", "--user", lib, out: File::NULL, err: File::NULL)
       end
 
       # Returns the path to a parser script for a given extension.
