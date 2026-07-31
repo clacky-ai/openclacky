@@ -16,12 +16,18 @@ module Clacky
           content: {
             type: "string",
             description: "The content to write to the file"
+          },
+          mode: {
+            type: "string",
+            enum: %w[overwrite append],
+            default: "overwrite",
+            description: "Write mode: 'overwrite' replaces entire file, 'append' adds to end"
           }
         },
         required: %w[path content]
       }
 
-      def execute(path:, content:, working_dir: nil)
+      def execute(path:, content:, mode: "overwrite", working_dir: nil)
         # Validate path
         if path.nil? || path.strip.empty?
           return { error: "Path cannot be empty" }
@@ -36,7 +42,11 @@ module Clacky
           FileUtils.mkdir_p(dir) unless Dir.exist?(dir)
 
           # Write content to file
-          File.write(path, content)
+          if mode == "append"
+            File.open(path, "a") { |f| f.write(content) }
+          else
+            File.write(path, content)
+          end
 
           {
             path: File.expand_path(path),
