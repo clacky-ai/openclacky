@@ -3493,7 +3493,18 @@ body {
   color: var(--color-text-secondary);
   font-weight: 600;
   margin-bottom: 0.25rem;
+  cursor: pointer;
+  user-select: none;
 }
+.todo-header:hover { color: var(--color-text-primary); }
+.todo-toggle {
+  display: inline-block;
+  font-size: 0.7rem;
+  transition: transform 0.15s ease;
+}
+.todo-panel.collapsed .todo-list { display: none; }
+.todo-panel.collapsed .todo-toggle { transform: rotate(-90deg); }
+.todo-panel.collapsed .todo-header { margin-bottom: 0; }
 .todo-count {
   font-weight: 400;
   color: var(--color-text-muted, var(--color-text-tertiary));
