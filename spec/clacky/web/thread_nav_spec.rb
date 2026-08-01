@@ -87,19 +87,45 @@ RSpec.describe "Thread navigation rail" do
     end
   end
 
-  # ─── Hover preview (CSS-driven) ────────────────────────────────────────────
+  # ─── Hover preview (global tooltip portal) ─────────────────────────────────
 
   describe "hover preview card" do
-    it "creates a preview card element in JS" do
+    it "creates a global tooltip portal element in JS" do
+      expect(js_source).to include("thread-nav-tooltip"),
+        "must create a #thread-nav-tooltip portal element"
+    end
+
+    it "appends the tooltip to document body (not inside the rail)" do
+      expect(js_source).to match(/document\.body\.appendChild.*tooltip|body\.appendChild.*_tooltip/m),
+        "tooltip must be appended to <body> so the rail's overflow never clips it"
+    end
+
+    it "assigns the thread-nav-card class to the tooltip" do
       expect(js_source).to include("thread-nav-card")
     end
 
-    it "defines the card as a child of the marker (for CSS :hover)" do
-      expect(js_source).to match(/item\.appendChild|item\.insertAdjacent|card/)
+    it "uses mouseenter / mouseleave to show and hide the tooltip" do
+      expect(js_source).to match(/mouseenter/),
+        "must listen for mouseenter to show the preview"
+      expect(js_source).to match(/mouseleave/),
+        "must listen for mouseleave to hide the preview"
     end
 
-    it "CSS shows the card on marker hover" do
-      expect(css_source).to match(/\.thread-nav-item:hover\s+\.thread-nav-card|\.thread-nav-item:hover\s*\{/)
+    it "toggles a .visible class on the tooltip (not CSS :hover)" do
+      expect(js_source).to match(/classList\.add\(\s*["']visible["']\)|classList\.add.*visible/),
+        "must add the .visible class when showing the tooltip"
+      expect(js_source).to match(/classList\.remove\(\s*["']visible["']\)|classList\.remove.*visible/),
+        "must remove the .visible class when hiding the tooltip"
+    end
+
+    it "positions the tooltip via JS (left/top), not CSS positioning" do
+      expect(js_source).to match(/\.style\.left|\.style\.top|getBoundingClientRect/),
+        "must compute tooltip position from the marker's bounding rect"
+    end
+
+    it "CSS defines the visible state via a .visible class on the tooltip" do
+      expect(css_source).to match(/thread-nav-tooltip.*\.visible|thread-nav-card\.visible|\.visible\s*\{/),
+        "CSS must define the .visible class for showing the tooltip"
     end
   end
 
@@ -141,8 +167,9 @@ RSpec.describe "Thread navigation rail" do
       expect(css_source).to match(/\.thread-nav-dash\s*\{/)
     end
 
-    it "defines the preview card style" do
-      expect(css_source).to match(/\.thread-nav-card\s*\{/)
+    it "defines the preview card style (portal tooltip)" do
+      expect(css_source).to match(/thread-nav-tooltip.*thread-nav-card|\.thread-nav-card/),
+        "CSS must style the #thread-nav-tooltip.thread-nav-card element"
     end
 
     it "defines the active marker style" do
