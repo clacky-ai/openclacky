@@ -4,6 +4,32 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
+## [1.5.4] - 2026-08-01
+
+### Added
+- Project management: create, manage, and switch between projects
+- Claude Sonnet 5 and Opus 5 models with pricing
+- Desktop notifications for background task completion
+- Configurable platform source and branding restoration
+- Hidden flag on create_session API (#403)
+- MiniMax preset refreshed with Anthropic endpoints, M3 thinking, and current lineup (#402)
+
+### Improved
+- File upload size limit increased from 32 MB to 300 MB
+- Dir picker UX: breadcrumb overflow scroll, row spacing, and padding
+- Session-sidebar collapse button appearance matches opener button
+
+### Fixed
+- XLSX parser switched to Python/openpyxl with 60s timeout kill for reliable parsing (C-5656)
+- Panel agents map missing general profile on first load
+- Stale result on first load due to container extension script execution order
+- Page now reloads after deleting local extension in ext-studio
+- Accent color used for extensions filter tab active underline
+- Missing pricing for Claude Sonnet 5 and Opus 5
+- Docker image builds from source and publishes to GHCR on version tags
+- Session list page size reduced from 20 to 15 for better performance
+- MiniMax-M2.5 restored, default base_url reverted to mainland
+
 ## [1.5.3] - 2026-07-28
 
 ### Added
