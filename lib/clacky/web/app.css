@@ -2568,6 +2568,107 @@ body {
 #chat-panel { flex: 1; display: flex; flex-direction: row; overflow: hidden; position: relative; }
 #chat-main { flex: 1; display: flex; flex-direction: column; overflow: hidden; position: relative; min-width: 0; }
 
+/* ── In-thread navigation rail ─────────────────────────────────────────────
+   A slim vertical strip of dash markers pinned to the left edge of the chat
+   column. One dash per user turn; hovering reveals a preview card with the
+   question and the first lines of the AI reply. Clicking a dash scrolls
+   the corresponding message into view.
+
+   Purely presentational — the rail renders itself from the DOM and hides
+   when there is nothing to show (.thread-nav-empty / .thread-nav-hidden). */
+.thread-nav {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 18px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 6px;
+  padding: 24px 0;
+  z-index: 30;
+  pointer-events: none; /* dashes re-enable on a per-item basis */
+  background: linear-gradient(to right,
+              var(--color-bg-primary, #fff) 0%,
+              transparent 100%);
+  opacity: 0.65;
+  transition: opacity 0.15s ease;
+}
+.thread-nav:hover { opacity: 1; }
+.thread-nav.thread-nav-empty,
+.thread-nav.thread-nav-hidden { display: none; }
+
+.thread-nav-item {
+  position: relative;
+  height: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.thread-nav-dash {
+  width: 6px;
+  height: 1px;
+  border-radius: 0.5px;
+  background: var(--color-text-tertiary, #9ca3af);
+  transition: width 0.12s ease, background 0.12s ease;
+}
+.thread-nav-item:hover .thread-nav-dash,
+.thread-nav-item.thread-nav-active .thread-nav-dash {
+  width: 10px;
+  background: var(--color-accent, #6366f1);
+}
+
+/* Preview card — hidden by default, slides in on hover. */
+.thread-nav-card {
+  position: absolute;
+  left: 22px;
+  top: 50%;
+  transform: translateY(-50%) translateX(-4px);
+  min-width: 220px;
+  max-width: 320px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--color-bg-secondary, #ffffff);
+  border: 1px solid var(--color-border-primary, #e5e7eb);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.12);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s ease, transform 0.12s ease;
+  z-index: 40;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--color-text-primary, #111827);
+}
+.thread-nav-item:hover .thread-nav-card {
+  opacity: 1;
+  transform: translateY(-50%) translateX(0);
+  pointer-events: auto;
+}
+
+.thread-nav-q {
+  font-weight: 600;
+  margin-bottom: 4px;
+  color: var(--color-text-primary, #111827);
+  word-break: break-word;
+}
+.thread-nav-a {
+  color: var(--color-text-secondary, #4b5563);
+  margin-bottom: 4px;
+  word-break: break-word;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.thread-nav-time {
+  font-size: 11px;
+  color: var(--color-text-tertiary, #9ca3af);
+}
+
 /* ── Session extension slots (agent-scoped panels mount here) ───────────────
    Each slot is laid out by the host; an empty slot collapses to zero so it
    never reserves space when no panel is mounted for the current agent. */
@@ -2793,7 +2894,7 @@ body {
   flex: 1;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 1.75rem 1.25rem 1.25rem;
+  padding: 1.75rem 1.25rem 1.25rem 22px;
   display: flex;
   flex-direction: column;
   gap: 0.75rem;

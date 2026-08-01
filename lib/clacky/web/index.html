@@ -473,6 +473,9 @@
 
       <!-- Chat column (messages + info bar + input) -->
       <div id="chat-main">
+      <!-- In-thread navigation rail (left edge). One dash per user turn;
+           hover for a preview card, click to jump. Rendered by thread-nav.js. -->
+      <nav id="thread-nav" class="thread-nav" aria-label="Thread navigation"></nav>
       <!-- Banner slot: agent-scoped notices/toolbars above the message stream. -->
       <div id="ext-slot-session-banner" class="session-banner" data-slot="session.banner"></div>
       <div id="messages" class="chat-messages-scroll"></div>
@@ -1623,6 +1626,7 @@
 <script src="/ws-dispatcher.js"></script>
 <script src="/sessions.js"></script>
 <script src="/projects.js"></script>
+<script src="/thread-nav.js"></script>
 <script src="/features/workspace/store.js"></script>
 <script src="/features/workspace/view.js"></script>
 <script src="/components/datepicker.js"></script>
