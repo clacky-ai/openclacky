@@ -2584,17 +2584,20 @@ body {
   width: 18px;
   display: flex;
   flex-direction: column;
-  justify-content: center;
+  justify-content: flex-start; /* center would clip overflow on long chats */
   gap: 6px;
   padding: 24px 0;
   z-index: 30;
-  pointer-events: none; /* dashes re-enable on a per-item basis */
+  overflow-y: auto;            /* scroll when dashes exceed the column height */
+  pointer-events: auto;        /* allow the rail itself to receive scroll */
+  scrollbar-width: none;       /* hide scrollbar (Firefox) */
   background: linear-gradient(to right,
               var(--color-bg-primary, #fff) 0%,
               transparent 100%);
   opacity: 0.65;
   transition: opacity 0.15s ease;
 }
+.thread-nav::-webkit-scrollbar { display: none; } /* hide scrollbar (Chrome/Safari) */
 .thread-nav:hover { opacity: 1; }
 .thread-nav.thread-nav-empty,
 .thread-nav.thread-nav-hidden { display: none; }
@@ -2628,8 +2631,8 @@ body {
   left: 22px;
   top: 50%;
   transform: translateY(-50%) translateX(-4px);
-  min-width: 220px;
-  max-width: 320px;
+  min-width: 180px;
+  max-width: min(320px, calc(100vw - 44px));
   padding: 10px 12px;
   border-radius: 8px;
   background: var(--color-bg-secondary, #ffffff);
