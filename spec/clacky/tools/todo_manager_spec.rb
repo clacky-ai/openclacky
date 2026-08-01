@@ -81,6 +81,22 @@ RSpec.describe Clacky::Tools::TodoManager do
         expect(result[:todos][1][:task]).to eq("Task 2")
       end
 
+      it "flattens a nested task array into individual todos" do
+        # Regression: some models emit task as a nested array
+        # (e.g. [["a","b"]]); without flattening the inner array was
+        # stringified into one bogus task whose text looks like ["a","b"].
+        storage = []
+        result = tool.execute(
+          action: "add",
+          task: [["Task A", "Task B", "Task C"]],
+          todos_storage: storage
+        )
+
+        expect(result[:todos].size).to eq(3)
+        expect(result[:todos].map { |t| t[:task] }).to eq(["Task A", "Task B", "Task C"])
+        expect(storage.size).to eq(3)
+      end
+
       it "tolerates unknown extra keyword args (e.g. legacy clients)" do
         storage = []
         # **_extra should swallow these without raising

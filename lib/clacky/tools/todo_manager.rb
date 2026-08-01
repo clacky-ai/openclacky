@@ -135,8 +135,12 @@ module Clacky
       end
 
       def add_todos(tasks_input)
-        # tasks_input is already a normalized array (possibly empty)
+        # tasks_input is already a normalized array (possibly empty).
+        # Flatten guards against nested arrays (e.g. [["a","b"]]) that some
+        # models emit — without this the inner array would be stringified into
+        # a single bogus task whose text looks like ["a","b"].
         tasks_to_add = Array(tasks_input)
+                       .flatten
                        .map { |t| t.is_a?(String) ? t.strip : t.to_s.strip }
                        .reject(&:empty?)
 
