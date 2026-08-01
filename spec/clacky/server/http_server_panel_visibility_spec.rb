@@ -22,6 +22,7 @@ RSpec.describe Clacky::Server::HttpServer, "extension panel visibility" do
   after do
     [builtin, installed, local].each { |d| FileUtils.remove_entry(d) if Dir.exist?(d) }
     Clacky::ExtensionLoader.instance_variable_set(:@last_result, nil)
+    Clacky::ExtensionLoader.instance_variable_set(:@last_fingerprint, nil)
   end
 
   def make_ext(root, ext_id, manifest, files = {})
@@ -35,10 +36,16 @@ RSpec.describe Clacky::Server::HttpServer, "extension panel visibility" do
     end
   end
 
+  # Load the test fixture layers and pin the result so that the implementation's
+  # internal `ExtensionLoader.load_all` (called without args from panel_agents_map)
+  # doesn't blow away our test fixtures by rescanning the real default layers.
   def reload_layers
-    Clacky::ExtensionLoader.load_all(
-      layers: { builtin: builtin, installed: installed, local: local }
+    result = Clacky::ExtensionLoader.load_all(
+      layers: { builtin: builtin, installed: installed, local: local },
+      force: true
     )
+    allow(Clacky::ExtensionLoader).to receive(:load_all).and_return(result)
+    result
   end
 
   def stub_agent_profiles(map)
