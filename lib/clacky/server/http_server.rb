@@ -1123,16 +1123,19 @@ module Clacky
       end
 
       # Build the full <script> payload injected at {{EXT_SCRIPTS}}:
-      #   1. panel→agents registry (which agent profiles reference each panel)
-      #   2. agent-scoped UI     — user ~/.clacky/agents/<name>/webui/**/*.js (data-agent)
-      #   3. ext.yml containers  — panel view.js served from /ext_ui/
+      #   1. ext.yml containers  — panel view.js served from /ext_ui/
+      #      (also triggers ExtensionLoader.load_all, refreshing @last_result)
+      #   2. panel→agents registry (which agent profiles reference each panel)
+      #      (reads last_result — must come AFTER container_ext_script_tags so
+      #       it sees the freshly scanned result, not a stale one)
+      #   3. agent-scoped UI     — user ~/.clacky/agents/<name>/webui/**/*.js (data-agent)
       # Never raises.
       private def webui_ext_script_tags
         [
+          container_ext_script_tags,
           panel_agents_script,
           ext_contributions_script,
           agent_webui_script_tags,
-          container_ext_script_tags,
         ].reject(&:empty?).join("\n")
       end
 
@@ -1208,13 +1211,13 @@ module Clacky
         result = Hash.new { |h, k| h[k] = [] }
         add = ->(pid, agent) { result[pid] << agent unless result[pid].include?(agent) }
 
-        # Force a fresh load_all so last_result is up-to-date before we read it
-        # below. Without this, panel_agents_script (the first thing rendered in
-        # webui_ext_script_tags) would use a stale last_result while
-        # container_ext_script_tags (called later) would trigger the real rescan —
-        # causing registerPanelAgents to miss newly-created extensions on the very
-        # first page load after they are written to disk.
-        Clacky::ExtensionLoader.load_all
+        # Use the cached last_result (populated by the load_all call in
+        # container_ext_script_tags which is always called in the same
+        # webui_ext_script_tags render pass).  Calling load_all() here with
+        # no arguments would overwrite @last_result with a default-layer scan,
+        # clobbering any test-injected result and causing panel attach: to
+        # silently produce empty lists.
+        ext_result = Clacky::ExtensionLoader.last_result
 
         agent_data = agent_profile_data
         agent_data.each do |name, data|
@@ -1230,7 +1233,7 @@ module Clacky
         # that have no custom agent assigned.  Without this, attach: [\"*\"] panels
         # would never appear in general-profile sessions when no named agent dirs exist.
         all_agent_ids = (agent_data.keys + ["general"]).uniq
-        Array(Clacky::ExtensionLoader.last_result&.panels).each do |unit|
+        Array(ext_result&.panels).each do |unit|
           full_id = "#{unit.ext_id}/#{unit.id}"
           attach = Array(unit.spec["attach"])
           next if attach.empty?
