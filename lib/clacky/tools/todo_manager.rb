@@ -97,6 +97,7 @@ module Clacky
         @todos.replace(todos)
       end
 
+
       def add_todo(task_input)
         return { error: "Task description is required" } if task_input.nil? || task_input.to_s.strip.empty?
 
