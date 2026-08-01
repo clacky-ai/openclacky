@@ -12,7 +12,7 @@ require "clacky/server/session_registry"
 RSpec.describe Clacky::Server::SessionRegistry do
   let(:default_config) { Clacky::AgentConfig.new }
 
-  def write_session_file(dir, session_id:, name:, created_at:, pinned: false)
+  def write_session_file(dir, session_id:, name:, created_at:, pinned: false, hidden: false)
     data = {
       session_id:    session_id,
       name:          name,
@@ -22,6 +22,7 @@ RSpec.describe Clacky::Server::SessionRegistry do
       source:        "manual",
       agent_profile: "general",
       pinned:        pinned,
+      hidden:        hidden,
       messages:      [],
       stats:         { total_tasks: 0, total_cost_usd: 0.0 },
     }
@@ -299,6 +300,38 @@ RSpec.describe Clacky::Server::SessionRegistry do
         registry.instance_variable_get(:@sessions)["s1"] = { idle_timer: timer }
 
         expect { registry.shutdown_all_idle_timers }.not_to raise_error
+      end
+    end
+  end
+
+  describe "#list hidden filtering" do
+    it "excludes hidden sessions by default" do
+      Dir.mktmpdir("clacky_hidden_spec") do |dir|
+        write_session_file(dir, session_id: "sess_visible", name: "v",
+                           created_at: "2026-04-01T00:00:00+00:00")
+        write_session_file(dir, session_id: "sess_hidden", name: "h",
+                           created_at: "2026-04-02T00:00:00+00:00", hidden: true)
+
+        manager  = Clacky::SessionManager.new(sessions_dir: dir)
+        registry = described_class.new(session_manager: manager, agent_config: default_config)
+
+        ids = registry.list.map { |s| s[:id] }
+        expect(ids).to contain_exactly("sess_visible")
+      end
+    end
+
+    it "includes hidden sessions when include_hidden: true" do
+      Dir.mktmpdir("clacky_hidden_spec") do |dir|
+        write_session_file(dir, session_id: "sess_visible", name: "v",
+                           created_at: "2026-04-01T00:00:00+00:00")
+        write_session_file(dir, session_id: "sess_hidden", name: "h",
+                           created_at: "2026-04-02T00:00:00+00:00", hidden: true)
+
+        manager  = Clacky::SessionManager.new(sessions_dir: dir)
+        registry = described_class.new(session_manager: manager, agent_config: default_config)
+
+        ids = registry.list(include_hidden: true).map { |s| s[:id] }
+        expect(ids).to contain_exactly("sess_visible", "sess_hidden")
       end
     end
   end

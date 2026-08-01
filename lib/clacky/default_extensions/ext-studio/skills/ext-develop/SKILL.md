@@ -204,6 +204,10 @@ Response helpers: `json` / `text(str)` / `send_data(bytes, content_type:, filena
 - Drive sessions from the backend: `create_session(prompt:, profile:, …)`,
   `submit_task(session_id, prompt)`, `dispatch_to_session(session_id, prompt)` (runs a
   side task on a fork and returns its reply without touching the conversation).
+- `create_session(hidden: true)` creates a session the openclacky session list hides
+  and the 200-session cleanup skips - use it for dedicated extension sessions you
+  manage yourself. Still reachable by `session_id` via `submit_task` /
+  `dispatch_to_session` / `registry.with_session`; forking resets `hidden` to false.
 - Public (no-auth) endpoints: call `public_endpoint("/path")` in the class **and** set
   `public: true` at ext.yml top level — both are required.
 
