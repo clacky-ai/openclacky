@@ -48,7 +48,7 @@ RSpec.describe "Clacky::Agent::LlmCaller context-overflow recovery" do
         result.is_a?(Exception) ? (raise result) : result
       end
 
-      def call_llm
+      def call_llm(tools_override: nil)
         nxt = @call_llm_results.shift
         nxt.is_a?(Exception) ? (raise nxt) : nxt
       end
