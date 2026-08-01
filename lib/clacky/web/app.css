@@ -2584,12 +2584,12 @@ body {
   width: 18px;
   display: flex;
   flex-direction: column;
-  justify-content: flex-start; /* center would clip overflow on long chats */
+  justify-content: flex-start; /* top-aligned so scroll reaches the last dash */
   gap: 6px;
   padding: 24px 0;
   z-index: 30;
   overflow-y: auto;            /* scroll when dashes exceed the column height */
-  pointer-events: auto;        /* allow the rail itself to receive scroll */
+  pointer-events: auto;        /* rail must capture wheel events to scroll */
   scrollbar-width: none;       /* hide scrollbar (Firefox) */
   background: linear-gradient(to right,
               var(--color-bg-primary, #fff) 0%,
@@ -2605,6 +2605,7 @@ body {
 .thread-nav-item {
   position: relative;
   height: 10px;
+  flex-shrink: 0;               /* keep fixed height; let overflow-y scroll */
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2625,14 +2626,16 @@ body {
   background: var(--color-accent, #6366f1);
 }
 
-/* Preview card — hidden by default, slides in on hover. */
-.thread-nav-card {
-  position: absolute;
-  left: 22px;
-  top: 50%;
+/* Preview card — rendered as a global portal (#thread-nav-tooltip) so it
+   is never clipped by the rail's overflow. JS sets left/top + toggles
+   .visible on mouseenter/leave. */
+#thread-nav-tooltip.thread-nav-card {
+  position: fixed;
   transform: translateY(-50%) translateX(-4px);
   min-width: 180px;
   max-width: min(320px, calc(100vw - 44px));
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
   padding: 10px 12px;
   border-radius: 8px;
   background: var(--color-bg-secondary, #ffffff);
@@ -2641,15 +2644,14 @@ body {
   opacity: 0;
   pointer-events: none;
   transition: opacity 0.12s ease, transform 0.12s ease;
-  z-index: 40;
+  z-index: 9999;
   font-size: 12px;
   line-height: 1.45;
   color: var(--color-text-primary, #111827);
 }
-.thread-nav-item:hover .thread-nav-card {
+#thread-nav-tooltip.thread-nav-card.visible {
   opacity: 1;
   transform: translateY(-50%) translateX(0);
-  pointer-events: auto;
 }
 
 .thread-nav-q {
