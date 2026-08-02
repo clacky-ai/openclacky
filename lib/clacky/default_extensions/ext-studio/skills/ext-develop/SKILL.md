@@ -132,6 +132,21 @@ when the session leaves. State survives tab switches; use this instead of module
 over the main area with its own `#ext/<id>` URL; open it with `Clacky.ext.ui.openWorkspace(id)`,
 typically from a `sidebar.nav` item mounted with `opts.workspace: id`.
 
+After registering a workspace, an extension may offer it as a homepage candidate:
+
+```js
+Clacky.ext.ui.registerHomepage("my-workbench", {
+  title: "My Workbench",
+  titleZh: "我的工作台",
+});
+```
+
+The host owns homepage resolution: exactly one candidate is used automatically, while multiple
+candidates require a host-owned user choice. Registration never selects or opens the workspace.
+Extensions must not rewrite `/#new`, intercept the host logo, or persist themselves as the user's
+choice. Use `Clacky.ext.ui.selectHomepage("native")` only from an explicit user action that asks
+to restore the native homepage.
+
 **Safe mode** — `?pure=true` makes the whole registry a no-op; never rely on side effects
 outside these calls.
 

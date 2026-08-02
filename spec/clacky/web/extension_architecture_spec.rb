@@ -227,4 +227,16 @@ RSpec.describe "WebUI extension architecture" do
       end
     end
   end
+
+  describe "extension development skill" do
+    let(:skill) do
+      File.read(File.expand_path("../../../lib/clacky/default_extensions/ext-studio/skills/ext-develop/SKILL.md", __dir__))
+    end
+
+    it "documents homepage candidate registration and conflict rules" do
+      expect(skill).to include("registerHomepage")
+      expect(skill).to include("exactly one")
+      expect(skill).to include("must not rewrite `/#new`")
+    end
+  end
 end
