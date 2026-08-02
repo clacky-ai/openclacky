@@ -956,8 +956,14 @@
             </div>
             <p class="settings-section-desc" data-i18n="settings.homepage.desc">Choose what opens when you visit the home page or click the logo.</p>
             <select id="settings-homepage-select" class="field-select">
+              <option value="auto" data-i18n="settings.homepage.auto">Automatic</option>
               <option value="native" data-i18n="settings.homepage.native">OpenClacky native page</option>
             </select>
+            <div class="settings-lang-btns">
+              <button id="btn-save-default-homepage" class="settings-lang-btn" data-i18n="settings.homepage.save">Save</button>
+              <button id="btn-restore-default-homepage" class="settings-lang-btn" data-i18n="settings.homepage.restore">Restore</button>
+            </div>
+            <div id="settings-homepage-status" class="model-test-result"></div>
           </section>
 
           <!-- Font Size section -->

@@ -60,6 +60,16 @@ RSpec.describe Clacky::Server::HttpServer, "platform source settings" do
   end
 
   describe "GET /api/config/settings" do
+    it "returns the saved default homepage preference" do
+      agent_config.default_homepage = "qingshi-workbench"
+      response = fake_response
+
+      dispatch(fake_request(method: "GET"), response)
+
+      expect(response.status).to eq(200)
+      expect(response_body(response)["default_homepage"]).to eq("qingshi-workbench")
+    end
+
     it "returns the official source when neither a saved value nor an environment override exists" do
       response = fake_response
 
@@ -103,6 +113,48 @@ RSpec.describe Clacky::Server::HttpServer, "platform source settings" do
   end
 
   describe "PATCH /api/config/settings" do
+    it "saves a default homepage without restarting" do
+      http_server = server
+      allow(http_server).to receive(:schedule_restart)
+      response = fake_response
+
+      dispatch(
+        fake_request(method: "PATCH", body: { default_homepage: "qingshi-workbench" }),
+        response
+      )
+
+      expect(response.status).to eq(200)
+      expect(response_body(response)).to include(
+        "ok" => true,
+        "default_homepage" => "qingshi-workbench"
+      )
+      expect(agent_config.default_homepage).to eq("qingshi-workbench")
+      expect(Clacky::AgentConfig.load(config_file).default_homepage).to eq("qingshi-workbench")
+      expect(http_server).not_to have_received(:schedule_restart)
+    end
+
+    it "clears the saved preference when default_homepage is null" do
+      agent_config.default_homepage = "native"
+      response = fake_response
+
+      dispatch(fake_request(method: "PATCH", body: { default_homepage: nil }), response)
+
+      expect(response.status).to eq(200)
+      expect(response_body(response)["default_homepage"]).to be_nil
+      expect(agent_config.default_homepage).to be_nil
+    end
+
+    it "rejects invalid default homepage identifiers without saving" do
+      expect(agent_config).not_to receive(:save)
+      response = fake_response
+
+      dispatch(fake_request(method: "PATCH", body: { default_homepage: "../bad route" }), response)
+
+      expect(response.status).to eq(422)
+      expect(response_body(response)["ok"]).to be(false)
+      expect(agent_config.default_homepage).to be_nil
+    end
+
     it "normalizes, saves, deactivates once, and schedules a restart when the source changes" do
       http_server = server
       brand = instance_double(Clacky::BrandConfig, deactivate!: { success: true })

@@ -1198,4 +1198,25 @@ RSpec.describe Clacky::AgentConfig do
       end
     end
   end
+
+  describe "#default_homepage" do
+    it "is nil when the user has not saved a homepage preference" do
+      expect(described_class.new.default_homepage).to be_nil
+    end
+
+    it "round-trips through YAML save/load" do
+      with_temp_config do |config_file|
+        described_class.new(models: [], default_homepage: "qingshi-workbench").save(config_file)
+
+        loaded = described_class.load(config_file)
+        expect(loaded.default_homepage).to eq("qingshi-workbench")
+      end
+    end
+
+    it "omits the setting from YAML in automatic mode" do
+      yaml = YAML.unsafe_load(described_class.new(models: []).to_yaml)
+
+      expect(yaml.fetch("settings")).not_to have_key("default_homepage")
+    end
+  end
 end

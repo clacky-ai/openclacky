@@ -5670,7 +5670,8 @@ module Clacky
           enable_prompt_caching: @agent_config.enable_prompt_caching,
           memory_update_enabled: @agent_config.memory_update_enabled,
           proxy_url: @agent_config.proxy_url.to_s,
-          clacky_license_server: effective_clacky_license_server
+          clacky_license_server: effective_clacky_license_server,
+          default_homepage: @agent_config.default_homepage
         })
       end
 
@@ -5680,10 +5681,20 @@ module Clacky
         return json_response(res, 400, { error: "Invalid JSON" }) unless body
 
         source_requested = body.key?("clacky_license_server")
+        homepage_requested = body.key?("default_homepage")
         normalized_source = nil
         if source_requested
           begin
             normalized_source = normalize_http_origin(body["clacky_license_server"])
+          rescue ArgumentError => e
+            return json_response(res, 422, { ok: false, error: e.message })
+          end
+        end
+
+        normalized_homepage = nil
+        if homepage_requested
+          begin
+            normalized_homepage = normalize_default_homepage(body["default_homepage"])
           rescue ArgumentError => e
             return json_response(res, 422, { ok: false, error: e.message })
           end
@@ -5719,6 +5730,7 @@ module Clacky
                          normalized_source != effective_clacky_license_server
         deactivate_brand! if source_changed
         @agent_config.clacky_license_server = normalized_source if source_requested
+        @agent_config.default_homepage = normalized_homepage if homepage_requested
 
         @agent_config.save
         payload = { ok: true }
@@ -5729,6 +5741,7 @@ module Clacky
             restarting: source_changed
           )
         end
+        payload[:default_homepage] = normalized_homepage if homepage_requested
         json_response(res, 200, payload)
         schedule_restart if source_changed
       rescue => e
@@ -5776,6 +5789,17 @@ module Clacky
         "#{scheme}://#{host}#{port_suffix}"
       rescue URI::InvalidURIError
         raise ArgumentError, "clacky_license_server is not a valid URL"
+      end
+
+      private def normalize_default_homepage(value)
+        return nil if value.nil?
+
+        homepage = value.to_s.strip
+        unless homepage.match?(/\A[a-zA-Z0-9][a-zA-Z0-9._-]*\z/)
+          raise ArgumentError, "default_homepage must be native, a workspace ID, or null"
+        end
+
+        homepage
       end
 
       # DEPRECATED: this endpoint previously accepted the entire models array
