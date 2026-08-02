@@ -32,13 +32,13 @@
           <path d="M9 3v18"/>
         </svg>
       </button>
-      <div id="header-brand" class="has-logo" style="cursor:pointer" onclick="Router.navigate('chat')">
+      <div id="header-brand" class="has-logo" style="cursor:pointer" onclick="Router.navigate('welcome')">
         <img class="header-logo-img" id="header-logo-img" src="/logo_nav_dark.png" alt="OpenClacky">
         <span class="header-logo-divider"></span>
         <span class="header-logo" id="header-logo">{{BRAND_NAME}}</span>
         <!-- Owner badge: visible only for creator-tier licenses (user_licensed=true).
              Clicking opens the Extension & Creation workspace. stopPropagation
-             prevents the parent #header-brand onclick (which navigates to chat). -->
+             prevents the parent #header-brand onclick (which navigates home). -->
         <button id="header-owner-badge" class="header-owner-badge" style="display:none"
                 onclick="event.stopPropagation(); Clacky.ext.ui.openWorkspace('ext-studio')"
                 title="Creator / Owner" data-i18n-title="header.owner.tooltip">OWNER</button>
