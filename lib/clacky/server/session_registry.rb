@@ -379,6 +379,7 @@ module Clacky
           pinned:        s[:pinned] || false,
           channel_info:  s[:channel_info],
           project_id:    s[:project_id],
+          todos:         s[:todos] || [],
         }
       end
 
