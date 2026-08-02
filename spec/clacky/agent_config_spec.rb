@@ -1214,7 +1214,7 @@ RSpec.describe Clacky::AgentConfig do
     end
 
     it "omits the setting from YAML in automatic mode" do
-      yaml = YAML.unsafe_load(described_class.new(models: []).to_yaml)
+      yaml = YAMLCompat.safe_load(described_class.new(models: []).to_yaml, permitted_classes: [Symbol])
 
       expect(yaml.fetch("settings")).not_to have_key("default_homepage")
     end
