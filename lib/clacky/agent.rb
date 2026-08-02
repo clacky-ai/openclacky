@@ -751,12 +751,12 @@ module Clacky
         begin
           if @ui
             @ui.with_progress(message: "Compressing message history...", style: :quiet) do |handle|
-              response = call_llm
+              response = call_llm(tools_override: [])
               handle_compression_response(response, compression_context, progress: handle)
               compression_handled = true
             end
           else
-            response = call_llm
+            response = call_llm(tools_override: [])
             handle_compression_response(response, compression_context)
             compression_handled = true
           end
@@ -1063,9 +1063,12 @@ module Clacky
           # Hook: after_tool_use
           @hooks.trigger(:after_tool_use, call, result)
 
-          # Update todos display after todo_manager execution
+          # Update todos display after todo_manager execution.
+          # Skip the broadcast for read-only "list" queries — they don't
+          # mutate state, so pushing a WS event just adds noise.
           if call[:name] == "todo_manager"
-            @ui&.update_todos(@todos.dup)
+            action = call.dig(:arguments, :action) || call.dig(:arguments, "action")
+            @ui&.update_todos(@todos.dup) unless action == "list"
           end
 
           # Special handling for request_user_feedback: emit as interactive feedback card
