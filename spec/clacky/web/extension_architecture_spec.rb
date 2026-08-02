@@ -60,6 +60,26 @@ RSpec.describe "WebUI extension architecture" do
           "ext.js must not reference host module #{host_global} directly"
       end
     end
+
+    it "exposes host-owned homepage candidate operations" do
+      expect(ext_js).to include("registerHomepage(")
+      expect(ext_js).to include("homepageCandidates(")
+      expect(ext_js).to include("selectHomepage(")
+      expect(ext_js).to include("resolveHomepage(")
+    end
+
+    it "only accepts a registered workspace as a homepage candidate" do
+      body = ext_js[/registerHomepage\(workspaceId, definition.*?\n    \},/m]
+      expect(body).not_to be_nil, "could not locate registerHomepage() body in ext.js"
+      expect(body).to include("_workspaces[workspaceId]")
+    end
+
+    it "does not navigate while registering a homepage candidate" do
+      body = ext_js[/registerHomepage\(workspaceId, definition.*?\n    \},/m]
+      expect(body).not_to be_nil, "could not locate registerHomepage() body in ext.js"
+      expect(body).not_to include("location.hash")
+      expect(body).not_to include("clacky:ext:navigate")
+    end
   end
 
   # ─── store/view layering discipline ─────────────────────────────────────────
