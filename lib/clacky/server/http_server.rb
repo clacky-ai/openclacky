@@ -2735,15 +2735,41 @@ module Clacky
       # DELETE /api/store/extension   body: { id: <slug> }
       def api_store_extension_install(req, res)
         body         = parse_json_body(req)
+        id           = body["id"].to_s.strip
+        source       = body["source"].to_s.strip
         download_url = body["download_url"].to_s.strip
         name         = body["name"].to_s.strip
 
-        if download_url.empty?
-          json_response(res, 400, { ok: false, error: "Missing download_url." })
+        if id.empty? && download_url.empty?
+          json_response(res, 400, { ok: false, error: "Missing extension id or download_url." })
           return
         end
 
-        Clacky::ExtensionPackager.install(download_url, force: true)
+        attempts = 0
+        begin
+          unless id.empty?
+            result = extension_install_detail(id, source)
+            unless result[:success] && result[:extension]
+              json_response(res, 422, { ok: false, error: result[:error] || "Extension not found." })
+              return
+            end
+
+            extension  = result[:extension]
+            download_url = extension["download_url"].to_s.strip
+            name         = extension["name"].to_s.strip
+            if download_url.empty?
+              json_response(res, 422, { ok: false, error: "No download URL available." })
+              return
+            end
+          end
+
+          Clacky::ExtensionPackager.install(download_url, force: true)
+        rescue Clacky::ExtensionPackager::Error => e
+          attempts += 1
+          retry if !id.empty? && attempts < 2 && e.message.match?(/(?:404|not found)/i)
+          raise
+        end
+
         Clacky::ExtensionLoader.invalidate_cache!
         Clacky::Telemetry.extension_install!(name) unless name.empty?
         json_response(res, 200, { ok: true, name: name })
@@ -2751,6 +2777,15 @@ module Clacky
         json_response(res, 422, { ok: false, error: e.message })
       rescue StandardError => e
         json_response(res, 500, { ok: false, error: e.message })
+      end
+
+      private def extension_install_detail(id, source)
+        brand = Clacky::BrandConfig.load
+        if source == "brand"
+          brand.brand_extension_detail!(id)
+        else
+          brand.extension_detail!(id)
+        end
       end
 
       def api_store_extension_uninstall(req, res)
