@@ -1067,7 +1067,7 @@ module Clacky
           # Skip the broadcast for read-only "list" queries — they don't
           # mutate state, so pushing a WS event just adds noise.
           if call[:name] == "todo_manager"
-            action = call.dig(:arguments, :action) || call.dig(:arguments, "action")
+            action = args[:action] || args["action"]
             @ui&.update_todos(@todos.dup) unless action == "list"
           end
 
