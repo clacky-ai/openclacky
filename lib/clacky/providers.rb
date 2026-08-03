@@ -477,6 +477,67 @@ module Clacky
         "website_url" => "https://console.volcengine.com/ark/region:cn-beijing/overview"
       }.freeze,
 
+      "ollama" => {
+        "name" => "Ollama (Cloud)",
+        # Ollama Cloud API — OpenAI-compatible endpoint serving both local and
+        # cloud models. Cloud models are available immediately without pulling.
+        # Authentication: API key via Authorization: Bearer <key> header.
+        # Create API keys at: https://ollama.com/settings/keys
+        "base_url" => "https://ollama.com/api",
+        "api" => "openai-completions",
+        "default_model" => "deepseek-v4-flash",
+        # Curated list of cloud-enabled models from the Ollama library.
+        # Users can type any Ollama model name manually; this list seeds the picker.
+        "models" => [
+          "glm-5.2",
+          "kimi-k3",
+          "gemma4",
+          "qwen3.5",
+          "glm-5.1",
+          "minimax-m2.7",
+          "nemotron-3-super",
+          "minimax-m3",
+          "kimi-k2.7-code",
+          "kimi-k2.6",
+          "deepseek-v4-flash",
+          "deepseek-v4-pro",
+          "nemotron-3-ultra",
+          "gemini-3-flash-preview",
+          "nemotron-3-nano",
+          "mistral-large-3",
+          "gpt-oss"
+        ],
+        # Provider-level default: many Ollama cloud models are vision-capable.
+        "capabilities" => { "vision" => true }.freeze,
+        # Model-level overrides: text-only models that don't accept image input.
+        "model_capabilities" => {
+          "glm-5.2"             => { "vision" => false }.freeze,
+          "glm-5.1"             => { "vision" => false }.freeze,
+          "minimax-m2.7"        => { "vision" => false }.freeze,
+          "deepseek-v4-pro"     => { "vision" => false }.freeze,
+          "deepseek-v4-flash"   => { "vision" => false }.freeze,
+          "nemotron-3-super"    => { "vision" => false }.freeze,
+          "nemotron-3-ultra"    => { "vision" => false }.freeze,
+          "nemotron-3-nano"     => { "vision" => false }.freeze,
+          "gpt-oss"             => { "vision" => false }.freeze
+        }.freeze,
+        # Per-primary lite pairing: subagents use smaller models for cheap/fast work.
+        "lite_models" => {
+          "glm-5.2"                => "glm-5.1",
+          "kimi-k3"                => "kimi-k2.6",
+          "gemma4"                 => "nemotron-3-nano",
+          "qwen3.5"                => "gemini-3-flash-preview",
+          "minimax-m3"             => "minimax-m2.7",
+          "kimi-k2.7-code"         => "kimi-k2.6",
+          "deepseek-v4-pro"        => "deepseek-v4-flash",
+          "mistral-large-3"        => "nemotron-3-nano",
+          "gpt-oss"                => "nemotron-3-nano",
+          "gemini-3-flash-preview"  => "nemotron-3-nano"
+        },
+        "default_ocr_model" => "kimi-k2.7-code",
+        "website_url" => "https://ollama.com/settings/keys"
+      }.freeze,
+
       "openai" => {
         "name" => "OpenAI (GPT)",
         "base_url" => "https://api.openai.com/v1",
