@@ -131,6 +131,71 @@ RSpec.describe Clacky::Providers do
       end
     end
 
+    context "for Ollama (Cloud) provider" do
+      it "resolves default model to deepseek-v4-flash" do
+        expect(described_class.default_model("ollama")).to eq("deepseek-v4-flash")
+      end
+
+      it "has correct base_url and api type" do
+        expect(described_class.base_url("ollama")).to eq("https://ollama.com/api")
+        expect(described_class.api_type("ollama")).to eq("openai-completions")
+      end
+
+      it "includes expected cloud models" do
+        expect(described_class.models("ollama")).to include(
+          "glm-5.2", "kimi-k3", "gemma4", "qwen3.5",
+          "deepseek-v4-pro", "deepseek-v4-flash",
+          "gemini-3-flash-preview", "gpt-oss"
+        )
+        expect(described_class.models("ollama")).not_to include(
+          "qwen3-coder:480b-cloud", "gpt-oss:120b-cloud",
+          "gpt-oss:20b-cloud", "deepseek-v3.1:671b-cloud"
+        )
+      end
+
+      it "returns correct lite model mappings" do
+        expect(described_class.lite_model("ollama", "glm-5.2")).to eq("glm-5.1")
+        expect(described_class.lite_model("ollama", "kimi-k3")).to eq("kimi-k2.6")
+        expect(described_class.lite_model("ollama", "deepseek-v4-pro")).to eq("deepseek-v4-flash")
+        expect(described_class.lite_model("ollama", "qwen3.5")).to eq("gemini-3-flash-preview")
+        expect(described_class.lite_model("ollama", "gpt-oss")).to eq("nemotron-3-nano")
+      end
+
+      it "returns nil lite for models without lite pairing" do
+        expect(described_class.lite_model("ollama", "glm-5.1")).to be_nil
+        expect(described_class.lite_model("ollama", "minimax-m2.7")).to be_nil
+      end
+
+      it "enforces vision capabilities correctly" do
+        # Vision-capable models
+        expect(described_class.supports?("ollama", :vision, model_name: "kimi-k3")).to be true
+        expect(described_class.supports?("ollama", :vision, model_name: "gemma4")).to be true
+        expect(described_class.supports?("ollama", :vision, model_name: "qwen3.5")).to be true
+        expect(described_class.supports?("ollama", :vision, model_name: "minimax-m3")).to be true
+        expect(described_class.supports?("ollama", :vision, model_name: "mistral-large-3")).to be true
+        # Text-only models
+        expect(described_class.supports?("ollama", :vision, model_name: "glm-5.2")).to be false
+        expect(described_class.supports?("ollama", :vision, model_name: "deepseek-v4-pro")).to be false
+        expect(described_class.supports?("ollama", :vision, model_name: "deepseek-v4-flash")).to be false
+        expect(described_class.supports?("ollama", :vision, model_name: "minimax-m2.7")).to be false
+        expect(described_class.supports?("ollama", :vision, model_name: "gpt-oss")).to be false
+      end
+
+      it "resolves provider by base_url" do
+        expect(described_class.find_by_base_url("https://ollama.com/api")).to eq("ollama")
+        expect(described_class.find_by_base_url("https://ollama.com/api/v1/chat/completions")).to eq("ollama")
+      end
+
+      it "has a website_url for API keys" do
+        preset = described_class::PRESETS["ollama"]
+        expect(preset["website_url"]).to eq("https://ollama.com/settings/keys")
+      end
+
+      it "has a default_ocr_model" do
+        expect(described_class.default_ocr_model("ollama")).to eq("kimi-k2.7-code")
+      end
+    end
+
     context "conservative default (unknown or undeclared)" do
       it "returns true for an unknown provider_id" do
         # Custom base_urls map to nil provider_id; assume capability supported
