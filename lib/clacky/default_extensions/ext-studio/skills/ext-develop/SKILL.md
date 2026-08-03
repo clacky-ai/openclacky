@@ -24,7 +24,7 @@ Seven `contributes:` types (use one, several, or all):
 - `panels`   — WebUI panels (a `view.js`, no build step, no React, no iframe)
 - `api`      — one backend file `api/handler.rb`, mounted at `/api/ext/<id>/`
 - `skills`   — a `SKILL.md` under `skills/<id>/` (prompt-only capability)
-- `agents`   — a `system_prompt.md`; can reference `panels: [id]` and `skills: [id]`
+- `agents`   — a `system_prompt.md`; can reference `panels: [id]` and `skills: [id]`; `hidden: true` hides from the new-session picker
 - `channels` — an IM adapter
 - `patches`  — monkey-patch a real class (advanced, supply-chain risk)
 - `hooks`    — lifecycle hooks like `before_tool_use` (advanced)

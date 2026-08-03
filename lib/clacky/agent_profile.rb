@@ -76,6 +76,7 @@ module Clacky
       ext_result = ExtensionLoader.last_result || ExtensionLoader.load_all
       ext_result&.agents&.each do |unit|
         spec = unit.spec || {}
+        next if spec["hidden"]
         title = spec["title"].to_s
         title = unit.id if title.empty?
         avatar = spec["avatar_abs"].to_s.empty? ? nil : "/agent_avatar/#{unit.id}"

@@ -422,6 +422,7 @@ module Clacky
                    "description"    => spec["description"].to_s,
                    "description_zh" => spec["description_zh"].to_s,
                    "order"          => spec["order"],
+                   "hidden"         => !!spec["hidden"],
                    "author"         => container[:author],
                    "homepage"       => container[:homepage],
                    "license"        => container[:license],
