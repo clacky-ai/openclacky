@@ -114,7 +114,7 @@ module Clacky
       private_class_method def self.normalized_effort(effort)
         return nil if effort.nil? || effort.to_s.empty?
         s = effort.to_s
-        %w[low medium high].include?(s) ? s : nil
+        %w[low medium high xhigh max].include?(s) ? s : nil
       end
 
       # Merge consecutive tool_result user messages into a single user message.
