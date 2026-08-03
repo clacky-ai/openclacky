@@ -137,7 +137,7 @@ RSpec.describe Clacky::Providers do
       end
 
       it "has correct base_url and api type" do
-        expect(described_class.base_url("ollama")).to eq("https://ollama.com/api")
+        expect(described_class.base_url("ollama")).to eq("https://ollama.com")
         expect(described_class.api_type("ollama")).to eq("openai-completions")
       end
 
@@ -182,8 +182,8 @@ RSpec.describe Clacky::Providers do
       end
 
       it "resolves provider by base_url" do
-        expect(described_class.find_by_base_url("https://ollama.com/api")).to eq("ollama")
-        expect(described_class.find_by_base_url("https://ollama.com/api/v1/chat/completions")).to eq("ollama")
+        expect(described_class.find_by_base_url("https://ollama.com")).to eq("ollama")
+        expect(described_class.find_by_base_url("https://ollama.com/v1/chat/completions")).to eq("ollama")
       end
 
       it "has a website_url for API keys" do

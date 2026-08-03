@@ -483,7 +483,7 @@ module Clacky
         # cloud models. Cloud models are available immediately without pulling.
         # Authentication: API key via Authorization: Bearer <key> header.
         # Create API keys at: https://ollama.com/settings/keys
-        "base_url" => "https://ollama.com/api",
+        "base_url" => "https://ollama.com",
         "api" => "openai-completions",
         "default_model" => "deepseek-v4-flash",
         # Curated list of cloud-enabled models from the Ollama library.
