@@ -365,47 +365,8 @@
         <!-- Panels the selected agent exposes (filled when an agent is picked) -->
         <div id="new-session-agent-panels" class="new-session-agent-panels" style="display:none"></div>
 
-        <div class="new-session-advanced-wrap">
-          <button id="new-session-toggle-advanced" class="new-session-advanced-toggle" type="button" aria-expanded="false">
-            <span data-i18n="sessions.new.moreOptions">More options</span>
-            <svg class="new-session-advanced-caret" width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6l4 4 4-4"/></svg>
-          </button>
-
-          <div id="new-session-advanced" class="new-session-advanced" hidden>
-            <div class="new-session-field">
-              <label class="new-session-label" data-i18n="sessions.modal.name">Session Name</label>
-              <input id="new-session-name" type="text" class="new-session-input"
-                     data-i18n-placeholder="sessions.modal.name.placeholder"
-                     placeholder="Leave empty to auto-generate">
-            </div>
-
-            <div class="new-session-field">
-              <label class="new-session-label" data-i18n="sessions.modal.model">Model</label>
-              <select id="new-session-model" class="new-session-select"></select>
-            </div>
-
-            <div class="new-session-field">
-              <label class="new-session-label" data-i18n="sessions.modal.directory">Working Directory</label>
-              <div class="new-session-input-row">
-                <input id="new-session-directory" type="text" class="new-session-input"
-                       data-i18n-placeholder="sessions.modal.directory.placeholder"
-                       placeholder="~/workspace/my-project">
-                <button id="new-session-browse-btn" type="button" class="new-session-browse-btn"
-                        data-i18n-title="sessions.modal.directory.browse" title="Browse…" aria-label="Browse">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
-                </button>
-              </div>
-            </div>
-
-            <div id="new-session-init-project-field" class="new-session-checkbox-field" style="display:none">
-              <label class="new-session-checkbox-label">
-                <input id="new-session-init-project" type="checkbox" class="new-session-checkbox">
-                <span data-i18n="sessions.modal.initProject">Initialize full-stack project (/new)</span>
-              </label>
-            </div>
-          </div>
-        </div>
        </div><!-- /.new-session-body -->
+
 
         <div class="new-session-composer">
           <!-- Skill autocomplete dropdown (shown when user types /xxx) -->
@@ -422,9 +383,14 @@
             </div>
             <div id="ns-skill-autocomplete-list"></div>
           </div>
-          <!-- Attachment preview strip (hidden when empty) -->
-          <div id="ns-image-preview-strip" style="display:none"></div>
-          <div id="ns-input-bar" class="new-session-input-bar">
+          <!-- Composer frame: context bar card (offset) + input bar card (full width) -->
+          <div class="ns-composer-frame">
+            <div id="ns-context-bar" class="ns-context-bar"></div>
+            <!-- Input bar card -->
+            <div class="ns-input-bar-card">
+            <!-- Attachment preview strip (hidden when empty) -->
+            <div id="ns-image-preview-strip" style="display:none"></div>
+            <div id="ns-input-bar" class="new-session-input-bar">
             <input type="file" id="ns-file-input" accept="*/*" multiple style="display:none">
             <button id="ns-btn-attach" type="button" class="new-session-composer-btn"
                     title="Attach file (image, pdf, docx, md, tar.gz…) — drag & drop / Ctrl+V also work">
@@ -443,8 +409,10 @@
             <button id="new-session-send" class="new-session-send" type="button" title="Send message" disabled>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"></polyline></svg>
             </button>
-          </div>
-        </div>
+          </div><!-- /.new-session-input-bar -->
+            </div><!-- /.ns-input-bar-card -->
+          </div><!-- /.ns-composer-frame -->
+        </div><!-- /.new-session-composer -->
       </div>
     </div>
 
