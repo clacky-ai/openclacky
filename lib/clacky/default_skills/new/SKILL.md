@@ -17,20 +17,25 @@ When user wants to create a new Rails project:
 ## Process Steps
 
 ### 0. Ask Project Type and Requirement
-Before doing anything, use `request_user_feedback` to ask the user two things:
+Before doing anything, call `request_user_feedback` with a structured prompt. Use the following as a guide:
 
-```
-project_type: "demo" or "production"
-requirement: one-sentence description of what they want to build
+zh:
+```json
+{
+  "question": "请选择项目类型，并用一句话描述你想做什么：",
+  "context": "开始新项目前需要知道项目类型和需求，请先完成填写。",
+  "options": ["⚡ Demo — 无数据库，AI 自由发挥，快速原型", "🏗️ Production — 真实应用，可部署，完整 Rails 配置"]
+}
 ```
 
-Card content:
-- Title: "🚀 New Project"
-- Two options for project type:
-  - **⚡ Demo** — no database, AI builds freely, quick prototype
-  - **🏗️ Production** — real app, ready to deploy, full Rails setup
-- One text input: "Describe your project in one sentence"
-- Confirm button: "Let's go!"
+en:
+```json
+{
+  "question": "Choose a project type and describe what you want to build in one sentence:",
+  "context": "Tell us what kind of project to create so we can get started.",
+  "options": ["⚡ Demo — no database, AI builds freely, quick prototype", "🏗️ Production — real app, ready to deploy, full Rails setup"]
+}
+```
 
 **Based on user's choice:**
 - If **Demo**: do NOT follow the Rails setup steps below. Instead, freely build a simple HTML/CSS/JS (or React) prototype directly in the working directory based on their requirement. Use your creativity.
