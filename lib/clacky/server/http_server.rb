@@ -6766,7 +6766,13 @@ module Clacky
         msg_created_at = Time.now.to_f
         web_ui = nil
         @registry.with_session(session_id) { |s| web_ui = s[:ui] }
-        web_ui&.show_user_message(content, created_at: msg_created_at, source: :web)
+        # Pass the uploaded files through to the realtime broadcast so images and
+        # attachments render in the bubble immediately. agent.run later appends the
+        # authoritative display_files to history — but only after vision/OCR
+        # processing finishes, which can take seconds. Without the preview here, a
+        # page refresh inside that window shows the message without its image (the
+        # "need to refresh several times before the image appears" bug).
+        web_ui&.show_user_message(content, created_at: msg_created_at, source: :web, files: Array(files))
 
         # File references are now handled inside agent.run — injected as a system_injected
         # message after the user message, so replay_history skips them automatically.

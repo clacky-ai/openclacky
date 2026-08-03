@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require "cgi"
 require "json"
 require "securerandom"
 require_relative "../ui_interface"
@@ -70,11 +71,20 @@ module Clacky
         data[:created_at] = created_at if created_at
         # Build ev.images for the frontend renderer (history_user_message):
         #   - Images with data_url → pass the data_url directly (<img> thumbnail)
-        #   - Disk files (PDF, doc, etc., no data_url) → "pdf:name" sentinel (renders a badge)
+        #   - Disk image files (type=="image", has path) → /api/local-image proxy URL
+        #   - Disk files (PDF, doc, etc., no data_url, no image path) → "pdf:name" sentinel
         rendered = Array(files).filter_map do |f|
           url  = f[:data_url] || f["data_url"]
           name = f[:name]     || f["name"]
-          url || (name ? "pdf:#{name}" : nil)
+          type = f[:type]     || f["type"]
+          path = f[:path]     || f["path"]
+          if url
+            url
+          elsif type.to_s == "image" && path && File.exist?(path.to_s)
+            "/api/local-image?path=#{CGI.escape(path.to_s)}&v=#{File.mtime(path.to_s).to_i}"
+          elsif name
+            "pdf:#{name}"
+          end
         end
         data[:images] = rendered unless rendered.empty?
         emit("history_user_message", **data)
