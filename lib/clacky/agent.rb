@@ -751,12 +751,12 @@ module Clacky
         begin
           if @ui
             @ui.with_progress(message: "Compressing message history...", style: :quiet) do |handle|
-              response = call_llm(tools_override: [])
+              response = call_llm
               handle_compression_response(response, compression_context, progress: handle)
               compression_handled = true
             end
           else
-            response = call_llm(tools_override: [])
+            response = call_llm
             handle_compression_response(response, compression_context)
             compression_handled = true
           end
