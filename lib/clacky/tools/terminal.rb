@@ -480,9 +480,7 @@ module Clacky
           # leaves the result as invalid UTF-8. Re-scrub after truncation so
           # everything downstream (JSON.generate, format_result, UI) gets a
           # guaranteed-valid UTF-8 string.
-          preview = cleaned.byteslice(0, OVERFLOW_PREVIEW_CHARS)
-          preview.force_encoding(Encoding::UTF_8)
-          preview = preview.scrub("?") unless preview.valid_encoding?
+          preview = smart_truncate(cleaned, OVERFLOW_PREVIEW_CHARS)
 
           notice = if overflow_file
             "\n\n...[Output truncated for LLM: showing first #{OVERFLOW_PREVIEW_CHARS} " \
@@ -1427,6 +1425,35 @@ module Clacky
         path
       rescue StandardError
         nil
+      end
+
+      # Smart truncation: keep head + tail within char budget.
+      # Ensures error messages at end of output remain visible.
+      private def smart_truncate(text, max_chars)
+        total_chars = text.bytesize
+        return text if total_chars <= max_chars
+
+        total_lines = text.lines.count
+
+        # 60% head, 40% tail
+        head_budget = (max_chars * 0.6).to_i
+        tail_budget = max_chars - head_budget
+
+        head = text.byteslice(0, head_budget)
+        head.force_encoding(Encoding::UTF_8)
+        head = head.scrub("?") unless head.valid_encoding?
+
+        tail = text.byteslice(-tail_budget, tail_budget)
+        tail.force_encoding(Encoding::UTF_8)
+        tail = tail.scrub("?") unless tail.valid_encoding?
+
+        # Align tail to line boundary if cut mid-line
+        if tail.include?("\n") && !tail.start_with?("\n")
+          first_nl = tail.index("\n")
+          tail = tail[(first_nl + 1)..-1] || ""
+        end
+
+        "#{head}\n\n...[#{total_lines} lines, #{total_chars} chars total, truncated]...\n\n#{tail}"
       end
 
 
