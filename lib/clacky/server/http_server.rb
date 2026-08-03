@@ -370,10 +370,13 @@ module Clacky
 
         server.mount_proc("/") do |req, res|
           if req.path == "/" || req.path == "/index.html"
-            product_name = Clacky::BrandConfig.load.product_name || "OpenClacky"
+            brand        = Clacky::BrandConfig.load
+            product_name = brand.product_name || "OpenClacky"
+            logo_url     = brand.logo_url || "/logo_nav_dark.png"
             pure         = req.query["pure"] == "true"
             html = File.read(index_html_path)
                        .gsub("{{BRAND_NAME}}", product_name)
+                       .gsub("{{BRAND_LOGO_URL}}", logo_url)
                        .gsub("{{EXT_SCRIPTS}}", pure ? "" : self.send(:webui_ext_script_tags))
             res.status                = 200
             res["Content-Type"]       = "text/html; charset=utf-8"
