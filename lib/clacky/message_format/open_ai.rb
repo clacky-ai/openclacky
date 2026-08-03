@@ -279,6 +279,14 @@ module Clacky
           elsif !effort_str.empty?
             body[:thinking] = { type: "adaptive" }
           end
+        elsif model.to_s.match?(/deepseek/i)
+          # DeepSeek V4 reasoning_effort only accepts low/high/max.
+          # xhigh is not recognized — map it to max.
+          effort = case effort_str
+                   when "xhigh" then "max"
+                   else effort_str
+                   end
+          body[:reasoning_effort] = effort unless effort.empty?
         elsif reasoning_effort && !effort_str.empty?
           body[:reasoning_effort] = effort_str
         end
