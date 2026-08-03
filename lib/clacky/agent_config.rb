@@ -159,7 +159,7 @@ module Clacky
     DEFAULT_MESSAGE_COUNT_THRESHOLD = 200
 
     attr_accessor :permission_mode, :max_tokens, :verbose,
-                  :enable_compression, :enable_prompt_caching,
+                  :enable_compression, :enable_idle_compression, :enable_prompt_caching,
                   :compression_threshold, :message_count_threshold,
                   :models, :current_model_index, :current_model_id,
                   :memory_update_enabled, :skill_evolution,
@@ -173,6 +173,7 @@ module Clacky
       @max_tokens = options[:max_tokens] || 16384
       @verbose = options[:verbose] || false
       @enable_compression = options[:enable_compression].nil? ? true : options[:enable_compression]
+      @enable_idle_compression = options[:enable_idle_compression].nil? ? true : options[:enable_idle_compression]
       # Enable prompt caching by default for cost savings
       @enable_prompt_caching = options[:enable_prompt_caching].nil? ? true : options[:enable_prompt_caching]
       # Token threshold that triggers proactive history compression. Local models
@@ -411,7 +412,7 @@ module Clacky
     # Settings keys that are persisted to config.yml.
     # These map directly to AgentConfig accessors.
     CONFIG_SETTINGS_KEYS = %w[
-      enable_compression enable_prompt_caching
+      enable_compression enable_idle_compression enable_prompt_caching
       compression_threshold message_count_threshold
       memory_update_enabled
       skill_evolution max_running_agents max_idle_agents
@@ -428,6 +429,7 @@ module Clacky
       end
       settings = {
         "enable_compression" => @enable_compression,
+        "enable_idle_compression" => @enable_idle_compression,
         "enable_prompt_caching" => @enable_prompt_caching,
         "compression_threshold" => @compression_threshold,
         "message_count_threshold" => @message_count_threshold,

@@ -29,8 +29,8 @@ RSpec.describe "Compression system-prompt duplication bug" do
         @session_id            = nil   # disable chunk saving
         @created_at            = nil
         # MessageCompressorHelper accesses @config directly as an ivar
-        config_klass = Struct.new(:enable_compression)
-        @config      = config_klass.new(true)
+        config_klass = Struct.new(:enable_compression, :enable_idle_compression)
+        @config      = config_klass.new(true, true)
         # compress_messages_if_needed calls @message_compressor.build_compression_message
         @message_compressor = Clacky::MessageCompressor.new(nil)
       end
