@@ -22,7 +22,7 @@ module Clacky
     PANEL_KEYS   = %w[id title title_zh description description_zh view order attach entry_points].freeze
     API_KEYS     = %w[id handler].freeze
     SKILL_KEYS   = %w[id dir protected].freeze
-    AGENT_KEYS   = %w[id title title_zh description description_zh order prompt panels skills avatar].freeze
+    AGENT_KEYS   = %w[id title title_zh description description_zh order prompt panels skills avatar hidden].freeze
     CHANNEL_KEYS = %w[id platform adapter].freeze
     PATCH_KEYS   = %w[target file fingerprint on_mismatch].freeze
     HOOK_KEYS    = %w[event file].freeze

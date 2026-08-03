@@ -78,6 +78,26 @@ RSpec.describe Clacky::ExtensionVerifier do
     expect(field_issue.message).to include("mistypedField")
   end
 
+  it "accepts the hidden field on agents without warning" do
+    manifest = <<~YAML
+      id: hidden-agent-pack
+      origin: self
+      contributes:
+        agents:
+          - id: secret
+            title: Secret
+            description: x
+            prompt: prompt.md
+            hidden: true
+    YAML
+    make_ext(local, "hidden-agent-pack", manifest, "prompt.md" => "hi")
+    result = reload_layers
+
+    issues = described_class.verify(result)
+    unknown = issues.select { |i| i.code == "schema.unknown_field" && i.unit == "secret" }
+    expect(unknown).to be_empty
+  end
+
   it "flags an agent referencing a non-existent panel" do
     manifest = <<~YAML
       id: ghost-ref
