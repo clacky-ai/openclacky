@@ -92,9 +92,11 @@ exactly three capabilities:
 
 ```js
 Clacky.ext.ui.mount(slot, spec, opts)     // inject UI into a named slot
-Clacky.ext.subscribe(event, handler)      // observe host store events (read-only)
+Clacky.ext.subscribe(event, handler)      // observe store events + live session events (read-only)
 Clacky.ext.api.register(name, fn)         // expose a named data source; api.resolve(name)
 ```
+
+**`subscribe(event, handler)`** - two event families: (1) host **store** events (`skills:changed`, `tasks:changed`, `profile:changed`, …) and (2) **live session events** mirrored from the WebSocket stream — conversation (`session:assistant-message`, `session:tool-call`, `session:tool-result`), status/errors (`session:error`, `session:warning`, `session:update`), lifecycle (`session:renamed`, `session:deleted`, …). Payload is `{ sessionId, ...wsFields }`. Full list in the "Core Events" section of the extend-webui docs. Handlers are read-only.
 
 **`ui.mount(slot, spec, opts)`** — `spec` is either `(container, ctx, runtime) => …` or
 `{ create?, render }`. The render function:
