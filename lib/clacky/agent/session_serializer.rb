@@ -224,6 +224,7 @@ module Clacky
             # (falling back to the current default if the model no longer exists).
             permission_mode: @config.permission_mode.to_s,
             enable_compression: @config.enable_compression,
+            enable_idle_compression: @config.enable_idle_compression,
             enable_prompt_caching: @config.enable_prompt_caching,
             max_tokens: @config.max_tokens,
             verbose: @config.verbose,

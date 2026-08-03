@@ -5667,6 +5667,7 @@ module Clacky
         json_response(res, 200, {
           ok: true,
           enable_compression: @agent_config.enable_compression,
+          enable_idle_compression: @agent_config.enable_idle_compression,
           enable_prompt_caching: @agent_config.enable_prompt_caching,
           memory_update_enabled: @agent_config.memory_update_enabled,
           proxy_url: @agent_config.proxy_url.to_s,
@@ -5691,6 +5692,9 @@ module Clacky
 
         if body.key?("enable_compression")
           @agent_config.enable_compression = !!body["enable_compression"]
+        end
+        if body.key?("enable_idle_compression")
+          @agent_config.enable_idle_compression = !!body["enable_idle_compression"]
         end
         if body.key?("enable_prompt_caching")
           @agent_config.enable_prompt_caching = !!body["enable_prompt_caching"]

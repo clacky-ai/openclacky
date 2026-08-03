@@ -23,6 +23,7 @@ module Clacky
           Clacky::Logger.info(
             "Idle compression skipped",
             enable_compression: @config.enable_compression,
+            enable_idle_compression: @config.enable_idle_compression,
             previous_total_tokens: @previous_total_tokens,
             history_size: @history.size,
             idle_threshold: IDLE_COMPRESSION_THRESHOLD,
@@ -129,8 +130,10 @@ module Clacky
         # (force: true) is still allowed as a safety net for long-running subagents.
         return nil if @is_subagent && !force
 
-        # Check if compression is enabled
+        # Check if compression is enabled (master switch)
         return nil unless @config.enable_compression
+        # Idle compression has its own sub-switch under the master
+        return nil if force && !@config.enable_idle_compression
 
         # Use the larger of: API-reported tokens from last response, or current
         # estimated history size. The estimate guards the case where a single
