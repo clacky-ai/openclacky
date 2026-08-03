@@ -91,7 +91,7 @@ module Clacky
 
       private_class_method def self.additional_fields_for_effort(effort)
         return nil if effort.nil? || effort.to_s.empty?
-        return nil unless %w[low medium high].include?(effort.to_s)
+        return nil unless %w[low medium high xhigh max].include?(effort.to_s)
         {
           thinking: { type: "adaptive" },
           output_config: { effort: effort.to_s }

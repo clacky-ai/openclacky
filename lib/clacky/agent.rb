@@ -53,7 +53,7 @@ module Clacky
     attr_accessor :channel_info
     attr_accessor :project_id
 
-    REASONING_EFFORTS = %w[low medium high xhigh].freeze
+    REASONING_EFFORTS = %w[low medium high xhigh max].freeze
 
     def permission_mode
       @config&.permission_mode&.to_s || ""
