@@ -7844,7 +7844,7 @@ body {
 }
 .extension-homepage {
   font-size: 0.6875rem;
-  color: var(--color-accent, #6366f1);
+  color: var(--color-accent-primary);
   text-decoration: none;
 }
 .extension-homepage:hover { text-decoration: underline; }
