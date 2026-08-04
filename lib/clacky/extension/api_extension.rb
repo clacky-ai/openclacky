@@ -277,6 +277,8 @@ module Clacky
 
       submit_task(session_id, prompt, display_message: display_message) if prompt && !prompt.strip.empty?
 
+      @http_server.send(:broadcast_session_update, session_id)
+
       session_id
     end
 
