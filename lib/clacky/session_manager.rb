@@ -36,6 +36,7 @@ module Clacky
       # Keep only the most recent 200 sessions (best-effort, never block save)
       begin
         cleanup_by_count(keep: 200, keep_cron: 200)
+        cleanup_trash(days: 8)
       rescue Exception # rubocop:disable Lint/RescueException
         # Cleanup is non-critical; swallow all errors (including AgentInterrupted)
       end
