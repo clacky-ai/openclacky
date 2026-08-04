@@ -322,6 +322,8 @@ html { font-size: 16px; }
 
 /* ── Reset & Base ────────────────────────────────────────────────────────── */
 * { box-sizing: border-box; margin: 0; padding: 0; }
+select:hover { border-color: var(--color-border-strong); }
+input:focus, select:focus { outline: none; border-color: var(--color-accent-primary); }
 
 /* ── Global Tooltip ──────────────────────────────────────────────────────
    JS-driven: Tooltip.init() in utils.js mounts a single <div id="tooltip">
@@ -7015,10 +7017,6 @@ body {
   width: 12rem;
 }
 .skills-search::placeholder { color: var(--color-text-tertiary); }
-.skills-search:focus {
-  outline: none;
-  border-color: var(--color-accent, #6366f1);
-}
 .skills-search-empty {
   padding: 2rem 1rem;
   text-align: center;
@@ -7674,10 +7672,6 @@ body {
   border: 1px solid var(--color-border-primary);
   background: var(--color-bg-secondary);
   color: var(--color-text-primary);
-}
-.extensions-search:focus {
-  outline: none;
-  border-color: var(--color-accent, #6366f1);
 }
 .extensions-sort {
   flex-shrink: 0;
@@ -11482,9 +11476,6 @@ body.setup-mode[data-theme="dark"] {
   background-repeat: no-repeat;
   background-position: right 0.625rem center;
   transition: border-color 0.15s ease;
-}
-.billing-model-filter:hover {
-  border-color: var(--color-border-strong);
 }
 .billing-model-filter:focus {
   outline: none;
