@@ -2806,6 +2806,8 @@ body {
 .session-composer {
   flex-shrink: 0;
   display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
   padding-inline: 24px;
 }
 .session-composer > * {
