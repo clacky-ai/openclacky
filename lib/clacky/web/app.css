@@ -1923,7 +1923,7 @@ body {
   display: flex;
   align-items: center;
   gap: 0.375rem;
-  padding: 0.5rem 1rem;
+  padding: 0.375rem 0.75rem;
   background: var(--color-button-primary);
   color: #fff;
   border: none;
@@ -9859,7 +9859,18 @@ body.setup-mode[data-theme="dark"] {
 }
 
 .channels-page-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
   margin-bottom: 0.25rem;
+}
+.channels-page-header-main {
+  min-width: 0;
+}
+#extensions-new-btn.extension-action {
+  padding: 0.375rem 0.75rem;
+  font-size: 0.8125rem;
 }
 
 .channels-page-title {
