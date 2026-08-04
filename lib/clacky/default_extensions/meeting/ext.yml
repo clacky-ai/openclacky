@@ -1,6 +1,9 @@
 id: meeting
 name: Meeting
+display_name: Meeting
+display_name_zh: 会议
 description: Real-time meeting transcription and AI assistant
+description_zh: 实时会议转录与 AI 助手
 version: "0.1.0"
 author: OpenClacky
 homepage: https://www.openclacky.com
