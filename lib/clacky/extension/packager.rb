@@ -18,6 +18,14 @@ module Clacky
     MANIFEST     = "ext.yml"
     MAX_ZIP_SIZE = 50 * 1024 * 1024
 
+    # Network timeouts for the download step. `read_timeout` is an *idle*
+    # timeout (resets on every chunk received), so a stalled connection with
+    # no new bytes flowing for this long is treated as dead — not a "download
+    # still going, just slow" situation, which large files on a slow link
+    # would otherwise trigger.
+    OPEN_TIMEOUT = 15   # seconds to establish the connection
+    READ_TIMEOUT = 60   # seconds of silence before giving up mid-download
+
     # Platform metadata that leaks in from the developer's OS; never ship it.
     SYSTEM_METADATA = [".DS_Store", "__MACOSX", "Thumbs.db", "desktop.ini"].freeze
 
@@ -56,12 +64,19 @@ module Clacky
       # local zip path or an http(s) URL. Validates the archive (single top
       # container with an ext.yml, no path traversal), extracts it, then runs
       # verify on the resolved installed layer.
-      def install(source, installed_dir: Clacky::ExtensionLoader::INSTALLED_DIR, force: false)
+      # on_progress is an optional callable that receives a stage hash, e.g.:
+      #   { stage: "downloading", progress: 45 }
+      #   { stage: "extracting" }
+      #   { stage: "verifying" }
+      # Caller can use this for progress reporting without coupling to internals.
+      def install(source, installed_dir: Clacky::ExtensionLoader::INSTALLED_DIR, force: false, on_progress: nil)
         Dir.mktmpdir("clacky-ext-install") do |tmp|
-          zip_path = local_zip_for(source, tmp)
+          on_progress&.call({ stage: "downloading", progress: 0 })
+          zip_path = local_zip_for(source, tmp, on_progress: on_progress)
+
+          on_progress&.call({ stage: "extracting" })
           extract_root = File.join(tmp, "unpacked")
           FileUtils.mkdir_p(extract_root)
-
           extract_zip(zip_path, extract_root)
 
           ext_id, container_src = locate_container(extract_root)
@@ -74,6 +89,7 @@ module Clacky
           FileUtils.mkdir_p(target)
           FileUtils.cp_r(Dir.glob("#{container_src}/*"), target)
 
+          on_progress&.call({ stage: "verifying" })
           Clacky::ExtensionLoader.invalidate_cache!
           units = verify_installed(ext_id, installed_dir)
 
@@ -149,11 +165,11 @@ module Clacky
         rel.split(File::SEPARATOR).any? { |seg| SYSTEM_METADATA.include?(seg) }
       end
 
-      private def local_zip_for(source, tmp)
+      private def local_zip_for(source, tmp, on_progress: nil)
         src = source.to_s
         if src.match?(%r{\Ahttps?://})
           dest = File.join(tmp, "download.zip")
-          download(src, dest)
+          download(src, dest, on_progress: on_progress)
           dest
         else
           path = File.expand_path(src)
@@ -162,19 +178,48 @@ module Clacky
         end
       end
 
-      private def download(url, dest)
-        total = 0
-        URI.open(url, "rb") do |io| # rubocop:disable Security/Open
-          File.open(dest, "wb") do |out|
-            while (chunk = io.read(64 * 1024))
-              total += chunk.bytesize
-              raise Error, "download exceeds #{MAX_ZIP_SIZE} bytes" if total > MAX_ZIP_SIZE
-              out.write(chunk)
-            end
-          end
+      # Download url → dest file.
+      # IMPORTANT: OpenURI's block form (`URI.open(url) { |io| ... }`) buffers
+      # the *entire* response into a StringIO/Tempfile via Net::HTTP's
+      # read_body before ever yielding `io` — so reading `io` in chunks after
+      # the fact reports progress only after the download has already
+      # finished. To get progress callbacks that fire while bytes are still
+      # arriving on the socket, we hook OpenURI's own `progress_proc` /
+      # `content_length_proc`, which run inside read_body as each chunk lands.
+      # Respects whatever proxy env vars the user has configured (some CDN
+      # domains are only reachable at usable speed through a proxy).
+      private def download(url, dest, on_progress: nil)
+        content_length = nil
+
+        content_length_proc = lambda do |len|
+          content_length = len if len&.positive?
+        end
+
+        progress_proc = lambda do |size|
+          raise Error, "download exceeds #{MAX_ZIP_SIZE} bytes" if size > MAX_ZIP_SIZE
+          next unless on_progress
+
+          pct = if content_length&.positive?
+                  [(size * 100 / content_length).floor, 99].min
+                else
+                  (90 - 90 * Math.exp(-size.to_f / (1024 * 1024))).floor
+                end
+          on_progress.call({ stage: "downloading", progress: pct })
+        end
+
+        URI.open(
+          url, "rb",
+          open_timeout: OPEN_TIMEOUT,
+          read_timeout: READ_TIMEOUT,
+          content_length_proc: content_length_proc,
+          progress_proc: progress_proc
+        ) do |io| # rubocop:disable Security/Open
+          File.open(dest, "wb") { |out| out.write(io.read) }
         end
       rescue OpenURI::HTTPError, SocketError => e
         raise Error, "failed to download #{url}: #{e.message}"
+      rescue Net::OpenTimeout, Net::ReadTimeout => e
+        raise Error, "download timed out: #{e.message}"
       end
 
       private def extract_zip(zip_path, dest_root)

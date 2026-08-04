@@ -217,6 +217,9 @@ module Clacky
         # Lazy: process-wide MCP registry. Created on first /api/mcp/:name access
         # so test setups that override Dir.home in before-hooks still work.
         @mcp_registry_mutex = Mutex.new
+        # Install jobs: job_id => { stage:, progress:, error:, done: }
+        @install_jobs       = {}
+        @install_jobs_mutex = Mutex.new
         # Access key authentication:
         # - localhost (127.0.0.1 / ::1) is always trusted; auth is skipped entirely.
         # - Any other bind address requires CLACKY_ACCESS_KEY env var.
@@ -496,7 +499,9 @@ module Clacky
           # Building/extracting a tar.gz of ~/.clacky can take a while.
           120
         elsif path == "/api/store/extension/install"
-          300
+          10  # now async — just spawns a thread and returns job_id immediately
+        elsif path == "/api/store/extension/install/status"
+          10
         else
           30
         end
@@ -566,6 +571,7 @@ module Clacky
         when ["GET",    "/api/store/extensions/installed"] then api_store_extensions_installed(res)
         when ["GET",    "/api/store/extension"]       then api_store_extension_detail(req, res)
         when ["POST",   "/api/store/extension/install"]  then api_store_extension_install(req, res)
+        when ["GET",    "/api/store/extension/install/status"] then api_store_extension_install_status(req, res)
         when ["POST",   "/api/store/extension/disable"] then api_store_extension_disable(req, res)
         when ["POST",   "/api/store/extension/enable"]  then api_store_extension_enable(req, res)
         when ["DELETE", "/api/store/extension"]         then api_store_extension_uninstall(req, res)
@@ -2735,7 +2741,9 @@ module Clacky
         json_response(res, 500, { ok: false, error: e.message })
       end
 
-      # DELETE /api/store/extension   body: { id: <slug> }
+      # POST /api/store/extension/install   body: { download_url:, name: }
+      # Starts an async install job and returns immediately with a job_id.
+      # Poll GET /api/store/extension/install/status?job_id=xxx for progress.
       def api_store_extension_install(req, res)
         body         = parse_json_body(req)
         download_url = body["download_url"].to_s.strip
@@ -2746,14 +2754,71 @@ module Clacky
           return
         end
 
-        Clacky::ExtensionPackager.install(download_url, force: true)
-        Clacky::ExtensionLoader.invalidate_cache!
-        Clacky::Telemetry.extension_install!(name) unless name.empty?
-        json_response(res, 200, { ok: true, name: name })
-      rescue Clacky::ExtensionPackager::Error => e
-        json_response(res, 422, { ok: false, error: e.message })
-      rescue StandardError => e
-        json_response(res, 500, { ok: false, error: e.message })
+        job_id = SecureRandom.hex(8)
+        @install_jobs_mutex.synchronize do
+          sweep_stale_install_jobs!
+          @install_jobs[job_id] = { stage: "downloading", progress: 0, error: nil, done: false, updated_at: Time.now }
+        end
+
+        Thread.new do
+          begin
+            on_progress = lambda do |info|
+              @install_jobs_mutex.synchronize do
+                @install_jobs[job_id] = info.merge(error: nil, done: false, updated_at: Time.now)
+              end
+            end
+            Clacky::ExtensionPackager.install(download_url, force: true, on_progress: on_progress)
+            Clacky::ExtensionLoader.invalidate_cache!
+            Clacky::Telemetry.extension_install!(name) unless name.empty?
+            @install_jobs_mutex.synchronize do
+              @install_jobs[job_id] = { stage: "done", progress: 100, error: nil, done: true, updated_at: Time.now }
+            end
+          rescue StandardError => e
+            @install_jobs_mutex.synchronize do
+              @install_jobs[job_id] = { stage: "error", progress: 0, error: e.message, done: true, updated_at: Time.now }
+            end
+          end
+        end
+
+        json_response(res, 200, { ok: true, job_id: job_id })
+      end
+
+      # GET /api/store/extension/install/status?job_id=xxx
+      def api_store_extension_install_status(req, res)
+        job_id = req.query["job_id"].to_s.strip
+        if job_id.empty?
+          json_response(res, 400, { ok: false, error: "Missing job_id." })
+          return
+        end
+        job = @install_jobs_mutex.synchronize do
+          sweep_stale_install_jobs!
+          @install_jobs[job_id]
+        end
+        if job.nil?
+          json_response(res, 404, { ok: false, error: "Job not found." })
+          return
+        end
+        # Clean up finished jobs after they are read as done
+        if job[:done]
+          @install_jobs_mutex.synchronize { @install_jobs.delete(job_id) }
+        end
+        json_response(res, 200, { ok: true }.merge(job))
+      end
+
+      # Install jobs can go stale in two ways:
+      #   - the client abandons the poll (tab closed, network drop) so a
+      #     finished job never gets picked up and deleted by the status endpoint
+      #   - the worker thread dies without ever updating the job hash (should
+      #     not happen given the rescue in api_store_extension_install, but a
+      #     hung Thread with no timeout upstream would otherwise pin memory
+      #     forever)
+      # Sweep anything past its TTL. Must be called from inside
+      # @install_jobs_mutex.synchronize.
+      INSTALL_JOB_TTL = 30 * 60 # seconds
+
+      private def sweep_stale_install_jobs!
+        cutoff = Time.now - INSTALL_JOB_TTL
+        @install_jobs.delete_if { |_id, job| (job[:updated_at] || Time.at(0)) < cutoff }
       end
 
       def api_store_extension_uninstall(req, res)
