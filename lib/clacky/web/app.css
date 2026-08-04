@@ -2322,12 +2322,11 @@ body {
   right: 0.5rem;
   font-size: 0.65rem;
   font-weight: 500;
-  padding: 1px 5px;
+  padding: 2px 6px;
   border-radius: 4px;
   background: var(--color-bg-hover);
   color: var(--color-text-secondary);
   letter-spacing: 0.02em;
-  text-transform: uppercase;
 }
 .agent-card-badge--custom {
   background: color-mix(in srgb, var(--color-accent-primary) 15%, transparent);
