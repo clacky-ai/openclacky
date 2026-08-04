@@ -53,8 +53,11 @@ module Clacky
 
     # List all available agent profiles across user + extension layers.
     # Precedence on id collision: user override → extension unit.
+    # @param recency [Hash<String, Integer>] agent id => epoch of last use,
+    #   used to order third-party extension agents by most-recently-used
+    #   instead of their static `order` field.
     # @return [Array<Hash>] each: { id:, title:, title_zh:, description:, description_zh:, source:, order:, layer:, author:, avatar: }
-    def self.all
+    def self.all(recency: {})
       out = {}
 
       add = lambda do |id, title, title_zh, description, description_zh, source, order, layer, author, avatar|
@@ -103,8 +106,26 @@ module Clacky
         )
       end
 
-      source_rank = { "user" => 0, "extension" => 1 }
-      out.values.sort_by { |a| [source_rank[a[:source]] || 9, a[:order] || 999, a[:id]] }
+      # Builtin agents always come first, then user overrides, then third-party
+      # extension agents — so the "start new session" grid keeps the official
+      # agents grouped ahead of anything the user installed from the market.
+      # Within the third-party group, agents are ordered by most-recently-used
+      # first (via `recency`), falling back to their static `order` field for
+      # agents that have never been used yet.
+      layer_rank = lambda do |a|
+        next 0 if a[:layer] == "builtin"
+        next 1 if a[:source] == "user"
+
+        2
+      end
+      out.values.sort_by do |a|
+        rank = layer_rank.call(a)
+        if rank == 2
+          [rank, -(recency[a[:id]] || 0), a[:order] || 999, a[:id]]
+        else
+          [rank, a[:order] || 999, a[:id]]
+        end
+      end
     end
 
     private_class_method def self.read_profile_yml(path)

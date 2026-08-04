@@ -67,4 +67,20 @@ RSpec.describe Clacky::AgentProfile, ".all" do
     expect(coding[:source]).to eq("user")
     expect(coding[:title]).to eq("Coding (user)")
   end
+
+  it "orders third-party extension agents by most-recently-used when recency is given" do
+    make_ext_agent("alpha-pack", "alpha", title: "Alpha")
+    make_ext_agent("beta-pack", "beta", title: "Beta")
+
+    ids = described_class.all(recency: { "beta" => 200, "alpha" => 100 }).map { |a| a[:id] }
+    expect(ids.index("beta")).to be < ids.index("alpha")
+  end
+
+  it "falls back to declared order for extension agents with no recency data" do
+    make_ext_agent("alpha-pack", "alpha", title: "Alpha")
+    make_ext_agent("beta-pack", "beta", title: "Beta")
+
+    ids = described_class.all.map { |a| a[:id] }
+    expect(ids).to contain_exactly("alpha", "beta")
+  end
 end

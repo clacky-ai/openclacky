@@ -4422,10 +4422,28 @@ module Clacky
       # Each entry carries { id, title, title_zh, description, description_zh,
       # source, order, layer, author }. Extensions can supply title_zh /
       # description_zh / author in their ext.yml so the New Session cards read
-      # naturally and credit their author.
+      # naturally and credit their author. Third-party extension agents are
+      # ordered by most-recently-used (derived from session history) so the
+      # ones the user actually uses float to the front of that group.
       def api_list_agents(res)
-        agents = Clacky::AgentProfile.all
+        recency = agent_last_used_recency
+        agents = Clacky::AgentProfile.all(recency: recency)
         json_response(res, 200, { agents: agents })
+      end
+
+      # Map agent_profile id => most recent session's updated_at (epoch seconds),
+      # scanning every session on disk. Used to rank extension agent cards by
+      # recent usage instead of a static declared `order`.
+      private def agent_last_used_recency
+        recency = {}
+        @session_manager.all_sessions.each do |s|
+          id = (s[:agent_profile] || "general").to_s
+          ts = s[:updated_at] || s[:created_at]
+          next unless ts
+          epoch = Time.parse(ts.to_s).to_i rescue next
+          recency[id] = epoch if epoch > (recency[id] || 0)
+        end
+        recency
       end
 
       # GET /api/sessions/:id/skills — list user-invocable skills for a session,
