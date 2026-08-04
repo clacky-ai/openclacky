@@ -4,6 +4,37 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
+## [1.5.5] - 2026-08-04
+
+### Added
+- Ollama (Cloud) provider preset — connect to self-hosted Ollama instances with one click
+- Extension WebSocket bridge — extensions can now subscribe to session events via `Clacky.ext` bus
+- Hidden field support for extension agent profiles
+- Max reasoning effort level beyond `xhigh` (supports `max` tier)
+- Smart terminal output truncation — keeps head and tail of long output instead of cutting at the end
+- Time machine panel now attached to all views
+- Persist sort and installed filter selection across sessions in extensions panel
+- New extension button added to extensions management page header
+- Auto cleanup of trash sessions after 7 days
+
+### Improved
+- Extensions panel redesigned with system/market tabs and toggle switch
+- New-session page: replaced advanced modal with inline context bar chips; agents refresh on open with localized badges, ordered by most-recently-used
+- Overflow tooltip shown on truncated skill descriptions
+- Compression: idle and threshold switches are now separate controls
+- Extension install is now async with progress polling
+
+### Fixed
+- Ollama base URL corrected from `/api` to root domain
+- Extension WebSocket bridge included `hidden` field in verifier AGENT_KEYS
+- User message files render immediately in Web UI; local disk images proxied correctly
+- Sidebar visibility persisted across page reloads
+- Brand logo injected server-side to eliminate flash on load
+- Extension uninstall 404 resolved by normalizing slug field
+- Extension homepage link color variable corrected
+- `request_user_feedback` skill uses structured JSON example to avoid literal `\n` in output
+- `create_session` in extensions now broadcasts session update correctly
+
 ## [1.5.4] - 2026-08-01
 
 ### Added
