@@ -9,3 +9,4 @@ contributes:
   panels:
     - id: time_machine
       view: panels/time_machine/view.js
+      attach: ["*"]
