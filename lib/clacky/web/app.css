@@ -10453,6 +10453,15 @@ body.setup-mode[data-theme="dark"] {
 .vup-btn-restart:hover  { background: var(--color-button-primary-hover); }
 .vup-btn-restart:active { transform: scale(.97); }
 
+/* Popover hint text */
+.vup-hint {
+  margin: 0.375rem 0 0;
+  font-size: 0.625rem;
+  color: var(--color-text-muted);
+  opacity: 0.7;
+  text-align: center;
+}
+
 /* Reconnect state */
 .vup-reconnect {
   text-align: center;
