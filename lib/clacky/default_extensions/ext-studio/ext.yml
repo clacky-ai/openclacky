@@ -19,8 +19,8 @@ contributes:
     - id: ext-developer
       title: Extension Developer
       title_zh: 扩展开发
-      description: AI expert that helps you build, debug, and publish extensions
-      description_zh: 帮你开发、调试、发布扩展的 AI 专家
+      description: AI expert that helps you build custom AI agent workflows
+      description_zh: 帮你开发自定义 AI Agent 工作流的专家
       order: 5
       prompt: agents/ext-developer/system_prompt.md
       avatar: agents/ext-developer/avatar.png
