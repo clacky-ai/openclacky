@@ -2665,6 +2665,7 @@ module Clacky
           slug = ext["name"] || ext[:name] || ext["slug"] || ext[:slug]
           container = extension_container(slug)
           ext  = ext.merge(
+            "slug"              => slug,
             "installed"         => !container.nil?,
             "installed_version" => container&.dig(:version),
             "removable"         => container && container[:layer] == :installed,
