@@ -226,6 +226,17 @@
               </div>
             </div>
           </div>
+          <div id="extensions-sidebar-item" class="task-item task-item-summary">
+            <div class="task-row">
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="task-icon">
+                <path d="M20 7h-9"/><path d="M14 17H5"/>
+                <circle cx="17" cy="17" r="3"/><circle cx="7" cy="7" r="3"/>
+              </svg>
+              <div class="task-info">
+                <span class="task-name" id="extensions-sidebar-label" data-i18n="sidebar.extensions">Extension Management</span>
+              </div>
+            </div>
+          </div>
           <div id="channels-sidebar-item" class="task-item task-item-summary">
             <div class="task-row">
               <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="task-icon">
@@ -246,17 +257,6 @@
               </svg>
               <div class="task-info">
                 <span class="task-name" id="mcp-sidebar-label" data-i18n="sidebar.mcp">MCP Servers</span>
-              </div>
-            </div>
-          </div>
-          <div id="extensions-sidebar-item" class="task-item task-item-summary">
-            <div class="task-row">
-              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="task-icon">
-                <path d="M20 7h-9"/><path d="M14 17H5"/>
-                <circle cx="17" cy="17" r="3"/><circle cx="7" cy="7" r="3"/>
-              </svg>
-              <div class="task-info">
-                <span class="task-name" id="extensions-sidebar-label" data-i18n="sidebar.extensions">Extension Market</span>
               </div>
             </div>
           </div>
@@ -669,15 +669,15 @@
     <div id="extensions-panel" style="display:none">
       <div id="extensions-body">
         <div class="channels-page-header">
-          <h2 class="channels-page-title" data-i18n="extensions.title">Extension Market</h2>
-          <p class="channels-page-subtitle" data-i18n="extensions.subtitle">Browse extensions that creators can bundle into brand packages. Extensions are delivered with your license — there is no direct download here.</p>
+          <h2 class="channels-page-title" data-i18n="extensions.title">Extensions</h2>
+          <p class="channels-page-subtitle" data-i18n="extensions.subtitle">Browse and manage extensions — add agents, skills, and panels to supercharge your workflow.</p>
         </div>
 
         <div class="extensions-toolbar">
           <div class="extensions-filter-tabs">
-            <button type="button" class="extensions-filter-tab extensions-filter-tab-active" data-filter="all" data-i18n="extensions.filter.all">All</button>
+            <button type="button" class="extensions-filter-tab extensions-filter-tab-active" data-filter="market" data-i18n="extensions.filter.market">Marketplace</button>
+            <button type="button" class="extensions-filter-tab" data-filter="system" data-i18n="extensions.filter.system">System</button>
             <button type="button" class="extensions-filter-tab" data-filter="brand" id="tab-extensions-brand" data-i18n="extensions.filter.brand" style="display:none">Brand</button>
-            <button type="button" class="extensions-filter-tab" data-filter="installed" data-i18n="extensions.filter.installed">Installed</button>
           </div>
           <div class="extensions-toolbar-right">
             <input type="text" id="extensions-search-input" class="extensions-search" placeholder="Search extensions…" />
@@ -685,6 +685,10 @@
               <option value="downloads" data-i18n="extensions.sort.downloads">Most downloaded</option>
               <option value="newest" data-i18n="extensions.sort.newest">Newest</option>
               <option value="updated" data-i18n="extensions.sort.updated">Recently updated</option>
+            </select>
+            <select id="extensions-installed-filter" class="extensions-sort">
+              <option value="all" data-i18n="extensions.filter.all">All</option>
+              <option value="installed" data-i18n="extensions.filter.installed">Installed</option>
             </select>
           </div>
         </div>

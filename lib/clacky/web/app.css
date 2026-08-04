@@ -7821,6 +7821,35 @@ body {
 /* Clickable catalog card + detail view */
 .extension-card-clickable { cursor: pointer; }
 
+/* System extension card toggle switch */
+.ext-card-toggle {
+  flex-shrink: 0;
+  position: relative;
+  width: 2.25rem;
+  height: 1.25rem;
+  border-radius: 999px;
+  border: none;
+  background: var(--color-border-primary);
+  cursor: pointer;
+  transition: background 0.2s;
+  padding: 0;
+  margin-left: auto;
+  align-self: center;
+}
+.ext-card-toggle-on { background: var(--color-accent-primary); }
+.ext-card-toggle-thumb {
+  position: absolute;
+  top: 0.125rem;
+  left: 0.125rem;
+  width: 1rem;
+  height: 1rem;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 0.2s;
+  display: block;
+}
+.ext-card-toggle-on .ext-card-toggle-thumb { transform: translateX(1rem); }
+
 .extension-detail {
   flex: 1;
   overflow-y: auto;

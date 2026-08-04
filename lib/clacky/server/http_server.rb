@@ -568,6 +568,7 @@ module Clacky
         when ["GET",    "/api/store/skills"]          then api_store_skills(res)
         when ["GET",    "/api/store/extensions"]          then api_store_extensions(req, res)
         when ["GET",    "/api/store/extensions/brand"]   then api_store_extensions_brand(res)
+        when ["GET",    "/api/store/extensions/system"]   then api_store_extensions_system(res)
         when ["GET",    "/api/store/extensions/installed"] then api_store_extensions_installed(res)
         when ["GET",    "/api/store/extension"]       then api_store_extension_detail(req, res)
         when ["POST",   "/api/store/extension/install"]  then api_store_extension_install(req, res)
@@ -2534,6 +2535,47 @@ module Clacky
             warning:    result[:error] || "Could not reach the extension store."
           })
         end
+      end
+
+      # GET /api/store/extensions/system
+      #
+      # Returns only the builtin (system) extensions shipped with the gem.
+      def api_store_extensions_system(res)
+        result   = Clacky::ExtensionLoader.load_all
+        disabled = Clacky::ExtensionLoader.disabled_ids
+
+        hidden = %w[coding general ext-studio].to_set
+
+        extensions = Array(result&.containers).filter_map do |ext_id, container|
+          next unless container[:layer] == :builtin
+          next if hidden.include?(ext_id)
+
+          local_name   = container[:name].to_s.then { |n| n.empty? ? ext_id : n }
+          local_desc   = container.dig(:raw, "description").to_s
+          local_desc_zh = container.dig(:raw, "description_zh").to_s
+          local_author = container[:author].to_s
+          local_units  = units_from_container(container)
+          {
+            "id"              => ext_id,
+            "name"            => local_name,
+            "display_name"    => container.dig(:raw, "display_name") || local_name,
+            "display_name_zh" => container.dig(:raw, "display_name_zh"),
+            "slug"            => ext_id,
+            "version"         => container[:version],
+            "description"     => local_desc,
+            "description_zh"  => local_desc_zh,
+            "author"          => local_author,
+            "units"           => local_units,
+            "layer"           => "builtin",
+            "installed"       => true,
+            "removable"       => false,
+            "disabled"        => disabled.include?(ext_id),
+          }
+        end
+
+        json_response(res, 200, { ok: true, extensions: extensions })
+      rescue StandardError => e
+        json_response(res, 500, { ok: false, error: e.message })
       end
 
       # GET /api/store/extensions/installed
