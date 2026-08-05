@@ -129,6 +129,64 @@ RSpec.describe "WebUI extension architecture" do
     end
   end
 
+  # ─── ws-dispatcher ext bridge contract ──────────────────────────────────────
+
+  describe "ws-dispatcher session_update bridge normalization" do
+    let(:ws_js) { File.read(File.join(web_dir, "ws-dispatcher.js")) }
+
+    it "normalizes session_update shape (1) (nested ev.session) by lifting session_id and status to the top level" do
+      # http_server broadcast_session_update sends { type, session: { id, status, ... } }
+      # with no top-level session_id. The bridge must lift session.id and session.status
+      # so extension subscribers see a consistent sessionId/status regardless of source.
+      expect(ws_js).to match(/session_update.*ev\.session.*session_id:\s*ev\.session\.id/m),
+        "bridge must lift ev.session.id to session_id for session_update shape (1)"
+      expect(ws_js).to match(/status:\s*ev\.session\.status/),
+        "bridge must lift ev.session.status to top-level status for session_update shape (1)"
+    end
+
+    it "preserves the original ev spread so shape-aware extensions are not broken" do
+      # ...ev (or ...payload) keeps the nested session object; extensions reading
+      # ev.session.status still work. New top-level keys are additive, not replacing.
+      expect(ws_js).to match(/\.\.\.(ev|payload)/),
+        "bridge must spread original event fields (additive normalization, not replacement)"
+    end
+
+    it "emits a truthy sessionId for both shapes" do
+      # For shape (1) ev.session_id is undefined; the bridge must fall back to ev.session.id
+      # so sessionId is never undefined for session_update subscribers.
+      expect(ws_js).to match(/payload\.session_id\s*\|\|\s*\(ev\.session\s*&&\s*ev\.session\.id\)/),
+        "bridge must fall back to ev.session.id when top-level session_id is absent"
+    end
+  end
+
+  # ─── app.js ext-workspace teardown contract ─────────────────────────────────
+
+  describe "app.js ext-workspace teardown" do
+    let(:app_js) { File.read(File.join(web_dir, "app.js")) }
+
+    it "saves the return value of ws.render() as a potential teardown function" do
+      # ext.js render contract: returning a function registers it as a teardown.
+      # app.js must not discard that return value.
+      expect(app_js).to match(/_wsTeardown\s*=\s*ws\.render\(/),
+        "app.js ext-workspace branch must assign ws.render() return value to _wsTeardown"
+    end
+
+    it "invokes the teardown when leaving the workspace view" do
+      # Teardown must run on any view transition away from ext-workspace, not only
+      # on re-entry into another workspace. Placing the cleanup at the top of _apply
+      # covers all leaving paths.
+      expect(app_js).to match(/if\s*\(\s*typeof\s+_wsTeardown\s*===\s*["']function["']\s*\)/),
+        "_apply must invoke _wsTeardown when it is a function"
+      expect(app_js).to match(/_wsTeardown\(\)/),
+        "_apply must call the teardown function"
+    end
+
+    it "resets _wsTeardown to null after invoking it" do
+      expect(app_js).to match(/_wsTeardown\s*=\s*null/),
+        "_wsTeardown must be reset to null after invocation to avoid double-calling"
+    end
+  end
+
   # ─── index.html wiring ──────────────────────────────────────────────────────
 
   describe "index.html extension wiring" do
