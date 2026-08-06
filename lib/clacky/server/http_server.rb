@@ -6801,9 +6801,9 @@ module Clacky
 
         when "list_sessions"
           stats    = @registry.cron_stats
-          page     = @registry.list(limit: 16, exclude_type: "cron", exclude_project: true)
-          has_more = page.size > 15
-          all_sessions = page.first(15)
+          page     = @registry.list(limit: 11, exclude_type: "cron", exclude_project: true)
+          has_more = page.size > 10
+          all_sessions = page.first(10)
           projects = @project_manager.all
           # Include ALL sessions that belong to any project, regardless of the
           # 15-item pagination limit.  We merge them into the same `sessions`
