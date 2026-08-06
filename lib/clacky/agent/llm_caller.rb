@@ -45,16 +45,11 @@ module Clacky
       #   Inside call_llm we only *update in place* during retries, so the
       #   already-live progress slot shows meaningful transient status
       #   ("Network failed… attempt 2/10", etc.).
-      # @param tools_override [Array, nil] When nil (default), send all registered
-      #   tool definitions so the model can invoke tools. Pass an empty Array to
-      #   suppress tools entirely — used by compression LLM calls to prevent the
-      #   model from returning tool_calls (which produce an empty content string
-      #   that crashes downstream compression logic).
-      private def call_llm(tools_override: nil)
+      private def call_llm
         # Transition :fallback_active → :probing if cooling-off has expired.
         @config.maybe_start_probing
 
-        tools_to_send = tools_override || @tool_registry.all_definitions
+        tools_to_send = @tool_registry.all_definitions
 
         max_retries = 10
         retry_delay = 5
@@ -567,7 +562,7 @@ module Clacky
           compression_message = compression_context[:compression_message]
           @history.append(compression_message)
 
-          response = call_llm(tools_override: [])  # recursive — guarded by @compressing_for_overflow
+          response = call_llm  # recursive — guarded by @compressing_for_overflow
           handle_compression_response(response, compression_context)
           Clacky::Logger.info(
             "[context-overflow] compression succeeded",
