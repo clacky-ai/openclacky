@@ -37,7 +37,7 @@
         <span class="header-logo-divider"></span>
         <span class="header-logo" id="header-logo">{{BRAND_NAME}}</span>
         <!-- Owner badge: visible only for creator-tier licenses (user_licensed=true).
-             Clicking opens the Extension & Creation workspace. stopPropagation
+             Clicking opens the Creator Center workspace. stopPropagation
              prevents the parent #header-brand onclick (which navigates to chat). -->
         <button id="header-owner-badge" class="header-owner-badge" style="display:none"
                 onclick="event.stopPropagation(); Clacky.ext.ui.openWorkspace('ext-studio')"
@@ -673,7 +673,6 @@
             <h2 class="channels-page-title" data-i18n="extensions.title">Extensions</h2>
             <p class="channels-page-subtitle" data-i18n="extensions.subtitle">Browse and manage extensions — add agents, skills, and panels to supercharge your workflow.</p>
           </div>
-          <button type="button" id="extensions-new-btn" class="extension-action extension-action-install" data-i18n="extensions.newExt.btn">新建扩展</button>
         </div>
 
         <div class="extensions-toolbar">

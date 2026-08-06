@@ -9,8 +9,8 @@ contributes:
   api: api/handler.rb
   panels:
     - id: studio
-      title: Extension & Creation
-      title_zh: 扩展与创作
+      title: Creator Center
+      title_zh: 创作者中心
       description: Build, debug and publish extensions and skills
       description_zh: 开发、调试、发布扩展与 skill
       view: panels/studio/view.js

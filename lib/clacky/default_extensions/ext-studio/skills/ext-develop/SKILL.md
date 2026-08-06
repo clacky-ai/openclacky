@@ -466,7 +466,7 @@ scaffold, verify, and reload is the whole job. Only publish when the user explic
 to share, ship, or list the extension for others. Never publish on your own initiative or
 as a "wrap up" of the build.
 
-The **Extension & Creation panel** has a Publish button — prefer it for a
+The **Creator Center panel** has a Publish button — prefer it for a
 guided flow. Use the CLI below for scripted/CI publishing.
 
 ### Before publishing
