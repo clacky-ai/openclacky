@@ -9,7 +9,7 @@ require "clacky/agent_config"
 require_relative "http_server_spec"  # reuse HttpServerSpecHelpers
 
 # Specs for the directory-picker mutation API:
-#   GET     /api/dirs              (browse: now returns `default`)
+#   GET     /api/dirs              (browse: returns `default` and picker context)
 #   POST    /api/dirs/mkdir
 #
 # Directory rename was intentionally removed from the picker — see the
@@ -41,7 +41,7 @@ RSpec.describe Clacky::Server::HttpServer, "directory picker mutation API" do
 
   after { FileUtils.rm_rf(tmproot) }
 
-  # ── GET /api/dirs returns `default` ───────────────────────────────────────
+  # ── GET /api/dirs returns defaults and picker context ─────────────────────
 
   describe "GET /api/dirs" do
     it "exposes default_working_dir as `default` so the picker can render the preset" do
@@ -50,6 +50,14 @@ RSpec.describe Clacky::Server::HttpServer, "directory picker mutation API" do
         custom_default = File.join(tmproot, "ws")
         FileUtils.mkdir_p(custom_default)
         allow(server).to receive(:default_working_dir).and_return(custom_default)
+        picker_context = {
+          os: "macos",
+          home: tmproot,
+          picker_home: tmproot,
+          desktop: File.join(tmproot, "Desktop")
+        }
+        allow(Clacky::Utils::EnvironmentDetector)
+          .to receive(:directory_picker_context).and_return(picker_context)
 
         req = fake_req(method: "GET", path: "/api/dirs",
                        query_string: "path=#{tmproot}")
@@ -61,7 +69,29 @@ RSpec.describe Clacky::Server::HttpServer, "directory picker mutation API" do
         expect(body).to have_key("default")
         expect(body["default"]).to eq(custom_default)
         expect(body).to have_key("home")
+        expect(body["picker"]).to eq(JSON.parse(JSON.generate(picker_context)))
         expect(body).to have_key("entries")
+      end
+    end
+
+    it "starts from the OS-friendly picker home when no path is provided" do
+      with_server(agent_config: agent_config) do |server|
+        picker_home = File.join(tmproot, "friendly-home")
+        FileUtils.mkdir_p(picker_home)
+        allow(Clacky::Utils::EnvironmentDetector)
+          .to receive(:directory_picker_context).and_return(
+            os: "wsl",
+            home: "/home/tester",
+            picker_home: picker_home,
+            desktop: File.join(picker_home, "Desktop")
+          )
+
+        req = fake_req(method: "GET", path: "/api/dirs")
+        res = fake_res
+        dispatch(server, req, res)
+
+        expect(res.status).to eq(200)
+        expect(parsed_body(res)["root"]).to eq(picker_home)
       end
     end
   end

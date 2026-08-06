@@ -4766,7 +4766,14 @@ module Clacky
         # Directories first, then files; both case-insensitive alphabetical.
         items.sort_by! { |it| [it[:type] == "dir" ? 0 : 1, it[:name].downcase] }
 
-        json_response(res, 200, { root: display_root, path: rel, home: Dir.home, default: default_working_dir, entries: items })
+        json_response(res, 200, {
+          root: display_root,
+          path: rel,
+          home: Dir.home,
+          default: default_working_dir,
+          picker: Utils::EnvironmentDetector.directory_picker_context,
+          entries: items
+        })
       rescue StandardError => e
         json_response(res, 500, { error: e.message })
       end
@@ -4779,7 +4786,8 @@ module Clacky
         query = URI.decode_www_form(req.query_string.to_s).to_h
         rel   = query["path"].to_s.strip
         show_hidden = query["show_hidden"] == "true"
-        rel   = Dir.home if rel.empty?
+        picker_context = Utils::EnvironmentDetector.directory_picker_context
+        rel   = picker_context[:picker_home] if rel.empty?
         target = File.expand_path(rel.start_with?("~") ? rel.sub(/\A~/, Dir.home) : rel)
 
         # The requested directory may not exist yet (e.g. the default
@@ -4804,7 +4812,15 @@ module Clacky
         end
         items.sort_by! { |it| it[:name].downcase }
 
-        json_response(res, 200, { root: target, path: target, parent: File.dirname(target), home: Dir.home, default: default_working_dir, entries: items })
+        json_response(res, 200, {
+          root: target,
+          path: target,
+          parent: File.dirname(target),
+          home: Dir.home,
+          default: default_working_dir,
+          picker: picker_context,
+          entries: items
+        })
       rescue StandardError => e
         json_response(res, 500, { error: e.message })
       end

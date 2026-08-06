@@ -113,6 +113,26 @@ module Clacky
         end
       end
 
+      # Metadata used by the WebUI directory picker to present native-looking
+      # locations without changing the real filesystem paths sent to the API.
+      def self.directory_picker_context
+        os = os_type
+        desktop = desktop_path
+        picker_home = if os == :wsl
+          match = desktop.to_s.match(%r{\A(/mnt/[a-z]/Users/[^/]+)}i)
+          match ? match[1] : "/mnt"
+        else
+          Dir.home
+        end
+
+        {
+          os: os.to_s,
+          home: Dir.home,
+          picker_home: picker_home,
+          desktop: desktop
+        }
+      end
+
       def self.wsl?
         File.exist?("/proc/version") &&
           File.read("/proc/version").downcase.include?("microsoft")

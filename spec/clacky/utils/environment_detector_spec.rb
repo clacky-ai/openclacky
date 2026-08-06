@@ -102,4 +102,41 @@ RSpec.describe Clacky::Utils::EnvironmentDetector do
       end
     end
   end
+
+  describe ".directory_picker_context" do
+    before do
+      allow(Dir).to receive(:home).and_return("/Users/tester")
+    end
+
+    it "uses the macOS home directory as the friendly picker home" do
+      allow(described).to receive(:os_type).and_return(:macos)
+      allow(described).to receive(:desktop_path).and_return("/Users/tester/Desktop")
+
+      expect(described.directory_picker_context).to eq(
+        os: "macos",
+        home: "/Users/tester",
+        picker_home: "/Users/tester",
+        desktop: "/Users/tester/Desktop"
+      )
+    end
+
+    it "derives the Windows user profile from a WSL desktop path" do
+      allow(described).to receive(:os_type).and_return(:wsl)
+      allow(described).to receive(:desktop_path)
+        .and_return("/mnt/c/Users/tester/OneDrive/Desktop")
+
+      expect(described.directory_picker_context).to include(
+        os: "wsl",
+        picker_home: "/mnt/c/Users/tester",
+        desktop: "/mnt/c/Users/tester/OneDrive/Desktop"
+      )
+    end
+
+    it "falls back to the Windows mount root when the profile cannot be derived" do
+      allow(described).to receive(:os_type).and_return(:wsl)
+      allow(described).to receive(:desktop_path).and_return("/home/tester/Desktop")
+
+      expect(described.directory_picker_context[:picker_home]).to eq("/mnt")
+    end
+  end
 end
