@@ -87,6 +87,73 @@ RSpec.describe Clacky::ExtensionPackager do
       expect(names).to include("demo/panels/hello/view.js")
       expect(names).not_to(include(a_string_matching(%r{(\.DS_Store|Thumbs\.db|desktop\.ini|__MACOSX)})))
     end
+
+    it "excludes VCS and IDE metadata directories even without a .gitignore" do
+      dir = scaffold("demo")
+      FileUtils.mkdir_p(File.join(dir, ".git", "refs"))
+      File.write(File.join(dir, ".git", "config"), "[remote \"origin\"]\n\turl = git@github.com:secret/repo.git")
+      FileUtils.mkdir_p(File.join(dir, ".idea"))
+      File.write(File.join(dir, ".idea", "workspace.xml"), "junk")
+      FileUtils.mkdir_p(File.join(dir, ".vscode"))
+      File.write(File.join(dir, ".vscode", "settings.json"), "{}")
+
+      res = described_class.pack("demo", source_dir: local, out_dir: out)
+
+      names = []
+      Zip::File.open(res.path) { |z| z.each { |e| names << e.name } }
+      expect(names).to include("demo/ext.yml")
+      expect(names).not_to(include(a_string_matching(%r{(?:^|/)\.git/})))
+      expect(names).not_to(include(a_string_matching(%r{(?:^|/)\.idea/})))
+      expect(names).not_to(include(a_string_matching(%r{(?:^|/)\.vscode/})))
+    end
+
+    it "excludes files and dirs matched by .gitignore" do
+      dir = scaffold("demo")
+      File.write(File.join(dir, ".gitignore"), <<~GITIGNORE)
+        .env
+        secrets/
+        *.log
+        /build
+      GITIGNORE
+      File.write(File.join(dir, ".env"), "SECRET=supersecret")
+      FileUtils.mkdir_p(File.join(dir, "secrets"))
+      File.write(File.join(dir, "secrets", "key.pem"), "PRIVATE KEY")
+      File.write(File.join(dir, "debug.log"), "log line")
+      FileUtils.mkdir_p(File.join(dir, "build"))
+      File.write(File.join(dir, "build", "out.js"), "compiled")
+
+      res = described_class.pack("demo", source_dir: local, out_dir: out)
+
+      names = []
+      Zip::File.open(res.path) { |z| z.each { |e| names << e.name } }
+      expect(names).not_to include("demo/.env")
+      expect(names).not_to(include(a_string_matching(%r{^demo/secrets/})))
+      expect(names).not_to(include(a_string_matching(/\.log$/)))
+      expect(names).not_to(include(a_string_matching(%r{^demo/build/})))
+      expect(names).to include("demo/ext.yml")
+      expect(names).to include("demo/panels/hello/view.js")
+    end
+
+    it "honors nested .gitignore without leaking rules into sibling dirs" do
+      dir = scaffold("demo")
+      File.write(File.join(dir, ".gitignore"), "*.log\n")
+      FileUtils.mkdir_p(File.join(dir, "sub"))
+      File.write(File.join(dir, "sub", ".gitignore"), "local-only.txt\n")
+      File.write(File.join(dir, "sub", "local-only.txt"), "secret")
+      File.write(File.join(dir, "sub", "keep.txt"), "keep")
+      FileUtils.mkdir_p(File.join(dir, "other"))
+      File.write(File.join(dir, "other", "local-only.txt"), "should-keep")
+      File.write(File.join(dir, "debug.log"), "log")
+
+      res = described_class.pack("demo", source_dir: local, out_dir: out)
+
+      names = []
+      Zip::File.open(res.path) { |z| z.each { |e| names << e.name } }
+      expect(names).not_to include("demo/sub/local-only.txt")
+      expect(names).not_to include("demo/debug.log")
+      expect(names).to include("demo/sub/keep.txt")
+      expect(names).to include("demo/other/local-only.txt")
+    end
   end
 
   describe ".install" do

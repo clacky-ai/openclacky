@@ -29,6 +29,9 @@ module Clacky
     # Platform metadata that leaks in from the developer's OS; never ship it.
     SYSTEM_METADATA = [".DS_Store", "__MACOSX", "Thumbs.db", "desktop.ini"].freeze
 
+    # VCS and IDE metadata that must never ship in a pack, even without a .gitignore.
+    NEVER_PACK_DIRS = [".git", ".svn", ".hg", ".idea", ".vscode"].freeze
+
     Result = Struct.new(:ext_id, :path, :units, keyword_init: true)
 
     class Error < StandardError; end
@@ -140,12 +143,9 @@ module Clacky
       end
 
       private def write_zip(container_dir, zip_path)
+        gitignore = load_container_gitignore(container_dir)
         Zip::File.open(zip_path, create: true) do |zip|
-          files = Dir.glob(File.join(container_dir, "**", "*"), File::FNM_DOTMATCH)
-          files.each do |abs|
-            base = File.basename(abs)
-            next if base == "." || base == ".."
-
+          each_packable(container_dir, gitignore) do |abs|
             rel = relative(container_dir, abs)
             next if system_metadata?(rel)
 
@@ -157,6 +157,45 @@ module Clacky
             end
           end
         end
+      end
+
+      private def load_container_gitignore(container_dir)
+        path = File.join(container_dir, ".gitignore")
+        Clacky::GitignoreParser.new(path) if File.exist?(path)
+      end
+
+      # Walk the container yielding every path that should ship. Honors .gitignore
+      # strictly: ignored files are excluded even when they are config files
+      # (.env, secrets) - packing must never leak gitignored content, unlike the
+      # search tools which surface config files. Nested .gitignore files are
+      # honored per-subtree without leaking rules into sibling directories.
+      private def each_packable(dir, gitignore, root: dir)
+        Dir.children(dir).sort.each do |name|
+          full = File.join(dir, name)
+          rel = relative(root, full)
+
+          if File.directory?(full)
+            next if File.symlink?(full)
+            next if NEVER_PACK_DIRS.include?(name)
+            next if gitignore&.ignored?("#{rel}/")
+
+            yield full
+            each_packable(full, gitignore_for_subdir(full, rel, gitignore), root: root) { |p| yield p }
+          else
+            next if gitignore&.ignored?(rel)
+
+            yield full
+          end
+        end
+      end
+
+      private def gitignore_for_subdir(dir, rel, parent)
+        nested = File.join(dir, ".gitignore")
+        return parent unless File.exist?(nested)
+
+        merged = parent ? parent.dup : Clacky::GitignoreParser.new(nil)
+        merged.merge!(nested, prefix: rel)
+        merged
       end
 
       # True if any path segment is a platform metadata file/dir (e.g. a nested

@@ -8,10 +8,16 @@ module Clacky
     def initialize(gitignore_path = nil)
       @patterns = []
       @negation_patterns = []
-      
+
       if gitignore_path && File.exist?(gitignore_path)
         parse_gitignore(gitignore_path)
       end
+    end
+
+    private def initialize_copy(orig)
+      super
+      @patterns = @patterns.dup
+      @negation_patterns = @negation_patterns.dup
     end
 
     def merge!(other_gitignore_path, prefix: nil)
