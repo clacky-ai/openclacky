@@ -12697,6 +12697,9 @@ body.setup-mode[data-theme="dark"] {
 .billing-cell-miss {
   color: #f59e0b;
 }
+.billing-cell-output {
+  color: #34d399;
+}
 .billing-cell-cost {
   font-family: var(--font-mono);
   font-weight: 500;
