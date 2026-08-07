@@ -15,7 +15,9 @@ RSpec.describe Clacky::GoalManager do
         @calls = []
       end
 
-      def queue = @queue
+      def queue
+        @queue
+      end
 
       def send_messages(messages, model:, max_tokens:)
         @calls << { messages: messages, model: model, max_tokens: max_tokens }
