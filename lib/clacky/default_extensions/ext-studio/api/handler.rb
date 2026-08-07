@@ -75,6 +75,11 @@ class ExtStudioExt < Clacky::ApiExtension
 
     brand = Clacky::BrandConfig.load
 
+    origin = presence(json_body["origin"]) || "marketplace"
+    if origin == "self" && !brand.user_licensed?
+      error!("only brand administrators can publish to a brand", status: 403)
+    end
+
     Dir.mktmpdir("clacky-ext-studio-publish") do |tmp|
       res      = Clacky::ExtensionPackager.pack(ext_id, out_dir: tmp)
       zip_data = File.binread(res.path)
@@ -96,7 +101,8 @@ class ExtStudioExt < Clacky::ApiExtension
         force:     json_body["force"] == true,
         status:    presence(json_body["status"]),
         changelog: presence(json_body["changelog"]),
-        readme:    local_readme
+        readme:    local_readme,
+        origin:    origin
       )
 
       if result[:success]
@@ -135,6 +141,28 @@ class ExtStudioExt < Clacky::ApiExtension
         version: (ext["latest_version"] || {})["version"] || ext["version"],
         status: ext["status"],
         units: ext["units"] || {}
+      }
+    end
+    json(extensions: exts)
+  end
+
+  # GET /api/ext/ext-studio/published_brand
+  # List extensions published to the current brand's library. Only available to
+  # brand administrators (user-licensed); used by the publish panel to detect
+  # existing brand versions for the "publish to brand" flow.
+  get "/published_brand" do
+    brand = Clacky::BrandConfig.load
+    error!("only brand administrators can list brand extensions", status: 403) unless brand.user_licensed?
+
+    result = brand.fetch_brand_extensions!
+    error!(result[:error] || "failed to fetch brand extensions", status: 502) unless result[:success]
+
+    exts = Array(result[:extensions]).map do |ext|
+      {
+        id: ext["name"] || ext["slug"] || ext["id"],
+        name: ext["display_name"] || ext["name"],
+        version: (ext["latest_version"] || {})["version"] || ext["version"],
+        status: ext["status"] || "published"
       }
     end
     json(extensions: exts)
