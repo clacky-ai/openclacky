@@ -59,6 +59,7 @@ module Clacky
         File.delete(zip_path) if File.exist?(zip_path)
 
         write_zip(container_dir, zip_path)
+        enforce_zip_size!(zip_path)
 
         Result.new(ext_id: slug, path: zip_path, units: nil)
       end
@@ -157,6 +158,15 @@ module Clacky
             end
           end
         end
+      end
+
+      # Same budget the installer enforces on download/extract - without it a
+      # creator could publish something no one (themselves included) can install.
+      private def enforce_zip_size!(zip_path)
+        size = File.size(zip_path)
+        return if size <= MAX_ZIP_SIZE
+
+        raise Error, "packed zip is #{size} bytes, exceeds #{MAX_ZIP_SIZE} bytes (#{MAX_ZIP_SIZE / 1024 / 1024}MB) limit"
       end
 
       private def load_container_gitignore(container_dir)

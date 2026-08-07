@@ -70,6 +70,14 @@ RSpec.describe Clacky::ExtensionPackager do
         .to raise_error(described_class::Error, /verify found errors/)
     end
 
+    it "refuses to pack a container whose produced zip exceeds the size limit" do
+      scaffold("demo")
+      stub_const("Clacky::ExtensionPackager::MAX_ZIP_SIZE", 1)
+
+      expect { described_class.pack("demo", source_dir: local, out_dir: out) }
+        .to raise_error(described_class::Error, /exceeds .* limit/)
+    end
+
     it "excludes platform metadata files and dirs from the archive" do
       dir = scaffold("demo")
       FileUtils.touch(File.join(dir, ".DS_Store"))
