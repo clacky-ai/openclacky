@@ -202,7 +202,7 @@ Response helpers: `json` / `text(str)` / `send_data(bytes, content_type:, filena
   dir (`ext_dir` / `File.join(ext_dir, ...)`) — uninstall deletes the whole package, so
   anything there is lost. Package-internal writes are only for disposable caches.
 - Host context (white-listed): `session_manager`, `registry`, `agent_config`, `config`
-  (from ext.yml), `logger`, `ext_id`, `ext_dir`.
+  (from ext.yml), `logger`, `ext_id`, `ext_dir`, `project_manager`.
 - Drive sessions from the backend: `create_session(prompt:, profile:, …)`,
   `submit_task(session_id, prompt)`, `dispatch_to_session(session_id, prompt)` (runs a
   side task on a fork and returns its reply without touching the conversation).
@@ -210,6 +210,12 @@ Response helpers: `json` / `text(str)` / `send_data(bytes, content_type:, filena
   and the 200-session cleanup skips - use it for dedicated extension sessions you
   manage yourself. Still reachable by `session_id` via `submit_task` /
   `dispatch_to_session` / `registry.with_session`; forking resets `hidden` to false.
+- **Projects**: `project_manager.all` lists projects, `find(id)` returns one (or
+  `nil`), `create(name:, working_dir:, …)` / `update(id, …)` / `delete(id)` mutate.
+  Pass `project_id:` to `create_session` to bind a session to a project - its
+  `working_dir` is inherited (unless overridden) and `agent.project_id` is persisted.
+  A panel can also `fetch("/api/projects")` directly (same-origin, no-auth; see
+  [Host API](/docs/extend-host-api)).
 - Public (no-auth) endpoints: call `public_endpoint("/path")` in the class **and** set
   `public: true` at ext.yml top level — both are required.
 

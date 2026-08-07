@@ -119,3 +119,77 @@ RSpec.describe "ApiExtension#submit_task" do
     }
   end
 end
+
+RSpec.describe "ApiExtension#create_session with project_id" do
+  before { Clacky::ApiExtension.reset_registry! }
+
+  let(:dummy_route) do
+    Clacky::ApiExtension::Route.new(
+      method: :get, pattern: "/", regex: /\A\/\z/, param_names: [],
+      block: proc {}, options: {}
+    )
+  end
+
+  let(:project_manager) { double("project_manager") }
+  let(:registry) { double("registry") }
+  let(:session_manager) { double("session_manager") }
+  let(:agent) { double("agent") }
+  let(:http_server) do
+    server = double("http_server")
+    allow(server).to receive(:instance_variable_get).with(:@registry).and_return(registry)
+    allow(server).to receive(:instance_variable_get).with(:@session_manager).and_return(session_manager)
+    allow(server).to receive(:instance_variable_get).with(:@project_manager).and_return(project_manager)
+    server
+  end
+
+  let(:instance) do
+    Clacky::ApiExtension.allocate.tap do |inst|
+      inst.instance_variable_set(:@req, nil)
+      inst.instance_variable_set(:@res, nil)
+      inst.instance_variable_set(:@route, dummy_route)
+      inst.instance_variable_set(:@params, {})
+      inst.instance_variable_set(:@http_server, http_server)
+    end
+  end
+
+  it "inherits the project working_dir and persists agent.project_id" do
+    project = { id: "p1", name: "Proj", working_dir: "/tmp/proj" }
+    allow(project_manager).to receive(:find).with("p1").and_return(project)
+    allow(http_server).to receive(:send).with(:build_session, name: nil, working_dir: File.expand_path("/tmp/proj"), profile: "general", source: :manual, hidden: false).and_return("sess-1")
+    allow(registry).to receive(:with_session).with("sess-1").and_yield({ agent: agent })
+    allow(agent).to receive(:project_id=).with("p1")
+    allow(agent).to receive(:to_session_data).and_return({ id: "sess-1" })
+    allow(session_manager).to receive(:save)
+    allow(http_server).to receive(:send).with(:broadcast_session_update, "sess-1")
+
+    result = instance.create_session(project_id: "p1")
+    expect(result).to eq("sess-1")
+    expect(agent).to have_received(:project_id=).with("p1")
+    expect(session_manager).to have_received(:save)
+  end
+
+  it "raises 404 when the project does not exist" do
+    allow(project_manager).to receive(:find).with("nope").and_return(nil)
+
+    expect {
+      instance.create_session(project_id: "nope")
+    }.to raise_error(Clacky::ApiExtension::Halt) { |halt|
+      expect(halt.status).to eq(404)
+    }
+  end
+
+  it "does not override an explicit working_dir with the project's" do
+    project = { id: "p1", name: "Proj", working_dir: "/tmp/proj" }
+    allow(project_manager).to receive(:find).with("p1").and_return(project)
+    allow(http_server).to receive(:send).with(:build_session, name: nil, working_dir: "/custom/dir", profile: "general", source: :manual, hidden: false).and_return("sess-2")
+    allow(registry).to receive(:with_session).with("sess-2").and_yield({ agent: agent })
+    allow(agent).to receive(:project_id=).with("p1")
+    allow(agent).to receive(:to_session_data).and_return({ id: "sess-2" })
+    allow(session_manager).to receive(:save)
+    allow(http_server).to receive(:send).with(:broadcast_session_update, "sess-2")
+
+    result = instance.create_session(project_id: "p1", working_dir: "/custom/dir")
+    expect(result).to eq("sess-2")
+    expect(agent).to have_received(:project_id=).with("p1")
+  end
+end

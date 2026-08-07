@@ -258,13 +258,30 @@ module Clacky
       @http_server&.instance_variable_get(:@registry)
     end
 
+    def project_manager
+      @http_server&.instance_variable_get(:@project_manager)
+    end
+
     # Create a brand-new session and optionally kick off its first task.
     # Returns the new session_id. When a prompt is given, the task is
     # submitted immediately (the session starts running); display_message
     # controls the user-facing bubble shown in place of the raw prompt.
+    # When `project_id` is given, the project's working_dir is inherited
+    # (unless an explicit working_dir overrides it) and the session is
+    # associated with the project.
     def create_session(name: nil, prompt: nil, working_dir: nil, profile: "general",
-                       source: :manual, display_message: nil, hidden: false)
+                       source: :manual, display_message: nil, hidden: false, project_id: nil)
       error!("server not ready", status: 503) unless @http_server
+
+      if project_id
+        project_id = project_id.to_s.strip
+        project_id = nil if project_id.empty?
+      end
+
+      project = project_id ? project_manager&.find(project_id) : nil
+      error!("Project not found", status: 404) if project_id && project.nil?
+
+      working_dir = File.expand_path(project[:working_dir]) if working_dir.nil? && project && project[:working_dir].to_s.strip != ""
 
       session_id = @http_server.send(
         :build_session,
@@ -274,6 +291,15 @@ module Clacky
         source: source,
         hidden: hidden
       )
+
+      if project_id
+        agent = nil
+        registry.with_session(session_id) { |s| agent = s[:agent] }
+        if agent
+          agent.project_id = project_id
+          session_manager&.save(agent.to_session_data)
+        end
+      end
 
       submit_task(session_id, prompt, display_message: display_message) if prompt && !prompt.strip.empty?
 
