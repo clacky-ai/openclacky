@@ -4,6 +4,38 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
+## [1.5.6] - 2026-08-08
+
+### Added
+- Pluggable web_search providers - drop a script into ~/.clacky/searchers/ to use Tavily, Brave, Serper, or any search API instead of DuckDuckGo/Bing scrapers; built-in engines stay as fallback
+- /goal command - Ralph-style standing goal loop with judge-driven auto-continuation
+- Right-edge chat navigator with hover preview and click-to-jump
+- Project edit modal replaces inline rename
+- Installed tab and hidden Market tab for brand users in extensions panel
+- ext-studio publish-to-brand flow with success toast
+- Todo panel with SVG icons and repositioned layout (#437 - @shipinliang)
+- Skill autocomplete with MRU sorting and constant-managed localStorage keys
+- Completion token billing-cell output style
+- Expose project_manager and project_id to extensions (#444)
+
+### Improved
+- Creator Center UI copy and button naming unified
+- Sessions list page size reduced to 10 for faster loading
+- Load-more sessions button styling refined
+
+### Fixed
+- Pagination cursor pollution and premature cron entry display in sessions list
+- updated_at default flipped to preserve instead of refresh
+- Extension packs now exclude gitignored and VCS files
+- Brand logo flash before load
+- SKILL_AC_SHOW_SYSTEM_KEY ReferenceError in skills store
+- Ruby 3.0+ endless method syntax replaced for Ruby 2.6 compatibility
+- session_update bridge shape normalized and ext-workspace teardown captured (#436 - @sundevilyang)
+
+### More
+- Retire doubao-seed-2.0-pro and doubao-seed-2.0-code models
+- Enforce 50MB size limit on extension pack output
+
 ## [1.5.5] - 2026-08-04
 
 ### Added
