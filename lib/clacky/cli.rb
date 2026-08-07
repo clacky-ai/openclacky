@@ -330,7 +330,7 @@ module Clacky
 
         # The overlay lives in the session file (not config.yml), so persist it
         # now — otherwise it would be lost if the user quits before the next task.
-        session_manager&.save(agent.to_session_data)
+        session_manager&.save(agent.to_session_data(updated_at: Time.now))
 
         ui_controller.config[:model] = config.model_name
         ui_controller.update_sessionbar(
@@ -384,7 +384,7 @@ module Clacky
 
           # Save session after switch
           if session_manager
-            session_manager.save(agent.to_session_data(status: :success))
+            session_manager.save(agent.to_session_data(status: :success, updated_at: Time.now))
           end
         rescue StandardError => e
           ui_controller.show_error("Time Machine failed: #{e.message}")
@@ -659,11 +659,11 @@ module Clacky
         ui_controller.set_idle_status
 
         if exception.is_a?(Clacky::AgentInterrupted)
-          session_manager&.save(agent.to_session_data(status: :interrupted))
+          session_manager&.save(agent.to_session_data(status: :interrupted, updated_at: Time.now))
           ui_controller.show_warning("Task interrupted by user")
         else
           error_message = format_error(exception)
-          session_manager&.save(agent.to_session_data(status: :error, error_message: error_message))
+          session_manager&.save(agent.to_session_data(status: :error, error_message: error_message, updated_at: Time.now))
           code = exception.is_a?(Clacky::InsufficientCreditError) ? exception.error_code : nil
           ui_controller.show_error("Error: #{exception.message}", code: code)
         end
@@ -682,7 +682,7 @@ module Clacky
         begin
           files = prepare_non_interactive_files(file_paths)
         rescue => e
-          session_manager&.save(agent.to_session_data(status: :error, error_message: format_error(e)))
+          session_manager&.save(agent.to_session_data(status: :error, error_message: format_error(e), updated_at: Time.now))
 
           if is_json
             ui = Clacky::JsonUIController.new
@@ -719,14 +719,14 @@ module Clacky
           begin
             auto_name_session(agent, message)
             agent.run(message, files: files)
-            session_manager&.save(agent.to_session_data(status: :success))
+            session_manager&.save(agent.to_session_data(status: :success, updated_at: Time.now))
             exit(0)
           rescue Clacky::AgentInterrupted
-            session_manager&.save(agent.to_session_data(status: :interrupted))
+            session_manager&.save(agent.to_session_data(status: :interrupted, updated_at: Time.now))
             $stderr.puts "\nInterrupted."
             exit(1)
           rescue => e
-            session_manager&.save(agent.to_session_data(status: :error, error_message: format_error(e)))
+            session_manager&.save(agent.to_session_data(status: :error, error_message: format_error(e), updated_at: Time.now))
             $stderr.puts "Error: #{e.message}"
             exit(1)
           end
@@ -801,7 +801,7 @@ module Clacky
 
         # Final session save and shutdown
         if session_manager && agent.total_tasks > 0
-          session_manager.save(agent.to_session_data(status: :exited))
+          session_manager.save(agent.to_session_data(status: :exited, updated_at: Time.now))
         end
         json_ui.emit("done", total_cost: agent.total_cost, total_tasks: agent.total_tasks)
       end
@@ -810,15 +810,15 @@ module Clacky
       def run_json_task(agent, json_ui, session_manager)
         json_ui.set_working_status
         yield
-        session_manager&.save(agent.to_session_data(status: :success))
+        session_manager&.save(agent.to_session_data(status: :success, updated_at: Time.now))
         json_ui.update_sessionbar(tasks: agent.total_tasks, cost: agent.total_cost)
         :success
       rescue Clacky::AgentInterrupted
-        session_manager&.save(agent.to_session_data(status: :interrupted))
+        session_manager&.save(agent.to_session_data(status: :interrupted, updated_at: Time.now))
         json_ui.emit("interrupted")
         :interrupted
       rescue => e
-        session_manager&.save(agent.to_session_data(status: :error, error_message: format_error(e)))
+        session_manager&.save(agent.to_session_data(status: :error, error_message: format_error(e), updated_at: Time.now))
         json_ui.emit("error", message: e.message)
         :error
       ensure
@@ -950,7 +950,7 @@ module Clacky
 
             # Save final session state before exit
             if session_manager && agent.total_tasks > 0
-              session_data = agent.to_session_data(status: :exited)
+              session_data = agent.to_session_data(status: :exited, updated_at: Time.now)
               saved_path = session_manager.save(session_data)
 
               # Show session saved message in output area (before stopping UI)
@@ -1059,7 +1059,7 @@ module Clacky
 
               # Save session after each task
               if session_manager
-                session_manager.save(agent.to_session_data(status: :success))
+                session_manager.save(agent.to_session_data(status: :success, updated_at: Time.now))
               end
 
               # Update session bar with agent's cumulative stats
@@ -1100,7 +1100,7 @@ module Clacky
 
         # Save final session state
         if session_manager && agent.total_tasks > 0
-          session_manager.save(agent.to_session_data)
+          session_manager.save(agent.to_session_data(updated_at: Time.now))
         end
       end
 

@@ -892,7 +892,7 @@ module Clacky
           @registry.with_session(session_id) { |s| agent = s[:agent] }
           if agent
             agent.project_id = project_id_override
-            @session_manager.save(agent.to_session_data)
+            @session_manager.save(agent.to_session_data(updated_at: Time.now))
           end
         end
 
@@ -4630,7 +4630,7 @@ module Clacky
         task_id = body["task_id"].to_i
         result = agent.switch_to_task(task_id)
         if result[:success]
-          @session_manager.save(agent.to_session_data(status: :success))
+          @session_manager.save(agent.to_session_data(status: :success, updated_at: Time.now))
           broadcast_session_update(session_id)
           json_response(res, 200, { ok: true, message: result[:message], task_id: result[:task_id] })
         else
@@ -6315,7 +6315,7 @@ module Clacky
         return json_response(res, 404, { error: "Session not found" }) unless agent
 
         agent.project_id = new_pid ? new_pid.to_s : nil
-        @session_manager.save(agent.to_session_data)
+        @session_manager.save(agent.to_session_data(updated_at: Time.now))
         broadcast_session_update(session_id)
 
         json_response(res, 200, { ok: true, project_id: agent.project_id })
@@ -6344,7 +6344,7 @@ module Clacky
         end
         
         # Save session data
-        @session_manager.save(agent.to_session_data)
+        @session_manager.save(agent.to_session_data(updated_at: Time.now))
         
         # Broadcast update event
         update_data = { type: "session_updated", session_id: session_id }
@@ -6388,7 +6388,7 @@ module Clacky
         end
 
         # Persist the change (saves to session file, NOT global config.yml)
-        @session_manager.save(agent.to_session_data)
+        @session_manager.save(agent.to_session_data(updated_at: Time.now))
 
         # Broadcast update to all clients
         broadcast_session_update(session_id)
@@ -6410,7 +6410,7 @@ module Clacky
         return json_response(res, 404, { error: "Session not found" }) unless agent
 
         agent.reasoning_effort = raw
-        @session_manager.save(agent.to_session_data)
+        @session_manager.save(agent.to_session_data(updated_at: Time.now))
         broadcast_session_update(session_id)
 
         json_response(res, 200, { ok: true, reasoning_effort: agent.reasoning_effort })
@@ -6453,7 +6453,7 @@ module Clacky
         end
 
         agent.set_session_sub_model(model_name)
-        @session_manager.save(agent.to_session_data)
+        @session_manager.save(agent.to_session_data(updated_at: Time.now))
         broadcast_session_update(session_id)
 
         json_response(res, 200, { ok: true, sub_model: agent.current_model_info[:sub_model] })
@@ -6577,7 +6577,7 @@ module Clacky
         agent.change_working_dir(expanded_dir)
         
         # Persist the change
-        @session_manager.save(agent.to_session_data)
+        @session_manager.save(agent.to_session_data(updated_at: Time.now))
         
         # Broadcast update to all clients
         broadcast_session_update(session_id)
@@ -7018,7 +7018,7 @@ module Clacky
             Clacky::Logger.error("[shutdown] interrupt failed for session=#{id}: #{e.message}")
           end
           thread.join(2)
-          @session_manager.save(agent.to_session_data(status: :interrupted))
+          @session_manager.save(agent.to_session_data(status: :interrupted, updated_at: Time.now))
         end
       end
 
@@ -7075,7 +7075,7 @@ module Clacky
           # with the tab/window in the background — can still chime. Not part of
           # session history: a chime is a live cue, never replayed on refresh.
           broadcast_all(type: "task_finished", session_id: session_id)
-          @session_manager.save(agent.to_session_data(status: :success))
+          @session_manager.save(agent.to_session_data(status: :success, updated_at: Time.now))
           # Start idle compression timer now that the agent is idle
           idle_timer&.start
         rescue Clacky::AgentInterrupted
@@ -7084,7 +7084,7 @@ module Clacky
           next unless @registry.update_if_epoch(session_id, epoch, status: :idle)
           broadcast_session_update(session_id)
           broadcast(session_id, { type: "interrupted", session_id: session_id })
-          @session_manager.save(agent.to_session_data(status: :interrupted))
+          @session_manager.save(agent.to_session_data(status: :interrupted, updated_at: Time.now))
         rescue => e
           # Route error through web_ui so channel subscribers (飞书/企微) receive it too.
           web_ui = nil
@@ -7100,7 +7100,7 @@ module Clacky
           next unless @registry.update_if_epoch(session_id, epoch, status: :error, error: user_message, error_code: code, top_up_url: top_up_url, raw_message: raw_message)
           broadcast_session_update(session_id)
           web_ui&.show_error(user_message, code: code, top_up_url: top_up_url, raw_message: raw_message)
-          @session_manager.save(agent.to_session_data(status: :error, error_message: user_message, raw_message: raw_message))
+          @session_manager.save(agent.to_session_data(status: :error, error_message: user_message, raw_message: raw_message, updated_at: Time.now))
         end
         # Register the thread only if we still own the epoch; a faster
         # superseding task may have already replaced it.
@@ -7252,7 +7252,7 @@ module Clacky
 
         # Persist an initial snapshot so the session is immediately visible in registry.list
         # (which reads from disk). Without this, new sessions only appear after their first task.
-        @session_manager.save(agent.to_session_data)
+        @session_manager.save(agent.to_session_data(updated_at: Time.now))
 
         session_id
       end

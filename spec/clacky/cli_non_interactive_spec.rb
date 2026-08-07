@@ -116,7 +116,7 @@ RSpec.describe "CLI --message / -i non-interactive mode" do
     end
 
     it "emits error event and saves session on early validation failure" do
-      allow(agent).to receive(:to_session_data).with(status: :error, error_message: anything).and_return(stats: { last_status: "error" })
+      allow(agent).to receive(:to_session_data).with(status: :error, error_message: anything, updated_at: anything).and_return(stats: { last_status: "error" })
 
       session_mgr = double("SessionManager")
       expect(session_mgr).to receive(:save).with(hash_including(stats: hash_including(last_status: "error")))
@@ -134,7 +134,7 @@ RSpec.describe "CLI --message / -i non-interactive mode" do
 
     it "emits interrupted event and saves session on AgentInterrupted" do
       allow(agent).to receive(:run).and_raise(Clacky::AgentInterrupted.new("interrupted"))
-      allow(agent).to receive(:to_session_data).with(status: :interrupted).and_return(stats: { last_status: "interrupted" })
+      allow(agent).to receive(:to_session_data).with(status: :interrupted, updated_at: anything).and_return(stats: { last_status: "interrupted" })
 
       session_mgr = double("SessionManager")
       expect(session_mgr).to receive(:save).with(hash_including(stats: hash_including(last_status: "interrupted")))
@@ -186,7 +186,7 @@ RSpec.describe "CLI --message / -i non-interactive mode" do
     end
 
     it "early validation failure in JSON mode does NOT emit working or system status" do
-      allow(agent).to receive(:to_session_data).with(status: :error, error_message: anything).and_return(stats: { last_status: "error" })
+      allow(agent).to receive(:to_session_data).with(status: :error, error_message: anything, updated_at: anything).and_return(stats: { last_status: "error" })
 
       session_mgr = double("SessionManager")
       expect(session_mgr).to receive(:save).with(anything)
@@ -225,7 +225,7 @@ RSpec.describe "CLI --message / -i non-interactive mode" do
 
     it "saves session on early failure and outputs to stderr" do
       allow(agent).to receive(:instance_variable_set)
-      allow(agent).to receive(:to_session_data).with(status: :error, error_message: anything).and_return(stats: { last_status: "error" })
+      allow(agent).to receive(:to_session_data).with(status: :error, error_message: anything, updated_at: anything).and_return(stats: { last_status: "error" })
 
       session_mgr = double("SessionManager")
       expect(session_mgr).to receive(:save).with(hash_including(stats: hash_including(last_status: "error")))
@@ -243,7 +243,7 @@ RSpec.describe "CLI --message / -i non-interactive mode" do
     it "saves session on AgentInterrupted and outputs to stderr" do
       allow(agent).to receive(:instance_variable_set)
       allow(agent).to receive(:run).and_raise(Clacky::AgentInterrupted.new("interrupted"))
-      allow(agent).to receive(:to_session_data).with(status: :interrupted).and_return(stats: { last_status: "interrupted" })
+      allow(agent).to receive(:to_session_data).with(status: :interrupted, updated_at: anything).and_return(stats: { last_status: "interrupted" })
 
       session_mgr = double("SessionManager")
       expect(session_mgr).to receive(:save).with(hash_including(stats: hash_including(last_status: "interrupted")))

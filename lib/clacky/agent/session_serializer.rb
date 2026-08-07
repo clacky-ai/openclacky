@@ -190,7 +190,7 @@ module Clacky
         latest_path = chunks.last[:path]
         broken.each { |m| m[:chunk_path] = latest_path }
 
-        session_manager.save(to_session_data(preserve_updated_at: true))
+        session_manager.save(to_session_data)
       rescue => e
         Clacky::Logger.warn("heal_missing_chunk_paths! failed: #{e.message}")
       end
@@ -205,7 +205,7 @@ module Clacky
       # @param status [Symbol] Status of the last task: :success, :error, or :interrupted
       # @param error_message [String] Error message if status is :error
       # @return [Hash] Session data ready for serialization
-      def to_session_data(status: :success, error_message: nil, raw_message: nil, updated_at: nil, preserve_updated_at: false)
+      def to_session_data(status: :success, error_message: nil, raw_message: nil, updated_at: nil)
         stats_data = {
           total_tasks: @total_tasks,
           total_iterations: @iterations,
@@ -228,7 +228,7 @@ module Clacky
           pinned: @pinned,
           hidden: @hidden,
           created_at: @created_at,
-          updated_at: (updated_at || (preserve_updated_at && @persisted_updated_at) || Time.now.iso8601).then { |v| v.is_a?(String) ? v : v.iso8601 },
+          updated_at: (updated_at || @persisted_updated_at || Time.now.iso8601).then { |v| v.is_a?(String) ? v : v.iso8601 },
           working_dir: @working_dir,
           source: @source.to_s,                      # "manual" | "cron" | "channel" | "setup"
           agent_profile: @agent_profile&.name || "", # "general" | "coding" | custom

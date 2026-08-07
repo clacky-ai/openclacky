@@ -528,7 +528,7 @@ module Clacky
 
       private def persist_and_release(id, session)
         agent = session[:agent]
-        @session_manager&.save(agent.to_session_data(status: :success, preserve_updated_at: true)) if agent
+        @session_manager&.save(agent.to_session_data(status: :success)) if agent
 
         @mutex.synchronize do
           s = @sessions[id]

@@ -1175,7 +1175,7 @@ RSpec.describe Clacky::Server::HttpServer do
     # interrupt_all_agents touches: cancel! and to_session_data.
     def fake_agent(session_id)
       a = double("Agent[#{session_id}]", session_id: session_id)
-      allow(a).to receive(:to_session_data) do |status: nil, error_message: nil|
+      allow(a).to receive(:to_session_data) do |status: nil, error_message: nil, **|
         { session_id: session_id, created_at: Time.now.iso8601, name: "T", last_status: status&.to_s }
       end
       a
@@ -1227,7 +1227,7 @@ RSpec.describe Clacky::Server::HttpServer do
       thread = spawn_interruptible_agent_thread
       registry.with_session("clean-1") { |s| s[:agent] = agent; s[:thread] = thread }
 
-      expect(agent).to receive(:to_session_data).with(status: :interrupted).once
+      expect(agent).to receive(:to_session_data).with(status: :interrupted, updated_at: anything).once
 
       server.send(:interrupt_all_agents)
 
