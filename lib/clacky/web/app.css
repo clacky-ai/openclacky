@@ -565,7 +565,7 @@ body {
 }
 
 .header-logo-img {
-  height: 2rem;
+  height: 2.2rem;
   object-fit: contain;
   display: block;
   flex-shrink: 0;
