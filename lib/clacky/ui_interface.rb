@@ -24,6 +24,15 @@ module Clacky
     def show_shell_preview(command); end
     def show_diff(old_content, new_content, max_lines: 50); end
     def show_token_usage(token_data); end
+
+    # Broadcast the current standing-goal (/goal) state. `goal` is the
+    # GoalState hash or nil. UIs that render goal progress override this.
+    def show_goal_status(goal); end
+
+    # Notify the UI that the agent changed its permission mode internally
+    # (e.g. /goal auto-switches to auto_approve). UIs that render the mode
+    # in a status bar override this.
+    def update_permission_mode(mode); end
     def show_complete(iterations:, cost:, duration: nil, cache_stats: nil, awaiting_user_feedback: false, cost_source: nil); end
     def append_output(content); end
 

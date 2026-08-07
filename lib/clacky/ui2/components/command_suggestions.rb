@@ -16,10 +16,19 @@ module Clacky
           { command: "/clear", description: "Clear chat history and restart session" },
           { command: "/config", description: "Open configuration (models, API keys, settings)" },
           { command: "/model", description: "Quickly switch the current model" },
+          { command: "/goal", description: "Set a standing goal for autonomous multi-turn work" },
           { command: "/undo", description: "Undo the last task and restore previous state" },
           { command: "/help", description: "Show help information" },
           { command: "/exit", description: "Exit the chat session" },
           { command: "/quit", description: "Quit the application" }
+        ].freeze
+
+        GOAL_SUBCOMMANDS = [
+          { command: "/goal status", description: "Show current goal and turn budget" },
+          { command: "/goal pause", description: "Pause the goal loop (keeps progress)" },
+          { command: "/goal resume", description: "Resume a paused goal" },
+          { command: "/goal clear", description: "Clear the goal entirely" },
+          { command: "/goal --turns", description: "Set goal with custom turn budget (default 20)", argument_hint: "N <goal text>" }
         ].freeze
 
         def initialize
@@ -202,6 +211,14 @@ module Clacky
         private def update_filtered_commands
           if @filter_text.empty?
             @filtered_commands = @commands
+          elsif @filter_text.downcase.start_with?("goal ")
+            sub_filter = @filter_text[5..-1].to_s.strip.downcase
+            base = GOAL_SUBCOMMANDS.map { |c| c.merge(type: :goal_subcommand) }
+            @filtered_commands = if sub_filter.empty?
+              base
+            else
+              base.select { |cmd| cmd[:command].sub("/goal ", "").downcase.start_with?(sub_filter) }
+            end
           else
             filter_lower = @filter_text.downcase
             @filtered_commands = @commands.select do |cmd|

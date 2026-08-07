@@ -64,7 +64,8 @@ module Clacky
             tasks: 0,
             cost: 0.0,
             cost_source: nil,  # nil / :api / :price / :default — :default means pricing unknown, show N/A
-            status: 'idle'  # Workspace status: 'idle' or 'working'
+            status: 'idle',  # Workspace status: 'idle' or 'working'
+            goal: nil  # Goal loop snapshot hash or nil
           }
 
           # Animation state for working status
@@ -156,6 +157,10 @@ module Clacky
           @sessionbar_info[:cost] = cost if cost
           @sessionbar_info[:cost_source] = cost_source if cost_source
           @sessionbar_info[:status] = status if status
+        end
+
+        def set_goal(goal)
+          @sessionbar_info[:goal] = goal
         end
 
         def input_buffer
@@ -1139,6 +1144,25 @@ module Clacky
             parts << "#{status_indicator} #{@pastel.public_send(status_color, @sessionbar_info[:status])}"
           end
 
+          # Goal loop indicator
+          if (goal = @sessionbar_info[:goal])
+            g = goal.is_a?(Hash) ? goal : {}
+            status = g[:status] || g["status"]
+            used  = g[:turns_used] || g["turns_used"] || 0
+            max_t = g[:max_turns] || g["max_turns"] || 0
+            case status
+            when "active"
+              label = max_t.to_i.positive? ? "⊙ goal #{used}/#{max_t}" : "⊙ goal"
+              parts << @pastel.cyan(label)
+            when "done"
+              label = max_t.to_i.positive? ? "✓ goal #{used}/#{max_t}" : "✓ goal"
+              parts << @pastel.green(label)
+            when "paused"
+              label = max_t.to_i.positive? ? "⏸ goal #{used}/#{max_t}" : "⏸ goal"
+              parts << @pastel.yellow(label)
+            end
+          end
+
           # Session id — first 8 chars (parity with WebUI #sib-id)
           if @sessionbar_info[:session_id]
             sid_short = @sessionbar_info[:session_id].to_s[0, 8]
@@ -1243,7 +1267,7 @@ module Clacky
         def mode_color_for(mode)
           case mode.to_s
           when /auto_approve/
-            :magenta
+            :green
           when /confirm_safes/
             :cyan
           else

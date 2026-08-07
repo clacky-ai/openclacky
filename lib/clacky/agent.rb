@@ -25,6 +25,8 @@ require_relative "agent/skill_evolution"
 require_relative "agent/skill_reflector"
 require_relative "agent/skill_auto_creator"
 require_relative "agent/fake_tool_call_detector"
+require_relative "agent/goal_state"
+require_relative "agent/goal_manager"
 
 module Clacky
   class Agent
@@ -264,6 +266,170 @@ module Clacky
       @config.effective_model_name
     end
 
+    # ── /goal (Ralph-style standing goal loop) ────────────────────────────
+
+    # Lazily-built GoalManager bound to this session. The judge routes through
+    # this agent's Client on a lightweight model (the provider's lite model
+    # when available, else the primary model) — a cheap side call that never
+    # touches conversation history.
+    def goal_manager
+      @goal_manager ||= GoalManager.new(
+        judge_client: @client,
+        judge_model:  judge_model_name
+      )
+    end
+
+    # True if a standing goal loop is active for this session.
+    def goal_active?
+      @goal_manager&.active? || false
+    end
+
+    # Resolve the model name the goal judge should use. Prefer the provider's
+    # lite model (cheap/fast for a one-line verdict); fall back to the primary
+    # model when no lite is resolvable.
+    private def judge_model_name
+      lite = @config.lite_model_config_for_current
+      (lite && lite["model"]) || current_model
+    end
+
+    # Parse and handle a /goal command typed by the user. Returns a hash:
+    #   { handled: true,  result: <lightweight result> }  — command consumed, no turn
+    #   { handled: false, user_input: <text|nil> }         — fall through to a normal turn
+    #     (user_input set when `/goal <text>` seeds the first working prompt)
+    private def handle_goal_command(user_input)
+      text = user_input.to_s.strip
+      return { handled: false } unless text.start_with?("/goal", "/subgoal")
+
+      _cmd, rest = text.split(/\s+/, 2)
+      rest = rest.to_s.strip
+
+      # Sub-command dispatch: status/show/pause/resume/clear take no goal text.
+      case rest.downcase
+      when "status", "show"
+        return goal_command_reply(goal_manager.status_line)
+      when "pause"
+        goal_manager.pause(reason: "user-paused")
+        broadcast_goal_status
+        exit_goal_permission_mode!
+        return goal_command_reply(goal_manager.status_line)
+      when "resume"
+        if goal_manager.state.nil?
+          return goal_command_reply("No goal to resume. Set one with /goal <text>.")
+        end
+        goal_manager.resume
+        broadcast_goal_status
+        enter_goal_permission_mode!
+        # Resume runs a fresh working turn immediately.
+        return { handled: false, user_input: goal_manager.continuation_prompt }
+      when "clear", "stop"
+        goal_manager.clear
+        broadcast_goal_status
+        exit_goal_permission_mode!
+        return goal_command_reply("Goal cleared.")
+      end
+
+      # `/goal --turns N <text>` optional budget override.
+      max_turns = nil
+      if (m = rest.match(/\A--turns\s+(\d+)\s+(.*)\z/m))
+        max_turns = m[1].to_i
+        rest = m[2].strip
+      end
+
+      if rest.empty?
+        return goal_command_reply(goal_manager.status_line)
+      end
+
+      goal_manager.set(rest, max_turns: max_turns)
+      broadcast_goal_status
+      enter_goal_permission_mode!
+      @ui&.show_assistant_message("⊙ Goal set: #{rest}", files: [])
+      # Fall through: run the first working turn using the goal itself as the prompt.
+      { handled: false, user_input: rest }
+    end
+
+    # Show + persist a one-off goal control-plane reply (no LLM turn) and return
+    # a lightweight success result compatible with build_result's shape.
+    private def goal_command_reply(message)
+      @ui&.show_assistant_message(message, files: [])
+      { handled: true, result: goal_control_result }
+    end
+
+    private def goal_control_result
+      {
+        status: :success,
+        session_id: @session_id,
+        model: current_model,
+        provider: current_provider,
+        iterations: 0,
+        duration_seconds: 0.0,
+        total_cost_usd: 0.0,
+        cost_source: :estimated,
+        cache_stats: @cache_stats,
+        history: @history,
+        error: nil,
+        goal_command: true
+      }
+    end
+
+    # After a completed turn, consult the judge and, if the goal should keep
+    # going, run the next turn in this thread. Returns the final result of the
+    # continued run, or nil when no continuation happened.
+    private def maybe_continue_goal(result)
+      return nil unless @goal_manager&.active?
+
+      decision = @goal_manager.evaluate_after_turn(last_assistant_text)
+      broadcast_goal_status
+
+      unless decision[:message].to_s.empty?
+        @ui&.show_assistant_message(decision[:message], files: [])
+      end
+
+      unless decision[:should_continue]
+        exit_goal_permission_mode!
+        return nil
+      end
+
+      return nil unless decision[:continuation_prompt]
+
+      run(decision[:continuation_prompt])
+    end
+
+    # The agent's final assistant text this turn — what the judge evaluates.
+    private def last_assistant_text
+      msg = @history.to_a.reverse.find { |m| m[:role].to_s == "assistant" }
+      return "" unless msg
+      content = msg[:content]
+      return content if content.is_a?(String)
+      Array(content).filter_map { |c| c.is_a?(Hash) ? (c[:text] || c["text"]) : c }.join("\n")
+    end
+
+    # Emit a goal_status event over the UI bridge (Web UI live update). No-op
+    # when the UI adapter does not implement it (e.g. plain CLI).
+    private def broadcast_goal_status
+      return unless @ui.respond_to?(:show_goal_status)
+      @ui.show_goal_status(@goal_manager&.to_h)
+    end
+
+    private def enter_goal_permission_mode!
+      return unless @config&.permission_mode
+      return if @config.permission_mode == :auto_approve
+      @pre_goal_permission_mode = @config.permission_mode
+      @config.permission_mode = :auto_approve
+      notify_permission_mode_change(:auto_approve)
+    end
+
+    private def exit_goal_permission_mode!
+      return unless @pre_goal_permission_mode
+      mode = @pre_goal_permission_mode
+      @pre_goal_permission_mode = nil
+      @config.permission_mode = mode
+      notify_permission_mode_change(mode)
+    end
+
+    private def notify_permission_mode_change(mode)
+      @ui&.update_permission_mode(mode) if @ui&.respond_to?(:update_permission_mode)
+    end
+
     private def current_provider
       return nil unless @client.respond_to?(:provider_id)
       @client.provider_id
@@ -275,6 +441,21 @@ module Clacky
     end
 
     def run(user_input, files: [], display_text: nil, created_at: nil)
+      # Intercept /goal ... commands before any task/LLM work. Control-plane
+      # commands (status/pause/resume/clear) return immediately without a turn;
+      # `/goal <text>` sets the goal, then falls through to run the first turn.
+      goal_intercept = handle_goal_command(user_input)
+      return goal_intercept[:result] if goal_intercept[:handled]
+      user_input = goal_intercept[:user_input] if goal_intercept[:user_input]
+
+      # Auto-clear a finished/paused goal when the user starts a new non-goal
+      # task. /goal <text> already replaced the goal above; control commands
+      # returned early. The "✓ Goal achieved" line stays in the thread.
+      if !goal_intercept[:user_input] && @goal_manager&.state && !@goal_manager.active?
+        @goal_manager.clear
+        broadcast_goal_status
+      end
+
       # Show the "thinking" indicator as early as possible so the user gets
       # immediate feedback after sending a message. Without this the UI stays
       # silent during synchronous setup work (system prompt assembly, file
@@ -673,6 +854,18 @@ module Clacky
           )
         end
         @hooks.trigger(:on_complete, result)
+
+        # Standing-goal loop: after a completed turn, ask the judge whether the
+        # goal is met. If not (and budget/health allow), auto-run the next turn
+        # in this same thread. Skipped for subagents and interrupts.
+        # awaiting_user_feedback (agent ended with '?') is intentionally not
+        # checked here - maybe_continue_goal is a no-op when no goal is active,
+        # and when one is active the judge decides done/continue, not punctuation.
+        unless @is_subagent || task_interrupted
+          continuation = maybe_continue_goal(result)
+          return continuation if continuation
+        end
+
         result
       rescue Clacky::AgentInterrupted
         # Mark this run as interrupted so the next run() (e.g. user's

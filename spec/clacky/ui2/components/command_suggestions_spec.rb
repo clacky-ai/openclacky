@@ -184,4 +184,58 @@ RSpec.describe Clacky::UI2::Components::CommandSuggestions do
       expect(output.length).to be > 0
     end
   end
+
+  describe "/goal sub-command suggestions" do
+    it "shows sub-commands when filter is 'goal '" do
+      suggestions.show("goal ")
+      filtered = suggestions.instance_variable_get(:@filtered_commands)
+      commands = filtered.map { |c| c[:command] }
+      expect(commands).to include("/goal status", "/goal pause", "/goal resume", "/goal clear", "/goal --turns")
+    end
+
+    it "filters sub-commands by prefix" do
+      suggestions.show("goal s")
+      filtered = suggestions.instance_variable_get(:@filtered_commands)
+      commands = filtered.map { |c| c[:command] }
+      expect(commands).to eq(["/goal status"])
+    end
+
+    it "filters sub-commands case-insensitively" do
+      suggestions.show("goal P")
+      filtered = suggestions.instance_variable_get(:@filtered_commands)
+      commands = filtered.map { |c| c[:command] }
+      expect(commands).to eq(["/goal pause"])
+    end
+
+    it "shows --turns when filter starts with --" do
+      suggestions.show("goal --")
+      filtered = suggestions.instance_variable_get(:@filtered_commands)
+      commands = filtered.map { |c| c[:command] }
+      expect(commands).to eq(["/goal --turns"])
+    end
+
+    it "does not show sub-commands when filter is 'goal' without space" do
+      suggestions.show("goal")
+      filtered = suggestions.instance_variable_get(:@filtered_commands)
+      commands = filtered.map { |c| c[:command] }
+      expect(commands).to include("/goal")
+      expect(commands).not_to include("/goal status")
+    end
+
+    it "returns full /goal sub-command from selected_command_text" do
+      suggestions.show("goal s")
+      expect(suggestions.selected_command_text).to eq("/goal status")
+    end
+
+    it "returns argument hint for --turns" do
+      suggestions.show("goal --")
+      expect(suggestions.selected_argument_hint).to eq("N <goal text>")
+    end
+
+    it "returns no suggestions when sub-filter matches nothing" do
+      suggestions.show("goal xyz")
+      filtered = suggestions.instance_variable_get(:@filtered_commands)
+      expect(filtered).to be_empty
+    end
+  end
 end

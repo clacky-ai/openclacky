@@ -33,6 +33,12 @@ module Clacky
         # Restore project association (nil = no project)
         @project_id = session_data[:project_id]
 
+        # Restore standing goal state (nil = no goal). The judge client/model
+        # are rebound lazily via #goal_manager when first accessed after
+        # restore — but the persisted state must be reattached here so a
+        # restored active goal keeps its progress and continues.
+        restore_goal_state(session_data[:goal])
+
         # Restore cache statistics if available
         @cache_stats = session_data.dig(:stats, :cache_stats) || {
           cache_creation_input_tokens: 0,
@@ -118,6 +124,22 @@ module Clacky
         # (or other configuration changes since the session was saved) are
         # reflected immediately — without requiring the user to create a new session.
         refresh_system_prompt
+      end
+
+      # Reattach persisted goal state after a restore. Builds a fresh
+      # GoalManager (bound to this agent's judge client/model) and injects the
+      # deserialized GoalState so a restored active goal keeps its progress.
+      private def restore_goal_state(goal_data)
+        return if goal_data.nil? || goal_data.empty?
+
+        state = GoalState.from_h(goal_data)
+        @goal_manager = GoalManager.new(
+          judge_client: @client,
+          judge_model:  judge_model_name,
+          state:        state
+        )
+      rescue => e
+        Clacky::Logger.warn("restore_goal_state failed: #{e.message}")
       end
 
       # Fill missing entries in @task_meta from @history (for sessions saved
@@ -241,6 +263,7 @@ module Clacky
           },
           channel_info: @channel_info,
           project_id:   @project_id,
+          goal:         @goal_manager&.to_h,
           stats: stats_data,
           messages: @history.to_a
         }

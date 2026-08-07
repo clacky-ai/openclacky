@@ -131,6 +131,16 @@ module Clacky
         @layout.render_input
       end
 
+      def show_goal_status(goal)
+        @input_area.set_goal(goal)
+        @layout.render_input
+      end
+
+      def update_permission_mode(mode)
+        @config[:mode] = mode.to_s
+        update_sessionbar
+      end
+
       # Toggle permission mode between confirm_safes and auto_approve
       def toggle_mode
         current_mode = @config[:mode]
@@ -961,6 +971,13 @@ module Clacky
           theme.format_text("Commands:", :info),
           "  #{theme.format_text("/model", :success)}       - Quickly switch the current model",
           "  #{theme.format_text("/config", :success)}      - Configure models, API keys, settings",
+          "  #{theme.format_text("/goal", :success)}        - Set a standing goal for autonomous work",
+          "    #{theme.format_text("/goal <text>", :dim)}       Set a goal and start working toward it",
+          "    #{theme.format_text("/goal status", :dim)}       Show current goal and turn budget",
+          "    #{theme.format_text("/goal pause", :dim)}       Pause the goal loop (keeps progress)",
+          "    #{theme.format_text("/goal resume", :dim)}      Resume a paused goal",
+          "    #{theme.format_text("/goal clear", :dim)}       Clear the goal entirely",
+          "    #{theme.format_text("/goal --turns N <text>", :dim)}  Set goal with custom turn budget (default 20)",
           "  #{theme.format_text("/clear", :success)}       - Clear output and restart session",
           "  #{theme.format_text("/exit", :success)}        - Exit application",
           "",
