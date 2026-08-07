@@ -221,7 +221,8 @@ module Clacky
             latest_latency: s[:agent]&.latest_latency,
             card_model: model_info&.dig(:card_model),
             sub_model: model_info&.dig(:sub_model),
-            sub_model_options: sub_model_options_for(model_info) }
+            sub_model_options: sub_model_options_for(model_info),
+            todos: s[:agent]&.todos }
           end
         end
 
@@ -338,7 +339,12 @@ module Clacky
             latest_latency: s[:agent]&.latest_latency,
             card_model: model_info&.dig(:card_model),
             sub_model: model_info&.dig(:sub_model),
-            sub_model_options: sub_model_options_for(model_info) }
+            sub_model_options: sub_model_options_for(model_info),
+            # Live agent todos take precedence over the stale on-disk copy.
+            # On-disk todos are only persisted when agent.run finishes, so a
+            # snapshot taken mid-run (e.g. right after completing the last
+            # task) would otherwise still return the old list.
+            todos: s[:agent]&.todos }
         end
 
         build_enriched_row(disk, live)
@@ -379,6 +385,7 @@ module Clacky
           pinned:        s[:pinned] || false,
           channel_info:  s[:channel_info],
           project_id:    s[:project_id],
+          todos:         ls&.dig(:todos) || s[:todos] || [],
         }
       end
 

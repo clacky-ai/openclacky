@@ -1256,9 +1256,12 @@ module Clacky
           # Hook: after_tool_use
           @hooks.trigger(:after_tool_use, call, result)
 
-          # Update todos display after todo_manager execution
+          # Update todos display after todo_manager execution.
+          # Skip the broadcast for read-only "list" queries — they don't
+          # mutate state, so pushing a WS event just adds noise.
           if call[:name] == "todo_manager"
-            @ui&.update_todos(@todos.dup)
+            action = args[:action] || args["action"]
+            @ui&.update_todos(@todos.dup) unless action == "list"
           end
 
           # Special handling for request_user_feedback: emit as interactive feedback card
