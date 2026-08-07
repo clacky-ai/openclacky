@@ -58,9 +58,9 @@ RSpec.describe Clacky::Client, "Ark payg model-id mapping keeps vision judgement
   end
 
   it "keeps images for a vision-capable display model even when the api id differs" do
-    body = capture_request_body(api_model: "doubao-seed-2-0-pro-260215", capability_model: "doubao-seed-2.0-pro")
+    body = capture_request_body(api_model: "doubao-seed-2-1-pro-260628", capability_model: "doubao-seed-2.1-pro")
 
-    expect(body["model"]).to eq("doubao-seed-2-0-pro-260215")
+    expect(body["model"]).to eq("doubao-seed-2-1-pro-260628")
 
     content = body["messages"].last["content"]
     types = content.map { |b| b["type"] }

@@ -398,15 +398,15 @@ RSpec.describe Clacky::Providers do
             .to be(false), "expected vision=false at #{url} for glm-5.2"
           expect(described_class.supports?(id, :vision, model_name: "deepseek-v4-pro"))
             .to be(false), "expected vision=false at #{url} for deepseek-v4-pro"
-          expect(described_class.supports?(id, :vision, model_name: "doubao-seed-2.0-pro"))
-            .to be(true), "expected vision=true at #{url} for doubao-seed-2.0-pro"
+          expect(described_class.supports?(id, :vision, model_name: "doubao-seed-2.1-pro"))
+            .to be(true), "expected vision=true at #{url} for doubao-seed-2.1-pro"
           expect(described_class.supports?(id, :vision, model_name: "kimi-k2.7-code"))
             .to be(true), "expected vision=true at #{url} for kimi-k2.7-code"
         end
       end
 
       it "resolves default model and OCR model" do
-        expect(described_class.default_model("volcengine-ark")).to eq("doubao-seed-2.0-pro")
+        expect(described_class.default_model("volcengine-ark")).to eq("doubao-seed-2.1-pro")
         expect(described_class::PRESETS["volcengine-ark"]["default_ocr_model"]).to eq("doubao-seed-2.0-lite")
       end
 
@@ -415,9 +415,7 @@ RSpec.describe Clacky::Providers do
 
         it "swaps display names for versioned ids on the pay-as-you-go endpoint" do
           {
-            "doubao-seed-2.0-pro"   => "doubao-seed-2-0-pro-260215",
             "doubao-seed-2.0-lite"  => "doubao-seed-2-0-lite-260428",
-            "doubao-seed-2.0-code"  => "doubao-seed-2-0-code-preview-260215",
             "doubao-seed-2.1-pro"   => "doubao-seed-2-1-pro-260628",
             "doubao-seed-2.1-turbo" => "doubao-seed-2-1-turbo-260628",
             "glm-5.2"               => "glm-5-2-260617",
@@ -431,8 +429,8 @@ RSpec.describe Clacky::Providers do
 
         it "keeps display names unchanged on Coding and Agent Plan endpoints" do
           ["#{base}/api/coding/v3", "#{base}/api/plan/v3"].each do |url|
-            expect(described_class.resolve_api_model(base_url: url, model: "doubao-seed-2.0-pro"))
-              .to eq("doubao-seed-2.0-pro")
+            expect(described_class.resolve_api_model(base_url: url, model: "doubao-seed-2.1-pro"))
+              .to eq("doubao-seed-2.1-pro")
             expect(described_class.resolve_api_model(base_url: url, model: "glm-5.2"))
               .to eq("glm-5.2")
           end
@@ -450,8 +448,8 @@ RSpec.describe Clacky::Providers do
         end
 
         it "leaves models unchanged for unrelated providers" do
-          expect(described_class.resolve_api_model(base_url: "https://api.openai.com/v1", model: "doubao-seed-2.0-pro"))
-            .to eq("doubao-seed-2.0-pro")
+          expect(described_class.resolve_api_model(base_url: "https://api.openai.com/v1", model: "doubao-seed-2.1-pro"))
+            .to eq("doubao-seed-2.1-pro")
         end
       end
     end

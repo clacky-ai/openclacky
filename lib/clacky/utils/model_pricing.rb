@@ -339,16 +339,6 @@ module Clacky
         output: { default: 2.22, over_200k: 2.22 },
         cache:  { write: 0.45, read: 0.09 }
       },
-      "doubao-seed-2.0-pro" => {
-        input:  { default: 0.71, over_200k: 1.42 },
-        output: { default: 3.55, over_200k: 7.09 },
-        cache:  { write: 0.71, read: 0.15 }
-      },
-      "doubao-seed-2.0-code" => {
-        input:  { default: 0.71, over_200k: 1.42 },
-        output: { default: 3.55, over_200k: 7.09 },
-        cache:  { write: 0.71, read: 0.15 }
-      },
       "doubao-seed-2.0-lite" => {
         input:  { default: 0.14, over_200k: 0.27 },
         output: { default: 0.80, over_200k: 1.60 },

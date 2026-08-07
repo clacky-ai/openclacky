@@ -427,13 +427,11 @@ module Clacky
         "name_key" => "provider.name.volcengine_ark",
         "base_url" => "https://ark.cn-beijing.volces.com/api/v3",
         "api" => "openai-completions",
-        "default_model" => "doubao-seed-2.0-pro",
+        "default_model" => "doubao-seed-2.1-pro",
         "models" => [
           "doubao-seed-evolving",
           "doubao-seed-2.1-pro",
           "doubao-seed-2.1-turbo",
-          "doubao-seed-2.0-code",
-          "doubao-seed-2.0-pro",
           "doubao-seed-2.0-lite",
           "minimax-m3",
           "minimax-m2.7",
@@ -460,9 +458,7 @@ module Clacky
             "deepseek-v4-flash"  => "deepseek-v4-flash-260425",
             "doubao-seed-2.1-pro"   => "doubao-seed-2-1-pro-260628",
             "doubao-seed-2.1-turbo" => "doubao-seed-2-1-turbo-260628",
-            "doubao-seed-2.0-pro"   => "doubao-seed-2-0-pro-260215",
-            "doubao-seed-2.0-lite"  => "doubao-seed-2-0-lite-260428",
-            "doubao-seed-2.0-code"  => "doubao-seed-2-0-code-preview-260215"
+            "doubao-seed-2.0-lite"  => "doubao-seed-2-0-lite-260428"
           }.freeze
         }.freeze,
         # Most Doubao/multimodal models accept image input; GLM-5.2 and
@@ -991,8 +987,8 @@ module Clacky
       # Translate a display model name into the real model id the target
       # endpoint expects. Some providers expose the same model under different
       # ids per billing endpoint (e.g. Volcengine Ark's pay-as-you-go API needs
-      # versioned ids like "doubao-seed-2-0-pro-260215" while the Coding/Agent
-      # Plan endpoints accept the short "doubao-seed-2.0-pro"). Users always see
+      # versioned ids like "doubao-seed-2-1-pro-260628" while the Coding/Agent
+      # Plan endpoints accept the short "doubao-seed-2.1-pro"). Users always see
       # and pick the short name; this swaps it just before the request goes out.
       #
       # Returns the original model unchanged when no alias applies (unknown
