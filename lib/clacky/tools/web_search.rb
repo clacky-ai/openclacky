@@ -33,6 +33,8 @@ module Clacky
       # cn.bing.com is accessible in mainland China without VPN.
       PROVIDERS = %i[duckduckgo bing].freeze
 
+      SEARCHER_TIMEOUT = 30
+
       def execute(query:, max_results: 10, working_dir: nil)
         if query.nil? || query.strip.empty?
           return { error: "Query cannot be empty" }
@@ -51,7 +53,7 @@ module Clacky
               query: query,
               results: results,
               count: results.length,
-              provider: provider.to_s,
+              provider: provider == :custom ? Clacky::SearchConfig.load["provider"] : provider.to_s,
               error: nil
             }
           rescue StandardError => e
@@ -74,11 +76,48 @@ module Clacky
 
       # Skip DuckDuckGo if it failed recently (within last 10 minutes)
       private def active_providers
-        if @ddg_unavailable_until && Time.now < @ddg_unavailable_until
-          PROVIDERS.drop(1)
-        else
-          PROVIDERS
-        end
+        builtin = if @ddg_unavailable_until && Time.now < @ddg_unavailable_until
+                    PROVIDERS.drop(1)
+                  else
+                    PROVIDERS
+                  end
+
+        # A configured searcher is tried first; the built-in scrapers stay as
+        # fallback so a missing key or a provider outage still returns results.
+        Clacky::SearchConfig.script_path ? [:custom, *builtin] : builtin
+      end
+
+      # ── Configured searcher (~/.clacky/searchers/<provider>.rb) ────────────
+
+      private def search_custom(query, max_results)
+        script = Clacky::SearchConfig.script_path
+        return [] unless script
+
+        interpreter = Clacky::Utils::SearcherManager.interpreter_for(script)
+        env = { "CLACKY_SEARCH_KEY" => Clacky::SearchConfig.key }
+
+        stdout, stderr, status = Clacky::Utils::ParserManager.capture3_with_timeout(
+          env, interpreter, script, query, max_results.to_s, timeout: SEARCHER_TIMEOUT
+        )
+
+        raise "Searcher timed out after #{SEARCHER_TIMEOUT}s" if status == :timeout
+        raise (stderr.to_s.strip.empty? ? "Searcher exited with #{status.exitstatus}" : stderr.strip) unless status.success?
+
+        parse_custom_results(Clacky::Utils::Encoding.to_utf8(stdout.to_s), max_results)
+      end
+
+      private def parse_custom_results(stdout, max_results)
+        parsed = JSON.parse(stdout)
+        raise "Searcher must output a JSON array" unless parsed.is_a?(Array)
+
+        parsed.filter_map do |item|
+          next unless item.is_a?(Hash)
+
+          url = item["url"].to_s
+          next if url.empty?
+
+          { title: item["title"].to_s, url: url, snippet: item["snippet"].to_s }
+        end.first(max_results)
       end
 
       # ── DuckDuckGo ─────────────────────────────────────────────────────────

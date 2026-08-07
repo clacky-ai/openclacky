@@ -549,6 +549,9 @@ module Clacky
         when ["GET",    "/api/config/ocr"]    then api_get_ocr_config(res)
         when ["PATCH",  "/api/config/ocr"]    then api_update_ocr_config(req, res)
         when ["POST",   "/api/config/ocr/test"] then api_test_ocr_config(req, res)
+        when ["GET",    "/api/config/search"] then api_get_search_config(res)
+        when ["PATCH",  "/api/config/search"] then api_update_search_config(req, res)
+        when ["POST",   "/api/config/search/test"] then api_test_search_config(req, res)
         when ["POST",   "/api/internal/ocr-image"] then api_internal_ocr_image(req, res)
         when ["GET",    "/api/providers"]     then api_list_providers(res)
         when ["GET",    "/api/onboard/status"]    then api_onboard_status(res)
@@ -2096,6 +2099,80 @@ module Clacky
 
         result = preflight_media_endpoint(base_url: base_url, api_key: api_key, model: model)
         json_response(res, 200, result)
+      rescue => e
+        json_response(res, 200, { ok: false, message: e.message })
+      end
+
+      # GET /api/config/search
+      # Lists installed searchers so the UI can offer whatever the user dropped
+      # into ~/.clacky/searchers/, not just the bundled ones.
+      def api_get_search_config(res)
+        config = Clacky::SearchConfig.load
+        json_response(res, 200, {
+          ok: true,
+          provider: config["provider"],
+          key_masked: config["key"].empty? ? nil : mask_api_key(config["key"]),
+          available: Clacky::Utils::SearcherManager.available
+        })
+      end
+
+      # PATCH /api/config/search
+      # Body: { provider: "tavily"|"", key?: "..." }
+      def api_update_search_config(req, res)
+        body = parse_json_body(req)
+        return json_response(res, 400, { error: "Invalid JSON" }) unless body
+
+        provider = body["provider"].to_s.strip
+        unless provider.empty? || Clacky::Utils::SearcherManager.path_for(provider)
+          return json_response(res, 422, { error: "Unknown search provider: #{provider}" })
+        end
+
+        key = body["key"].to_s
+        key = Clacky::SearchConfig.key if key.include?("****")
+
+        Clacky::SearchConfig.save(provider: provider, key: key)
+        json_response(res, 200, { ok: true, provider: provider })
+      rescue => e
+        json_response(res, 422, { error: e.message })
+      end
+
+      # POST /api/config/search/test
+      # Runs the searcher with a fixed query so the user gets a definitive
+      # answer before saving, rather than discovering a bad key mid-task.
+      def api_test_search_config(req, res)
+        body = parse_json_body(req) || {}
+        provider = body["provider"].to_s.strip
+        return json_response(res, 200, { ok: false, message: "provider is required" }) if provider.empty?
+
+        script = Clacky::Utils::SearcherManager.path_for(provider)
+        return json_response(res, 200, { ok: false, message: "searcher not found: #{provider}" }) unless script
+
+        key = body["key"].to_s
+        key = Clacky::SearchConfig.key if key.empty? || key.include?("****")
+
+        stdout, stderr, status = Clacky::Utils::ParserManager.capture3_with_timeout(
+          { "CLACKY_SEARCH_KEY" => key },
+          Clacky::Utils::SearcherManager.interpreter_for(script),
+          script, "openclacky", "1",
+          timeout: 30
+        )
+
+        if status == :timeout
+          return json_response(res, 200, { ok: false, message: "searcher timed out" })
+        end
+
+        unless status.success?
+          message = stderr.to_s.strip
+          return json_response(res, 200, { ok: false, message: message.empty? ? "searcher failed" : message })
+        end
+
+        count = begin
+          JSON.parse(stdout.to_s).size
+        rescue StandardError
+          return json_response(res, 200, { ok: false, message: "searcher did not output a JSON array" })
+        end
+
+        json_response(res, 200, { ok: true, message: "Returned #{count} result(s)" })
       rescue => e
         json_response(res, 200, { ok: false, message: e.message })
       end

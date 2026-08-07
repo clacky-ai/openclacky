@@ -1069,6 +1069,38 @@
             </div>
           </section>
 
+          <!-- Web Search section -->
+          <section class="settings-section" id="search-section">
+            <div class="settings-section-title">
+              <span data-i18n="settings.search.title">Web Search</span>
+            </div>
+            <div class="settings-network">
+              <p class="settings-network-desc" data-i18n="settings.search.desc">By default web_search scrapes DuckDuckGo and Bing, which needs no key but returns lower-quality results. Select a search provider to use an API instead — it falls back to the built-in engines if the provider fails.</p>
+              <div class="settings-network-url">
+                <label class="settings-network-url-label" for="settings-search-provider" data-i18n="settings.search.provider">Provider</label>
+                <div class="settings-network-url-row">
+                  <select id="settings-search-provider" class="field-input">
+                    <option value="" data-i18n="settings.search.builtin">Built-in (DuckDuckGo / Bing)</option>
+                  </select>
+                </div>
+              </div>
+              <div class="settings-network-url" id="search-key-wrap" style="display:none">
+                <label class="settings-network-url-label" for="settings-search-key" data-i18n="settings.search.key">API Key</label>
+                <div class="settings-network-url-row">
+                  <input type="password" id="settings-search-key" class="field-input" placeholder="tvly-..." autocomplete="off" spellcheck="false">
+                  <button type="button" id="btn-test-search" class="btn-settings-action" data-i18n="settings.search.test">Test</button>
+                </div>
+              </div>
+              <div class="settings-network-url">
+                <div class="settings-network-url-row">
+                  <button type="button" id="btn-save-search" class="btn-settings-action" data-i18n="settings.search.save">Save</button>
+                </div>
+                <div id="settings-search-status" class="model-test-result"></div>
+              </div>
+              <p class="settings-network-desc" data-i18n="settings.search.custom">Add your own provider by dropping a script into ~/.clacky/searchers/ — see tavily.rb for the interface.</p>
+            </div>
+          </section>
+
           <!-- Backup section -->
           <section class="settings-section" id="backup-section" style="display:none">
           </section>

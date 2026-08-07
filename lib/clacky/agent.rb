@@ -171,6 +171,9 @@ module Clacky
 
       # Ensure bundled shell scripts are in place (~/.clacky/scripts/)
       Utils::ScriptsManager.setup!
+
+      # Ensure bundled search providers are in place (~/.clacky/searchers/)
+      Utils::SearcherManager.setup!
     end
 
     # Restore from a saved session
