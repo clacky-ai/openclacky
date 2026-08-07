@@ -447,6 +447,8 @@
       </div>
       <!-- Composer slot: agent-scoped controls above the session info bar. -->
       <div id="ext-slot-session-composer" class="session-composer" data-slot="session.composer"></div>
+      <!-- Live todo/task list panel (driven by todo_update WS events) -->
+      <div id="todo-panel" class="todo-panel" style="display:none"></div>
       <!-- Session info bar — mirrors CLI bottom status bar -->
       <div id="session-info-bar" style="display:none">
         <!-- Order: status | id | dir | model | mode | tasks | cost -->
@@ -493,8 +495,6 @@
 
       <!-- Composer slot: moved above the session info bar. -->
       <div id="input-area">
-        <!-- Live todo/task list panel (driven by todo_update WS events) -->
-        <div id="todo-panel" class="todo-panel" style="display:none"></div>
         <div id="ws-disconnect-hint" style="display:none"></div>
         <!-- Skill autocomplete dropdown (shown when user types /xxx) -->
         <div id="skill-autocomplete" style="display:none" role="listbox" aria-label="Skills">
