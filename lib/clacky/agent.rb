@@ -51,7 +51,6 @@ module Clacky
                 :latest_latency,  # Hash of latency metrics from the most recent LLM call (see Client#send_messages_with_tools)
                 :reasoning_effort
     attr_accessor :pinned
-    attr_accessor :hidden
     attr_accessor :channel_info
     attr_accessor :project_id
 
@@ -86,7 +85,6 @@ module Clacky
       @session_id = session_id
       @name = ""
       @pinned = false
-      @hidden = false
       @history = MessageHistory.new
       @todos = []  # Store todos in memory
       @iterations = 0

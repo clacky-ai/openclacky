@@ -814,6 +814,10 @@ module Clacky
         date         = query["date"].to_s.strip.then    { |v| v.empty? ? nil : v }
         type         = query["type"].to_s.strip.then    { |v| v.empty? ? nil : v }
         exclude_type = query["exclude_type"].to_s.strip.then { |v| v.empty? ? nil : v }
+        ext_sources = Clacky::ExtensionLoader.ext_source_ids
+        if ext_sources.any?
+          exclude_type = (Array(exclude_type) + ext_sources).uniq
+        end
         # Backward-compat: ?source=<x> and ?profile=coding → type
         type ||= query["profile"].to_s.strip.then { |v| v.empty? ? nil : v }
         type ||= query["source"].to_s.strip.then  { |v| v.empty? ? nil : v }
@@ -6895,24 +6899,30 @@ module Clacky
           interrupt_session(session_id)
 
         when "list_sessions"
+          ext_sources = Clacky::ExtensionLoader.ext_source_ids
+          exclude_types = ["cron", *ext_sources]
+
           stats    = @registry.cron_stats
-          page     = @registry.list(limit: 11, exclude_type: "cron", exclude_project: true)
+          page     = @registry.list(limit: 11, exclude_type: exclude_types, exclude_project: true)
           has_more = page.size > 10
           all_sessions = page.first(10)
           projects = @project_manager.all
-          # Include ALL sessions that belong to any project, regardless of the
-          # 15-item pagination limit.  We merge them into the same `sessions`
-          # array; the client deduplicates by id in `setAll`.
           if projects.any?
-            project_ids = projects.map { |p| p[:id] }
-            project_sessions = project_ids.flat_map do |pid|
-              @registry.list(project_id: pid)
-            end
-            # Deduplicate: project sessions that are already in the first page
-            # will be replaced by the enriched version from `all_sessions`.
             paged_ids = all_sessions.map { |s| s[:id] }.to_set
-            extra_project_sessions = project_sessions.reject { |s| paged_ids.include?(s[:id]) }
-            all_sessions = all_sessions + extra_project_sessions
+            visible_projects = []
+            projects.each do |p|
+              all_for_project = @registry.list(project_id: p[:id])
+              if all_for_project.empty?
+                visible_projects << p
+              else
+                regular = all_for_project.reject { |s| exclude_types.include?((s[:source] || "manual").to_s) }
+                if regular.any?
+                  visible_projects << p
+                  all_sessions += regular.reject { |s| paged_ids.include?(s[:id]) }
+                end
+              end
+            end
+            projects = visible_projects
           end
           conn.send_json(type: "session_list", sessions: all_sessions, has_more: has_more,
                          cron_count: stats[:count], latest_cron_updated_at: stats[:latest_updated_at],
@@ -7297,7 +7307,7 @@ module Clacky
       # @param working_dir [String] working directory for the agent
       # @param permission_mode [Symbol] :confirm_all (default, human present) or
       #   :auto_approve (unattended — suppresses request_user_feedback waits)
-      def build_session(name:, working_dir: nil, permission_mode: :confirm_all, profile: "general", source: :manual, model_id: nil, hidden: false)
+      def build_session(name:, working_dir: nil, permission_mode: :confirm_all, profile: "general", source: :manual, model_id: nil)
         working_dir ||= default_working_dir
         FileUtils.mkdir_p(working_dir) unless Dir.exist?(working_dir)
         session_id = Clacky::SessionManager.generate_id
@@ -7336,7 +7346,6 @@ module Clacky
         agent = Clacky::Agent.new(client, config, working_dir: working_dir, ui: ui, profile: profile,
                                   session_id: session_id, source: source)
         agent.rename(name) unless name.nil? || name.empty?
-        agent.hidden = hidden
         idle_timer = build_idle_timer(session_id, agent)
 
         @registry.with_session(session_id) do |s|

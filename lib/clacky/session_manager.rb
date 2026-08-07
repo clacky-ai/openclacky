@@ -66,7 +66,6 @@ module Clacky
       forked[:created_at]  = Time.now.iso8601
       forked[:updated_at]  = Time.now.iso8601
       forked[:pinned]      = false
-      forked[:hidden]      = false
       forked[:name]        = "#{original[:name] || "Unnamed session"} (copy)"
       forked[:stats] = (original[:stats] || {}).merge(
         total_tasks: 0, total_iterations: 0, total_cost_usd: 0.0,
@@ -331,15 +330,19 @@ module Clacky
       deleted
     end
 
-    # Keep only the most recent N non-pinned, non-hidden sessions by created_at;
-    # the rest are soft-deleted (moved to the session trash, recoverable). Pinned
-    # and hidden sessions are never deleted and do not count toward the cap.
+    # Keep only the most recent N non-pinned sessions by created_at; the rest
+    # are soft-deleted (moved to the session trash, recoverable). Pinned
+    # sessions are never deleted and do not count toward the cap.
     # Returns count of soft-deleted sessions.
     def cleanup_by_count(keep:, grouped_keep: 200)
-      non_pinned = all_sessions.reject { |s| s[:pinned] || s[:hidden] }
+      non_pinned = all_sessions.reject { |s| s[:pinned] }
+
+      ext_sources = Clacky::ExtensionLoader.ext_source_ids
 
       groups = non_pinned.group_by do |s|
-        (s[:project_id] || !GROUPED_SOURCES.include?(s[:source].to_s)) ? "regular" : s[:source].to_s
+        source = s[:source].to_s
+        grouped = GROUPED_SOURCES.include?(source) || ext_sources.include?(source)
+        (s[:project_id] || !grouped) ? "regular" : source
       end
 
       victims = groups.flat_map do |source, sessions|

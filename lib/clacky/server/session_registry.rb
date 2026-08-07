@@ -203,7 +203,7 @@ module Clacky
       #   [ ...all_pinned_matching (newest-first), ...non_pinned (newest-first, limited) ]
       #
       # source and profile are orthogonal — either can be nil independently.
-      def list(limit: nil, before: nil, q: nil, q_scope: "name", date: nil, type: nil, exclude_type: nil, include_pinned: true, project_id: nil, exclude_project: false, include_hidden: false)
+      def list(limit: nil, before: nil, q: nil, q_scope: "name", date: nil, type: nil, exclude_type: nil, include_pinned: true, project_id: nil, exclude_project: false)
         return [] unless @session_manager
 
         live = @mutex.synchronize do
@@ -227,10 +227,6 @@ module Clacky
         end
 
         all = @session_manager.all_sessions  # already sorted newest-first
-
-        # Hidden sessions (extension-managed) are excluded from the list by
-        # default; callers that need them pass include_hidden: true.
-        all = all.reject { |s| s[:hidden] } unless include_hidden
 
         # ── type filter (replaces old source/profile split) ──────────────────
         # type=coding  → agent_profile == "coding"

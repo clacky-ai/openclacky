@@ -114,6 +114,10 @@ module Clacky
         @meta = value || {}
       end
 
+      def ext_source
+        meta["source"]&.to_s
+      end
+
       # Set a default timeout (seconds) for every handler in this class.
       # Per-route override available via `get "/x", timeout: 30 do ... end`.
       def timeout(seconds)
@@ -270,8 +274,15 @@ module Clacky
     # (unless an explicit working_dir overrides it) and the session is
     # associated with the project.
     def create_session(name: nil, prompt: nil, working_dir: nil, profile: "general",
-                       source: :manual, display_message: nil, hidden: false, project_id: nil)
+                       source: :manual, display_message: nil, project_id: nil)
       error!("server not ready", status: 503) unless @http_server
+
+      src = source.to_s
+      unless src == "manual" || src == self.class.ext_source
+        declared = self.class.ext_source
+        error!("invalid source '#{src}': allowed values are 'manual'" \
+               "#{" or '#{declared}'" if declared}", status: 400)
+      end
 
       if project_id
         project_id = project_id.to_s.strip
@@ -288,8 +299,7 @@ module Clacky
         name: name,
         working_dir: working_dir,
         profile: profile,
-        source: source,
-        hidden: hidden
+        source: source
       )
 
       if project_id

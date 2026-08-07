@@ -206,16 +206,21 @@ Response helpers: `json` / `text(str)` / `send_data(bytes, content_type:, filena
 - Drive sessions from the backend: `create_session(prompt:, profile:, …)`,
   `submit_task(session_id, prompt)`, `dispatch_to_session(session_id, prompt)` (runs a
   side task on a fork and returns its reply without touching the conversation).
-- `create_session(hidden: true)` creates a session the openclacky session list hides
-  and the 200-session cleanup skips - use it for dedicated extension sessions you
-  manage yourself. Still reachable by `session_id` via `submit_task` /
-  `dispatch_to_session` / `registry.with_session`; forking resets `hidden` to false.
 - **Projects**: `project_manager.all` lists projects, `find(id)` returns one (or
   `nil`), `create(name:, working_dir:, …)` / `update(id, …)` / `delete(id)` mutate.
   Pass `project_id:` to `create_session` to bind a session to a project - its
   `working_dir` is inherited (unless overridden) and `agent.project_id` is persisted.
   A panel can also `fetch("/api/projects")` directly (same-origin, no-auth; see
   [Host API](/docs/extend-host-api)).
+- **Session source grouping** (⚠️ opt-in only): set `source: ext-<name>` at ext.yml top
+  level **only when the extension genuinely needs to hide its sessions from the native
+  sidebar and manage them separately**. Sessions created with this source are excluded
+  from the native session list and have their own 200-session cleanup cap (independent
+  from the regular and cron pools). **Do NOT add this field by default** - hidden sessions
+  are invisible to the user (may look like a bug), and each source has its own 200-session
+  cap that consumes storage until evicted. Without a declared source, extensions create
+  normal `manual` sessions that appear in the sidebar like any user session.
+  Call `create_session(source: "ext-<name>")` to use it.
 - Public (no-auth) endpoints: call `public_endpoint("/path")` in the class **and** set
   `public: true` at ext.yml top level — both are required.
 
