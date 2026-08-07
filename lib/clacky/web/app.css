@@ -5954,8 +5954,6 @@ body {
   background: var(--color-bg-tertiary);
   border-radius: 4px;
   display: inline-flex;
-  align-items: center;
-  justify-content: center;
   max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
