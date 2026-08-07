@@ -276,15 +276,12 @@ module Clacky
       if project_id
         project_id = project_id.to_s.strip
         project_id = nil if project_id.empty?
-        if project_id && project_manager&.find(project_id).nil?
-          error!("Project not found", status: 400)
-        end
       end
 
-      if working_dir.nil? && project_id
-        project = project_manager&.find(project_id)
-        working_dir = File.expand_path(project[:working_dir]) if project && project[:working_dir].to_s.strip != ""
-      end
+      project = project_id ? project_manager&.find(project_id) : nil
+      error!("Project not found", status: 404) if project_id && project.nil?
+
+      working_dir = File.expand_path(project[:working_dir]) if working_dir.nil? && project && project[:working_dir].to_s.strip != ""
 
       session_id = @http_server.send(
         :build_session,
