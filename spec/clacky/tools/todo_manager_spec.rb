@@ -17,68 +17,18 @@ RSpec.describe Clacky::Tools::TodoManager do
         expect(storage.size).to eq(1)
       end
 
-      it "adds multiple todos at once when task is an array" do
-        storage = []
-        result = tool.execute(
-          action: "add",
-          task: ["Task 1", "Task 2", "Task 3"],
-          todos_storage: storage
-        )
-
-        expect(result[:message]).to eq("3 TODOs added successfully")
-        expect(result[:todos].size).to eq(3)
-        expect(result[:todos][0][:id]).to eq(1)
-        expect(result[:todos][1][:id]).to eq(2)
-        expect(result[:todos][2][:id]).to eq(3)
-        expect(storage.size).to eq(3)
-      end
-
-      it "increments todo IDs correctly when adding multiple batches" do
-        storage = []
-        tool.execute(action: "add", task: "First task", todos_storage: storage)
-        result = tool.execute(
-          action: "add",
-          task: ["Second task", "Third task"],
-          todos_storage: storage
-        )
-
-        expect(result[:todos][0][:id]).to eq(2)
-        expect(result[:todos][1][:id]).to eq(3)
-        expect(storage.size).to eq(3)
-      end
-
       it "returns error when task is empty string" do
         storage = []
         result = tool.execute(action: "add", task: "", todos_storage: storage)
 
-        expect(result[:error]).to eq("At least one task description is required")
+        expect(result[:error]).to eq("Task description is required")
       end
 
       it "returns error when task is nil" do
         storage = []
         result = tool.execute(action: "add", todos_storage: storage)
 
-        expect(result[:error]).to eq("At least one task description is required")
-      end
-
-      it "returns error when task array is empty" do
-        storage = []
-        result = tool.execute(action: "add", task: [], todos_storage: storage)
-
-        expect(result[:error]).to eq("At least one task description is required")
-      end
-
-      it "filters out empty entries in a task array" do
-        storage = []
-        result = tool.execute(
-          action: "add",
-          task: ["Task 1", "", "  ", "Task 2"],
-          todos_storage: storage
-        )
-
-        expect(result[:todos].size).to eq(2)
-        expect(result[:todos][0][:task]).to eq("Task 1")
-        expect(result[:todos][1][:task]).to eq("Task 2")
+        expect(result[:error]).to eq("Task description is required")
       end
 
       it "tolerates unknown extra keyword args (e.g. legacy clients)" do
@@ -135,7 +85,7 @@ RSpec.describe Clacky::Tools::TodoManager do
     end
 
     describe "complete action" do
-      it "marks a single todo as completed (integer id)" do
+      it "marks a single todo as completed" do
         storage = []
         tool.execute(action: "add", task: "Task to complete", todos_storage: storage)
         result = tool.execute(action: "complete", id: 1, todos_storage: storage)
@@ -145,49 +95,7 @@ RSpec.describe Clacky::Tools::TodoManager do
         expect(result[:todo][:completed_at]).not_to be_nil
       end
 
-      it "marks a single todo as completed when id is a single-element array" do
-        storage = []
-        tool.execute(action: "add", task: ["Task A", "Task B"], todos_storage: storage)
-        result = tool.execute(action: "complete", id: [1], todos_storage: storage)
-
-        expect(result[:message]).to eq("Task marked as completed")
-        expect(result[:todo][:id]).to eq(1)
-      end
-
-      it "batch completes several todos when id is an array" do
-        storage = []
-        tool.execute(action: "add", task: ["T1", "T2", "T3"], todos_storage: storage)
-        result = tool.execute(action: "complete", id: [1, 2], todos_storage: storage)
-
-        expect(result[:message]).to eq("2 task(s) marked as completed")
-        expect(result[:completed].size).to eq(2)
-        expect(result[:completed].map { |t| t[:id] }).to eq([1, 2])
-        expect(result[:progress]).to eq("2/3")
-        expect(result[:next_task][:id]).to eq(3)
-      end
-
-      it "batch complete reports already-completed and not-found ids separately" do
-        storage = []
-        tool.execute(action: "add", task: ["T1", "T2"], todos_storage: storage)
-        tool.execute(action: "complete", id: 1, todos_storage: storage)
-        result = tool.execute(action: "complete", id: [1, 2, 999], todos_storage: storage)
-
-        expect(result[:completed].map { |t| t[:id] }).to eq([2])
-        expect(result[:already_completed].map { |t| t[:id] }).to eq([1])
-        expect(result[:not_found]).to eq([999])
-      end
-
-      it "batch complete auto-clears when all todos are completed" do
-        storage = []
-        tool.execute(action: "add", task: ["T1", "T2", "T3"], todos_storage: storage)
-        result = tool.execute(action: "complete", id: [1, 2, 3], todos_storage: storage)
-
-        expect(result[:all_completed]).to be true
-        expect(result[:completion_message]).to eq("All tasks completed and cleared! (3/3)")
-        expect(storage).to be_empty
-      end
-
-      it "returns message if already completed (single)" do
+      it "returns message if already completed" do
         storage = []
         tool.execute(action: "add", task: "Task", todos_storage: storage)
         tool.execute(action: "add", task: "Task 2", todos_storage: storage)
@@ -197,7 +105,7 @@ RSpec.describe Clacky::Tools::TodoManager do
         expect(result[:message]).to eq("Task already completed")
       end
 
-      it "returns error when task not found (single)" do
+      it "returns error when task not found" do
         storage = []
         result = tool.execute(action: "complete", id: 999, todos_storage: storage)
 
@@ -211,16 +119,10 @@ RSpec.describe Clacky::Tools::TodoManager do
         expect(result[:error]).to eq("Task ID is required")
       end
 
-      it "returns error when id is an empty array" do
-        storage = []
-        result = tool.execute(action: "complete", id: [], todos_storage: storage)
-
-        expect(result[:error]).to eq("Task ID is required")
-      end
-
       it "auto-clears all todos when last pending task is completed" do
         storage = []
-        tool.execute(action: "add", task: ["Task 1", "Task 2"], todos_storage: storage)
+        tool.execute(action: "add", task: "Task 1", todos_storage: storage)
+        tool.execute(action: "add", task: "Task 2", todos_storage: storage)
         tool.execute(action: "complete", id: 1, todos_storage: storage)
         result = tool.execute(action: "complete", id: 2, todos_storage: storage)
 
@@ -231,7 +133,8 @@ RSpec.describe Clacky::Tools::TodoManager do
 
       it "auto-clears old completed todos when adding new ones" do
         storage = []
-        tool.execute(action: "add", task: ["Old Task 1", "Old Task 2"], todos_storage: storage)
+        tool.execute(action: "add", task: "Old Task 1", todos_storage: storage)
+        tool.execute(action: "add", task: "Old Task 2", todos_storage: storage)
         tool.execute(action: "complete", id: 1, todos_storage: storage)
         # Task 2 still pending, Task 1 completed. Add new task cycle.
         result = tool.execute(action: "add", task: "New Task", todos_storage: storage)
@@ -244,22 +147,13 @@ RSpec.describe Clacky::Tools::TodoManager do
     end
 
     describe "remove action" do
-      it "removes a todo (integer id)" do
+      it "removes a todo" do
         storage = []
         tool.execute(action: "add", task: "Task to remove", todos_storage: storage)
         result = tool.execute(action: "remove", id: 1, todos_storage: storage)
 
         expect(result[:message]).to eq("Task removed")
         expect(result[:remaining]).to eq(0)
-      end
-
-      it "removes a todo when id is a single-element array" do
-        storage = []
-        tool.execute(action: "add", task: ["a", "b"], todos_storage: storage)
-        result = tool.execute(action: "remove", id: [1], todos_storage: storage)
-
-        expect(result[:message]).to eq("Task removed")
-        expect(result[:remaining]).to eq(1)
       end
 
       it "returns error when task not found" do
@@ -272,38 +166,6 @@ RSpec.describe Clacky::Tools::TodoManager do
       it "returns error when id is nil" do
         storage = []
         result = tool.execute(action: "remove", todos_storage: storage)
-
-        expect(result[:error]).to eq("Task ID is required")
-      end
-
-      it "batch removes multiple todos when id is an array" do
-        storage = []
-        tool.execute(action: "add", task: ["Task 1", "Task 2", "Task 3", "Task 4"], todos_storage: storage)
-        result = tool.execute(action: "remove", id: [1, 3], todos_storage: storage)
-
-        expect(result[:message]).to eq("2 task(s) removed")
-        expect(result[:removed].size).to eq(2)
-        expect(result[:removed][0][:id]).to eq(1)
-        expect(result[:removed][1][:id]).to eq(3)
-        expect(result[:remaining]).to eq(2)
-        expect(storage.size).to eq(2)
-        expect(storage.map { |t| t[:id] }).to eq([2, 4])
-      end
-
-      it "handles batch remove with some non-existent IDs" do
-        storage = []
-        tool.execute(action: "add", task: ["Task 1", "Task 2"], todos_storage: storage)
-        result = tool.execute(action: "remove", id: [1, 999, 2, 888], todos_storage: storage)
-
-        expect(result[:message]).to eq("2 task(s) removed")
-        expect(result[:removed].size).to eq(2)
-        expect(result[:not_found]).to eq([999, 888])
-        expect(result[:remaining]).to eq(0)
-      end
-
-      it "returns error when id is an empty array" do
-        storage = []
-        result = tool.execute(action: "remove", id: [], todos_storage: storage)
 
         expect(result[:error]).to eq("Task ID is required")
       end
@@ -343,29 +205,11 @@ RSpec.describe Clacky::Tools::TodoManager do
 
   describe "#format_call" do
     it "formats add with string task" do
-      expect(tool.format_call(action: "add", task: "x")).to eq("TodoManager(add 1 task)")
-    end
-
-    it "formats add with array task" do
-      expect(tool.format_call(action: "add", task: ["a", "b"])).to eq("TodoManager(add 2 tasks)")
+      expect(tool.format_call(action: "add", task: "x")).to eq("TodoManager(add: x)")
     end
 
     it "formats complete with integer id" do
       expect(tool.format_call(action: "complete", id: 5)).to eq("TodoManager(complete #5)")
-    end
-
-    it "formats complete with array id (batch)" do
-      expect(tool.format_call(action: "complete", id: [1, 2, 3]))
-        .to eq("TodoManager(complete 3 tasks: 1, 2, 3)")
-    end
-
-    it "formats complete with single-element array id" do
-      expect(tool.format_call(action: "complete", id: [7])).to eq("TodoManager(complete #7)")
-    end
-
-    it "formats remove with array id" do
-      expect(tool.format_call(action: "remove", id: [4, 5]))
-        .to eq("TodoManager(remove 2 tasks: 4, 5)")
     end
 
     it "formats clear" do
@@ -389,30 +233,20 @@ RSpec.describe Clacky::Tools::TodoManager do
       expect(actions).to include("add", "list", "complete", "remove", "clear")
     end
 
-    it "exposes polymorphic task parameter with oneOf string|array" do
+    it "exposes single string task parameter" do
       definition = tool.to_function_definition
       task_prop = definition[:function][:parameters][:properties][:task]
 
-      expect(task_prop).to have_key(:oneOf)
-      types = task_prop[:oneOf].map { |s| s[:type] }
-      expect(types).to contain_exactly("string", "array")
+      expect(task_prop[:type]).to eq("string")
+      expect(task_prop).not_to have_key(:oneOf)
     end
 
-    it "exposes polymorphic id parameter with oneOf integer|array" do
+    it "exposes single integer id parameter" do
       definition = tool.to_function_definition
       id_prop = definition[:function][:parameters][:properties][:id]
 
-      expect(id_prop).to have_key(:oneOf)
-      types = id_prop[:oneOf].map { |s| s[:type] }
-      expect(types).to contain_exactly("integer", "array")
-    end
-
-    it "no longer exposes legacy `tasks` or `ids` fields" do
-      definition = tool.to_function_definition
-      props = definition[:function][:parameters][:properties]
-
-      expect(props).not_to have_key(:tasks)
-      expect(props).not_to have_key(:ids)
+      expect(id_prop[:type]).to eq("integer")
+      expect(id_prop).not_to have_key(:oneOf)
     end
   end
 end
