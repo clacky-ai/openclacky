@@ -112,6 +112,7 @@ module Clacky
       @pending_injections = []     # Pending inline skill injections to flush after observe()
       @pending_subagent_transcript = nil # Subagent trail to attach to the next tool result (observe)
       @pending_script_tmpdirs = [] # Decrypted-script tmpdirs that live for the agent's lifetime
+      @pending_session_context_refresh = false # Defer path/model context changes until tool results are paired
       @pending_error_rollback = false  # Deferred rollback flag set by restore_session on error
       @last_run_interrupted = false    # Set when run() exits via AgentInterrupted; tells the next run() to keep the task-start snapshot (continuation of the same task across a relay, not a brand-new task)
 
@@ -235,7 +236,10 @@ module Clacky
     # Change the working directory for this session
     # Injects a new session context to notify the AI of the directory change
     def change_working_dir(new_dir)
-      @working_dir = new_dir
+      expanded_dir = File.expand_path(new_dir.to_s)
+      return true if File.expand_path(@working_dir.to_s) == expanded_dir
+
+      @working_dir = expanded_dir
       inject_session_context
       true
     end
@@ -1394,6 +1398,11 @@ module Clacky
           task_id:          @current_task_id
         })
       end
+
+      # A working-directory/model change may arrive from the WebUI while a
+      # tool is executing. Inject its Session context only after observe() has
+      # appended every tool result, preserving the required tool_call pairing.
+      inject_session_context if @pending_session_context_refresh
     end
 
     # Attach the captured subagent transcript (set by execute_skill_with_subagent)
@@ -2064,6 +2073,11 @@ module Clacky
     # Cache-safe: always inserted just before the current user message,
     # so no historical cache entries are ever invalidated.
     private def inject_session_context_if_needed
+      if @pending_session_context_refresh
+        inject_session_context
+        return
+      end
+
       today = Time.now.strftime("%Y-%m-%d")
 
       # Skip if we already have a context for today
@@ -2087,6 +2101,14 @@ module Clacky
       # inject_session_context_if_needed which runs inside run()
       # after the system prompt has been built.
       return unless @history.has_system_prompt?
+
+      # Never place a synthetic user message between assistant.tool_calls and
+      # their tool results. The external change is already reflected by the
+      # instance fields; only the explanatory history message is deferred.
+      if @history.pending_tool_calls?
+        @pending_session_context_refresh = true
+        return false
+      end
 
       today   = Time.now.strftime("%Y-%m-%d")
       os      = Clacky::Utils::EnvironmentDetector.os_type
@@ -2115,6 +2137,8 @@ module Clacky
         session_context: true,
         session_date: today
       })
+      @pending_session_context_refresh = false
+      true
     end
 
     # Parse markdown file:// links from assistant message content.

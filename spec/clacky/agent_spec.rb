@@ -26,6 +26,39 @@ RSpec.describe Clacky::Agent do
     end
   end
 
+  describe "#change_working_dir" do
+    it "is a no-op when the expanded directory has not changed" do
+      expect(agent).not_to receive(:inject_session_context)
+
+      expect(agent.change_working_dir(agent.working_dir)).to be true
+    end
+
+    it "defers Session context until a pending tool result has been appended" do
+      agent.history.append(role: "system", content: "system")
+      agent.history.append(
+        role: "assistant",
+        content: "",
+        tool_calls: [{ id: "call_1", type: "function",
+                       function: { name: "terminal", arguments: "{}" } }]
+      )
+      allow(client).to receive(:format_tool_results).and_return([
+        { role: "tool", tool_call_id: "call_1", content: "done" }
+      ])
+
+      agent.change_working_dir(File.join(Dir.pwd, "another-case"))
+
+      expect(agent.history.to_a.map { |m| m[:role] }).to eq(%w[system assistant])
+      expect(agent.instance_variable_get(:@pending_session_context_refresh)).to be true
+
+      agent.send(:observe, { tool_calls: [{ id: "call_1", name: "terminal", arguments: "{}" }] },
+                 [{ id: "call_1", content: "done" }])
+
+      expect(agent.history.to_a.map { |m| m[:role] }).to eq(%w[system assistant tool user])
+      expect(agent.history.to_a.last).to include(system_injected: true, session_context: true)
+      expect(agent.instance_variable_get(:@pending_session_context_refresh)).to be false
+    end
+  end
+
   describe "#run" do
     let(:tool_call_response) do
       mock_api_response(

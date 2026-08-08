@@ -61,6 +61,20 @@ RSpec.describe Clacky::MessageHistory do
         history.append(user_msg("next"))
         expect(history.size).to eq(4)
       end
+
+      it "drops an entire partially answered multi-tool group" do
+        history.append(user_msg)
+        history.append({
+          role: "assistant", content: "",
+          tool_calls: [{ id: "tc_1", name: "grep", arguments: "{}" },
+                       { id: "tc_2", name: "grep", arguments: "{}" }]
+        })
+        history.append(tool_result_msg("tc_1"))
+
+        history.append(user_msg("follow-up"))
+
+        expect(history.to_a.map { |message| message[:role] }).to eq(%w[user user])
+      end
     end
   end
 
@@ -156,6 +170,18 @@ RSpec.describe Clacky::MessageHistory do
       history.append(assistant_with_tool_calls)
       history.append(tool_result_msg)
       expect(history.pending_tool_calls?).to be false
+    end
+
+    it "stays true while a multi-tool group is only partially answered" do
+      history.append(user_msg)
+      history.append({
+        role: "assistant", content: "",
+        tool_calls: [{ id: "tc_1", name: "grep", arguments: "{}" },
+                     { id: "tc_2", name: "grep", arguments: "{}" }]
+      })
+      history.append(tool_result_msg("tc_1"))
+
+      expect(history.pending_tool_calls?).to be true
     end
 
     it "returns false when last message is plain assistant" do
@@ -369,6 +395,41 @@ RSpec.describe Clacky::MessageHistory do
         api_msgs = history.to_api
         expect(api_msgs.size).to eq(4)
         expect(api_msgs.count { |m| m[:role] == "tool" }).to eq(1)
+      end
+
+      it "drops an orphan tool result from a corrupted persisted session" do
+        msgs = history.instance_variable_get(:@messages)
+        msgs << system_msg
+        msgs << user_msg("[Session context: directory changed]", system_injected: true)
+        msgs << tool_result_msg("lost_call")
+
+        api_msgs = history.to_api
+        expect(api_msgs.map { |m| m[:role] }).to eq(%w[system user])
+        expect(api_msgs.none? { |m| m[:tool_call_id] == "lost_call" }).to be true
+      end
+
+      it "keeps consecutive results for a legitimate multi-tool assistant call" do
+        msgs = history.instance_variable_get(:@messages)
+        msgs << user_msg
+        msgs << { role: "assistant", content: "",
+                  tool_calls: [{ id: "tc_1", name: "grep", arguments: "{}" },
+                               { id: "tc_2", name: "grep", arguments: "{}" }] }
+        msgs << tool_result_msg("tc_1")
+        msgs << tool_result_msg("tc_2")
+
+        api_msgs = history.to_api
+        expect(api_msgs.select { |m| m[:role] == "tool" }.map { |m| m[:tool_call_id] }).to eq(%w[tc_1 tc_2])
+      end
+
+      it "drops an unexpected tool result even when it follows another assistant tool group" do
+        msgs = history.instance_variable_get(:@messages)
+        msgs << user_msg
+        msgs << assistant_with_tool_calls
+        msgs << tool_result_msg("tc_1")
+        msgs << tool_result_msg("stale_call")
+
+        api_msgs = history.to_api
+        expect(api_msgs.select { |m| m[:role] == "tool" }.map { |m| m[:tool_call_id] }).to eq(["tc_1"])
       end
 
       it "is deterministic — calling to_api twice on the same history produces identical output (cache-safe)" do

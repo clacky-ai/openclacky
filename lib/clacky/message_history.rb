@@ -131,16 +131,10 @@ module Clacky
       @messages.any? { |m| m[:role] == "system" }
     end
 
-    # True when the last assistant message has tool_calls but no
-    # tool_result has been appended yet (would cause a 400 from the API).
+    # True when the most recent assistant tool-call group is still missing one
+    # or more results. Multi-tool groups remain pending until every id is paired.
     def pending_tool_calls?
-      return false if @messages.empty?
-
-      last = @messages.last
-      return false unless last[:role] == "assistant" && last[:tool_calls]&.any?
-
-      last_assistant_idx = @messages.rindex { |m| m == last }
-      @messages[(last_assistant_idx + 1)..].none? { |m| m[:role] == "tool" || m[:tool_results] }
+      !pending_tool_group_start.nil?
     end
 
     # Return the session_date value from the most recent session_context message.
@@ -267,13 +261,31 @@ module Clacky
       end
     end
 
-    # Drop the trailing assistant message if it has tool_calls with no subsequent
-    # tool_result — i.e. the tool call was never answered (dangling).
+    # Drop the trailing assistant tool-call group if one or more results are
+    # missing. Partial results must be removed with the assistant message; keeping
+    # either side would leave an invalid provider payload.
     # Called automatically before appending any user message.
     private def drop_dangling_tool_calls!
-      return unless pending_tool_calls?
+      start = pending_tool_group_start
+      return unless start
 
-      @messages.pop
+      @messages.slice!(start..-1)
+    end
+
+    private def pending_tool_group_start
+      assistant_idx = @messages.rindex do |message|
+        message[:role] == "assistant" && message[:tool_calls].is_a?(Array) && !message[:tool_calls].empty?
+      end
+      return nil unless assistant_idx
+
+      trailing = @messages[(assistant_idx + 1)..] || []
+      # Once a normal message follows, this is persisted corruption rather than
+      # an in-flight group; repair_tool_call_pairing handles it for the API copy.
+      return nil unless trailing.all? { |message| tool_result_message?(message) }
+
+      expected_ids = @messages[assistant_idx][:tool_calls].map { |call| call[:id] }.compact
+      seen_ids = trailing.flat_map { |message| tool_result_ids(message) }.uniq
+      (expected_ids - seen_ids).empty? ? nil : assistant_idx
     end
 
     private def strip_for_api(message)
@@ -319,6 +331,16 @@ module Clacky
       i = 0
       while i < msgs.size
         msg = msgs[i]
+
+        # A persisted role:tool message without an immediately active
+        # assistant.tool_calls group can never be valid for OpenAI-compatible
+        # providers. Drop it from the API payload instead of poisoning every
+        # future turn in the session. The canonical history is left untouched.
+        if tool_result_message?(msg)
+          i += 1
+          next
+        end
+
         result << msg
 
         if msg[:role] == "assistant" && msg[:tool_calls].is_a?(Array) && !msg[:tool_calls].empty?
@@ -327,8 +349,15 @@ module Clacky
 
           j = i + 1
           while j < msgs.size && tool_result_message?(msgs[j])
-            result << msgs[j]
-            seen_ids.concat(tool_result_ids(msgs[j]))
+            ids = tool_result_ids(msgs[j])
+            matching_ids = ids & expected_ids
+            # Preserve only results belonging to this assistant call group,
+            # and only the first result for each id. This keeps legitimate
+            # multi-tool sequences while discarding stale/duplicate results.
+            unless (matching_ids - seen_ids).empty?
+              result << msgs[j]
+              seen_ids.concat(matching_ids)
+            end
             j += 1
           end
 

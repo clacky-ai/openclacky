@@ -6649,6 +6649,13 @@ module Clacky
 
         agent = nil
         @registry.with_session(session_id) { |s| agent = s[:agent] }
+
+        # Idempotent updates must not inject another Session context, rewrite a
+        # large session file, or broadcast a fake directory change. Extensions
+        # may remount their panels repeatedly and submit the current path again.
+        if File.expand_path(agent.working_dir.to_s) == expanded_dir
+          return json_response(res, 200, { ok: true, unchanged: true, working_dir: expanded_dir })
+        end
         
         # Change the agent's working directory
         agent.change_working_dir(expanded_dir)

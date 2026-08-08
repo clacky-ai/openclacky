@@ -1044,6 +1044,29 @@ RSpec.describe Clacky::Server::HttpServer do
     end
   end
 
+  describe "PATCH /api/sessions/:id/working_dir" do
+    it "returns unchanged without mutating history when the directory is already active" do
+      with_server(agent_config: agent_config) do |server|
+        create_res = fake_res
+        dispatch(server, fake_req(method: "POST", path: "/api/sessions",
+                                  body: { name: "case", working_dir: tmpdir }), create_res)
+        session_id = parsed_body(create_res).dig("session", "id")
+        agent = server.instance_variable_get(:@registry).get(session_id)[:agent]
+        history_size = agent.history.size
+        expect(agent).not_to receive(:change_working_dir)
+
+        res = fake_res
+        dispatch(server, fake_req(method: "PATCH",
+                                  path: "/api/sessions/#{session_id}/working_dir",
+                                  body: { working_dir: tmpdir }), res)
+
+        expect(res.status).to eq(200)
+        expect(parsed_body(res)).to include("ok" => true, "unchanged" => true)
+        expect(agent.history.size).to eq(history_size)
+      end
+    end
+  end
+
   # ── 404 for unknown routes ────────────────────────────────────────────────
 
   describe "unknown routes" do
