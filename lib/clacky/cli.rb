@@ -8,6 +8,7 @@ require_relative "json_ui_controller"
 require_relative "plain_ui_controller"
 require_relative "brand_config"
 require_relative "extension/cli_commands"
+require_relative "mcp/cli_commands"
 
 module Clacky
   class CLI < Thor
@@ -1216,6 +1217,9 @@ module Clacky
 
     desc "ext SUBCOMMAND", "Manage extension containers (new, verify, list, pack, install, publish, search)"
     subcommand "ext", Clacky::CliExtensionCommands
+
+    desc "mcp SUBCOMMAND", "Manage MCP server connections and OAuth authorization"
+    subcommand "mcp", Clacky::Mcp::CliCommands
 
     desc "billing", "Show billing summary and usage statistics"
     long_desc <<-LONGDESC
