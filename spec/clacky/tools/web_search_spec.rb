@@ -23,7 +23,9 @@ RSpec.describe Clacky::Tools::WebSearch do
     # Note: Actual web search tests would require network access or mocking
     # For now, we test the basic structure and error handling
     it "handles network errors gracefully" do
-      allow_any_instance_of(Net::HTTP).to receive(:request).and_raise(StandardError.new("Network error"))
+      # Stub `start`, not `request`: the latter runs after the real DNS +
+      # TLS handshake has already been paid for.
+      allow(Net::HTTP).to receive(:start).and_raise(StandardError.new("Network error"))
 
       result = tool.execute(query: "test query")
 
@@ -33,10 +35,18 @@ RSpec.describe Clacky::Tools::WebSearch do
     end
 
     it "respects max_results parameter" do
+      # Ten canned hits from the first provider — no network, and the cap is
+      # what's under test, not the scraping.
+      html = (1..10).map do |i|
+        %(<a class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fe#{i}.com">Hit #{i}</a>)
+      end.join
+      ok = Net::HTTPOK.new("1.1", "200", "OK")
+      allow(ok).to receive(:body).and_return(html)
+      allow(Net::HTTP).to receive(:start).and_return(ok)
+
       result = tool.execute(query: "ruby programming", max_results: 5)
 
       expect(result[:query]).to eq("ruby programming")
-      # Count should not exceed max_results
       expect(result[:count]).to be <= 5
     end
   end

@@ -132,6 +132,13 @@ module Clacky
       BACKGROUND_COLLECT_SECONDS = 2
       # Sentinel: when passed as idle_ms, disables idle early-return.
       DISABLED_IDLE_MS = 10_000_000
+      # Gap between log-file polls while waiting for a command's end marker.
+      MARKER_POLL_SECONDS = 0.05
+      # A freshly spawned login shell prints its banner asynchronously; wait
+      # this long before draining so the marker install doesn't interleave.
+      SHELL_BANNER_SETTLE_SECONDS = 0.2
+      # Upper bound on draining that banner once it starts arriving.
+      SHELL_BANNER_DRAIN_SECONDS = 2.5
 
       # Commands that we know take a long time and produce bursty output
       # (quiet gaps between test files, compile phases, download batches,
@@ -213,7 +220,7 @@ module Clacky
           idle_ms ||= DISABLED_IDLE_MS
         end
 
-        timeout = (timeout || DEFAULT_TIMEOUT).to_i
+        timeout = (timeout || DEFAULT_TIMEOUT).to_f
         idle_ms = (idle_ms || DEFAULT_IDLE_MS).to_i
         cwd ||= working_dir
 
@@ -875,8 +882,8 @@ module Clacky
         # Give the shell a moment to print its startup banner (zsh -l -i
         # loads a lot of stuff), then drain whatever noise it wrote so the
         # marker install doesn't collide with it.
-        sleep 0.2
-        drain_any(session, timeout: 2.5)
+        sleep SHELL_BANNER_SETTLE_SECONDS
+        drain_any(session, timeout: SHELL_BANNER_DRAIN_SECONDS)
         install_marker(session)
         _before, _code, state = read_until_marker(session, timeout: 10, idle_ms: DISABLED_IDLE_MS)
         unless state == :matched
@@ -1299,7 +1306,7 @@ module Clacky
             flush_stream.call("", force_partial: true) unless stream_pending.empty?
             return ["", nil, :timeout]
           end
-          sleep 0.05
+          sleep MARKER_POLL_SECONDS
         end
       end
 

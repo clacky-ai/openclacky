@@ -8,7 +8,7 @@ require "clacky/server/http_server"
 require "clacky/agent_config"
 
 # Reuse helpers from the main http_server spec
-require_relative "http_server_spec"
+require_relative "../../support/http_server_spec_helpers"
 
 RSpec.describe Clacky::Server::HttpServer, "MCP routes" do
   include HttpServerSpecHelpers

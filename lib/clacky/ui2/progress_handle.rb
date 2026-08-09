@@ -131,6 +131,7 @@ module Clacky
         @metadata      = {}
         @last_chunk_at = nil
         @monitor       = Monitor.new
+        @closed_cond   = @monitor.new_cond
       end
 
       # Start rendering. Registers with the owner (allocating an entry id
@@ -185,7 +186,10 @@ module Clacky
         snapshot = @monitor.synchronize do
           return if @unregistered
           first_close = @state == :running
-          @state = :closed if first_close
+          if first_close
+            @state = :closed
+            @closed_cond.broadcast
+          end
           {
             first_close: first_close,
             message: final_message || @message,
@@ -212,6 +216,7 @@ module Clacky
         @monitor.synchronize do
           return if @unregistered
           @state = :closed
+          @closed_cond.broadcast
         end
 
         stop_ticker
@@ -275,8 +280,13 @@ module Clacky
           Thread.current.name = "progress-ticker-#{object_id}"
           begin
             loop do
-              sleep @tick_interval
-              break if @monitor.synchronize { @state != :running }
+              # wait, not sleep: finish/discard signals the condition so a
+              # long tick_interval never delays shutdown.
+              closed = @monitor.synchronize do
+                @closed_cond.wait(@tick_interval) if @state == :running
+                @state != :running
+              end
+              break if closed
               render_now
             end
           rescue StandardError

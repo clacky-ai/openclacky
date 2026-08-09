@@ -35,6 +35,11 @@ RSpec.describe Clacky::Tools::Terminal do
   before do
     stub_const("Clacky::Tools::Terminal::DEFAULT_IDLE_MS", 200)
     stub_const("Clacky::Tools::Terminal::BACKGROUND_COLLECT_SECONDS", 0.4)
+    # `bash --noprofile --norc` prints no banner, so the settle window below
+    # is dead time on every single spawn (~20 spawns per run).
+    stub_const("Clacky::Tools::Terminal::SHELL_BANNER_SETTLE_SECONDS", 0.02)
+    stub_const("Clacky::Tools::Terminal::SHELL_BANNER_DRAIN_SECONDS", 0.2)
+    stub_const("Clacky::Tools::Terminal::MARKER_POLL_SECONDS", 0.01)
     allow_any_instance_of(Clacky::Tools::Terminal).to receive(:persistent_shell_args)
       .and_return(["/bin/bash", "--noprofile", "--norc", "-i"])
     allow_any_instance_of(Clacky::Tools::Terminal).to receive(:user_shell)
@@ -296,7 +301,7 @@ RSpec.describe Clacky::Tools::Terminal do
   # ---------------------------------------------------------------------------
   describe "long-running commands" do
     it "returns a session_id when a command runs past the timeout" do
-      result = tool.execute(command: "sleep 5", timeout: 1)
+      result = tool.execute(command: "sleep 5", timeout: 0.3)
       # Didn't finish in time, so we hand control back to the AI.
       expect(result[:session_id]).to be_a(Integer)
       expect(result).not_to have_key(:exit_code)
@@ -384,7 +389,7 @@ RSpec.describe Clacky::Tools::Terminal do
 
     it "does NOT apply security rewriting to input (input is a reply, not a command)" do
       # Start a session that reads a line from stdin.
-      out = tool.execute(command: %(ruby -e 'puts STDIN.gets'), timeout: 1)
+      out = tool.execute(command: %(ruby -e 'puts STDIN.gets'), timeout: 0.5)
       # Either we got a session back (blocked on gets), or it finished too fast; handle both.
       if out[:session_id]
         sid = out[:session_id]
@@ -426,13 +431,13 @@ RSpec.describe Clacky::Tools::Terminal do
 
     it "supports polling a background session with empty input" do
       # Must still be alive after the 2s background collection window.
-      script = %q{ruby -e 'STDOUT.sync=true; 10.times { |i| puts "tick #{i}"; sleep 0.4 }'}
+      script = %q{ruby -e 'STDOUT.sync=true; 10.times { |i| puts "tick #{i}"; sleep 0.15 }'}
       started = tool.execute(command: script, background: true)
       expect(started[:session_id]).to be_a(Integer)
       sid = started[:session_id]
 
       # Poll after giving it a moment to produce more output.
-      sleep 0.5
+      sleep 0.2
       polled = tool.execute(session_id: sid, input: "")
       # Either the process is still alive (session_id again) or it just exited (exit_code).
       if polled[:session_id]
@@ -496,7 +501,7 @@ RSpec.describe Clacky::Tools::Terminal do
     it "recovers on the next call after a session blocks mid-command" do
       # Short timeout forces the command to be handed back as a session_id,
       # which "donates" the persistent slot to the caller.
-      stuck = tool.execute(command: "sleep 5", timeout: 1)
+      stuck = tool.execute(command: "sleep 5", timeout: 0.3)
       expect(stuck[:session_id]).to be_a(Integer)
       # state will be "waiting" (idle with no output) or "timeout" — either
       # way, the persistent slot must be released back to the pool.

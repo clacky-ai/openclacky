@@ -94,7 +94,7 @@ RSpec.describe Clacky::Utils::ParserManager do
       it "kills the subprocess and returns a timeout error" do
         parser = File.join(tmp_parsers_dir, "pdf_parser.rb")
         File.write(parser, "sleep 30")
-        stub_const("Clacky::Utils::ParserManager::PARSE_TIMEOUT", 1)
+        stub_const("Clacky::Utils::ParserManager::PARSE_TIMEOUT", 0.2)
 
         Dir.mktmpdir do |dir|
           path = File.join(dir, "doc.pdf")
@@ -104,7 +104,7 @@ RSpec.describe Clacky::Utils::ParserManager do
           elapsed = Time.now - started
 
           expect(result[:success]).to be false
-          expect(result[:error]).to match(/timed out after 1s/)
+          expect(result[:error]).to match(/timed out after 0.2s/)
           expect(elapsed).to be < 10  # killed promptly, not waited out
         end
       end
@@ -136,7 +136,7 @@ RSpec.describe Clacky::Utils::ParserManager do
 
     it "returns :timeout and kills a slow command" do
       _out, _err, status = described_class.capture3_with_timeout(
-        RbConfig.ruby, "-e", "sleep 30", timeout: 1
+        RbConfig.ruby, "-e", "sleep 30", timeout: 0.2
       )
       expect(status).to eq(:timeout)
     end

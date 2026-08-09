@@ -48,6 +48,15 @@ PR description.
 - All tests **must pass** before a PR can be merged.
 - **Coverage must not drop.** New code needs new tests.
 
+```bash
+bundle exec rspec          # serial, ~45s
+bundle exec rake spec:parallel   # across all cores, ~22s
+bundle exec rake coverage        # parallel + merged HTML report at coverage/index.html
+```
+
+Coverage is opt-in (`COVERAGE=1`), so a normal run pays nothing for it.
+Set `COVERAGE_MIN_LINE=<pct>` to fail the run below a line-coverage floor.
+
 ### Commits & PRs
 
 - **Write commit messages and PR titles/descriptions in English.** This applies

@@ -132,6 +132,9 @@ module Clacky
     #   GET  /**                     → static files served from lib/clacky/web/ directory
     class HttpServer
       WEB_ROOT = File.expand_path("../web", __dir__)
+      # How long shutdown waits for each agent thread to unwind before falling
+      # back to a manual session save.
+      AGENT_INTERRUPT_JOIN_SECONDS = 2
       EXCHANGE_RATE_PRIMARY_BASE_URL = "https://open.er-api.com/v6/latest"
       EXCHANGE_RATE_FALLBACK_URL = "https://api.frankfurter.app/latest"
       OSS_CDN_BASE = "https://oss.1024code.com/openclacky"
@@ -7118,7 +7121,7 @@ module Clacky
           rescue => e
             Clacky::Logger.error("[shutdown] interrupt failed for session=#{id}: #{e.message}")
           end
-          thread.join(2)
+          thread.join(AGENT_INTERRUPT_JOIN_SECONDS)
           @session_manager.save(agent.to_session_data(status: :interrupted, updated_at: Time.now))
         end
       end

@@ -7,67 +7,7 @@ require "tmpdir"
 require "fileutils"
 require "clacky/server/http_server"
 require "clacky/agent_config"
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Helpers
-# ─────────────────────────────────────────────────────────────────────────────
-
-module HttpServerSpecHelpers
-  # Start the server in a background thread; yield a Net::HTTP instance.
-  # The server is shut down after the block returns.
-  def with_server(agent_config:, client_factory: -> { double("client") }, sessions_dir: nil)
-    dir = sessions_dir || Dir.mktmpdir("clacky_http_spec_sessions")
-    server = Clacky::Server::HttpServer.new(
-      host:           "127.0.0.1",
-      port:           0,  # OS picks a free port
-      agent_config:   agent_config,
-      client_factory: client_factory,
-      sessions_dir:   dir
-    )
-
-    # We only need the dispatcher (dispatch method), not the full WEBrick loop.
-    # Expose the internal dispatcher directly for unit testing via a lightweight
-    # Rack-like test harness.
-    yield server
-  ensure
-    FileUtils.rm_rf(dir) unless sessions_dir  # only clean up if we created it
-  end
-
-  # Build a minimal fake WEBrick request object.
-  def fake_req(method:, path:, body: nil, headers: {}, query_string: "")
-    req = double("req",
-      request_method: method,
-      path:           path,
-      body:           body ? body.to_json : nil,
-      query_string:   query_string,
-      "[]":           nil
-    )
-    allow(req).to receive(:instance_variable_get).and_return(nil)
-    allow(req).to receive(:[]) { |k| headers[k] }
-    req
-  end
-
-  # Build a response collector that captures status + body.
-  def fake_res
-    res = double("res").as_null_object
-    allow(res).to receive(:status=)  { |v| res.instance_variable_set(:@status, v) }
-    allow(res).to receive(:body=)    { |v| res.instance_variable_set(:@body, v) }
-    allow(res).to receive(:content_type=)
-    allow(res).to receive(:[]=)
-    allow(res).to receive(:status)   { res.instance_variable_get(:@status) }
-    allow(res).to receive(:body)     { res.instance_variable_get(:@body) }
-    res
-  end
-
-  def parsed_body(res)
-    JSON.parse(res.body)
-  end
-
-  # Call the private dispatch method directly.
-  def dispatch(server, req, res)
-    server.send(:dispatch, req, res)
-  end
-end
+require_relative "../../support/http_server_spec_helpers"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Specs
@@ -1163,6 +1103,10 @@ RSpec.describe Clacky::Server::HttpServer do
 
     after { FileUtils.rm_rf(sessions_dir) }
 
+    # Production waits 2s per stuck thread; three of them would burn 6s of pure
+    # idle time. The serial-wait behaviour is what matters, not the magnitude.
+    before { stub_const("#{described_class}::AGENT_INTERRUPT_JOIN_SECONDS", 0.2) }
+
     def build_server
       described_class.new(
         agent_config:   agent_config,
@@ -1234,7 +1178,7 @@ RSpec.describe Clacky::Server::HttpServer do
       expect(thread.join(1)).to eq(thread)
     end
 
-    it "falls back to manual save when a thread refuses to die in 2s" do
+    it "falls back to manual save when a thread refuses to die within the join window" do
       server   = build_server
       registry = server.instance_variable_get(:@registry)
       sm       = server.instance_variable_get(:@session_manager)
@@ -1257,7 +1201,7 @@ RSpec.describe Clacky::Server::HttpServer do
       registry = server.instance_variable_get(:@registry)
       sm       = server.instance_variable_get(:@session_manager)
 
-      # Three unresponsive threads — serial takes ≥ 6s.
+      # Three unresponsive threads, each burning the full join window.
       stuck_threads = []
       3.times do |i|
         sid   = "stuck-#{i}"
@@ -1274,7 +1218,9 @@ RSpec.describe Clacky::Server::HttpServer do
       server.send(:interrupt_all_agents)
       elapsed = Process.clock_gettime(Process::CLOCK_MONOTONIC) - started
 
-      expect(elapsed).to be > 2.0
+      # Serial: 3 × 0.2s. Parallel would finish in ~0.2s, so >0.4s proves the
+      # waits stack up.
+      expect(elapsed).to be > 0.4
 
       stuck_threads.each(&:kill)
       stuck_threads.each(&:join)

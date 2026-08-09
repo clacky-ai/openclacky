@@ -7,7 +7,7 @@ require "fileutils"
 require "clacky/server/http_server"
 require "clacky/agent_config"
 
-require_relative "http_server_spec"
+require_relative "../../support/http_server_spec_helpers"
 
 RSpec.describe Clacky::Server::HttpServer, "search routes" do
   include HttpServerSpecHelpers

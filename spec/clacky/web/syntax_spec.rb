@@ -149,9 +149,13 @@ RSpec.describe "Web asset syntax" do
     end
 
     it "all .js files pass node --check" do
+      # One `node --check` process per file; 49 serial spawns is ~1.7s, so
+      # fan them out.
+      results = js_files.map { |f| [f, Thread.new { SyntaxChecker.check_js(f) }] }
+                        .map { |f, t| [f, t.value] }
+
       aggregate_failures "javascript syntax errors" do
-        js_files.each do |file|
-          result = SyntaxChecker.check_js(file)
+        results.each do |file, result|
           expect(result[:valid]).to be(true),
             "Syntax error in #{File.basename(file)}:\n#{result[:output]}"
         end

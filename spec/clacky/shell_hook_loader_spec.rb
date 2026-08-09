@@ -13,12 +13,16 @@ RSpec.describe Clacky::ShellHookLoader do
     File.write(yml, content)
   end
 
-  # Generate an executable bash script under tmp.
-  def make_script(body, executable: true)
+  # Generate a hook script under tmp and return the command string that runs it.
+  #
+  # The script is deliberately NOT marked executable and carries no shebang: on
+  # macOS, exec'ing a freshly written executable triggers a ~200ms Gatekeeper
+  # scan per file, which across these 46 examples costs ~10s. Invoking bash
+  # with the script as an argument skips that path entirely.
+  def make_script(body)
     path = File.join(tmp, "hook_#{SecureRandom.hex(4)}.sh")
-    File.write(path, "#!/usr/bin/env bash\n#{body}\n")
-    FileUtils.chmod("+x", path) if executable
-    path
+    File.write(path, "#{body}\n")
+    "bash #{path}"
   end
 
   # Build a HookManager with the loader applied. Extra kwargs (session_id_fn,
@@ -150,9 +154,7 @@ RSpec.describe Clacky::ShellHookLoader do
 
   describe "runtime contract (simple protocol)" do
     it "denies a tool when the command exits 2, using STDOUT as the reason" do
-      script = File.join(tmp, "deny.sh")
-      File.write(script, "#!/usr/bin/env bash\necho \"nope\"\nexit 2\n")
-      FileUtils.chmod("+x", script)
+      script = make_script("echo \"nope\"\nexit 2")
       write_yml(<<~YAML)
         hooks:
           before_tool_use:
@@ -181,9 +183,7 @@ RSpec.describe Clacky::ShellHookLoader do
 
     it "passes the event payload as JSON on STDIN" do
       out = File.join(tmp, "captured.json")
-      script = File.join(tmp, "capture.sh")
-      File.write(script, "#!/usr/bin/env bash\ncat > \"#{out}\"\nexit 0\n")
-      FileUtils.chmod("+x", script)
+      script = make_script("cat > \"#{out}\"\nexit 0")
       write_yml(<<~YAML)
         hooks:
           before_tool_use:
@@ -199,14 +199,12 @@ RSpec.describe Clacky::ShellHookLoader do
     end
 
     it "allows (does not raise) when the command times out" do
-      script = File.join(tmp, "slow.sh")
-      File.write(script, "#!/usr/bin/env bash\nsleep 5\nexit 2\n")
-      FileUtils.chmod("+x", script)
+      script = make_script("sleep 5\nexit 2")
       write_yml(<<~YAML)
         hooks:
           before_tool_use:
             - command: "#{script}"
-              timeout: 1
+              timeout: 0.2
       YAML
       hm = Clacky::HookManager.new
       described_class.load_into(hm, path: yml)
@@ -328,7 +326,7 @@ RSpec.describe Clacky::ShellHookLoader do
           before_tool_use:
             - type: rewrite
               command: "#{script}"
-              timeout: 1
+              timeout: 0.2
       YAML
       result = trigger(build_hm, "terminal")
       expect(result[:action]).to eq(:allow)
@@ -627,6 +625,14 @@ RSpec.describe Clacky::ShellHookLoader do
   describe "robustness — process group, timeout, encoding" do
     # Each of these mirrors a real hang / leak / wrong-decision found in
     # capture_streams; they must stay green.
+    #
+    # The kill/drain grace periods are what these examples deliberately burn
+    # through, so shrink them — the branch taken is what matters, not how many
+    # seconds it waits.
+    before do
+      stub_const("#{described_class}::KILL_GRACE_SECONDS", 0.2)
+      stub_const("#{described_class}::DRAIN_JOIN_SECONDS", 0.2)
+    end
 
     # Run the trigger on a side thread and assert it finishes within `within`
     # seconds — a hang shows up as join returning nil. The thread is killed in
@@ -658,7 +664,7 @@ RSpec.describe Clacky::ShellHookLoader do
         hooks:
           before_tool_use:
             - command: "#{script}"
-              timeout: 1
+              timeout: 0.2
       YAML
       trigger_within(8, build_hm, { name: "terminal" }) do |joined, _|
         expect(joined).to be_a(Thread)            # SIGKILL'd the group, not ~30s

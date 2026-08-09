@@ -126,6 +126,11 @@ RSpec.describe "Agent file processing" do
         models: [{ "api_key" => "x", "base_url" => base_url, "model" => model }],
         permission_mode: :auto_approve
       )
+      # No OCR sidecar configured — otherwise the downgrade path would make a
+      # real network call to the derived sidecar and only reach the assertion
+      # after it times out.
+      allow(cfg).to receive(:find_model_by_type).and_call_original
+      allow(cfg).to receive(:find_model_by_type).with("ocr").and_return(nil)
       Clacky::Agent.new(client, cfg,
         working_dir: Dir.pwd, ui: nil,
         profile: "coding",

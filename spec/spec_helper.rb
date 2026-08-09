@@ -3,6 +3,8 @@
 ENV["CLACKY_TEST"] = "1"
 ENV["CLACKY_TELEMETRY"] = "0"
 
+require_relative "support/coverage"
+
 # Redirect billing writes away from ~/.clacky/billing/ during test runs
 require "tmpdir"
 ENV["CLACKY_BILLING_DIR"] = Dir.mktmpdir("clacky_billing_test")

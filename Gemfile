@@ -14,6 +14,8 @@ gem "rake", "~> 13.0"
 gem "debug" if ruby_version >= Gem::Version.new("2.7")
 
 gem "rspec", "~> 3.0"
+gem "parallel_tests", "~> 4.7"
+gem "simplecov", "~> 0.22", require: false
 if ruby_version < Gem::Version.new("2.7")
   gem "rubocop", ">= 1.21", "< 1.51"
 else

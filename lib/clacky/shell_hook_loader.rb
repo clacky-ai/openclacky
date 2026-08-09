@@ -48,6 +48,10 @@ module Clacky
     DEFAULT_TIMEOUT         = 10
     REWRITE_DEFAULT_TIMEOUT = 60
     DENY_EXIT_CODE          = 2
+    # Grace period for a SIGTERM'd hook to exit before the group is SIGKILL'd,
+    # and for the stream readers to hit EOF afterwards.
+    KILL_GRACE_SECONDS      = 1
+    DRAIN_JOIN_SECONDS      = 2
 
     Result = Struct.new(:registered, :skipped, keyword_init: true)
 
@@ -165,7 +169,7 @@ module Clacky
       resolved = resolve_command(spec, result)
       return unless resolved
       name, command = resolved
-      timeout = (spec["timeout"] || DEFAULT_TIMEOUT).to_i
+      timeout = (spec["timeout"] || DEFAULT_TIMEOUT).to_f
 
       unless HookManager::HOOK_EVENTS.include?(event)
         result.skipped << [name, "unknown event: #{event}"]
@@ -185,7 +189,7 @@ module Clacky
       resolved = resolve_command(spec, result)
       return unless resolved
       name, command = resolved
-      timeout = (spec["timeout"] || REWRITE_DEFAULT_TIMEOUT).to_i
+      timeout = (spec["timeout"] || REWRITE_DEFAULT_TIMEOUT).to_f
       matcher = spec["matcher"]
 
       hook_manager.add(:before_tool_use) do |call|
@@ -247,20 +251,20 @@ module Clacky
           status = wait_thr.value
           # Child exited; drain the readers (bounded join — a grandchild
           # holding the pipe fd can keep them from EOF; see drain_stream).
-          out_reader.join(2)
-          err_reader.join(2)
+          out_reader.join(DRAIN_JOIN_SECONDS)
+          err_reader.join(DRAIN_JOIN_SECONDS)
         else
           # SIGTERM, then SIGKILL the whole group if it won't die. popen3's
           # ensure joins wait_thr without a timeout, so the child MUST be dead
           # before we leave the block — a hook that traps/ignores TERM can't be
           # allowed to hang here.
           Process.kill("TERM", -pgid) rescue nil
-          unless wait_thr.join(1)
+          unless wait_thr.join(KILL_GRACE_SECONDS)
             Process.kill("KILL", -pgid) rescue nil
             wait_thr.join
           end
-          out_reader.join(1)
-          err_reader.join(1)
+          out_reader.join(KILL_GRACE_SECONDS)
+          err_reader.join(KILL_GRACE_SECONDS)
           writer.kill rescue nil
           raise Timeout::Error
         end
