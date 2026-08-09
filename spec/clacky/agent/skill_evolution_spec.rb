@@ -7,13 +7,14 @@ RSpec.describe Clacky::Agent::SkillEvolution do
     Class.new do
       include Clacky::Agent::SkillEvolution
 
-      attr_accessor :skill_execution_context, :is_subagent, :config
+      attr_accessor :skill_execution_context, :is_subagent, :config, :ui
       attr_reader :reflect_called, :create_called
 
       def initialize
         @skill_execution_context = nil
         @is_subagent = false
         @config = nil
+        @ui = nil
         @reflect_called = 0
         @create_called = 0
       end
@@ -42,6 +43,28 @@ RSpec.describe Clacky::Agent::SkillEvolution do
   end
 
   let(:agent) { agent_class.new }
+
+  let(:phase_recorder) do
+    Class.new do
+      attr_reader :started, :ended
+
+      def initialize
+        @started = []
+        @ended = []
+      end
+
+      def with_phase; end
+
+      def phase_start(kind:, label:, **)
+        @started << { kind: kind, label: label }
+        "pid-#{@started.size}"
+      end
+
+      def phase_end(pid, summary: nil)
+        @ended << { pid: pid, summary: summary }
+      end
+    end
+  end
 
   describe "#run_skill_evolution_hooks" do
     context "when skill evolution is disabled" do
@@ -93,20 +116,59 @@ RSpec.describe Clacky::Agent::SkillEvolution do
         end.new
       end
 
-      it "skips dispatch entirely (no banner) by default" do
+      it "does not dispatch to either hook" do
         agent_no_work.skill_execution_context = nil
         agent_no_work.run_skill_evolution_hooks
         expect(agent_no_work.reflect_called).to eq(0)
         expect(agent_no_work.create_called).to eq(0)
       end
 
-      it "still dispatches when verbose is enabled (so the user sees the no-op)" do
-        agent_no_work.config = double("config", verbose: true)
+      it "still opens a phase and reports it as skipped" do
+        ui = phase_recorder.new
+        agent_no_work.ui = ui
         agent_no_work.skill_execution_context = nil
         agent_no_work.run_skill_evolution_hooks
-        # Reaches the dispatch — maybe_create_skill_from_task is called,
-        # which in real code would early-return inside should_auto_create_skill?
-        expect(agent_no_work.create_called).to eq(1)
+
+        expect(ui.started.size).to eq(1)
+        expect(ui.started.first[:kind]).to eq("skill_evolution")
+        expect(ui.ended.size).to eq(1)
+        expect(ui.ended.first[:summary]).to eq("skipped")
+      end
+
+      it "localizes the skipped summary and label" do
+        expected = {
+          "en" => { label: "Reflecting on this task", summary: "skipped" },
+          "zh" => { label: "正在复盘本次任务", summary: "已跳过" },
+        }
+
+        expected.each do |lang, want|
+          Thread.current[:lang] = lang
+          ui = phase_recorder.new
+          agent_no_work.ui = ui
+          agent_no_work.run_skill_evolution_hooks
+
+          expect(ui.started.first[:label]).to eq(want[:label])
+          expect(ui.ended.first[:summary]).to eq(want[:summary])
+        ensure
+          Thread.current[:lang] = nil
+        end
+      end
+    end
+
+    context "when there is work to do" do
+      it "reports the hook's own summary instead of skipped" do
+        ui = phase_recorder.new
+        working = Class.new(agent_class) do
+          def maybe_create_skill_from_task
+            super
+            "created bar skill"
+          end
+        end.new
+        working.ui = ui
+        working.run_skill_evolution_hooks
+
+        expect(working.create_called).to eq(1)
+        expect(ui.ended.first[:summary]).to eq("created bar skill")
       end
     end
   end

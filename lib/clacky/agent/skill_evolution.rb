@@ -26,19 +26,16 @@ module Clacky
       def run_skill_evolution_hooks
         return unless skill_evolution_enabled?
         return if @is_subagent
-        return unless skill_evolution_visible? || skill_evolution_has_work?
 
         with_skill_evolution_phase do
-          if @skill_execution_context
+          if !skill_evolution_has_work?
+            Clacky::I18n.t("phase.skipped")
+          elsif @skill_execution_context
             maybe_reflect_on_skill
           else
             maybe_create_skill_from_task
           end
         end
-      end
-
-      private def skill_evolution_visible?
-        @config.respond_to?(:verbose) && @config.verbose
       end
 
       private def skill_evolution_has_work?
@@ -52,7 +49,7 @@ module Clacky
       private def with_skill_evolution_phase
         return yield unless @ui.respond_to?(:with_phase)
 
-        pid = @ui.phase_start(kind: "skill_evolution", label: "Reflecting on this task")
+        pid = @ui.phase_start(kind: "skill_evolution", label: Clacky::I18n.t("phase.skill_evolution"))
         summary = nil
         begin
           summary = yield

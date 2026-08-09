@@ -3,6 +3,8 @@
 module Clacky
   module Locales
     EN = {
+      "phase.skill_evolution"           => "Reflecting on this task",
+      "phase.skipped"                   => "skipped",
       "llm.error.insufficient_credit"   => "Insufficient credit, please top up your account to continue",
       "llm.error.rate_limit_400"        => "Rate limit or service issue, retrying...",
       "llm.error.invalid_api_key"       => "API key is invalid or expired, please update it in Settings",

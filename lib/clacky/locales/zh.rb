@@ -3,6 +3,8 @@
 module Clacky
   module Locales
     ZH = {
+      "phase.skill_evolution"           => "正在复盘本次任务",
+      "phase.skipped"                   => "已跳过",
       "llm.error.insufficient_credit"   => "账户余额不足，请前往控制台充值后继续使用",
       "llm.error.rate_limit_400"        => "请求频率过高或服务暂时不可用，正在重试...",
       "llm.error.invalid_api_key"       => "API Key 无效或已过期，请到设置中重新配置",
