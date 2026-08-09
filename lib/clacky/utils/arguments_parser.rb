@@ -88,44 +88,8 @@ module Clacky
         result
       end
 
-      # Undo one layer of accidental double-serialization.
-      #
-      # Some LLMs (e.g. glm-5.2) emit array/object parameters as a JSON
-      # *string* (e.g. {"task":"[\"a\",\"b\"]"}) instead of a native JSON value
-      # (e.g. {"task":["a","b"]}). JSON.parse only strips the outer layer, so
-      # such values arrive here as a literal String. When a downstream tool
-      # feeds that String straight into Array()/mapping, the whole payload
-      # becomes a single malformed entry (e.g. one todo whose text is the raw
-      # "[\"a\",\"b\"]"). Detect values that look like a serialized array or
-      # object and parse them once, so every tool receives the intended native
-      # type.
-      #
-      # Only top-level values are unwrapped. We deliberately do NOT recurse
-      # into Array elements: a String element that merely happens to look like
-      # JSON (e.g. file content, a code snippet) must be preserved verbatim,
-      # otherwise legitimate string payloads would be corrupted. Strings that
-      # fail to parse are left untouched, so genuine string values are safe.
-      def self.undouble_serialize_args(args)
-        args.transform_values do |value|
-          next value unless value.is_a?(String)
-
-          stripped = value.strip
-          next value unless stripped.start_with?("[") || stripped.start_with?("{")
-
-          begin
-            JSON.parse(value)
-          rescue JSON::ParserError
-            value
-          end
-        end
-      end
-
       # Validate required parameters and filter unknown parameters
       def self.validate_required_params(call, args, tool_registry)
-        # Undo accidental double-serialization before validation so downstream
-        # tools receive native arrays/objects (see undouble_serialize_args).
-        args = undouble_serialize_args(args)
-
         tool = tool_registry.get(call[:name])
         required = tool.parameters&.dig(:required) || []
         properties = tool.parameters&.dig(:properties) || {}
