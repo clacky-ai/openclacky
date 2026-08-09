@@ -33,7 +33,7 @@ module Clacky
       # Build a Client from an mcp.json spec hash.
       # Recognized fields:
       #   stdio: command (required), args, env, cwd
-      #   http:  type: "http", url (required), headers
+      #   http:  type: "http", url (required), headers, auth
       def self.from_spec(name, spec)
         type = (spec["type"] || (spec["url"] ? "http" : "stdio")).to_s
         case type

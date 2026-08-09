@@ -1,10 +1,10 @@
 # MCP Support — Design Notes
 
 OpenClacky speaks the **Model Context Protocol** (MCP) so users can plug in
-the same servers they already use with Claude Desktop, Cursor, etc. The
-config format is identical (`mcpServers` map in `mcp.json`), but the
-internal architecture is different — designed to keep main-context tokens
-flat as users add more servers.
+the same servers they already use with Claude Desktop, Cursor, etc. Both
+local stdio servers and remote Streamable HTTP servers are supported. The
+config uses an `mcpServers` map in `mcp.json`, while the internal architecture
+keeps main-context tokens flat as users add more servers.
 
 ## The problem with naive MCP integration
 
@@ -63,11 +63,10 @@ Why a user message and not the system prompt:
 
 ### 4. Lazy startup, idle reaping
 
-`Mcp::Registry` does **not** spawn server processes at boot. The first
+`Mcp::Registry` does **not** start a connection at boot. The first
 `call_tool` (or first time a subagent fetches the catalog) triggers
-`ensure_started`. A background reaper shuts servers down after five
-minutes of inactivity. This keeps the "no gateway" promise — MCP is just
-local processes the agent talks to over stdio.
+`ensure_started`. A background reaper closes local processes and remote
+sessions after five minutes of inactivity.
 
 ## Token-budget summary
 
@@ -82,7 +81,9 @@ naive integration: ~6 000 × 10 ≈ 60 000 tokens up front.
 
 ## Files
 
-- `lib/clacky/mcp/client.rb` — stdio JSON-RPC 2.0 client
+- `lib/clacky/mcp/client.rb` — JSON-RPC 2.0 client for stdio and HTTP
+- `lib/clacky/mcp/http_transport.rb` — Streamable HTTP transport
+- `lib/clacky/mcp/oauth/` — OAuth discovery, PKCE, refresh, and credential storage
 - `lib/clacky/mcp/registry.rb` — config loading, lazy starts, idle reaping
 - `lib/clacky/mcp/virtual_skill.rb` — synthesized Skill per server
 - `lib/clacky/tools/mcp_call.rb` — the single bridge tool
@@ -112,3 +113,39 @@ Format matches Claude Desktop / Cursor:
 
 `description` is OpenClacky-specific and recommended — it's what the main
 agent sees when deciding whether to call into a given server.
+
+### Remote HTTP with OAuth
+
+OAuth-protected remote servers use the standard protected-resource metadata,
+authorization-server metadata, dynamic client registration, PKCE S256, and
+refresh-token flow:
+
+```json
+{
+  "mcpServers": {
+    "video-editor": {
+      "type": "http",
+      "url": "https://mcp.example.com/mcp",
+      "auth": {
+        "type": "oauth",
+        "resource": "https://mcp.example.com/mcp"
+      },
+      "description": "Create and edit videos."
+    }
+  }
+}
+```
+
+Manage authorization from the CLI:
+
+```sh
+clacky mcp capabilities --json
+clacky mcp login video-editor
+clacky mcp status video-editor --json
+clacky mcp logout video-editor
+```
+
+Credentials are stored outside `mcp.json` under
+`~/.clacky/mcp/oauth/`, with owner-only permissions. OAuth endpoints
+must use HTTPS; callback redirects bind to a random loopback port. Access and
+refresh tokens are never included in MCP error messages.
