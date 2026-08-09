@@ -180,6 +180,131 @@ RSpec.describe Clacky::Utils::ArgumentsParser do
         }.to raise_error(StandardError, /Failed to parse arguments.*file_reader/)
       end
     end
+
+    context "with double-serialized parameters" do
+      # Some LLMs emit array/object params as a JSON *string* (e.g.
+      # {"task":"[\"a\",\"b\"]"}) instead of native JSON. End-to-end check that
+      # parse_and_validate unwraps one serialization layer.
+      let(:todo_registry) do
+        registry = instance_double("Clacky::ToolRegistry")
+        tool = double("TodoTool",
+          name: "todo_manager",
+          description: "todo",
+          parameters: {
+            required: ["action"],
+            properties: {
+              "action" => { "type" => "string" },
+              "task" => { "description" => "task" },
+              "id" => { "description" => "id" }
+            }
+          }
+        )
+        allow(registry).to receive(:get).with("todo_manager").and_return(tool)
+        registry
+      end
+
+      it "unwraps a double-serialized array parameter" do
+        call = { name: "todo_manager", arguments: '{"action":"add","task":"[\"a\",\"b\",\"c\"]"}' }
+
+        result = described_class.parse_and_validate(call, todo_registry)
+
+        expect(result[:task]).to eq(%w[a b c])
+      end
+
+      it "unwraps a double-serialized integer array parameter" do
+        call = { name: "todo_manager", arguments: '{"action":"complete","id":"[1,2,3]"}' }
+
+        result = described_class.parse_and_validate(call, todo_registry)
+
+        expect(result[:id]).to eq([1, 2, 3])
+      end
+
+      it "unwraps a double-serialized object parameter" do
+        call = { name: "todo_manager", arguments: '{"action":"add","task":"{\"x\":1,\"y\":[2,3]}"}' }
+
+        result = described_class.parse_and_validate(call, todo_registry)
+
+        expect(result[:task]).to eq("x" => 1, "y" => [2, 3])
+      end
+
+      it "preserves a genuine single-string task" do
+        call = { name: "todo_manager", arguments: '{"action":"add","task":"完成季度报告"}' }
+
+        result = described_class.parse_and_validate(call, todo_registry)
+
+        expect(result[:task]).to eq("完成季度报告")
+      end
+    end
+  end
+
+  describe ".undouble_serialize_args" do
+    it "unwraps a stringified JSON array into a native Array" do
+      result = described_class.undouble_serialize_args(task: '["a","b","c"]')
+
+      expect(result[:task]).to eq(%w[a b c])
+    end
+
+    it "unwraps a stringified JSON object into a native Hash" do
+      result = described_class.undouble_serialize_args(meta: '{"x":1,"y":[2,3]}')
+
+      expect(result[:meta]).to eq("x" => 1, "y" => [2, 3])
+    end
+
+    it "preserves a plain string value" do
+      result = described_class.undouble_serialize_args(task: "完成季度报告")
+
+      expect(result[:task]).to eq("完成季度报告")
+    end
+
+    it "preserves a string that starts with [ but is not valid JSON" do
+      result = described_class.undouble_serialize_args(task: "[未闭合")
+
+      expect(result[:task]).to eq("[未闭合")
+    end
+
+    it "preserves a string that starts with { but is not valid JSON" do
+      result = described_class.undouble_serialize_args(task: "{未闭合")
+
+      expect(result[:task]).to eq("{未闭合")
+    end
+
+    it "preserves non-string values" do
+      result = described_class.undouble_serialize_args(a: 1, b: nil, c: %w[x y], d: { k: 1 })
+
+      expect(result).to eq(a: 1, b: nil, c: %w[x y], d: { k: 1 })
+    end
+
+    it "does not recurse into array elements" do
+      # A string element that merely looks like JSON (e.g. file content) must
+      # stay a string; otherwise legitimate string payloads get corrupted.
+      result = described_class.undouble_serialize_args(items: ['["a","b"]', "[1,2]"])
+
+      expect(result[:items]).to eq(['["a","b"]', "[1,2]"])
+    end
+
+    it "does not recurse into nested hash values" do
+      # Only top-level values are unwrapped. A stringified JSON nested inside a
+      # native object is preserved verbatim by design.
+      result = described_class.undouble_serialize_args(meta: { k: '["a","b"]' })
+
+      expect(result[:meta]).to eq(k: '["a","b"]')
+    end
+
+    it "leaves sibling values untouched while unwrapping one" do
+      result = described_class.undouble_serialize_args(action: "add", task: '["a","b"]', id: 5)
+
+      expect(result).to eq(action: "add", task: %w[a b], id: 5)
+    end
+
+    it "handles leading/trailing whitespace around JSON-looking strings" do
+      result = described_class.undouble_serialize_args(task: '  ["a","b"]  ')
+
+      expect(result[:task]).to eq(%w[a b])
+    end
+
+    it "returns an empty hash unchanged" do
+      expect(described_class.undouble_serialize_args({})).to eq({})
+    end
   end
 
   describe ".repair_json (private method)" do
