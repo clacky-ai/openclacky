@@ -406,6 +406,8 @@ module Clacky
       # @param path [String] File path
       # @param is_new_file [Boolean] Whether this is a new file
       def show_file_write_preview(path, is_new_file:)
+        return if chore_capture(:file, path)
+
         theme = ThemeManager.current_theme
         file_label = theme.format_symbol(:file)
         status = is_new_file ? theme.format_text("Creating new file", :success) : theme.format_text("Modifying existing file", :warning)
@@ -416,6 +418,8 @@ module Clacky
       # Show file operation preview (Edit tool)
       # @param path [String] File path
       def show_file_edit_preview(path)
+        return if chore_capture(:file, path)
+
         theme = ThemeManager.current_theme
         file_label = theme.format_symbol(:file)
         append_output("\n#{file_label} #{path || '(unknown)'}")
@@ -424,6 +428,8 @@ module Clacky
       # Show file operation error
       # @param error_message [String] Error message
       def show_file_error(error_message)
+        return if chore_capture(:error, error_message)
+
         theme = ThemeManager.current_theme
         append_output("   #{theme.format_text("Warning:", :error)} #{error_message}")
       end
@@ -467,10 +473,69 @@ module Clacky
         filtered.strip
       end
 
+      # Record a noteworthy event that happened inside a chore phase. The raw
+      # transcript is suppressed (a line-oriented terminal has no folding),
+      # but the CLI still owes the user a digest — the collapsed-card
+      # equivalent of what the web UI lets you expand.
+      #
+      # @return [Boolean] true if a chore phase absorbed it.
+      private def chore_capture(kind, text)
+        return false unless Thread.current[:clacky_chore_phase]
+        text = text.to_s.strip
+        return true if text.empty?
+
+        @phase_mutex ||= Mutex.new
+        @phase_mutex.synchronize do
+          @chore_digest ||= { tools: Hash.new(0), files: [], errors: [] }
+          case kind
+          when :tool  then @chore_digest[:tools][text] += 1
+          when :file  then @chore_digest[:files] << text unless @chore_digest[:files].include?(text)
+          when :error then @chore_digest[:errors] << text
+          end
+        end
+        true
+      end
+
+      # Turn the captured digest into the handful of lines the CLI prints
+      # after a chore finishes. Errors are always listed in full; tools and
+      # files are condensed, since a memory update touching 20 files should
+      # not out-scroll the answer the user actually asked for.
+      private def chore_digest_lines
+        @phase_mutex ||= Mutex.new
+        digest = @phase_mutex.synchronize { @chore_digest }
+        return [] if digest.nil?
+
+        lines = []
+        digest[:files].first(CHORE_DIGEST_MAX_FILES).each { |f| lines << "· #{f}" }
+        if (extra = digest[:files].size - CHORE_DIGEST_MAX_FILES) > 0
+          lines << "· …#{extra} more file#{"s" if extra > 1}"
+        end
+
+        if digest[:tools].any?
+          total = digest[:tools].values.sum
+          ranked = digest[:tools].sort_by { |_n, c| -c }
+          names = ranked.first(CHORE_DIGEST_MAX_TOOLS).map do |name, count|
+            count > 1 ? "#{name}×#{count}" : name
+          end
+          if (extra = ranked.size - CHORE_DIGEST_MAX_TOOLS) > 0
+            names << "+#{extra} more"
+          end
+          lines << "· #{total} tool call#{"s" if total > 1}: #{names.join(", ")}"
+        end
+
+        digest[:errors].first(CHORE_DIGEST_MAX_ERRORS).each { |e| lines << "! #{e}" }
+        if (extra = digest[:errors].size - CHORE_DIGEST_MAX_ERRORS) > 0
+          lines << "! …#{extra} more error#{"s" if extra > 1}"
+        end
+        lines
+      end
+
       # Show tool call
       # @param name [String] Tool name
       # @param args [String, Hash] Tool arguments (JSON string or Hash)
       def show_tool_call(name, args)
+        return if chore_capture(:tool, name)
+
         # Reset stdout buffer on each new tool call so previous command output
         # doesn't bleed into the next one, and so the buffer is ready before
         # on_output starts firing (which can happen before show_progress is called).
@@ -520,6 +585,8 @@ module Clacky
       # @param error [String, Exception] Error message or exception
       def show_tool_error(error)
         error_msg = error.is_a?(Exception) ? error.message : error.to_s
+        return if chore_capture(:error, error_msg)
+
         output = @renderer.render_tool_error(error: error_msg)
         append_output(output)
       end
@@ -669,6 +736,22 @@ module Clacky
 
       # Called by ProgressHandle#start.
       def register_progress(handle)
+        # Inside a chore phase only the phase's own indicator occupies a line.
+        # Nested handles (the subagent's LLM calls and tool runs) get no entry
+        # of their own — otherwise each one commits a permanent final frame on
+        # finish, since unregister_progress writes straight into the buffer and
+        # never passes through append_output's chore gate. Their activity is
+        # instead folded into the chore line by +fold_into_chore_line+.
+        if Thread.current[:clacky_chore_phase] && @chore_progress
+          @progress_mutex.synchronize do
+            @chore_nested ||= []
+            @chore_nested << handle
+            @chore_steps = @chore_steps.to_i + 1 if handle.style == :primary
+            fold_into_chore_line(handle)
+          end
+          return nil
+        end
+
         @progress_mutex.synchronize do
           prev_top = @progress_stack.last
           if prev_top
@@ -689,6 +772,17 @@ module Clacky
       # Called by ProgressHandle#finish.
       def unregister_progress(handle, final_frame:)
         @progress_mutex.synchronize do
+          if @chore_nested&.delete(handle)
+            # Folded handles own no entry; hand the chore line back to
+            # whatever is still running underneath (or the bare label).
+            fold_into_chore_line(@chore_nested.last)
+            next
+          end
+
+          # A handle that was never stacked owns nothing here: restoring
+          # "the new top" would duplicate what is legitimately on screen.
+          next unless @progress_stack.include?(handle)
+
           if handle.entry_id
             if final_frame && !final_frame.to_s.strip.empty?
               update_entry(handle.entry_id, @renderer.render_progress(final_frame))
@@ -719,6 +813,19 @@ module Clacky
       # +register_progress+).
       def render_frame(handle, frame)
         @progress_mutex.synchronize do
+          if @chore_nested&.include?(handle)
+            fold_into_chore_line(handle)
+            return
+          end
+
+          # The chore's own ticker must render the folded view too, otherwise
+          # every tick repaints the bare label and the line flickers between
+          # "<label>…" and "<label> · <activity>…".
+          if @chore_progress && @chore_progress == handle && @chore_nested&.any?
+            fold_into_chore_line(@chore_nested.last)
+            return
+          end
+
           return unless @progress_stack.last == handle
           return unless handle.entry_id
 
@@ -738,6 +845,27 @@ module Clacky
           # tools (terminal running a build, web_fetch) visibly reflect activity.
           recompute_sessionbar_status
         end
+      end
+
+      # Repaint the chore phase's single line to reflect the innermost nested
+      # activity: "<label> · <what it's doing> (Ns · step K)". Keeps the user
+      # informed without letting the chore's subagent spam one permanent line
+      # per LLM call. Must be called with @progress_mutex held.
+      private def fold_into_chore_line(inner)
+        chore = @chore_progress
+        return unless chore&.entry_id
+
+        parts = [chore.message]
+        parts << inner.message.to_s.strip if inner && !inner.message.to_s.strip.empty?
+
+        suffix = []
+        elapsed = chore.start_time ? (Time.now - chore.start_time).to_i : 0
+        suffix << "#{elapsed}s" if elapsed > 0
+        suffix << "step #{@chore_steps}" if @chore_steps.to_i > 0
+
+        line = parts.join(" · ")
+        line = "#{line}… (#{suffix.join(" · ")})" unless suffix.empty?
+        update_entry(chore.entry_id, @renderer.render_progress(line))
       end
 
       # Render the very first frame of +handle+ (used when registering or
@@ -908,6 +1036,12 @@ module Clacky
       # swallowed and only a one-line progress indicator remains.
       CHORE_PHASE_KINDS = %w[memory_update skill_evolution].freeze
 
+      # Caps for the post-chore digest. A chore is background work the user
+      # never asked for, so its recap must stay far shorter than the answer.
+      CHORE_DIGEST_MAX_FILES = 5
+      CHORE_DIGEST_MAX_TOOLS = 4
+      CHORE_DIGEST_MAX_ERRORS = 3
+
       def phase_start(kind:, label:, concurrent: false)
         phase_id = SecureRandom.uuid
         chore = CHORE_PHASE_KINDS.include?(kind.to_s) && !verbose_phases?
@@ -919,8 +1053,10 @@ module Clacky
         Thread.current[:clacky_phase_id] = phase_id
 
         if chore
-          Thread.current[:clacky_chore_phase] = phase_id
+          # Start the indicator before arming the gate: this handle is the
+          # one thing that stays visible during the chore.
           @chore_progress = start_progress(message: label, style: :quiet)
+          Thread.current[:clacky_chore_phase] = phase_id
           return phase_id
         end
 
@@ -944,14 +1080,24 @@ module Clacky
           Thread.current[:clacky_chore_phase] = nil
           handle = @chore_progress
           @chore_progress = nil
+          @chore_nested = nil
+          @chore_steps = 0
           handle&.discard
-          # No summary means nothing worth reporting happened (the common
-          # "no memory updates needed" path) — leave no trace at all.
-          if summary && !summary.to_s.strip.empty?
-            elapsed = (Time.now - info[:started_at]).round
-            done = "#{label} — #{summary.to_s.strip} (#{elapsed}s)"
-            append_output(@renderer.render_system_message(done, prefix_newline: false))
-          end
+
+          digest = chore_digest_lines
+          @phase_mutex.synchronize { @chore_digest = nil }
+
+          # No summary and nothing captured means nothing worth reporting
+          # happened (the common "no memory updates needed" path) — leave no
+          # trace at all.
+          has_summary = summary && !summary.to_s.strip.empty?
+          return if !has_summary && digest.empty?
+
+          elapsed = (Time.now - info[:started_at]).round
+          head = has_summary ? "#{label} — #{summary.to_s.strip} (#{elapsed}s)" : "#{label} (#{elapsed}s)"
+          append_output(@renderer.render_system_message(head, prefix_newline: false))
+          theme = ThemeManager.current_theme
+          digest.each { |line| append_output(theme.format_text("    #{line}", :thinking)) }
           return
         end
 
