@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require_relative "../utils/environment_detector"
+
 module Clacky
   module Tools
     class Base
@@ -29,12 +31,20 @@ module Clacky
       end
 
       # Expand ~ to home directory only if path starts with ~
-      # Relative paths are resolved against working_dir if provided
+      # Relative paths are resolved against working_dir if provided.
+      # On WSL, Windows-style paths (C:\..., C:/..., /C:/...) are translated to
+      # their /mnt/<drive>/... equivalents so that paths copied from Windows
+      # (clipboard, error messages, file dialogs) work unchanged.
       # @param path [String, nil] The path to expand
       # @param working_dir [String, nil] The working directory to resolve relative paths against
       # @return [String, nil] The expanded path, or original if no ~ present
       private def expand_path(path, working_dir: nil)
         return path if path.nil? || path.strip.empty?
+
+        # WSL: normalize Windows drive paths BEFORE anything else, otherwise
+        # the leading "C:" makes File.expand_path treat them as relative.
+        path = Clacky::Utils::EnvironmentDetector.win_to_linux_path(path)
+
         return File.expand_path(path) if path.start_with?("~")
         return File.expand_path(path, working_dir) if working_dir && !path.start_with?("/")
         # Always resolve relative paths to absolute (even without working_dir), so callers

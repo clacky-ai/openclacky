@@ -93,7 +93,7 @@ module Clacky
 
       def restore_file(trash_dir, file_path, project_root)
         deleted_files = get_deleted_files(trash_dir, project_root)
-        expanded_path = File.expand_path(file_path, project_root)
+        expanded_path = expand_path(file_path, working_dir: project_root)
 
         target_file = deleted_files.find { |f| f[:original_path] == expanded_path }
 

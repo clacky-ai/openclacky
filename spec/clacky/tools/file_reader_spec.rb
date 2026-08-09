@@ -45,6 +45,34 @@ RSpec.describe Clacky::Tools::FileReader do
         expect(result[:content]).to be_nil
       end
 
+      context "on WSL — Windows-style path normalization" do
+        before do
+          # Force WSL path translation regardless of the host running this spec.
+          allow(Clacky::Utils::EnvironmentDetector).to receive(:os_type).and_return(:wsl)
+        end
+
+        it "normalizes a backslash drive-letter path to /mnt before lookup" do
+          result = tool.execute(path: 'C:\\Users\\spl\\nonexistent.txt')
+
+          expect(result[:error]).to include("File not found")
+          # Path must be the normalized /mnt form, NOT the raw Windows string
+          # (which File.expand_path would wrongly treat as relative).
+          expect(result[:path]).to eq("/mnt/c/Users/spl/nonexistent.txt")
+        end
+
+        it "normalizes a forward-slash drive-letter path to /mnt before lookup" do
+          result = tool.execute(path: "C:/Users/spl/missing.txt")
+
+          expect(result[:path]).to eq("/mnt/c/Users/spl/missing.txt")
+        end
+
+        it "leaves an existing /mnt path untouched" do
+          result = tool.execute(path: "/mnt/c/Users/spl/missing.txt")
+
+          expect(result[:path]).to eq("/mnt/c/Users/spl/missing.txt")
+        end
+      end
+
       it "expands ~ to home directory" do
         Dir.mktmpdir do |dir|
           # Create a test file in temp directory
