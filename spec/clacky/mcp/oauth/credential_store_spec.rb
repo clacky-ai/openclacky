@@ -16,7 +16,7 @@ RSpec.describe Clacky::Mcp::OAuth::CredentialStore do
 
     expect(store.load.fetch("access_token")).to eq("access")
     expect(File.stat(store.path).mode & 0o777).to eq(0o600)
-    expect(store.path).to include("mcp/oauth/chat_cut.json")
+    expect(store.path).to match(%r{mcp/oauth/chat_cut-[0-9a-f]{12}\.json\z})
   end
 
   it "atomically replaces credentials without temporary files" do
@@ -51,5 +51,11 @@ RSpec.describe Clacky::Mcp::OAuth::CredentialStore do
     store.save("access_token" => "do-not-leak")
 
     expect(store.inspect).not_to include("do-not-leak")
+  end
+
+  it "does not collide when different server names sanitize the same way" do
+    other = described_class.new(server_name: "chat?cut", home: home)
+
+    expect(other.path).not_to eq(store.path)
   end
 end

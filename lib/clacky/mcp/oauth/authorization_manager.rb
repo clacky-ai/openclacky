@@ -99,6 +99,7 @@ module Clacky
           %w[issuer authorization_endpoint token_endpoint registration_endpoint].each do |key|
             metadata[key] = validate_https_url(metadata[key], key.tr("_", " "))
           end
+          raise Error, "authorization server metadata issuer does not match" unless metadata["issuer"] == server
           unless Array(metadata["code_challenge_methods_supported"]).include?("S256")
             raise Error, "authorization server does not support PKCE S256"
           end

@@ -80,6 +80,21 @@ RSpec.describe Clacky::Mcp::OAuth::AuthorizationManager do
       .to raise_error(described_class::Error, /does not match/)
   end
 
+  it "rejects authorization metadata with a mismatched issuer" do
+    requester = lambda do |method, url, headers, body|
+      response = scripted_requester.call(method, url, headers, body)
+      if url.end_with?("/.well-known/oauth-authorization-server")
+        metadata = JSON.parse(response.body).merge("issuer" => "https://other.example.test")
+        Response.new(200, {}, JSON.generate(metadata))
+      else
+        response
+      end
+    end
+
+    expect { build_manager(requester: requester).login }
+      .to raise_error(described_class::Error, /issuer.*match/i)
+  end
+
   it "refreshes and rotates a refresh token" do
     manager = build_manager
     grant = {

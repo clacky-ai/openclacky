@@ -19,12 +19,13 @@ module Clacky
           end
 
           resource = enabled ? (auth["resource"] || spec["url"]) : spec["url"]
-          new(enabled: enabled, resource: resource)
+          new(enabled: enabled, resource: resource, endpoint: spec["url"])
         end
 
-        def initialize(enabled:, resource:)
+        def initialize(enabled:, resource:, endpoint: nil)
           @enabled = enabled
           @resource = resource.to_s
+          @endpoint = (endpoint || resource).to_s
           validate! if enabled?
         end
 
@@ -33,12 +34,16 @@ module Clacky
         end
 
         private def validate!
-          uri = URI.parse(@resource)
-          unless uri.scheme == "https" && uri.host && !uri.host.empty? && !uri.user && !uri.password
-            raise Error, "OAuth MCP resource must be an HTTPS URL without credentials"
-          end
+          validate_https_url(@endpoint, "OAuth MCP endpoint")
+          validate_https_url(@resource, "OAuth MCP resource")
+        end
+
+        private def validate_https_url(value, label)
+          uri = URI.parse(value)
+          raise Error, "#{label} must be an HTTPS URL without credentials" unless
+            uri.scheme == "https" && uri.host && !uri.host.empty? && !uri.user && !uri.password
         rescue URI::InvalidURIError
-          raise Error, "OAuth MCP resource must be an HTTPS URL"
+          raise Error, "#{label} must be an HTTPS URL"
         end
       end
     end

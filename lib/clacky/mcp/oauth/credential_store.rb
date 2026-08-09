@@ -2,6 +2,7 @@
 
 require "json"
 require "fileutils"
+require "digest"
 
 module Clacky
   module Mcp
@@ -12,8 +13,10 @@ module Clacky
         attr_reader :path
 
         def initialize(server_name:, home: Dir.home)
-          safe_name = server_name.to_s.gsub(/[^a-zA-Z0-9_.-]/, "_")
+          original_name = server_name.to_s
+          safe_name = original_name.gsub(/[^a-zA-Z0-9_.-]/, "_")
           safe_name = "server" if safe_name.empty?
+          safe_name = "#{safe_name}-#{Digest::SHA256.hexdigest(original_name)[0, 12]}" if safe_name != original_name
           @path = File.join(File.expand_path(home), ".clacky", "mcp", "oauth", "#{safe_name}.json")
         end
 

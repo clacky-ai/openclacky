@@ -69,10 +69,10 @@ module Clacky
           document = JSON.parse(File.read(path))
           source = document["mcpServers"] || document["servers"] || {}
           source.each { |name, spec| servers[name.to_s] = spec if spec.is_a?(Hash) }
+        rescue JSON::ParserError
+          raise Error, "invalid MCP configuration in #{path}"
         end
         servers[@server_name]
-      rescue JSON::ParserError => e
-        raise Error, "invalid MCP configuration: #{e.message}"
       end
 
       private def config_paths

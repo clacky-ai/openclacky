@@ -43,6 +43,17 @@ RSpec.describe Clacky::Mcp::ConnectionManager do
     expect { manager.login }.to raise_error(described_class::Error, /not configured for OAuth/)
   end
 
+  it "does not include malformed configuration contents in errors" do
+    directory = File.join(home, ".clacky")
+    FileUtils.mkdir_p(directory)
+    File.write(File.join(directory, "mcp.json"), '{"token":"do-not-leak"')
+    manager = described_class.new(server_name: "remote", home: home)
+
+    expect { manager.status }.to raise_error(described_class::Error) do |error|
+      expect(error.message).not_to include("do-not-leak")
+    end
+  end
+
   it "logs out through the session" do
     write_config("url" => "https://example.com/mcp", "auth" => { "type" => "oauth" })
     allow(session).to receive(:logout).and_return(true)

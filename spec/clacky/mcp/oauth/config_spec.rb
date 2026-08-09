@@ -39,6 +39,15 @@ RSpec.describe Clacky::Mcp::OAuth::Config do
     end.to raise_error(Clacky::Mcp::OAuth::Config::Error, /HTTPS/)
   end
 
+  it "rejects an insecure MCP endpoint even when the resource is HTTPS" do
+    expect do
+      described_class.from_server_spec(
+        "url" => "http://example.com/mcp",
+        "auth" => { "type" => "oauth", "resource" => "https://example.com/mcp" }
+      )
+    end.to raise_error(Clacky::Mcp::OAuth::Config::Error, /endpoint.*HTTPS/i)
+  end
+
   it "rejects unknown authentication types" do
     expect do
       described_class.from_server_spec(
