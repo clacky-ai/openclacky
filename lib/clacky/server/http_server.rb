@@ -791,6 +791,9 @@ module Clacky
           elsif method == "PATCH" && path.match?(%r{^/api/projects/[^/]+$})
             project_id = path.sub("/api/projects/", "")
             api_update_project(project_id, req, res)
+          elsif method == "DELETE" && path.match?(%r{^/api/projects/[^/]+/sessions$})
+            project_id = path.sub("/api/projects/", "").sub("/sessions", "")
+            api_delete_project_sessions(project_id, res)
           elsif method == "DELETE" && path.match?(%r{^/api/projects/[^/]+$})
             project_id = path.sub("/api/projects/", "")
             api_delete_project(project_id, res)
@@ -6351,8 +6354,25 @@ module Clacky
         return json_response(res, 404, { error: "Project not found" }) unless @project_manager.find(project_id)
 
         @project_manager.delete(project_id)
+        _delete_project_sessions(project_id)
 
-        # Soft-delete all sessions that belonged to this project.
+        json_response(res, 200, { ok: true })
+      rescue => e
+        json_response(res, 500, { error: e.message })
+      end
+
+      # DELETE /api/projects/:id/sessions - delete all sessions in a project but keep the project
+      def api_delete_project_sessions(project_id, res)
+        return json_response(res, 404, { error: "Project not found" }) unless @project_manager.find(project_id)
+
+        deleted = _delete_project_sessions(project_id)
+        json_response(res, 200, { ok: true, deleted: deleted })
+      rescue => e
+        json_response(res, 500, { error: e.message })
+      end
+
+      private def _delete_project_sessions(project_id)
+        deleted = 0
         @session_manager.all_sessions.each do |session_data|
           next unless session_data[:project_id].to_s == project_id
 
@@ -6365,11 +6385,9 @@ module Clacky
 
           broadcast(sid, { type: "session_deleted", session_id: sid })
           unsubscribe_all(sid)
+          deleted += 1
         end
-
-        json_response(res, 200, { ok: true })
-      rescue => e
-        json_response(res, 500, { error: e.message })
+        deleted
       end
 
       # PATCH /api/sessions/:id/project — move a session into or out of a project
