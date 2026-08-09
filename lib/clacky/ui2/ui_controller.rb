@@ -226,6 +226,9 @@ module Clacky
       # trigger a full output repaint (visible flicker) and the visual
       # order would have business messages appearing below the spinner.
       def append_output(content)
+        return nil if Thread.current[:clacky_chore_phase]
+
+        content = prefix_with_phase_label(content)
         @progress_mutex.synchronize do
           top = @progress_stack.last
           if top && top.entry_id
@@ -247,6 +250,17 @@ module Clacky
       # progress entry at the tail.
       private def append_output_unlocked(content)
         @layout.append_output(content)
+      end
+
+      # With several phases running at once the CLI's line-oriented output
+      # interleaves, so each line needs its origin stamped on it. A single
+      # active phase reads fine unprefixed (the banners already delimit it).
+      private def prefix_with_phase_label(content)
+        label = Thread.current[:clacky_phase_label]
+        return content unless label
+
+        tag = "[#{label}] "
+        content.to_s.split("\n", -1).map { |line| line.empty? ? line : "#{tag}#{line}" }.join("\n")
       end
 
       # Log message to output area (use instead of puts)
@@ -888,26 +902,66 @@ module Clacky
         append_output(output)
       end
 
-      def phase_start(kind:, label:)
+      # Phases the user never asked for: post-task chores that run after the
+      # answer is already on screen. The web UI folds them into a card; a
+      # line-oriented terminal has no folding, so their transcript is
+      # swallowed and only a one-line progress indicator remains.
+      CHORE_PHASE_KINDS = %w[memory_update skill_evolution].freeze
+
+      def phase_start(kind:, label:, concurrent: false)
         phase_id = SecureRandom.uuid
-        @active_phases ||= {}
-        @active_phases[phase_id] = { kind: kind, label: label, started_at: Time.now }
+        chore = CHORE_PHASE_KINDS.include?(kind.to_s) && !verbose_phases?
+        @phase_mutex ||= Mutex.new
+        @phase_mutex.synchronize do
+          @active_phases ||= {}
+          @active_phases[phase_id] = { kind: kind, label: label, started_at: Time.now, chore: chore }
+        end
         Thread.current[:clacky_phase_id] = phase_id
+
+        if chore
+          Thread.current[:clacky_chore_phase] = phase_id
+          @chore_progress = start_progress(message: label, style: :quiet)
+          return phase_id
+        end
 
         banner = "──────── ▼ #{label} ────────"
         append_output(@renderer.render_system_message(banner, prefix_newline: true))
+        # Only concurrent phases interleave, so only they need per-line tagging.
+        Thread.current[:clacky_phase_label] = concurrent ? label : nil
         phase_id
       end
 
       def phase_end(phase_id, summary: nil)
-        Thread.current[:clacky_phase_id] = nil
-        return unless @active_phases&.key?(phase_id)
+        Thread.current[:clacky_phase_id] = nil if Thread.current[:clacky_phase_id] == phase_id
+        Thread.current[:clacky_phase_label] = nil
+        @phase_mutex ||= Mutex.new
+        info = @phase_mutex.synchronize { @active_phases&.delete(phase_id) }
+        return unless info
 
-        info = @active_phases.delete(phase_id)
         label = info[:label]
+
+        if info[:chore]
+          Thread.current[:clacky_chore_phase] = nil
+          handle = @chore_progress
+          @chore_progress = nil
+          handle&.discard
+          # No summary means nothing worth reporting happened (the common
+          # "no memory updates needed" path) — leave no trace at all.
+          if summary && !summary.to_s.strip.empty?
+            elapsed = (Time.now - info[:started_at]).round
+            done = "#{label} — #{summary.to_s.strip} (#{elapsed}s)"
+            append_output(@renderer.render_system_message(done, prefix_newline: false))
+          end
+          return
+        end
+
         tail = summary && !summary.to_s.strip.empty? ? " — #{summary.to_s.strip}" : ""
         banner = "──────── ▲ #{label} done#{tail} ────────"
         append_output(@renderer.render_system_message(banner, prefix_newline: false))
+      end
+
+      private def verbose_phases?
+        @config.respond_to?(:verbose) && @config.verbose
       end
 
       # Set workspace status to idle (called when agent stops working)

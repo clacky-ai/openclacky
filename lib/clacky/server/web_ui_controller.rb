@@ -221,7 +221,7 @@ module Clacky
 
       # === Phase grouping ===
 
-      def phase_start(kind:, label: nil)
+      def phase_start(kind:, label: nil, concurrent: false)
         pid = SecureRandom.uuid
         Thread.current[:clacky_phase_id] = pid
         # Emit without auto-injection (the start event itself defines the phase)

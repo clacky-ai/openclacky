@@ -144,13 +144,12 @@ RSpec.describe Clacky::Agent::MemoryUpdater do
       sa
     end
 
-    let(:progress_handle) { double("progress_handle").tap { |h| allow(h).to receive(:finish) } }
-
     let(:ui) do
       ui = double("ui")
-      allow(ui).to receive(:start_progress).and_return(progress_handle)
       allow(ui).to receive(:update_sessionbar)
-      allow(ui).to receive(:show_info)
+      allow(ui).to receive(:with_phase)
+      allow(ui).to receive(:phase_start).and_return("pid-1")
+      allow(ui).to receive(:phase_end)
       ui
     end
 
@@ -158,6 +157,7 @@ RSpec.describe Clacky::Agent::MemoryUpdater do
 
     let(:full_agent_class) do
       Class.new do
+        include Clacky::Agent::CostTracker
         include Clacky::Agent::MemoryUpdater
 
         attr_accessor :iterations, :task_start_iterations, :total_cost, :cost_source, :debug_logs, :fork_spy
@@ -166,6 +166,7 @@ RSpec.describe Clacky::Agent::MemoryUpdater do
           @iterations = 10
           @task_start_iterations = 0
           @total_cost = 1.0
+          @cost_mutex = Mutex.new
           @cost_source = :api
           @debug_logs = []
           @ui = ui
@@ -230,20 +231,20 @@ RSpec.describe Clacky::Agent::MemoryUpdater do
       full_agent.run_memory_update_subagent
     end
 
-    it "always finishes the progress handle on the normal path" do
-      expect(progress_handle).to receive(:finish)
+    it "closes the phase on the normal path" do
+      expect(ui).to receive(:phase_end)
       full_agent.run_memory_update_subagent
     end
 
-    it "always finishes the progress handle even when the subagent raises" do
+    it "closes the phase even when the subagent raises" do
       allow(subagent).to receive(:run).and_raise(StandardError, "boom")
-      expect(progress_handle).to receive(:finish)
+      expect(ui).to receive(:phase_end)
       expect { full_agent.run_memory_update_subagent }.not_to raise_error
     end
 
-    it "propagates Clacky::AgentInterrupted and still finishes the progress handle" do
+    it "propagates Clacky::AgentInterrupted and still closes the phase" do
       allow(subagent).to receive(:run).and_raise(Clacky::AgentInterrupted)
-      expect(progress_handle).to receive(:finish)
+      expect(ui).to receive(:phase_end)
       expect { full_agent.run_memory_update_subagent }.to raise_error(Clacky::AgentInterrupted)
     end
 
@@ -262,35 +263,35 @@ RSpec.describe Clacky::Agent::MemoryUpdater do
       expect(full_agent.total_cost).to be_within(1e-9).of(1.0123)
     end
 
-    it "stays silent (no show_info) when subagent wrote nothing" do
+    it "reports no summary when subagent wrote nothing" do
       allow(subagent_history).to receive(:to_a).and_return([
         { role: "user", content: "hi" },
         { role: "assistant", content: "No memory updates needed." }
       ])
-      expect(ui).not_to receive(:show_info)
-      full_agent.run_memory_update_subagent
+      expect(ui).to receive(:phase_end).with(anything, summary: nil)
+      expect(full_agent.run_memory_update_subagent).to be_nil
     end
 
-    it "emits show_info when subagent called the write tool (OpenAI-style)" do
+    it "reports a summary when subagent called the write tool (OpenAI-style)" do
       allow(subagent_history).to receive(:to_a).and_return([
         {
           role: "assistant",
           tool_calls: [{ function: { name: "write" } }]
         }
       ])
-      expect(ui).to receive(:show_info).with(/Memory updated/)
-      full_agent.run_memory_update_subagent
+      expect(ui).to receive(:phase_end).with(anything, summary: /steps · \$/)
+      expect(full_agent.run_memory_update_subagent).to match(/steps · \$/)
     end
 
-    it "emits show_info when subagent called the edit tool (Anthropic-style tool_use block)" do
+    it "reports a summary when subagent called the edit tool (Anthropic-style tool_use block)" do
       allow(subagent_history).to receive(:to_a).and_return([
         {
           role: "assistant",
           content: [{ type: "tool_use", name: "edit", input: {} }]
         }
       ])
-      expect(ui).to receive(:show_info).with(/Memory updated/)
-      full_agent.run_memory_update_subagent
+      expect(ui).to receive(:phase_end).with(anything, summary: /steps · \$/)
+      expect(full_agent.run_memory_update_subagent).to match(/steps · \$/)
     end
   end
 end

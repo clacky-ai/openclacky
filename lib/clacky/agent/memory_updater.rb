@@ -68,20 +68,23 @@ module Clacky
       def run_memory_update_subagent
         return unless should_update_memory?
 
-        with_memory_update_phase do
-          run_memory_update_subagent_inner
-        end
+        with_memory_update_phase { run_memory_update_subagent_inner }
       end
 
       private def with_memory_update_phase
         return yield unless @ui.respond_to?(:with_phase)
 
-        @ui.with_phase(kind: "memory_update", label: "Updating long-term memory") { yield }
+        pid = @ui.phase_start(kind: "memory_update", label: "Updating long-term memory")
+        summary = nil
+        begin
+          summary = yield
+        ensure
+          @ui.phase_end(pid, summary: summary)
+        end
+        summary
       end
 
       private def run_memory_update_subagent_inner
-        handle = @ui&.start_progress(message: "Updating long-term memory…", style: :primary)
-
         # Fork subagent inheriting main agent's model, tools, and history.
         # Maximizes prompt-cache reuse: same model, same tool set, same
         # cloned history — only the +system_prompt_suffix+ (the memory
@@ -114,8 +117,6 @@ module Clacky
           }
           Clacky::Logger.error("memory_update_error", error: e)
           return
-        ensure
-          handle&.finish
         end
 
         return unless result
@@ -124,16 +125,14 @@ module Clacky
         # sessionbar shows the real total. The parent's task-complete cost
         # (result[:total_cost_usd] in Agent#run) stays unaffected — it
         # still reflects ONLY the user's task, not the memory update.
-        subagent_cost = result[:total_cost_usd] || 0.0
-        @total_cost += subagent_cost
-        @ui&.update_sessionbar(cost: @total_cost, cost_source: @cost_source)
+        subagent_cost = absorb_subagent_cost(result)
 
-        # Only surface a completion info line if the subagent actually
-        # wrote something to memory. The common "No memory updates needed."
-        # path stays silent to avoid visual noise.
-        if subagent_wrote_memory?(subagent)
-          @ui&.show_info("Memory updated: #{result[:iterations]} iterations, $#{subagent_cost.round(4)}")
-        end
+        # A summary is only worth showing if the subagent actually wrote
+        # something. The common "No memory updates needed." path returns nil
+        # so the phase leaves no trace at all.
+        return unless subagent_wrote_memory?(subagent)
+
+        "#{result[:iterations]} steps · $#{subagent_cost.round(4)}"
       end
 
       private def memory_update_enabled?

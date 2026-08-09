@@ -21,6 +21,8 @@ module Clacky
       @hooks[event] << block
     end
 
+    # @return [Hash] `{action: :allow}`, `{action: :deny, reason:}`, or
+    #   `{action: :handled, result:}` when a hook fulfilled the call itself.
     def trigger(event, *args)
       validate_event!(event)
       result = { action: :allow }
@@ -34,7 +36,10 @@ module Clacky
           # is the one that reaches the agent. Rewrite hooks mutate `call` in
           # place (chained rewrite), so for non-deny results there's nothing to
           # merge — we just keep going.
-          if hook_result[:action] == :deny
+          #
+          # :handled short-circuits the same way — the hook has already produced
+          # the tool's result, so later hooks have nothing left to act on.
+          if hook_result[:action] == :deny || hook_result[:action] == :handled
             result = hook_result
             break
           end

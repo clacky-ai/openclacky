@@ -23,17 +23,14 @@ module Clacky
 
         skill_name = @skill_execution_context[:skill_name]
 
-        @ui&.show_info("Reflecting on skill execution: #{skill_name}")
         subagent = fork_subagent
         result = subagent.run(build_skill_reflection_prompt(skill_name))
 
-        if result
-          subagent_cost = result[:total_cost_usd] || 0.0
-          @total_cost += subagent_cost
-          @ui&.update_sessionbar(cost: @total_cost, cost_source: @cost_source)
-        end
+        cost = absorb_subagent_cost(result) if result
 
         @skill_execution_context = nil
+
+        "#{skill_name} · $#{cost.round(4)}" if cost
       end
 
       private def should_reflect_on_skill?

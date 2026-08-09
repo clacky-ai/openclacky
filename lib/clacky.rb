@@ -86,6 +86,7 @@ require_relative "clacky/agent/message_compressor"
 require_relative "clacky/agent/hook_manager"
 require_relative "clacky/shell_hook_loader"
 require_relative "clacky/agent/tool_registry"
+require_relative "clacky/fanout"
 
 # UI modules
 require_relative "clacky/ui2/thinking_verbs"
@@ -201,6 +202,7 @@ module Clacky
   class UpstreamTruncatedError < RetryableError; end
   class ToolCallError < AgentError; end  # Raised when tool call fails due to invalid parameters
   class BrowserNotReachableError < AgentError; end  # Chrome/Edge not running or remote debugging disabled
+  class FanoutTimeoutError < AgentError; end  # A fan-out job exceeded the batch wall-clock budget
   # BrowserManager singleton: Clacky::BrowserManager.instance
 end
 

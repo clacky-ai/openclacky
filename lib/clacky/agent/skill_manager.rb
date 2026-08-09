@@ -576,8 +576,10 @@ module Clacky
       # Execute a skill in a forked subagent
       # @param skill [Skill] The skill to execute
       # @param arguments [String] Arguments for the skill
+      # @param tool_call_id [String, nil] The invoke_skill call this run belongs to;
+      #   nil for the slash-command path, which has no tool result to attach to.
       # @return [String] Summary of subagent execution
-      def execute_skill_with_subagent(skill, arguments)
+      def execute_skill_with_subagent(skill, arguments, tool_call_id: nil)
         touch_skill_for_lru(skill)
         # For encrypted brand skills with supporting scripts: decrypt to a tmpdir.
         # Subagent path has a clear boundary (subagent.run returns), so we shred inline
@@ -603,17 +605,22 @@ module Clacky
           system_prompt_suffix: skill_instructions
         )
 
-        # Log which model the subagent is actually using (may differ from requested
-        # when "lite" falls back to default due to no lite model configured)
-        @ui&.show_info("Subagent start: #{skill.identifier}#{skill.name_zh.to_s.empty? ? "" : " (#{skill.name_zh})"} [#{subagent.current_model_info[:model]}]")
-
         # Run subagent with the actual task as the sole user turn.
         # If the user typed the skill command with no arguments (e.g. "/jade-appraisal"),
         # use a generic trigger phrase so the user message is never empty.
         task_input = arguments.to_s.strip.empty? ? "Please proceed." : arguments
 
         begin
-          result = subagent.run(task_input)
+          # The model may differ from the requested one ("lite" falls back to
+          # default when no lite model is configured), so name it on the card.
+          phase_label = "#{skill.identifier} · #{subagent.current_model_info[:model]}"
+
+          result = within_phase(phase_label, kind: "subagent", concurrent: false) do
+            run_result = subagent.run(task_input)
+            cost = absorb_subagent_cost(run_result)
+            @ui&.show_info("Completed in #{run_result[:iterations]} iterations · $#{cost.round(4)}")
+            run_result
+          end
         rescue Clacky::AgentInterrupted
           # Subagent was interrupted by user (Ctrl+C).
           # Write an interrupted summary into history so the parent agent's history
@@ -642,9 +649,13 @@ module Clacky
         # Capture the subagent's own message trail (everything it appended after
         # the fork) so the parent session can persist and later replay the full
         # subagent process — not just the collapsed summary. Stored transiently
-        # on the parent agent; observe() attaches it to the invoke_skill tool
-        # result message. Kept out of the LLM payload via INTERNAL_FIELDS.
-        @pending_subagent_transcript = extract_subagent_transcript(subagent, skill.identifier)
+        # on the parent agent, keyed by the invoke_skill call it belongs to;
+        # observe() attaches each trail to its own tool result message.
+        # Kept out of the LLM payload via INTERNAL_FIELDS.
+        if tool_call_id
+          @pending_subagent_transcripts[tool_call_id] =
+            extract_subagent_transcript(subagent, skill.identifier)
+        end
 
         # Mutate the subagent_instructions message in-place to become the result summary
         @history.mutate_last_matching(->(m) { m[:subagent_instructions] }) do |m|
@@ -653,15 +664,6 @@ module Clacky
           m[:subagent_result] = true
           m[:skill_name] = skill.identifier
         end
-
-        # Merge subagent cost into parent agent's total so the sessionbar reflects
-        # the real cumulative spend across all subagents
-        subagent_cost = result[:total_cost_usd] || 0.0
-        @total_cost += subagent_cost
-        @ui&.update_sessionbar(cost: @total_cost, cost_source: @cost_source)
-
-        # Log completion
-        @ui&.show_info("Subagent completed: #{result[:iterations]} iterations, $#{subagent_cost.round(4)} (total: $#{@total_cost.round(4)})")
 
         # Return summary as the skill execution result
         summary

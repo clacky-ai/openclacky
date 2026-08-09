@@ -13,6 +13,21 @@ module Clacky
         @billing_store ||= Billing::BillingStore.new
       end
 
+      # Merge a finished subagent's spend into this agent's cumulative total.
+      # Fan-out runs several subagents on separate threads against the same
+      # parent, so the read-modify-write must be atomic.
+      # @return [Float] the cost that was absorbed
+      def absorb_subagent_cost(result, notify_ui: true)
+        cost = result && result[:total_cost_usd] || 0.0
+        add_cost(cost)
+        @ui&.update_sessionbar(cost: @total_cost, cost_source: @cost_source) if notify_ui
+        cost
+      end
+
+      private def add_cost(amount)
+        @cost_mutex.synchronize { @total_cost += amount }
+      end
+
       # Track cost from API usage
       # Updates total cost and displays iteration statistics
       # @param usage [Hash] Usage data from API response
@@ -22,7 +37,7 @@ module Clacky
         # Priority 1: Use API-provided cost if available (OpenRouter, LiteLLM, etc.)
         iteration_cost = nil
         if usage[:api_cost]
-          @total_cost += usage[:api_cost]
+          add_cost(usage[:api_cost])
           @cost_source = :api
           @task_cost_source = :api
           iteration_cost = usage[:api_cost]
@@ -39,7 +54,7 @@ module Clacky
           # Only accumulate cost when the model has known pricing.
           # Unknown models return nil — display N/A, don't add to total.
           if cost
-            @total_cost += cost
+            add_cost(cost)
             iteration_cost = cost
             @cost_source = pricing_source
             @task_cost_source = pricing_source

@@ -20,11 +20,10 @@ module Clacky
       def maybe_create_skill_from_task
         return unless should_auto_create_skill?
 
-        @ui&.show_info("Analyzing task for skill creation opportunity...")
-
         # Fork an isolated subagent to evaluate + create — does NOT touch main history
         subagent = fork_subagent
         subagent.run(build_skill_creation_prompt)
+        nil
       end
 
       # Determine if this task is a candidate for skill auto-creation

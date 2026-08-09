@@ -52,7 +52,14 @@ module Clacky
       private def with_skill_evolution_phase
         return yield unless @ui.respond_to?(:with_phase)
 
-        @ui.with_phase(kind: "skill_evolution", label: "Reflecting on this task") { yield }
+        pid = @ui.phase_start(kind: "skill_evolution", label: "Reflecting on this task")
+        summary = nil
+        begin
+          summary = yield
+        ensure
+          @ui.phase_end(pid, summary: summary)
+        end
+        summary
       end
 
       # Check if skill evolution is enabled in config

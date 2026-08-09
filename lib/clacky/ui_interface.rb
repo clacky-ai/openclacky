@@ -159,19 +159,29 @@ module Clacky
     # === Lifecycle ===
     def stop(clear_screen: false); end
 
+    # === Custom events (extension bus) ===
+    # Push an arbitrary typed event to the UI transport. Streaming UIs (web,
+    # json) override this; UIs with no event channel (CLI, null) drop it.
+    #
+    # Extensions must namespace `type` as "ext.<extension>.<event>" so custom
+    # events never collide with the built-in protocol. The web UI forwards
+    # namespaced events straight to the `Clacky.ext` bus, where a subscriber
+    # receives them under that same name.
+    def emit(type, **data); end
+
     # === Phase grouping (optional, web UI uses this to fold subagent runs) ===
     # Begin a logical phase. Events emitted between phase_start and phase_end
     # carry the phase_id so the UI can group them visually.
     # Returns the phase_id (caller is responsible for passing it to phase_end).
-    def phase_start(kind:, label: nil)
+    def phase_start(kind:, label: nil, concurrent: false)
       SecureRandom.uuid
     end
 
     def phase_end(phase_id, summary: nil); end
 
     # Run block within a phase. Always closes via ensure.
-    def with_phase(kind:, label: nil)
-      pid = phase_start(kind: kind, label: label)
+    def with_phase(kind:, label: nil, concurrent: false)
+      pid = phase_start(kind: kind, label: label, concurrent: concurrent)
       begin
         yield pid
       ensure

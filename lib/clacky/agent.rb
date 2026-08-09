@@ -91,6 +91,7 @@ module Clacky
       @todos = []  # Store todos in memory
       @iterations = 0
       @total_cost = 0.0
+      @cost_mutex = Mutex.new
       @cache_stats = {
         cache_creation_input_tokens: 0,
         cache_read_input_tokens: 0,
@@ -110,7 +111,7 @@ module Clacky
       @ui = ui  # UIController for direct UI interaction
       @debug_logs = []  # Debug logs for troubleshooting
       @pending_injections = []     # Pending inline skill injections to flush after observe()
-      @pending_subagent_transcript = nil # Subagent trail to attach to the next tool result (observe)
+      @pending_subagent_transcripts = {} # tool_call_id => subagent trail, attached by observe()
       @pending_script_tmpdirs = [] # Decrypted-script tmpdirs that live for the agent's lifetime
       @pending_error_rollback = false  # Deferred rollback flag set by restore_session on error
       @last_run_interrupted = false    # Set when run() exits via AgentInterrupted; tells the next run() to keep the task-start snapshot (continuation of the same task across a relay, not a brand-new task)
@@ -1139,6 +1140,13 @@ module Clacky
           next
         end
 
+        # A hook fulfilled the call itself (e.g. an extension that runs the
+        # skill on its own subagents). Its result stands in for the tool's.
+        if hook_result[:action] == :handled
+          results << build_success_result(call, hook_result[:result])
+          next
+        end
+
         # Show preview for edit and write tools even in auto-approve mode
         if should_auto_execute?(call[:name], call[:arguments])
           # In auto-approve mode, show preview for edit and write tools
@@ -1196,10 +1204,13 @@ module Clacky
             args[:todos_storage] = @todos
           end
 
-          # Special handling for InvokeSkill: inject agent and skill_loader
+          # Special handling for InvokeSkill: inject agent and skill_loader.
+          # tool_call_id lets the subagent transcript be keyed to *this* call, so
+          # multiple invoke_skill calls in one turn don't cross-attach trails.
           if call[:name] == "invoke_skill"
             args[:agent] = self
             args[:skill_loader] = @skill_loader
+            args[:tool_call_id] = call[:id]
           end
 
           # Inject working_dir so tools don't rely on Dir.chdir global state
@@ -1351,7 +1362,7 @@ module Clacky
         @history.append(truncated.merge(task_id: @current_task_id))
       end
 
-      attach_pending_subagent_transcript(response)
+      attach_pending_subagent_transcripts(response)
 
       # Append a follow-up `role:"user"` message for any image payloads that
       # could not be delivered inside the tool message.
@@ -1396,22 +1407,24 @@ module Clacky
       end
     end
 
-    # Attach the captured subagent transcript (set by execute_skill_with_subagent)
-    # to the invoke_skill tool result message just appended by observe(). The
-    # transcript rides on the tool message as :subagent_transcript — an internal
-    # field stripped before the LLM call but persisted to session.json and
-    # replayed to the WebUI. Cleared after attaching so it fires exactly once.
-    private def attach_pending_subagent_transcript(response)
-      transcript = @pending_subagent_transcript
-      return unless transcript
+    # Attach captured subagent transcripts (set by execute_skill_with_subagent)
+    # to their own invoke_skill tool result messages just appended by observe().
+    # Each transcript rides on its tool message as :subagent_transcript — an
+    # internal field stripped before the LLM call but persisted to session.json
+    # and replayed to the WebUI. Keyed by tool_call_id so a turn with several
+    # invoke_skill calls attaches each subagent's trail to the call that spawned
+    # it. Consumed entries are deleted so each fires exactly once.
+    private def attach_pending_subagent_transcripts(response)
+      return if @pending_subagent_transcripts.empty?
 
-      @pending_subagent_transcript = nil
+      Array(response[:tool_calls]).each do |tc|
+        next unless (tc[:name] || tc.dig(:function, :name)) == "invoke_skill"
 
-      skill_call = Array(response[:tool_calls]).find { |tc| (tc[:name] || tc.dig(:function, :name)) == "invoke_skill" }
-      target_id = skill_call && skill_call[:id]
-      return unless target_id
+        transcript = @pending_subagent_transcripts.delete(tc[:id])
+        next unless transcript
 
-      @history.attach_to_tool_result(target_id, :subagent_transcript, transcript)
+        @history.attach_to_tool_result(tc[:id], :subagent_transcript, transcript)
+      end
     end
 
     # Cap oversized tool result content to keep a single tool message from
@@ -1587,8 +1600,67 @@ module Clacky
       parent_count = subagent.instance_variable_get(:@parent_message_count) || 0
       result = subagent.run(task)
 
-      @total_cost += result[:total_cost_usd] || 0.0
+      # A detached run stays invisible, so its cost is merged silently — the
+      # sessionbar refresh would be the one thing that gives it away.
+      absorb_subagent_cost(result, notify_ui: false)
 
+      final_assistant_text(subagent, parent_count)
+    end
+
+    # Run several independent tasks on forked subagents at the same time.
+    #
+    # Each subagent is forked on the calling thread (forking deep-copies parent
+    # config + history, which must not race) and only the blocking run is moved
+    # onto the pool. Results keep the order of `tasks`; a task that raises or
+    # overruns the budget yields a failed slot instead of aborting its siblings.
+    #
+    # Subagents run silently by default: they share the parent's session, so a
+    # live UI would interleave several raw transcripts into one chat.
+    #
+    # @param tasks [Array<String>] one prompt per subagent
+    # @param model [String, nil] model for every subagent (nil = current)
+    # @param forbidden_tools [Array<String>] tool names blocked at runtime
+    # @param max_concurrency [Integer] subagents allowed to run at once
+    # @param timeout [Numeric, nil] wall-clock budget for the whole batch
+    # @return [Array<Fanout::Result>] value is the subagent's final reply text
+    def fan_out_subagents(tasks, model: nil, forbidden_tools: [], max_concurrency: Fanout::DEFAULT_MAX_CONCURRENCY,
+                          timeout: nil)
+      return [] if tasks.empty?
+
+      jobs = tasks.each_with_index.map do |task, index|
+        subagent = fork_subagent(
+          model: model,
+          forbidden_tools: forbidden_tools,
+          system_prompt_suffix: "You are one of several subagents running in parallel on independent tasks. " \
+                                "Do your task and return only the requested output. Do not ask follow-up questions."
+        )
+        parent_count = subagent.instance_variable_get(:@parent_message_count) || 0
+        label = "Subagent #{index + 1}/#{tasks.size}"
+        # Fanout workers are fresh threads, so the epoch that lets the web
+        # broadcaster drop events from superseded tasks has to be carried over
+        # by hand — otherwise interrupted subagents keep writing to the new task.
+        epoch = Thread.current[:task_epoch]
+
+        lambda do
+          Thread.current[:task_epoch] = epoch
+          within_phase(label, kind: "fanout_subagent", concurrent: true) do
+            result = subagent.run(task)
+            absorb_subagent_cost(result, notify_ui: false)
+            final_assistant_text(subagent, parent_count)
+          end
+        end
+      end
+
+      Fanout.new(max_concurrency: max_concurrency, timeout: timeout).run(jobs)
+    end
+
+    private def within_phase(label, kind:, concurrent:, &block)
+      return yield unless @ui.respond_to?(:with_phase)
+
+      @ui.with_phase(kind: kind, label: label, concurrent: concurrent, &block)
+    end
+
+    private def final_assistant_text(subagent, parent_count)
       new_messages = subagent.history.to_a[parent_count..] || []
       new_messages
         .reverse

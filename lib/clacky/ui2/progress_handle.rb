@@ -205,6 +205,20 @@ module Clacky
       end
       alias_method :cancel, :finish
 
+      # Close without leaving any trace: the owner removes the entry instead
+      # of committing a final frame. For work whose outcome was "nothing to
+      # report", where a lingering line is pure noise.
+      def discard
+        @monitor.synchronize do
+          return if @unregistered
+          @state = :closed
+        end
+
+        stop_ticker
+        @owner.unregister_progress(self, final_frame: nil)
+        @monitor.synchronize { @unregistered = true }
+      end
+
       # True while the ticker thread is alive.
       def ticker_alive?
         t = @ticker
