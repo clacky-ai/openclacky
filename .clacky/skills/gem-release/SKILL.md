@@ -89,7 +89,24 @@ This is the one step the agent handles manually — the script does not write ch
    - Skip trivial commits (typos, minor formatting)
    - Sanity check: count `### Added` bullets vs `feat:` commits — if commits > bullets, you likely merged too aggressively
 
-5. Commit the changelog:
+5. External contributor attribution:
+   - For PRs from **non-clacky-ai org members**, append `(#PR_NUMBER - @username)` to the bullet
+   - Query org members to distinguish external contributors:
+     ```bash
+     gh api orgs/clacky-ai/members --paginate --jq '.[].login' | sort
+     ```
+   - Then cross-reference PR authors in the release range:
+     ```bash
+     git log <previous_tag>..HEAD --oneline | grep -oP '#\d+' | while read pr; do
+       num=${pr#\#}
+       gh pr view $num --json number,author --jq '"#\(.number) \(.author.login)"'
+     done
+     ```
+   - Skip attribution for org members (internal contributors) - only call out external contributors
+   - If a PR was closed and resubmitted, use the merged PR number
+   - Example: `- Todo panel with SVG icons (#437 - @shipinliang)`
+
+6. Commit the changelog:
    ```bash
    git add CHANGELOG.md
    git commit -m "docs: update CHANGELOG for v<version>"
