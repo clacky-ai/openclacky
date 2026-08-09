@@ -19,6 +19,25 @@ module Clacky
     module Anthropic
       module_function
 
+      # Normalise a /v1/messages usage block to the codebase's canonical
+      # (OpenAI-style) prompt_tokens: total input including cache_read but
+      # excluding cache_creation.
+      #
+      # Anthropic reports input_tokens as the post-breakpoint tail only, with
+      # the cache buckets disjoint from it. Some /v1/messages-compatible
+      # gateways instead report input_tokens as the FULL input with both cache
+      # buckets already folded in; adding cache_read there would bill the whole
+      # cached prefix twice. Detect that by whether the cache buckets already
+      # fit inside input_tokens.
+      def normalise_prompt_tokens(input_tokens, cache_read, cache_creation)
+        cached_input = cache_read + cache_creation
+        if cached_input.positive? && input_tokens >= cached_input
+          input_tokens - cache_creation
+        else
+          input_tokens + cache_read
+        end
+      end
+
       # ── Message type identification ───────────────────────────────────────────
 
       # Returns true if the message is an Anthropic-native tool result stored in
@@ -169,22 +188,16 @@ module Clacky
                         else data["stop_reason"]
                         end
 
-        # Anthropic native `input_tokens` counts ONLY the non-cached, freshly-billed
-        # input — cache_read_input_tokens and cache_creation_input_tokens are
-        # reported separately and are disjoint from input_tokens.
-        #
         # Normalise to the codebase's canonical shape (OpenAI-style) so downstream
         # (ModelPricing.calculate_cost, CostTracker, show_token_usage) stays
         # provider-agnostic:
         #
-        #   prompt_tokens     = non_cached + cache_read     (OpenAI convention:
-        #                                                    includes cache_read
-        #                                                    but NOT cache_write;
-        #                                                    ModelPricing does
-        #                                                    `regular_input = prompt_tokens - cache_read`.)
+        #   prompt_tokens     = total input incl. cache_read, excl. cache_write
+        #                       (ModelPricing does
+        #                        `regular_input = prompt_tokens - cache_read`.)
         #   completion_tokens = output
         #   total_tokens      = THIS TURN'S new compute volume
-        #                     = raw_input + cache_creation + output
+        #                     = non_cached + cache_creation + output
         #                       (cache_read is excluded because hits are ~free /
         #                        already-paid-for; cache_creation IS new work this
         #                        turn even though it's billed at write_rate.)
@@ -199,14 +212,15 @@ module Clacky
         cache_creation    = usage["cache_creation_input_tokens"].to_i
         output_tokens     = usage["output_tokens"].to_i
 
-        prompt_tokens = raw_input_tokens + cache_read
+        prompt_tokens = normalise_prompt_tokens(raw_input_tokens, cache_read, cache_creation)
 
         usage_data = {
           prompt_tokens:      prompt_tokens,
           completion_tokens:  output_tokens,
           # Per-turn new compute: what the server freshly processed this request.
-          # Excludes cache_read (nearly free, already-paid-for).
-          total_tokens:       raw_input_tokens + cache_creation + output_tokens,
+          # Excludes cache_read (nearly free, already-paid-for). Derived from the
+          # normalised prompt_tokens so it stays correct under both conventions.
+          total_tokens:       (prompt_tokens - cache_read) + cache_creation + output_tokens,
           # Signal to CostTracker: total_tokens above is already the per-turn
           # delta (not a running cumulative like OpenAI's). CostTracker should
           # NOT subtract previous_total when this flag is truthy.

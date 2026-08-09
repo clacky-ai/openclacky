@@ -62,7 +62,7 @@ RSpec.describe Clacky::AnthropicStreamAggregator do
   it "passes parse_response through to canonical usage shape" do
     agg = described_class.new
     agg.handle("message_start", {
-      message: { usage: { input_tokens: 100, cache_read_input_tokens: 50, output_tokens: 0 } }
+      message: { usage: { input_tokens: 100, cache_read_input_tokens: 150, output_tokens: 0 } }
     }.to_json)
     agg.handle("content_block_start", { index: 0, content_block: { type: "text", text: "" } }.to_json)
     agg.handle("content_block_delta", { index: 0, delta: { type: "text_delta", text: "ok" } }.to_json)
@@ -71,9 +71,9 @@ RSpec.describe Clacky::AnthropicStreamAggregator do
     parsed = Clacky::MessageFormat::Anthropic.parse_response(agg.to_h)
     expect(parsed[:content]).to eq("ok")
     expect(parsed[:finish_reason]).to eq("stop")
-    expect(parsed[:usage][:prompt_tokens]).to eq(150)
+    expect(parsed[:usage][:prompt_tokens]).to eq(250)
     expect(parsed[:usage][:completion_tokens]).to eq(7)
-    expect(parsed[:usage][:cache_read_input_tokens]).to eq(50)
+    expect(parsed[:usage][:cache_read_input_tokens]).to eq(150)
   end
 
   it "ignores ping events and unparseable payloads" do

@@ -121,7 +121,12 @@ module Clacky
 
     private def emit_usage_progress
       return unless @on_chunk
-      input  = @usage["input_tokens"].to_i + @usage["cache_read_input_tokens"].to_i
+      raw_input      = @usage["input_tokens"].to_i
+      cache_read     = @usage["cache_read_input_tokens"].to_i
+      cache_creation = @usage["cache_creation_input_tokens"].to_i
+      # Mirrors MessageFormat::Anthropic.parse_response so the live readout and
+      # the final billed numbers agree.
+      input = MessageFormat::Anthropic.normalise_prompt_tokens(raw_input, cache_read, cache_creation)
       output = @usage["output_tokens"].to_i
       return if input == @last_input_tokens && output == @last_output_tokens
       @last_input_tokens = input
