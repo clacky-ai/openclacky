@@ -598,6 +598,7 @@ module Clacky
         when ["POST",   "/api/upload"]            then api_upload_file(req, res)
         when ["POST",   "/api/file-action"]       then api_file_action(req, res)
         when ["GET",    "/api/local-image"]       then api_serve_local_image(req, res)
+        when ["GET",    "/api/local-file"]        then api_serve_local_file(req, res)
         when ["POST",   "/api/media/image"]       then api_media_image(req, res)
         when ["POST",   "/api/media/video"]       then api_media_video(req, res)
         when ["GET",    "/api/media/video/status"] then api_media_video_status(req, res)
@@ -4131,6 +4132,76 @@ module Clacky
         end
       rescue => e
         json_response(res, 500, { error: e.message })
+      end
+
+      # GET /api/local-file?path=...
+      # Serves plain-text files (md/txt/csv/json/etc.) for browser preview.
+      # Markdown files are rendered to a self-contained HTML page with inline
+      # marked.js; all others are returned as text/plain so the browser displays
+      # them inline rather than triggering a download.
+      def api_serve_local_file(req, res)
+        raw_path = URI.decode_www_form(req.query_string.to_s).to_h["path"].to_s
+        return json_response(res, 400, { error: "path is required" }) if raw_path.empty?
+
+        path = Utils::EnvironmentDetector.resolve_local_path(raw_path)
+
+        ext = File.extname(path).downcase
+        unless Utils::FileProcessor::LOCAL_TEXT_FILE_EXTENSIONS.include?(ext)
+          return json_response(res, 403, { error: "not a supported text file type" })
+        end
+        return json_response(res, 404, { error: "file not found" }) unless File.exist?(path)
+
+        content = File.read(path, encoding: "utf-8")
+
+        if ext == ".md" || ext == ".markdown"
+          res.status = 200
+          res["Content-Type"] = "text/html; charset=utf-8"
+          res.body = render_markdown_preview_page(content)
+        else
+          res.status = 200
+          res["Content-Type"] = "text/plain; charset=utf-8"
+          res.body = content
+        end
+      rescue => e
+        json_response(res, 500, { error: e.message })
+      end
+
+      # Build a self-contained HTML page that renders Markdown using marked.js
+      # (loaded from CDN). The raw Markdown is safely embedded via JSON so there
+      # is no XSS risk from file content.
+      def render_markdown_preview_page(markdown_text)
+        json_text = JSON.generate(markdown_text)
+        # HTML-encode characters that could break out of the inline <script>
+        # block. JSON.generate escapes quotes/backslashes but NOT <, >, & —
+        # a raw </script> in file content would close the tag and allow XSS.
+        json_text.gsub!(/[<&>]/, "<" => "\\u003c", ">" => "\\u003e", "&" => "\\u0026")
+        <<~HTML
+          <!DOCTYPE html>
+          <html lang="zh">
+          <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1">
+            <title>Preview</title>
+            <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+            <style>
+              body{max-width:820px;margin:40px auto;padding:0 20px;font-family:system-ui,-apple-system,sans-serif;line-height:1.7;color:#24292f}
+              h1,h2,h3,h4{border-bottom:1px solid #d0d7de;padding-bottom:.3em;margin-top:24px}
+              table{border-collapse:collapse;margin:1em 0;display:block;overflow-x:auto}
+              td,th{border:1px solid #d0d7de;padding:6px 13px}
+              th{background:#f6f8fa;font-weight:600}
+              tr:nth-child(2n){background:#f6f8fa}
+              code{font-family:ui-monospace,SFMono-Regular,monospace;background:#eff1f3;padding:.2em .4em;border-radius:6px;font-size:85%}
+              pre{background:#f6f8fa;padding:16px;border-radius:6px;overflow-x:auto}
+              pre code{background:none;padding:0;font-size:100%}
+              blockquote{border-left:.25em solid #d0d7de;margin:0;padding:0 0 0 1em;color:#57606a}
+              a{color:#0969da}
+              img{max-width:100%}
+            </style>
+          </head>
+          <body><div id="md"></div>
+          <script>document.getElementById('md').innerHTML=marked.parse(#{json_text});</script>
+          </body></html>
+        HTML
       end
 
       # POST /api/channels/:platform

@@ -547,5 +547,76 @@ RSpec.describe Clacky::Utils::FileProcessor do
       content = "![pic](#{drive_href})"
       expect(described_class.rewrite_local_image_urls(content)).to eq(content)
     end
+
+    # ---- Text-file link rewriting (md/txt/csv/json/etc.) ----
+
+    it "rewrites a .md file link to /api/local-file proxy URL" do
+      Dir.mktmpdir do |dir|
+        md = File.join(dir, "report.md")
+        File.write(md, "# Title")
+
+        content = "See [report](file://#{md})"
+        result = described_class.rewrite_local_image_urls(content)
+
+        expected_path = CGI.escape("file://#{md}")
+        expect(result).to include("[report](/api/local-file?path=#{expected_path}&v=")
+        expect(result).to match(/&v=\d+\)/)
+      end
+    end
+
+    it "rewrites a .txt file link to /api/local-file proxy URL" do
+      Dir.mktmpdir do |dir|
+        txt = File.join(dir, "notes.txt")
+        File.write(txt, "hello")
+
+        content = "[notes](file://#{txt})"
+        result = described_class.rewrite_local_image_urls(content)
+
+        expected_path = CGI.escape("file://#{txt}")
+        expect(result).to include("[notes](/api/local-file?path=#{expected_path}&v=")
+      end
+    end
+
+    it "changes the version param when a .md file is overwritten" do
+      Dir.mktmpdir do |dir|
+        md = File.join(dir, "report.md")
+        File.write(md, "v1")
+        first = described_class.rewrite_local_image_urls("[r](file://#{md})")
+
+        File.write(md, "version-two")
+        File.utime(Time.now + 2, Time.now + 2, md)
+        second = described_class.rewrite_local_image_urls("[r](file://#{md})")
+
+        expect(second[/&v=(\d+)/, 1]).not_to eq(first[/&v=(\d+)/, 1])
+      end
+    end
+
+    it "leaves a text-file link untouched when the file does not exist" do
+      content = "[report](file:///nonexistent/report.md)"
+      expect(described_class.rewrite_local_image_urls(content)).to eq(content)
+    end
+
+    it "leaves a non-text-extension link (e.g. .pdf) untouched" do
+      Dir.mktmpdir do |dir|
+        pdf = File.join(dir, "doc.pdf")
+        File.binwrite(pdf, "%PDF")
+
+        content = "[doc](file://#{pdf})"
+        expect(described_class.rewrite_local_image_urls(content)).to eq(content)
+      end
+    end
+
+    it "leaves image links handled by the media branch untouched" do
+      Dir.mktmpdir do |dir|
+        img = File.join(dir, "photo.png")
+        File.binwrite(img, "PNG")
+
+        content = "![pic](file://#{img})"
+        result = described_class.rewrite_local_image_urls(content)
+
+        expect(result).to include("/api/local-image?path=")
+        expect(result).not_to include("/api/local-file")
+      end
+    end
   end
 end

@@ -542,6 +542,11 @@ module Clacky
     LOCAL_AUDIO_EXTENSIONS = %w[.wav .mp3 .ogg .aac .flac .m4a].freeze
     LOCAL_MEDIA_EXTENSIONS = (LOCAL_IMAGE_EXTENSIONS + LOCAL_VIDEO_EXTENSIONS + LOCAL_AUDIO_EXTENSIONS).freeze
 
+    # Plain-text file extensions served by the /api/local-file preview endpoint.
+    # Clicking a file:// link to these in the Web UI opens the content in a new
+    # browser tab (rendered HTML for Markdown, plain text for the rest).
+    LOCAL_TEXT_FILE_EXTENSIONS = %w[.md .markdown .txt .csv .json .xml .log .yaml .yml].freeze
+
     # Replace local image paths in markdown content with base64 data URLs.
     #
     # Handles both `file:///path/to/img.png` and bare `/path/to/img.png` in
@@ -657,7 +662,14 @@ module Clacky
             _match
           end
         else
-          _match
+          # Rewrite text-file links (md/txt/csv/json/etc.) to /api/local-file
+          # proxy URL so they can be opened in the browser. file:// is blocked
+          # by the browser's security policy — only media was handled above.
+          if LOCAL_TEXT_FILE_EXTENSIONS.include?(ext) && File.exist?(real)
+            "[#{text}](/api/local-file?path=#{CGI.escape(href)}&v=#{File.mtime(real).to_i})"
+          else
+            _match
+          end
         end
       end
 
