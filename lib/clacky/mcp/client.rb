@@ -6,6 +6,10 @@ require "monitor"
 require_relative "transport"
 require_relative "stdio_transport"
 require_relative "http_transport"
+require_relative "oauth/config"
+require_relative "oauth/credential_store"
+require_relative "oauth/authorization_manager"
+require_relative "oauth/session"
 
 module Clacky
   module Mcp
@@ -45,12 +49,24 @@ module Clacky
             )
           )
         when "http", "streamable-http"
+          oauth_config = OAuth::Config.from_server_spec(spec)
+          authorization = nil
+          if oauth_config.enabled?
+            store = OAuth::CredentialStore.new(server_name: name)
+            manager = OAuth::AuthorizationManager.new(
+              server_name: name,
+              config: oauth_config,
+              store: store
+            )
+            authorization = OAuth::Session.new(store: store, manager: manager)
+          end
           new(
             name:    name,
             transport: HttpTransport.new(
               name:    name,
               url:     spec["url"],
-              headers: spec["headers"] || {}
+              headers: spec["headers"] || {},
+              authorization: authorization
             )
           )
         else

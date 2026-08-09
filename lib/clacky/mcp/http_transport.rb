@@ -23,12 +23,15 @@ module Clacky
       DEFAULT_OPEN_TIMEOUT = 10
       DEFAULT_READ_TIMEOUT = 120
 
-      def initialize(name:, url:, headers: {}, open_timeout: DEFAULT_OPEN_TIMEOUT, read_timeout: DEFAULT_READ_TIMEOUT)
+      def initialize(name:, url:, headers: {}, authorization: nil, requester: nil,
+                     open_timeout: DEFAULT_OPEN_TIMEOUT, read_timeout: DEFAULT_READ_TIMEOUT)
         @name = name
         @uri  = URI.parse(url)
         raise TransportError, "MCP server '#{name}' url is not http(s): #{url}" unless %w[http https].include?(@uri.scheme)
 
         @extra_headers = (headers || {}).transform_keys(&:to_s).transform_values(&:to_s)
+        @authorization = authorization
+        @requester = requester
         @open_timeout  = open_timeout
         @read_timeout  = read_timeout
 
@@ -79,21 +82,17 @@ module Clacky
         @last_error ? "last error: #{@last_error.class}: #{@last_error.message}" : ""
       end
 
-      private def dispatch_post(body, is_request:)
-        http = Net::HTTP.new(@uri.host, @uri.port)
-        http.use_ssl = (@uri.scheme == "https")
-        http.open_timeout = @open_timeout
-        http.read_timeout = @read_timeout
-
+      private def dispatch_post(body, is_request:, retried: false)
         req = Net::HTTP::Post.new(@uri.request_uri)
         req["Content-Type"] = "application/json"
         req["Accept"]       = "application/json, text/event-stream"
         req["MCP-Protocol-Version"] = Client::PROTOCOL_VERSION if defined?(Client::PROTOCOL_VERSION)
         @lock.synchronize { req["Mcp-Session-Id"] = @session_id if @session_id }
         @extra_headers.each { |k, v| req[k] = v }
+        @authorization&.authorization_headers&.each { |k, v| req[k] = v }
         req.body = body
 
-        http.request(req) do |res|
+        perform_request(req) do |res|
           if (sid = res["Mcp-Session-Id"])
             @lock.synchronize { @session_id = sid }
           end
@@ -102,9 +101,14 @@ module Clacky
           if status == 202
             return
           end
+          if status == 401 && @authorization && !retried
+            res.read_body.to_s
+            @authorization.invalidate!
+            return dispatch_post(body, is_request: is_request, retried: true)
+          end
           if status >= 400
-            text = res.read_body.to_s
-            raise TransportError, "HTTP #{status} from MCP server '#{@name}': #{text[0, 500]}"
+            res.read_body.to_s
+            raise TransportError, "HTTP #{status} from MCP server '#{@name}'"
           end
 
           ctype = (res["Content-Type"] || "").downcase
@@ -121,6 +125,16 @@ module Clacky
             deliver(msg)
           end
         end
+      end
+
+      private def perform_request(request, &block)
+        return @requester.call(request, &block) if @requester
+
+        http = Net::HTTP.new(@uri.host, @uri.port)
+        http.use_ssl = (@uri.scheme == "https")
+        http.open_timeout = @open_timeout
+        http.read_timeout = @read_timeout
+        http.request(request, &block)
       end
 
       private def consume_sse(res)
