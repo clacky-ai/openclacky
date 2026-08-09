@@ -337,12 +337,8 @@ module Clacky
     def cleanup_by_count(keep:, grouped_keep: 200)
       non_pinned = all_sessions.reject { |s| s[:pinned] }
 
-      ext_sources = Clacky::ExtensionLoader.ext_source_ids
-
       groups = non_pinned.group_by do |s|
-        source = s[:source].to_s
-        grouped = GROUPED_SOURCES.include?(source) || ext_sources.include?(source)
-        (s[:project_id] || !grouped) ? "regular" : source
+        (s[:project_id] || !GROUPED_SOURCES.include?(s[:source].to_s)) ? "regular" : s[:source].to_s
       end
 
       victims = groups.flat_map do |source, sessions|

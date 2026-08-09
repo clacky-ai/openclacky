@@ -212,15 +212,15 @@ Response helpers: `json` / `text(str)` / `send_data(bytes, content_type:, filena
   `working_dir` is inherited (unless overridden) and `agent.project_id` is persisted.
   A panel can also `fetch("/api/projects")` directly (same-origin, no-auth; see
   [Host API](/docs/extend-host-api)).
-- **Session source grouping** (⚠️ opt-in only): set `source: ext-<name>` at ext.yml top
-  level **only when the extension genuinely needs to hide its sessions from the native
-  sidebar and manage them separately**. Sessions created with this source are excluded
-  from the native session list and have their own 200-session cleanup cap (independent
-  from the regular and cron pools). **Do NOT add this field by default** - hidden sessions
-  are invisible to the user (may look like a bug), and each source has its own 200-session
-  cap that consumes storage until evicted. Without a declared source, extensions create
-  normal `manual` sessions that appear in the sidebar like any user session.
-  Call `create_session(source: "ext-<name>")` to use it.
+- **Session source grouping** (⚠️ opt-in only): `create_session` accepts `source: "manual"`
+  (default) or `source: "ext"`; anything else is rejected with 400. Use `"ext"` **only**
+  when the extension creates sessions the user did not individually ask for (bookkeeping,
+  background workers, one per webhook) and would otherwise flood the list — they collapse
+  under a single "Extensions" sidebar entry with their own 200-session cleanup pool.
+  **Default to `"manual"`**: a session the user asked for is one they should be able to
+  find, and folded sessions are easy to overlook while the separate pool silently consumes
+  storage until evicted. Sessions bound to a project always show in that project's area
+  regardless of `source`, and count toward the regular pool rather than the ext one.
 - Public (no-auth) endpoints: call `public_endpoint("/path")` in the class **and** set
   `public: true` at ext.yml top level — both are required.
 

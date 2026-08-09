@@ -813,11 +813,7 @@ module Clacky
         q_scope      = query["q_scope"].to_s.strip.then { |v| %w[name content].include?(v) ? v : "name" }
         date         = query["date"].to_s.strip.then    { |v| v.empty? ? nil : v }
         type         = query["type"].to_s.strip.then    { |v| v.empty? ? nil : v }
-        exclude_type = query["exclude_type"].to_s.strip.then { |v| v.empty? ? nil : v }
-        ext_sources = Clacky::ExtensionLoader.ext_source_ids
-        if ext_sources.any?
-          exclude_type = (Array(exclude_type) + ext_sources).uniq
-        end
+        exclude_type = query["exclude_type"].to_s.split(",").map(&:strip).reject(&:empty?).then { |v| v.empty? ? nil : v }
         # Backward-compat: ?source=<x> and ?profile=coding → type
         type ||= query["profile"].to_s.strip.then { |v| v.empty? ? nil : v }
         type ||= query["source"].to_s.strip.then  { |v| v.empty? ? nil : v }
@@ -829,9 +825,8 @@ module Clacky
         non_pinned_part = non_pinned_part.first(limit)
         sessions = pinned_part + non_pinned_part
 
-        stats = @registry.cron_stats
         json_response(res, 200, { sessions: sessions, has_more: has_more,
-                                  cron_count: stats[:count], latest_cron_updated_at: stats[:latest_updated_at] })
+                                  groups: @registry.group_stats_all })
       end
 
       # GET /api/sessions/:id — fetch a single session by id (memory + disk merged).
@@ -6899,34 +6894,23 @@ module Clacky
           interrupt_session(session_id)
 
         when "list_sessions"
-          ext_sources = Clacky::ExtensionLoader.ext_source_ids
-          exclude_types = ["cron", *ext_sources]
-
-          stats    = @registry.cron_stats
-          page     = @registry.list(limit: 11, exclude_type: exclude_types, exclude_project: true)
+          groups   = @registry.group_stats_all
+          page     = @registry.list(limit: 11, exclude_type: SessionManager::GROUPED_SOURCES, exclude_project: true)
           has_more = page.size > 10
           all_sessions = page.first(10)
           projects = @project_manager.all
           if projects.any?
-            paged_ids = all_sessions.map { |s| s[:id] }.to_set
-            visible_projects = []
-            projects.each do |p|
-              all_for_project = @registry.list(project_id: p[:id])
-              if all_for_project.empty?
-                visible_projects << p
-              else
-                regular = all_for_project.reject { |s| exclude_types.include?((s[:source] || "manual").to_s) }
-                if regular.any?
-                  visible_projects << p
-                  all_sessions += regular.reject { |s| paged_ids.include?(s[:id]) }
-                end
-              end
+            project_ids = projects.map { |p| p[:id] }
+            project_sessions = project_ids.flat_map do |pid|
+              @registry.list(project_id: pid)
             end
-            projects = visible_projects
+            # Deduplicate: project sessions that are already in the first page
+            # will be replaced by the enriched version from `all_sessions`.
+            paged_ids = all_sessions.map { |s| s[:id] }.to_set
+            all_sessions += project_sessions.reject { |s| paged_ids.include?(s[:id]) }
           end
           conn.send_json(type: "session_list", sessions: all_sessions, has_more: has_more,
-                         cron_count: stats[:count], latest_cron_updated_at: stats[:latest_updated_at],
-                         projects: projects)
+                         groups: groups, projects: projects)
 
         when "run_task"
           # Client sends this after subscribing to guarantee it's ready to receive

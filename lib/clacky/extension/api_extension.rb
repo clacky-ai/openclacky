@@ -27,6 +27,10 @@ module Clacky
     MAX_TIMEOUT  = 600
     DEFAULT_TIMEOUT = 10
 
+    # "ext" groups the session under the sidebar's folded extension entry and
+    # gives it a dedicated cleanup pool; extensions cannot claim other sources.
+    ALLOWED_SESSION_SOURCES = %w[manual ext].freeze
+
     Route = Struct.new(:method, :pattern, :regex, :param_names, :block, :options, keyword_init: true)
 
     class Halt < StandardError
@@ -112,10 +116,6 @@ module Clacky
 
       def meta=(value)
         @meta = value || {}
-      end
-
-      def ext_source
-        meta["source"]&.to_s
       end
 
       # Set a default timeout (seconds) for every handler in this class.
@@ -278,10 +278,8 @@ module Clacky
       error!("server not ready", status: 503) unless @http_server
 
       src = source.to_s
-      unless src == "manual" || src == self.class.ext_source
-        declared = self.class.ext_source
-        error!("invalid source '#{src}': allowed values are 'manual'" \
-               "#{" or '#{declared}'" if declared}", status: 400)
+      unless ALLOWED_SESSION_SOURCES.include?(src)
+        error!("invalid source '#{src}': allowed values are #{ALLOWED_SESSION_SOURCES.join(", ")}", status: 400)
       end
 
       if project_id

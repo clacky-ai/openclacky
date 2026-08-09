@@ -192,4 +192,19 @@ RSpec.describe "ApiExtension#create_session with project_id" do
     expect(result).to eq("sess-2")
     expect(agent).to have_received(:project_id=).with("p1")
   end
+
+  it "accepts 'ext' so extension sessions land in the folded sidebar group" do
+    allow(http_server).to receive(:send).with(:build_session, name: nil, working_dir: nil, profile: "general", source: :ext).and_return("sess-3")
+    allow(http_server).to receive(:send).with(:broadcast_session_update, "sess-3")
+
+    expect(instance.create_session(source: :ext)).to eq("sess-3")
+  end
+
+  it "rejects sources outside the allowed list" do
+    expect {
+      instance.create_session(source: :cron)
+    }.to raise_error(Clacky::ApiExtension::Halt) { |halt|
+      expect(halt.status).to eq(400)
+    }
+  end
 end

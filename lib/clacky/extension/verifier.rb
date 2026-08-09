@@ -16,7 +16,7 @@ module Clacky
   module ExtensionVerifier
     Issue = Struct.new(:ext, :unit, :level, :code, :message, :file, :hint, keyword_init: true)
 
-    KNOWN_TOP_KEYS    = %w[id name title description version origin author homepage license public license_required source keywords contributes].freeze
+    KNOWN_TOP_KEYS    = %w[id name title description version origin author homepage license public license_required keywords contributes].freeze
     KNOWN_CONTRIBUTES = %w[panels api skills agents channels patches hooks].freeze
 
     PANEL_KEYS   = %w[id title title_zh description description_zh view order attach entry_points].freeze

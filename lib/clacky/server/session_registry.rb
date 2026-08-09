@@ -417,8 +417,9 @@ module Clacky
         { count: group_all.size, latest_updated_at: latest }
       end
 
-      def cron_stats
-        group_stats("cron")
+      # Stats for every folded sidebar group, keyed by source.
+      def group_stats_all
+        SessionManager::GROUPED_SOURCES.to_h { |source| [source, group_stats(source)] }
       end
 
       # Delete a session from registry (and interrupt its thread).

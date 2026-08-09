@@ -144,10 +144,6 @@ module Clacky
         @last_result || load_all
       end
 
-      def ext_source_ids
-        last_result.containers.values.filter_map { |c| c[:source] }
-      end
-
       # Discard the mtime cache so the next `load_all` rescans from disk.
       # Used by CLI commands that mutate the ext tree (new / pack).
       def invalidate_cache!
@@ -260,7 +256,6 @@ module Clacky
           author: data["author"].to_s,
           homepage: data["homepage"].to_s,
           license: data["license"].to_s,
-          source: data["source"]&.to_s,
           contributes: data["contributes"] || {},
           raw: data }
       rescue StandardError => e
