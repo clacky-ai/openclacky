@@ -198,6 +198,156 @@ RSpec.describe "extension custom events" do
     end
   end
 
+  describe "separator ambiguity between \";\" and JSON payloads" do
+    let(:writer) do
+      Class.new do
+        include Clacky::Agent::MessageCompressorHelper
+        def truncate_content(s, max_length: 500) = s.to_s[0, max_length]
+        def format_message_content(c) = c.to_s
+        public :render_message_sections
+      end.new
+    end
+
+    let(:reader) do
+      Class.new do
+        include Clacky::Agent::SessionSerializer
+        public :extract_ext_events_from_text, :parse_tool_calls_line
+      end.new
+    end
+
+    def ext_events_of(md)
+      reader.extract_ext_events_from_text(md).last
+    end
+
+    def tool_calls_of(md)
+      raw = md[/_Tool calls:\s*(.+?)_\s*$/m, 1]
+      reader.parse_tool_calls_line(raw)
+    end
+
+    it "round-trips an ext event whose data contains semicolons" do
+      prompt = "step one; step two; step three"
+      md = writer.render_message_sections([
+        { role: "assistant", content: "designing",
+          ext_events: [{ type: "ext.eazo.design_start", data: { prompt: prompt } }] }
+      ]).join("\n")
+
+      events = ext_events_of(md)
+
+      expect(events.size).to eq(1)
+      expect(events.first[:type]).to eq("ext.eazo.design_start")
+      expect(events.first[:data]["prompt"]).to eq(prompt)
+    end
+
+    it "keeps both events when the first payload contains a semicolon" do
+      md = writer.render_message_sections([
+        { role: "assistant", content: "x",
+          ext_events: [{ type: "ext.demo.a", data: { cmd: "a; b" } },
+                       { type: "ext.demo.b", data: { i: 2 } }] }
+      ]).join("\n")
+
+      events = ext_events_of(md)
+
+      expect(events.map { |e| e[:type] }).to eq(["ext.demo.a", "ext.demo.b"])
+      expect(events.first[:data]["cmd"]).to eq("a; b")
+    end
+
+    it "round-trips tool call args containing semicolons verbatim" do
+      command = "pkill -f server 2>/dev/null; nohup ruby app.rb & sleep 2; curl localhost"
+      md = writer.render_message_sections([
+        { role: "assistant", content: "running",
+          tool_calls: [{ function: { name: "terminal",
+                                     arguments: { command: command }.to_json } }] }
+      ]).join("\n")
+
+      calls = tool_calls_of(md)
+
+      expect(calls.size).to eq(1)
+      expect(calls.first[:name]).to eq("terminal")
+      expect(calls.first[:args]["command"]).to eq(command)
+    end
+
+    it "separates two tool calls when the second payload contains a semicolon" do
+      md = writer.render_message_sections([
+        { role: "assistant", content: "running",
+          tool_calls: [{ function: { name: "file_reader", arguments: { path: "a.rb" }.to_json } },
+                       { function: { name: "terminal", arguments: { command: "cd x; ls" }.to_json } }] }
+      ]).join("\n")
+
+      calls = tool_calls_of(md)
+
+      expect(calls.map { |c| c[:name] }).to eq(["file_reader", "terminal"])
+      expect(calls.last[:args]["command"]).to eq("cd x; ls")
+    end
+
+    it "handles nested braces and quotes inside tool call args" do
+      js = '(async () => { const r = await fetch("/a?x=1;y=2"); return {ok: r.ok} })()'
+      md = writer.render_message_sections([
+        { role: "assistant", content: "eval",
+          tool_calls: [{ function: { name: "browser", arguments: { js: js }.to_json } }] }
+      ]).join("\n")
+
+      calls = tool_calls_of(md)
+
+      expect(calls.size).to eq(1)
+      expect(calls.first[:args]["js"]).to eq(js)
+    end
+
+    it "walks past nested JSON objects instead of stopping at the first brace" do
+      args = { opts: { retries: 2, tags: ["a;b"] }, cmd: "run; done" }
+      md = writer.render_message_sections([
+        { role: "assistant", content: "eval",
+          tool_calls: [{ function: { name: "terminal", arguments: args.to_json } }] }
+      ]).join("\n")
+
+      calls = tool_calls_of(md)
+
+      expect(calls.size).to eq(1)
+      expect(calls.first[:args]["opts"]).to eq({ "retries" => 2, "tags" => ["a;b"] })
+      expect(calls.first[:args]["cmd"]).to eq("run; done")
+    end
+
+    it "ignores unbalanced braces that live inside JSON string values" do
+      command = "echo '{' > /tmp/x; cat /tmp/x"
+      md = writer.render_message_sections([
+        { role: "assistant", content: "eval",
+          tool_calls: [{ function: { name: "terminal",
+                                     arguments: { command: command }.to_json } }] }
+      ]).join("\n")
+
+      calls = tool_calls_of(md)
+
+      expect(calls.size).to eq(1)
+      expect(calls.first[:args]["command"]).to eq(command)
+    end
+
+    it "treats escaped quotes as literal, not as string boundaries" do
+      command = 'echo "{" > /tmp/marker; ls'
+      md = writer.render_message_sections([
+        { role: "assistant", content: "eval",
+          tool_calls: [{ function: { name: "terminal",
+                                     arguments: { command: command }.to_json } }] }
+      ]).join("\n")
+
+      calls = tool_calls_of(md)
+
+      expect(calls.size).to eq(1)
+      expect(calls.first[:args]["command"]).to eq(command)
+    end
+
+    it "still parses the legacy comma-separated names-only format" do
+      calls = reader.parse_tool_calls_line("file_reader, terminal, write")
+
+      expect(calls.map { |c| c[:name] }).to eq(["file_reader", "terminal", "write"])
+      expect(calls.map { |c| c[:args] }).to all(eq({}))
+    end
+
+    it "does not invent ext events from entries without a JSON payload" do
+      _text, events = reader.extract_ext_events_from_text("_Ext events: bare.type.no.payload_")
+
+      expect(events).to be_empty
+    end
+  end
+
   def reload(agent)
     build_agent.tap { |a| a.restore_session(agent.to_session_data) }
   end

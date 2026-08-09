@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require "strscan"
+
 module Clacky
   class Agent
     # Session serialization for saving and restoring agent state
@@ -572,19 +574,7 @@ module Clacky
                 stripped = line.strip
                 if (m = stripped.match(/\A_Tool calls?:\s*(.+?)_?\z/i))
                   raw = m[1]
-                  # New format uses ";" as separator between tools (each entry: "name | {json}")
-                  # Old format uses "," with no JSON part.
-                  entries = raw.include?(" | ") ? raw.split(/;\s*/) : raw.split(/,\s*/)
-                  entries.each do |entry|
-                    entry = entry.strip
-                    if (parts = entry.match(/\A(.+?)\s*\|\s*(\{.+\})\z/))
-                      tool_name = parts[1].strip
-                      args = JSON.parse(parts[2]) rescue {}
-                      pending_tool_entries << { name: tool_name, args: args }
-                    else
-                      pending_tool_entries << { name: entry, args: {} }
-                    end
-                  end
+                  pending_tool_entries.concat(parse_tool_calls_line(raw))
                 else
                   remaining_lines << line
                 end
@@ -629,17 +619,84 @@ module Clacky
           m = line.strip.match(/\A_Ext events?:\s*(.+?)_?\z/i)
           next false unless m
 
-          m[1].split(/;\s*/).each do |entry|
-            parts = entry.strip.match(/\A(\S+?)\s*\|\s*(\{.*\})\z/)
-            next unless parts
+          parse_piped_entries(m[1]).each do |entry|
+            next if entry[:args].nil?
 
-            data = JSON.parse(parts[2]) rescue {}
-            events << { type: parts[1], data: data.is_a?(Hash) ? data : {} }
+            events << { type: entry[:name], data: entry[:args] }
           end
           true
         end
 
         [kept.join.strip, events]
+      end
+
+      # Split a "_Tool calls:_" payload into entries. The separator ";" also
+      # occurs inside args JSON (shell commands, JS snippets), so entry
+      # boundaries are found by brace balancing rather than String#split.
+      def parse_tool_calls_line(raw)
+        parse_piped_entries(raw).map { |e| { name: e[:name], args: e[:args] || {} } }
+      end
+
+      # Scan a "name | {json}; name | {json}" payload. Shared by the
+      # "_Tool calls:" and "_Ext events:" chunk MD lines, whose ";" separator
+      # is ambiguous with semicolons inside the JSON values. Entries with no
+      # JSON payload yield args: nil so callers can tell "absent" from "empty".
+      def parse_piped_entries(raw)
+        return [] if raw.nil?
+
+        scanner = StringScanner.new(raw)
+        entries = []
+
+        until scanner.eos?
+          scanner.skip(/[;,]?\s*/)
+          break if scanner.eos?
+
+          name = scanner.scan(/[^|;,]+?(?=\s*\|\s*\{)/)
+          unless name
+            plain = scanner.scan(/[^;,]+/)
+            break unless plain
+
+            plain = plain.strip
+            entries << { name: plain, args: nil } unless plain.empty?
+            next
+          end
+
+          scanner.skip(/\s*\|\s*/)
+          json = scan_balanced_json(scanner)
+          next unless json
+
+          parsed = JSON.parse(json) rescue nil
+          entries << { name: name.strip, args: parsed.is_a?(Hash) ? parsed : {} }
+        end
+
+        entries
+      end
+
+      # Consume one balanced {...} literal, ignoring braces inside JSON strings.
+      def scan_balanced_json(scanner)
+        start = scanner.pos
+        return nil unless scanner.getch == "{"
+
+        depth = 1
+        in_string = false
+        escaped = false
+
+        while (ch = scanner.getch)
+          if escaped
+            escaped = false
+          elsif ch == "\\"
+            escaped = true
+          elsif ch == '"'
+            in_string = !in_string
+          elsif !in_string && ch == "{"
+            depth += 1
+          elsif !in_string && ch == "}"
+            depth -= 1
+            return scanner.string[start...scanner.pos] if depth.zero?
+          end
+        end
+
+        nil
       end
 
       # Anchor chunk-restored events to the last message of the round so they
