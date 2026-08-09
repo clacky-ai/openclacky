@@ -815,7 +815,7 @@ module Clacky
         type ||= query["profile"].to_s.strip.then { |v| v.empty? ? nil : v }
         type ||= query["source"].to_s.strip.then  { |v| v.empty? ? nil : v }
 
-        sessions = @registry.list(limit: limit + 1, before: before, q: q, q_scope: q_scope, date: date, type: type, exclude_type: exclude_type)
+        sessions = @registry.list(limit: limit + 1, before: before, q: q, q_scope: q_scope, date: date, type: type, exclude_type: exclude_type, exclude_project: !!type)
 
         pinned_part, non_pinned_part = sessions.partition { |s| s[:pinned] }
         has_more = non_pinned_part.size > limit
@@ -6888,7 +6888,7 @@ module Clacky
           if projects.any?
             project_ids = projects.map { |p| p[:id] }
             project_sessions = project_ids.flat_map do |pid|
-              @registry.list(project_id: pid, exclude_type: "cron")
+              @registry.list(project_id: pid)
             end
             # Deduplicate: project sessions that are already in the first page
             # will be replaced by the enriched version from `all_sessions`.

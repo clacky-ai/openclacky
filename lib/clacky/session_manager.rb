@@ -9,6 +9,7 @@ require "set"
 module Clacky
   class SessionManager
     SESSIONS_DIR = File.join(Dir.home, ".clacky", "sessions")
+    GROUPED_SOURCES = %w[cron ext].freeze
 
     # Generate a new unique session ID (16-char hex string).
     # This is the single authoritative source for session IDs — all components
@@ -35,7 +36,7 @@ module Clacky
 
       # Keep only the most recent 200 sessions (best-effort, never block save)
       begin
-        cleanup_by_count(keep: 200, keep_cron: 200)
+        cleanup_by_count(keep: 200, grouped_keep: 200)
         cleanup_trash(days: 8)
       rescue Exception # rubocop:disable Lint/RescueException
         # Cleanup is non-critical; swallow all errors (including AgentInterrupted)
@@ -334,14 +335,16 @@ module Clacky
     # the rest are soft-deleted (moved to the session trash, recoverable). Pinned
     # and hidden sessions are never deleted and do not count toward the cap.
     # Returns count of soft-deleted sessions.
-    def cleanup_by_count(keep:, keep_cron: 200)
-      non_pinned = all_sessions.reject { |s| s[:pinned] || s[:hidden] } # already sorted newest-first
+    def cleanup_by_count(keep:, grouped_keep: 200)
+      non_pinned = all_sessions.reject { |s| s[:pinned] || s[:hidden] }
 
-      cron, regular = non_pinned.partition { |s| s[:source].to_s == "cron" }
+      groups = non_pinned.group_by do |s|
+        (s[:project_id] || !GROUPED_SOURCES.include?(s[:source].to_s)) ? "regular" : s[:source].to_s
+      end
 
-      victims = []
-      victims += regular[keep..] if regular.size > keep
-      victims += cron[keep_cron..] if cron.size > keep_cron
+      victims = groups.flat_map do |source, sessions|
+        sessions[(source == "regular" ? keep : grouped_keep)..] || []
+      end
 
       victims.each { |session| soft_delete(session[:session_id]) }
       victims.size

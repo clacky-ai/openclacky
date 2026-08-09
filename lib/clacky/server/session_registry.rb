@@ -412,18 +412,17 @@ module Clacky
 
       public
 
-      # Count all cron sessions on disk (not filtered by pagination).
-      def cron_count
-        return 0 unless @session_manager
-        @session_manager.all_sessions.count { |s| s_source(s) == "cron" }
+      # Count + latest updated_at for sessions of a given source, excluding
+      # those assigned to a project (they show in the project section instead).
+      def group_stats(source)
+        return { count: 0, latest_updated_at: nil } unless @session_manager
+        group_all = @session_manager.all_sessions.select { |s| s_source(s) == source && s[:project_id].to_s.strip == "" }
+        latest = group_all.map { |s| s[:updated_at] || s[:created_at] }.compact.max
+        { count: group_all.size, latest_updated_at: latest }
       end
 
-      # Count + latest updated_at for cron sessions (used by sidebar virtual entry).
       def cron_stats
-        return { count: 0, latest_updated_at: nil } unless @session_manager
-        cron_all = @session_manager.all_sessions.select { |s| s_source(s) == "cron" }
-        latest = cron_all.map { |s| s[:updated_at] || s[:created_at] }.compact.max
-        { count: cron_all.size, latest_updated_at: latest }
+        group_stats("cron")
       end
 
       # Delete a session from registry (and interrupt its thread).
