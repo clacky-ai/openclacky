@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require "json"
+
 module Clacky
   # MessageHistory wraps the conversation message list and exposes
   # business-meaningful operations instead of raw array manipulation.
@@ -12,8 +14,17 @@ module Clacky
       task_id created_at system_injected session_context memory_update
       subagent_instructions subagent_result subagent_transcript token_usage
       compressed_summary chunk_path truncated transient
-      chunk_index chunk_count
+      chunk_index chunk_count ext_events
     ].freeze
+
+    # Cap on persisted ext_events per message. These are milestone events
+    # (progress chatter is transient), so a handful per message is the norm —
+    # the cap only exists to stop a runaway extension. Oldest are dropped first.
+    MAX_EXT_EVENTS_PER_MESSAGE = 50
+
+    # Oversized payloads belong in a file, not in session.json (which is
+    # rewritten in full on every save).
+    MAX_EXT_EVENT_BYTES = 8 * 1024
 
     def initialize(messages = [])
       @messages = messages.dup
@@ -82,6 +93,26 @@ module Clacky
             m[:content].any? { |b| b.is_a?(Hash) && b[:type] == "tool_result" && b[:tool_use_id] == tool_call_id })
       end
       msg[key] = value if msg
+      self
+    end
+
+    # Append a custom extension event onto the most recent message so it is
+    # persisted with the session and can be replayed after a reload.
+    # Events are anchored to the last message: on replay they are re-emitted
+    # right after that message, preserving chronological order.
+    # No-op when the history is still empty (nothing to anchor to).
+    def append_ext_event(event)
+      msg = @messages.last
+      return self unless msg
+
+      if JSON.generate(event).bytesize > MAX_EXT_EVENT_BYTES
+        Clacky::Logger.warn("ext event #{event[:type].inspect} dropped: payload exceeds #{MAX_EXT_EVENT_BYTES} bytes")
+        return self
+      end
+
+      list = (msg[:ext_events] ||= [])
+      list.shift while list.size >= MAX_EXT_EVENTS_PER_MESSAGE
+      list << deep_sanitize_utf8(event)
       self
     end
 

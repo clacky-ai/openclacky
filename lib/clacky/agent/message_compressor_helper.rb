@@ -628,6 +628,7 @@ module Clacky
             lines << ""
             lines << format_message_content(content)
             lines << ""
+            append_ext_events_line(lines, msg)
           when "assistant"
             # If this message is itself a compressed summary, annotate the header
             # so the reader knows the original conversation is in the referenced chunk
@@ -660,6 +661,7 @@ module Clacky
             end
             lines << format_message_content(content) if content
             lines << ""
+            append_ext_events_line(lines, msg)
           when "tool"
             tool_name = msg[:name] || "tool"
             lines << "### Tool Result: #{tool_name}"
@@ -668,9 +670,30 @@ module Clacky
             lines << truncate_content(content.to_s, max_length: 500)
             lines << "```"
             lines << ""
+            append_ext_events_line(lines, msg)
           end
         end
         lines
+      end
+
+      # Serialize persisted extension events into the chunk MD so they survive
+      # compression and can be replayed in place. Mirrors the "_Tool calls:"
+      # convention; parse_chunk_md_to_rounds reads it back.
+      def append_ext_events_line(lines, msg)
+        events = Array(msg[:ext_events])
+        return if events.empty?
+
+        parts = events.filter_map do |ev|
+          type = ev[:type] || ev["type"]
+          next nil if type.nil? || type.to_s.empty?
+
+          data = ev[:data] || ev["data"] || {}
+          "#{type} | #{data.to_json}"
+        end
+        return if parts.empty?
+
+        lines << "_Ext events: #{parts.join("; ")}_"
+        lines << ""
       end
 
       # Format message content (handles string or array of content blocks)

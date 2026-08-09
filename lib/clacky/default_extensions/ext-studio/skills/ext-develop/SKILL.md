@@ -230,7 +230,10 @@ Response helpers: `json` / `text(str)` / `send_data(bytes, content_type:, filena
   `event` values (exactly these): `before_tool_use after_tool_use on_tool_error on_start
   on_complete on_iteration session_rollback`. A `before_tool_use` hook returning
   `{ action: :deny, reason: "…" }` **blocks** the tool call — this is how you audit or
-  gate dangerous commands.
+  gate dangerous commands. Every event passes the **agent as its last block arg**
+  (`|call, result, agent|` for `after_tool_use`); call `agent.emit_event("ext.<id>.<event>",
+  persist: true, **data)` to push structured events to the frontend. `persist: false`
+  (default) vanishes on refresh — emit a `persist: true` terminal event at the end.
 
 ## Scaffold
 

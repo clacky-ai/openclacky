@@ -393,6 +393,7 @@ module Clacky
           all_files = image_files + disk_files
           ui.show_user_message(raw_text, created_at: msg[:created_at], files: all_files,
                                editable: round[:editable] != false)
+          replay_ext_events(msg, ui)
 
           round[:events].each do |ev|
             # Skip system-injected messages (e.g. synthetic skill content, memory prompts)
@@ -522,6 +523,7 @@ module Clacky
 
         sections.each do |sec|
           text = sec[:lines].join.strip
+          text, sec_ext_events = extract_ext_events_from_text(text)
 
           # Nested chunk: expand it recursively, prepend before current rounds
           if sec[:nested_chunk]
@@ -534,7 +536,7 @@ module Clacky
             next
           end
 
-          next if text.empty?
+          next if text.empty? && sec_ext_events.empty?
 
           if sec[:role] == "user"
             round_index += 1
@@ -545,6 +547,7 @@ module Clacky
                 role: "user",
                 content: text,
                 created_at: synthetic_ts,
+                ext_events: sec_ext_events,
                 _from_chunk: true
               },
               events: [],
@@ -599,8 +602,11 @@ module Clacky
                   tool_calls: [{ name: entry[:name], arguments: entry[:args] }]
                 }
               end
+
+              attach_ext_events_to_last(current_round, sec_ext_events)
             else
               current_round[:events] << { role: "tool", content: text }
+              attach_ext_events_to_last(current_round, sec_ext_events)
             end
           end
         end
@@ -611,6 +617,41 @@ module Clacky
         []
       end
 
+
+      # Pull the "_Ext events: type | {json}; ..._" line out of a chunk section,
+      # returning the remaining text plus the parsed events. Counterpart to
+      # MessageCompressorHelper#append_ext_events_line.
+      def extract_ext_events_from_text(text)
+        return [text, []] unless text.include?("_Ext events:")
+
+        events = []
+        kept = text.each_line.reject do |line|
+          m = line.strip.match(/\A_Ext events?:\s*(.+?)_?\z/i)
+          next false unless m
+
+          m[1].split(/;\s*/).each do |entry|
+            parts = entry.strip.match(/\A(\S+?)\s*\|\s*(\{.*\})\z/)
+            next unless parts
+
+            data = JSON.parse(parts[2]) rescue {}
+            events << { type: parts[1], data: data.is_a?(Hash) ? data : {} }
+          end
+          true
+        end
+
+        [kept.join.strip, events]
+      end
+
+      # Anchor chunk-restored events to the last message of the round so they
+      # replay after it, matching where they were emitted live.
+      def attach_ext_events_to_last(round, events)
+        return if events.nil? || events.empty?
+
+        target = round[:events].last || round[:user_msg]
+        return unless target
+
+        target[:ext_events] = Array(target[:ext_events]) + events
+      end
 
       # Render a single non-user message into the UI.
       # Used by both the normal round-based replay and the compressed-session fallback.
@@ -664,19 +705,37 @@ module Clacky
 
         when "user"
           # Anthropic-format tool results (role: user, content: array of tool_result blocks)
-          return unless msg[:content].is_a?(Array)
+          if msg[:content].is_a?(Array)
+            msg[:content].each do |blk|
+              next unless blk.is_a?(Hash) && blk[:type] == "tool_result"
 
-          msg[:content].each do |blk|
-            next unless blk.is_a?(Hash) && blk[:type] == "tool_result"
-
-            ui.show_tool_result(blk[:content].to_s)
+              ui.show_tool_result(blk[:content].to_s)
+            end
+            replay_subagent_transcript(msg, ui)
           end
-          replay_subagent_transcript(msg, ui)
 
         when "tool"
           # OpenAI-format tool result
           ui.show_tool_result(msg[:content].to_s)
           replay_subagent_transcript(msg, ui)
+        end
+
+        replay_ext_events(msg, ui)
+      end
+
+      # Re-emit custom extension events recorded on a message so extension
+      # panels can rebuild their state after a page reload. Mirrors what
+      # Agent#emit_event pushed live. No-op when the message carries none.
+      def replay_ext_events(msg, ui)
+        Array(msg[:ext_events]).each do |ev|
+          next unless ev.is_a?(Hash)
+
+          type = ev[:type] || ev["type"]
+          next if type.nil? || type.to_s.empty?
+
+          data = ev[:data] || ev["data"] || {}
+          data = data.is_a?(Hash) ? data.transform_keys(&:to_sym) : {}
+          ui.emit(type.to_s, **data)
         end
       end
 

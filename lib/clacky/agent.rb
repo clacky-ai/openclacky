@@ -82,7 +82,7 @@ module Clacky
       @source = source.to_sym  # :manual | :cron | :channel
       @channel_info = nil  # { platform:, user_id:, user_name:, chat_id: } set by ChannelManager
       @tool_registry = ToolRegistry.new
-      @hooks = HookManager.new
+      @hooks = HookManager.new(agent: self)
       @session_id = session_id
       @name = ""
       @pinned = false
@@ -286,6 +286,27 @@ module Clacky
     # True if a standing goal loop is active for this session.
     def goal_active?
       @goal_manager&.active? || false
+    end
+
+    # Emit a custom extension event to the UI.
+    #
+    # `type` must be namespaced "ext.<extension>.<event>" so custom events can
+    # never collide with the built-in protocol.
+    #
+    # Transient by default: progress ticks and other high-frequency chatter are
+    # pushed live and forgotten, so extensions cannot bloat session.json without
+    # opting in. Pass `persist: true` for milestone events that must reappear in
+    # the chat stream after a reload; those are anchored to the current message,
+    # survive compression via the chunk MD, and are replayed in place.
+    def emit_event(type, persist: false, **data)
+      name = type.to_s
+      unless name.start_with?("ext.")
+        raise ArgumentError, "custom event type must be namespaced as 'ext.<extension>.<event>', got #{name.inspect}"
+      end
+
+      @ui&.emit(name, **data)
+      @history.append_ext_event({ type: name, data: data }) if persist
+      self
     end
 
     # Resolve the model name the goal judge should use. Prefer the provider's

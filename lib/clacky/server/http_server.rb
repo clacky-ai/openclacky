@@ -113,6 +113,12 @@ module Clacky
         @events << { type: "subagent_end", session_id: @session_id }
       end
 
+      # Custom extension events recorded on messages (Agent#emit_event). Must be
+      # explicit: method_missing below would otherwise swallow them.
+      def emit(type, **data)
+        @events << { type: type, session_id: @session_id }.merge(data)
+      end
+
       # Ignore all other UI methods (progress, errors, etc.) during history replay
       def method_missing(name, *args, **kwargs); end
       def respond_to_missing?(name, include_private = false); true; end

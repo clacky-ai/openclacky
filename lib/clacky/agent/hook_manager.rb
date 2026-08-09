@@ -12,8 +12,11 @@ module Clacky
       :session_rollback
     ].freeze
 
-    def initialize
+    attr_accessor :agent
+
+    def initialize(agent: nil)
       @hooks = Hash.new { |h, k| h[k] = [] }
+      @agent = agent
     end
 
     def add(event, &block)
@@ -23,13 +26,16 @@ module Clacky
 
     # @return [Hash] `{action: :allow}`, `{action: :deny, reason:}`, or
     #   `{action: :handled, result:}` when a hook fulfilled the call itself.
+    # Extra trailing arg: the agent that owns this hook chain, so ext hooks can
+    # call `agent.emit_event(...)`. Blocks are procs — those declaring fewer
+    # params (`|call|`, `|call, result|`) silently ignore it.
     def trigger(event, *args)
       validate_event!(event)
       result = { action: :allow }
 
       @hooks[event].each do |hook|
         begin
-          hook_result = hook.call(*args)
+          hook_result = hook.call(*args, @agent)
           next unless hook_result.is_a?(Hash)
           # First deny wins and stops the chain: a weaker later verdict must
           # never clobber a stronger earlier one, and the first deny's reason
