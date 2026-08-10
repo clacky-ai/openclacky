@@ -19,7 +19,9 @@ RSpec.describe "extension custom events" do
     end
 
     def method_missing(name, *args, **kwargs); end
-    def respond_to_missing?(name, include_private = false) = true
+    def respond_to_missing?(name, include_private = false)
+      true
+    end
   end
 
   let(:ui) { RecordingUI.new }
@@ -124,8 +126,12 @@ RSpec.describe "extension custom events" do
     let(:writer) do
       Class.new do
         include Clacky::Agent::MessageCompressorHelper
-        def truncate_content(s, max_length: 500) = s.to_s[0, max_length]
-        def format_message_content(c) = c.to_s
+        def truncate_content(s, max_length: 500)
+          s.to_s[0, max_length]
+        end
+        def format_message_content(c)
+          c.to_s
+        end
         public :render_message_sections
       end.new
     end
@@ -202,8 +208,12 @@ RSpec.describe "extension custom events" do
     let(:writer) do
       Class.new do
         include Clacky::Agent::MessageCompressorHelper
-        def truncate_content(s, max_length: 500) = s.to_s[0, max_length]
-        def format_message_content(c) = c.to_s
+        def truncate_content(s, max_length: 500)
+          s.to_s[0, max_length]
+        end
+        def format_message_content(c)
+          c.to_s
+        end
         public :render_message_sections
       end.new
     end

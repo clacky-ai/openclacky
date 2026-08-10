@@ -25,7 +25,7 @@ RSpec.describe "UIInterface#emit" do
 
   describe "JsonUIController" do
     let(:output) { StringIO.new }
-    let(:ui) { Clacky::JsonUIController.new(output:) }
+    let(:ui) { Clacky::JsonUIController.new(output: output) }
 
     it "writes the custom event as NDJSON" do
       ui.emit("ext.demo.progress", done: 2, total: 6)

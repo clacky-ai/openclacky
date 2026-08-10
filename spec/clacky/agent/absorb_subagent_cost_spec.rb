@@ -18,7 +18,7 @@ RSpec.describe Clacky::Agent::CostTracker, "#absorb_subagent_cost" do
       end
 
       def update_sessionbar(cost:, cost_source:)
-        @sessionbar_updates << { cost:, cost_source: }
+        @sessionbar_updates << { cost: cost, cost_source: cost_source }
       end
     end.new
   end

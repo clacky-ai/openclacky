@@ -23,11 +23,11 @@ RSpec.describe "Subagent transcript attachment (per tool_call_id)" do
   end
 
   def tool_result_message(tool_call_id)
-    { role: "tool", tool_call_id:, content: "done" }
+    { role: "tool", tool_call_id: tool_call_id, content: "done" }
   end
 
   def transcript(skill)
-    { skill:, iterations: 1, cost_usd: 0.0, events: [{ role: "assistant", content: "hi" }] }
+    { skill: skill, iterations: 1, cost_usd: 0.0, events: [{ role: "assistant", content: "hi" }] }
   end
 
   describe "with several invoke_skill calls in one turn" do

@@ -9,7 +9,9 @@ module Clacky
   # as a failed slot instead of tearing down its siblings.
   class Fanout
     Result = Struct.new(:index, :value, :error, :duration, keyword_init: true) do
-      def ok? = error.nil?
+      def ok?
+        error.nil?
+      end
     end
 
     DEFAULT_MAX_CONCURRENCY = 4
@@ -91,6 +93,8 @@ module Clacky
       end
     end
 
-    private def monotonic_now = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+    private def monotonic_now
+      Process.clock_gettime(Process::CLOCK_MONOTONIC)
+    end
   end
 end
