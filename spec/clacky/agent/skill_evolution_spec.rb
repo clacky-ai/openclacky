@@ -132,7 +132,7 @@ RSpec.describe Clacky::Agent::SkillEvolution do
         expect(ui.started.size).to eq(1)
         expect(ui.started.first[:kind]).to eq("skill_evolution")
         expect(ui.ended.size).to eq(1)
-        expect(ui.ended.first[:summary]).to eq("skipped")
+        expect(ui.ended.first[:summary]).to eq(Clacky::I18n.t("phase.skipped"))
       end
 
       it "localizes the skipped summary and label" do
