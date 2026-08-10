@@ -107,8 +107,10 @@ module Clacky
             return dispatch_post(body, is_request: is_request, retried: true)
           end
           if status >= 400
-            res.read_body.to_s
-            raise TransportError, "HTTP #{status} from MCP server '#{@name}'"
+            text = res.read_body.to_s
+            message = "HTTP #{status} from MCP server '#{@name}'"
+            message += ": #{text[0, 500]}" unless status == 401
+            raise TransportError, message
           end
 
           ctype = (res["Content-Type"] || "").downcase

@@ -148,4 +148,6 @@ clacky mcp logout video-editor
 Credentials are stored outside `mcp.json` under
 `~/.clacky/mcp/oauth/`, with owner-only permissions. OAuth endpoints
 must use HTTPS; callback redirects bind to a random loopback port. Access and
-refresh tokens are never included in MCP error messages.
+refresh tokens are never interpolated into MCP error messages. HTTP 401 response
+bodies are omitted; other HTTP error bodies retain at most 500 characters for
+diagnostics, matching the existing HTTP transport behavior.

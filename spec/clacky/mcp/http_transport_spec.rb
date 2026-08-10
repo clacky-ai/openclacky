@@ -179,5 +179,24 @@ RSpec.describe Clacky::Mcp::HttpTransport do
       expect(attempts).to eq(2)
       expect(authorization.invalidations).to eq(1)
     end
+
+    it "preserves a capped response body for non-401 errors" do
+      diagnostic = "validation failed: #{'x' * 600}"
+      requester = lambda do |_request, &block|
+        block.call(response(422, body: diagnostic))
+      end
+      transport = described_class.new(
+        name: "oauth", url: "https://example.com/mcp",
+        authorization: FakeAuthorization.new, requester: requester
+      )
+
+      expect do
+        transport.send(:dispatch_post, '{"id":1}', is_request: true)
+      end.to raise_error(Clacky::Mcp::Transport::TransportError) { |error|
+        expect(error.message).to include("HTTP 422")
+        expect(error.message).to include(diagnostic[0, 500])
+        expect(error.message).not_to include(diagnostic[0, 501])
+      }
+    end
   end
 end
