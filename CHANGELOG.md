@@ -4,6 +4,32 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
+## [1.5.7] - 2026-08-10
+
+### Added
+- Gemini 3.6 Flash model support
+- OAuth for remote MCP HTTP servers (#456 - @sengmitnick)
+- Parallel subagents, extension event bus, and collapsible phase UI
+- Delete sessions action in project menu
+- Extension sessions grouped by source instead of hidden flag (#448)
+- Hook agent
+
+### Improved
+- Hide todo panel when only single task exists
+- Simplify CLI memory updater output
+- Redesign web search settings UI with unified dropdown icons
+
+### Fixed
+- New session inherits project working directory instead of falling back to global default (#468 - @kylezhang)
+- Client retry: replace undefined Clacky::Error with RetryableError on retry (#460 - @shipinliang)
+- Guard against nil tool parameters when formatting definitions (#461 - @shipinliang)
+- Double-serialization of tool call arguments with schema-aware fix (#457 - @shipinliang)
+- Project-scoped cron sessions now show in project area, not cron group
+- Project sidebar now shows newly created session immediately
+- Ruby 2.6 compatibility: replace 3.0+ syntax and pin parallel_tests
+- Token provider Anthropic usage reporting fixes
+- Fix chunk JSON handling
+
 ## [1.5.6] - 2026-08-08
 
 ### Added
