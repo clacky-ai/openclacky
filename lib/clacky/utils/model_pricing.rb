@@ -377,6 +377,25 @@ module Clacky
         }
       },
 
+      # Gemini 3.6 Flash (GA 2026-07-21). Flat pricing, 1M context, 64K max output.
+      # Source: https://deepmind.google/models/gemini/flash/
+      # Cache write billed at input rate (Vertex doesn't expose a separate
+      # cache-write charge in the OpenAI shim usage response).
+      "gemini-3.6-flash" => {
+        input: {
+          default: 1.50,
+          over_200k: 1.50
+        },
+        output: {
+          default: 7.50,
+          over_200k: 7.50
+        },
+        cache: {
+          write: 1.50,
+          read: 0.15
+        }
+      },
+
       # OpenAI GPT-5.5 / GPT-5.4 — breakpoint at 272K input tokens
       # Source: https://openai.com/api/pricing/ (USD / 1M tokens)
       # Note: OpenAI's actual tiered-pricing threshold is 272K, not the
@@ -882,6 +901,8 @@ module Clacky
           "gemini-3.1-pro"
         when /^or-gemini-3-5-flash$/i, /^gemini-3\.5-flash$/i, /^gemini-3-flash(-preview)?$/i
           "gemini-3-flash"
+        when /^or-gemini-3-6-flash$/i, /^gemini-3\.6-flash$/i
+          "gemini-3.6-flash"
 
         # OpenAI GPT-5.x models — match various dashed/dotted/compact forms
         # (e.g. "gpt-5.5", "gpt-5-5", "gpt5.5", "gpt55")

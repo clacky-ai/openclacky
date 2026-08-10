@@ -43,6 +43,7 @@ module Clacky
           "dsk-deepseek-v4-pro",
           "dsk-deepseek-v4-flash",
           "or-gemini-3-1-pro",
+          "or-gemini-3-6-flash",
           "or-gemini-3-5-flash"
         ],
         # Image generation models served by the openclacky platform
@@ -94,30 +95,34 @@ module Clacky
         # routes them to Vertex AI Gemini (generateContent with inline
         # audio parts). The gateway returns transcription text.
         "stt_models" => [
+          "or-stt-gemini-3-6-flash",
           "or-stt-gemini-3-5-flash",
           "or-stt-gemini-1-5-pro"
         ],
         "stt_model_aliases" => {
+          "or-stt-gemini-3-6-flash" => "Gemini 3.6 Flash STT",
           "or-stt-gemini-3-5-flash" => "Gemini 3.5 Flash STT",
           "or-stt-gemini-1-5-pro"   => "Gemini 1.5 Pro STT"
         },
-        "default_stt_model" => "or-stt-gemini-3-5-flash",
+        "default_stt_model" => "or-stt-gemini-3-6-flash",
         # Video understanding models served by the openclacky gateway, which
         # routes video frames to Gemini (generateContent with inline image
         # parts). The gateway returns analysis text.
         "video_understanding_models" => [
+          "or-gemini-3-6-flash",
           "or-gemini-3-5-flash",
           "or-gemini-3-1-pro"
         ],
         "video_understanding_model_aliases" => {
+          "or-gemini-3-6-flash" => "Gemini 3.6 Flash",
           "or-gemini-3-5-flash" => "Gemini 3.5 Flash",
           "or-gemini-3-1-pro"   => "Gemini 3.1 Pro"
         },
-        "default_video_understanding_model" => "or-gemini-3-5-flash",
+        "default_video_understanding_model" => "or-gemini-3-6-flash",
         # Default OCR sidecar — used when the primary model is text-only.
         # Candidates are derived from the provider's vision-capable models;
         # this just picks the cheap+fast default to surface in "auto" mode.
-        "default_ocr_model" => "or-gemini-3-5-flash",
+        "default_ocr_model" => "or-gemini-3-6-flash",
         # Provider-level default: the Claude family served here is vision-capable.
         "capabilities" => { "vision" => true }.freeze,
         # Model-level overrides: DeepSeek models routed through this provider
@@ -144,7 +149,7 @@ module Clacky
           "abs-claude-sonnet-4-6" => "abs-claude-haiku-4-5",
           "abs-claude-sonnet-4-5" => "abs-claude-haiku-4-5",
           "dsk-deepseek-v4-pro"   => "dsk-deepseek-v4-flash",
-          "or-gemini-3-1-pro"     => "or-gemini-3-5-flash"
+          "or-gemini-3-1-pro"     => "or-gemini-3-6-flash"
         },
         # Fallback chain: if a model is unavailable, try the next one in order.
         # Keys are primary model names; values are the fallback model to use instead.
@@ -615,7 +620,8 @@ module Clacky
       { pattern: /glm/i,           limit: 65_536 }, # GLM-5.2: 128K output ceiling; 64K ample for reasoning+answer
       { pattern: /kimi-k3/i,       limit: 65_536 }, # Kimi K3: max_completion_tokens=131072 (max 1M); 64K ample
       { pattern: /mimo-v2\.5-pro/i, limit: 65_536 }, # MiMo-V2.5-Pro: max_completion_tokens=131072; 64K ample
-      { pattern: /mimo/i,           limit: 32_768 }  # MiMo-V2.5: max_completion_tokens=32768; full default ceiling
+      { pattern: /mimo/i,           limit: 32_768 }, # MiMo-V2.5: max_completion_tokens=32768; full default ceiling
+      { pattern: /gemini/i,        limit: 65_536 }  # Gemini 3.x: 64K max output ceiling
     ].freeze
 
     class << self

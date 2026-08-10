@@ -635,6 +635,12 @@ RSpec.describe Clacky::Providers do
       expect(described_class.max_output_for("mimo-v2.5-pro")).to eq(65_536)
     end
 
+    it "returns 65_536 for Gemini models" do
+      expect(described_class.max_output_for("or-gemini-3-6-flash")).to eq(65_536)
+      expect(described_class.max_output_for("or-gemini-3-5-flash")).to eq(65_536)
+      expect(described_class.max_output_for("or-gemini-3-1-pro")).to eq(65_536)
+    end
+
     it "returns 32_768 for MiMo-V2.5 (non-pro)" do
       expect(described_class.max_output_for("mimo-v2.5")).to eq(32_768)
     end

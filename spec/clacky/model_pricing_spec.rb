@@ -784,6 +784,27 @@ RSpec.describe Clacky::ModelPricing do
     end
   end
 
+  describe "Gemini 3.6 Flash pricing" do
+    it "bills at flat Vertex AI rates" do
+      usage = {
+        prompt_tokens: 1_000_000,
+        completion_tokens: 1_000_000,
+        cache_read_input_tokens: 200_000
+      }
+      result = described_class.calculate_cost(model: "or-gemini-3-6-flash", usage: usage)
+      # Regular input: (1_000_000 - 200_000)/1M * $1.50 = $1.20
+      # Cache read:     200_000 / 1M * $0.15            = $0.03
+      # Output:       1_000_000 / 1M * $7.50            = $7.50
+      # Total: $8.73
+      expect(result[:cost]).to be_within(0.0001).of(8.73)
+      expect(result[:source]).to eq(:price)
+    end
+
+    it "normalizes bare upstream id gemini-3.6-flash" do
+      expect(described_class.normalize_model_name("gemini-3.6-flash")).to eq("gemini-3.6-flash")
+    end
+  end
+
   # Guards against accidentally billing unrelated model names at a
   # neighbouring model's rate — the anchored ^...$ regex in normalize_model_name
   # should reject fuzzy matches and fall through to nil (cost=N/A).
