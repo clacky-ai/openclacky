@@ -88,11 +88,77 @@ module Clacky
         result
       end
 
+      # Undo one layer of accidental double-serialization, guided by the tool's
+      # parameter schema.
+      #
+      # Some LLMs (e.g. glm-5.2) emit array/object parameters as a JSON *string*
+      # (e.g. {"task":"[\"a\",\"b\"]"}) instead of a native JSON value. JSON.parse
+      # only strips the outer layer, so such values arrive here as a literal
+      # String and break downstream tools that expect an Array/Hash.
+      #
+      # To stay safe we rely on the declared schema type instead of a blind
+      # "looks like JSON" heuristic:
+      #   - a parameter declared `type: "string"` is NEVER parsed, so a value
+      #     that merely happens to be valid JSON text (file content, a code
+      #     snippet, a JSON blob to be written) is preserved verbatim;
+      #   - a parameter declared `type: "array"`/`"object"` that still arrives
+      #     as a String is unwrapped exactly once;
+      #   - additionally, when a concrete type IS declared, the parsed result
+      #     must match it (an array-typed param that receives a JSON object
+      #     string is left untouched rather than silently coerced to a Hash);
+      #   - a parameter with no declared `type` (e.g. flexible params such as
+      #     todo_manager's task/id, which may be a scalar or a list) falls back
+      #     to a conservative heuristic: unwrap only if the stripped value
+      #     starts with "["/"{" and parses cleanly.
+      # Strings that fail JSON.parse are always left untouched.
+      def self.undouble_serialize_args(args, properties = {})
+        args.to_h do |key, value|
+          expected = schema_type(properties, key)
+          # Explicit string params: never unwrap (protects content / code / JSON text).
+          next [key, value] if expected == "string"
+          # Scalar-typed params (integer/number/boolean): no JSON shape to recover.
+          next [key, value] if expected && expected != "array" && expected != "object"
+          # For array/object/untyped params, only unwrap a String that looks like JSON.
+          next [key, value] unless value.is_a?(String)
+          stripped = value.strip
+          next [key, value] unless stripped.start_with?("[") || stripped.start_with?("{")
+          begin
+            # symbolize_names keeps unwrapped Hash keys consistent with the
+            # outer JSON.parse(call[:arguments], symbolize_names: true).
+            parsed = JSON.parse(value, symbolize_names: true)
+            # Type-match guard: if the schema declares a concrete type, the
+            # parsed value must match it. Prevents silently turning a Hash into
+            # an Array (or vice-versa) when an array-typed param receives a
+            # JSON object string, etc.
+            if expected == "array" && !parsed.is_a?(Array)
+              next [key, value]
+            elsif expected == "object" && !parsed.is_a?(Hash)
+              next [key, value]
+            end
+            [key, parsed]
+          rescue JSON::ParserError
+            [key, value]
+          end
+        end
+      end
+
+      # Look up a parameter's declared JSON-Schema type, tolerating string/symbol
+      # keys in both +properties+ and the per-param spec hash.
+      def self.schema_type(properties, key)
+        spec = properties[key] || properties[key.to_s] || properties[key.to_sym]
+        return nil unless spec.is_a?(Hash)
+        spec[:type] || spec["type"]
+      end
+
       # Validate required parameters and filter unknown parameters
       def self.validate_required_params(call, args, tool_registry)
         tool = tool_registry.get(call[:name])
         required = tool.parameters&.dig(:required) || []
         properties = tool.parameters&.dig(:properties) || {}
+
+        # Undo accidental double-serialization BEFORE filtering, using the schema
+        # so that parameters declared as "string" are never touched.
+        args = undouble_serialize_args(args, properties)
 
         missing = required.reject { |param|
           args.key?(param.to_sym) || args.key?(param.to_s)

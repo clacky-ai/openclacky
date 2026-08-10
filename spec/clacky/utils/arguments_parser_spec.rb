@@ -182,6 +182,138 @@ RSpec.describe Clacky::Utils::ArgumentsParser do
     end
   end
 
+  # ── schema-aware undouble-serialization ────────────────────────────────────
+  # Some LLMs (e.g. glm-5.2) emit array/object params as a JSON *string*
+  # instead of a native value. undouble_serialize_args recovers one layer,
+  # guided by the param's declared schema type so that string params are
+  # never corrupted. See PR #457.
+  describe "undouble-serialization recovery" do
+    # Tool whose params cover the key schema types we need to exercise.
+    let(:typed_registry) do
+      registry = instance_double("Clacky::ToolRegistry")
+      tool = double("TypedTool",
+        name: "typed_tool",
+        description: "Tool with typed array/object/string params",
+        parameters: {
+          required: ["action"],
+          properties: {
+            "action"  => { "type" => "string",  "description" => "Action" },
+            "items"   => { "type" => "array",   "description" => "Array param" },
+            "config"  => { "type" => "object",  "description" => "Object param" },
+            "content" => { "type" => "string",  "description" => "String param" }
+          }
+        }
+      )
+      allow(registry).to receive(:get).with("typed_tool").and_return(tool)
+      registry
+    end
+
+    context "when array/object params are accidentally double-serialized" do
+      it "unwraps an array param that arrived as a JSON string" do
+        call = { name: "typed_tool", arguments: '{"action":"add","items":"[\"a\",\"b\"]"}' }
+        result = described_class.parse_and_validate(call, typed_registry)
+        expect(result[:items]).to eq(["a", "b"])
+        expect(result[:items]).to be_an(Array)
+      end
+
+      it "unwraps an object param that arrived as a JSON string" do
+        call = { name: "typed_tool", arguments: '{"action":"add","config":"{\"key\":\"val\"}"}' }
+        result = described_class.parse_and_validate(call, typed_registry)
+        expect(result[:config]).to eq(key: "val")
+        expect(result[:config]).to be_a(Hash)
+      end
+
+      it "unwraps an array-of-objects param" do
+        call = { name: "typed_tool", arguments: '{"action":"add","items":"[{\"x\":1},{\"y\":2}]"}' }
+        result = described_class.parse_and_validate(call, typed_registry)
+        expect(result[:items]).to eq([{ x: 1 }, { y: 2 }])
+      end
+    end
+
+    context "symbolize_names consistency" do
+      it "keeps unwrapped object keys as Symbols, matching the outer JSON.parse" do
+        # The outer JSON.parse(call[:arguments], symbolize_names: true) turns
+        # top-level keys into Symbols.  The inner JSON.parse inside
+        # undouble_serialize_args must do the same for the *unwrapped* Hash,
+        # otherwise downstream code gets an inconsistent mix of Symbol/String keys.
+        call = { name: "typed_tool", arguments: '{"action":"add","config":"{\"port\":8080,\"host\":\"0.0.0.0\"}"}' }
+        result = described_class.parse_and_validate(call, typed_registry)
+
+        expect(result[:config]).to eq(port: 8080, host: "0.0.0.0")
+        # Explicit assertion: every key in the unwrapped Hash must be a Symbol.
+        expect(result[:config].keys).to all(be_a(Symbol))
+      end
+
+      it "keeps nested Hash keys as Symbols too" do
+        call = { name: "typed_tool", arguments: '{"action":"add","config":"{\"outer\":{\"inner\":42}}"}' }
+        result = described_class.parse_and_validate(call, typed_registry)
+        expect(result[:config][:outer]).to eq(inner: 42)
+        expect(result[:config][:outer].keys).to all(be_a(Symbol))
+      end
+    end
+
+    context "type-match guard" do
+      it "leaves an array-typed param untouched when it receives a JSON object string" do
+        # Without the guard, {"k":"v"} would be silently coerced to a Hash,
+        # changing the param's type from String→Array (intended) to
+        # String→Hash (wrong).  The guard preserves the original value.
+        call = { name: "typed_tool", arguments: '{"action":"add","items":"{\"k\":\"v\"}"}' }
+        result = described_class.parse_and_validate(call, typed_registry)
+        expect(result[:items]).to eq("{\"k\":\"v\"}")
+        expect(result[:items]).to be_a(String)
+        expect(result[:items]).not_to be_an(Array)
+      end
+
+      it "leaves an object-typed param untouched when it receives a JSON array string" do
+        call = { name: "typed_tool", arguments: '{"action":"add","config":"[1,2,3]"}' }
+        result = described_class.parse_and_validate(call, typed_registry)
+        expect(result[:config]).to eq("[1,2,3]")
+        expect(result[:config]).to be_a(String)
+        expect(result[:config]).not_to be_a(Hash)
+      end
+    end
+
+    context "string-param protection (the #453 revert concern)" do
+      it "preserves a string param whose value happens to be valid JSON object text" do
+        call = { name: "typed_tool", arguments: '{"action":"add","content":"{\"name\":\"test\"}"}' }
+        result = described_class.parse_and_validate(call, typed_registry)
+        expect(result[:content]).to eq("{\"name\":\"test\"}")
+      end
+
+      it "preserves a string param whose value happens to be valid JSON array text" do
+        call = { name: "typed_tool", arguments: '{"action":"add","content":"[1,2,3]"}' }
+        result = described_class.parse_and_validate(call, typed_registry)
+        expect(result[:content]).to eq("[1,2,3]")
+      end
+    end
+
+    context "edge cases" do
+      it "handles an empty array string" do
+        call = { name: "typed_tool", arguments: '{"action":"add","items":"[]"}' }
+        result = described_class.parse_and_validate(call, typed_registry)
+        expect(result[:items]).to eq([])
+      end
+
+      it "handles an empty object string" do
+        call = { name: "typed_tool", arguments: '{"action":"add","config":"{}"}' }
+        result = described_class.parse_and_validate(call, typed_registry)
+        expect(result[:config]).to eq({})
+      end
+
+      it "leaves a non-JSON string value untouched" do
+        call = { name: "typed_tool", arguments: '{"action":"add","items":"not-json"}' }
+        result = described_class.parse_and_validate(call, typed_registry)
+        expect(result[:items]).to eq("not-json")
+      end
+
+      it "leaves an unclosed JSON string untouched" do
+        call = { name: "typed_tool", arguments: '{"action":"add","items":"[1,2"}' }
+        result = described_class.parse_and_validate(call, typed_registry)
+        expect(result[:items]).to eq("[1,2")
+      end
+    end
+  end
+
   describe ".repair_json (private method)" do
     it "is tested indirectly through parse_and_validate" do
       # The repair_json method is private, so we test it through the public interface
