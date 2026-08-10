@@ -28,6 +28,30 @@ It provides chat functionality and autonomous AI agent capabilities with tool us
 - **IMPORTANT**: Always use inline `private` with instance method definitions (e.g., `private def method_name`). Do NOT use standalone `private` keyword
 - **IMPORTANT**: For class methods (`def self.method_name`), do NOT use `private`. Class methods should be public
 
+### Ruby 2.6 Compatibility (IMPORTANT)
+The gem must install and run on Ruby 2.6 (macOS system Ruby) through Ruby 4.0.
+`openclacky.gemspec` declares `required_ruby_version = ">= 2.6.0", "< 4.1"`, and CI
+(`.github/workflows/main.yml`) runs the suite on 2.6.8 / 3.3.4 / 4.0.5 with separate lockfiles.
+Note `.rubocop.yml` uses `TargetRubyVersion: 3.1`, so RuboCop will NOT catch 2.6 violations.
+
+Do NOT use syntax newer than Ruby 2.6 in `lib/`:
+- No endless methods (`def foo = bar`) - Ruby 3.0
+- No hash shorthand (`{ name:, age: }`) - Ruby 3.1
+- No pattern matching (`case/in`) - Ruby 2.7
+- No numbered block params (`_1`, `it`) - Ruby 2.7
+- No rightward assignment, no argument forwarding (`...`) - Ruby 2.7+
+- No `Hash#except`, `Enumerable#tally`, `Enumerable#filter_map` (unless using the polyfill),
+  `Array#intersect?`, `Data.define`, `Struct` keyword_init defaults
+
+Existing polyfills live at the top of `lib/clacky.rb` (`filter_map`, `File.absolute_path?`,
+`URI.encode_uri_component`, `YAMLCompat.safe_load`). Reuse them instead of writing new ones.
+`Clacky::AesGcm` exists because macOS Ruby 2.6 links against LibreSSL without native AES-GCM.
+
+When adding a runtime dependency, cap its version so RubyGems resolves a 2.6-compatible
+release on old Ruby (see the `faraday < 2.9`, `rubyzip ~> 2.4.1`, `rouge < 5.0` comments in
+the gemspec). Verify with `ruby -c` under a 2.6 interpreter when available, otherwise rely on
+the CI matrix - a green local `bundle exec rspec` on Ruby 3.x proves nothing about 2.6.
+
 ### Architecture Patterns
 - Tools inherit from `Clacky::Tools::Base`
 - Each tool defines: `tool_name`, `tool_description`, `tool_category`, `tool_parameters`
@@ -77,7 +101,7 @@ Skills are the preferred way to add new high-level capabilities. A skill is a Ma
 - Support different permission modes (confirm_all, confirm_edits, auto_approve, plan_only)
 
 ## Dependencies
-- Ruby >= 3.1.0
+- Ruby >= 2.6.0, < 4.1 (see "Ruby 2.6 Compatibility" above)
 - faraday (~> 2.0) - HTTP client
 - thor (~> 1.3) - CLI framework
 - tty-prompt (~> 0.23) - Interactive prompts
