@@ -822,7 +822,7 @@ module Clacky
         q_scope      = query["q_scope"].to_s.strip.then { |v| %w[name content].include?(v) ? v : "name" }
         date         = query["date"].to_s.strip.then    { |v| v.empty? ? nil : v }
         type         = query["type"].to_s.strip.then    { |v| v.empty? ? nil : v }
-        exclude_type = query["exclude_type"].to_s.strip.then { |v| v.empty? ? nil : v }
+        exclude_type = query["exclude_type"].to_s.split(",").map(&:strip).reject(&:empty?).then { |v| v.empty? ? nil : v }
         # Backward-compat: ?source=<x> and ?profile=coding → type
         type ||= query["profile"].to_s.strip.then { |v| v.empty? ? nil : v }
         type ||= query["source"].to_s.strip.then  { |v| v.empty? ? nil : v }
@@ -834,9 +834,8 @@ module Clacky
         non_pinned_part = non_pinned_part.first(limit)
         sessions = pinned_part + non_pinned_part
 
-        stats = @registry.cron_stats
         json_response(res, 200, { sessions: sessions, has_more: has_more,
-                                  cron_count: stats[:count], latest_cron_updated_at: stats[:latest_updated_at] })
+                                  groups: @registry.group_stats_all })
       end
 
       # GET /api/sessions/:id — fetch a single session by id (memory + disk merged).
@@ -6904,14 +6903,11 @@ module Clacky
           interrupt_session(session_id)
 
         when "list_sessions"
-          stats    = @registry.cron_stats
-          page     = @registry.list(limit: 11, exclude_type: "cron", exclude_project: true)
+          groups   = @registry.group_stats_all
+          page     = @registry.list(limit: 11, exclude_type: SessionManager::GROUPED_SOURCES, exclude_project: true)
           has_more = page.size > 10
           all_sessions = page.first(10)
           projects = @project_manager.all
-          # Include ALL sessions that belong to any project, regardless of the
-          # 15-item pagination limit.  We merge them into the same `sessions`
-          # array; the client deduplicates by id in `setAll`.
           if projects.any?
             project_ids = projects.map { |p| p[:id] }
             project_sessions = project_ids.flat_map do |pid|
@@ -6920,12 +6916,10 @@ module Clacky
             # Deduplicate: project sessions that are already in the first page
             # will be replaced by the enriched version from `all_sessions`.
             paged_ids = all_sessions.map { |s| s[:id] }.to_set
-            extra_project_sessions = project_sessions.reject { |s| paged_ids.include?(s[:id]) }
-            all_sessions = all_sessions + extra_project_sessions
+            all_sessions += project_sessions.reject { |s| paged_ids.include?(s[:id]) }
           end
           conn.send_json(type: "session_list", sessions: all_sessions, has_more: has_more,
-                         cron_count: stats[:count], latest_cron_updated_at: stats[:latest_updated_at],
-                         projects: projects)
+                         groups: groups, projects: projects)
 
         when "run_task"
           # Client sends this after subscribing to guarantee it's ready to receive
@@ -7306,7 +7300,7 @@ module Clacky
       # @param working_dir [String] working directory for the agent
       # @param permission_mode [Symbol] :confirm_all (default, human present) or
       #   :auto_approve (unattended — suppresses request_user_feedback waits)
-      def build_session(name:, working_dir: nil, permission_mode: :confirm_all, profile: "general", source: :manual, model_id: nil, hidden: false)
+      def build_session(name:, working_dir: nil, permission_mode: :confirm_all, profile: "general", source: :manual, model_id: nil)
         working_dir ||= default_working_dir
         FileUtils.mkdir_p(working_dir) unless Dir.exist?(working_dir)
         session_id = Clacky::SessionManager.generate_id
@@ -7345,7 +7339,6 @@ module Clacky
         agent = Clacky::Agent.new(client, config, working_dir: working_dir, ui: ui, profile: profile,
                                   session_id: session_id, source: source)
         agent.rename(name) unless name.nil? || name.empty?
-        agent.hidden = hidden
         idle_timer = build_idle_timer(session_id, agent)
 
         @registry.with_session(session_id) do |s|

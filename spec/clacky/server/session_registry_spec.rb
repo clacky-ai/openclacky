@@ -12,17 +12,18 @@ require "clacky/server/session_registry"
 RSpec.describe Clacky::Server::SessionRegistry do
   let(:default_config) { Clacky::AgentConfig.new }
 
-  def write_session_file(dir, session_id:, name:, created_at:, pinned: false, hidden: false)
+  def write_session_file(dir, session_id:, name:, created_at:, pinned: false,
+                         source: "manual", project_id: nil)
     data = {
       session_id:    session_id,
       name:          name,
       created_at:    created_at,
       updated_at:    created_at,
       working_dir:   "/tmp",
-      source:        "manual",
+      source:        source,
+      project_id:    project_id,
       agent_profile: "general",
       pinned:        pinned,
-      hidden:        hidden,
       messages:      [],
       stats:         { total_tasks: 0, total_cost_usd: 0.0 },
     }
@@ -74,6 +75,72 @@ RSpec.describe Clacky::Server::SessionRegistry do
         expect(snap[:total_tasks]).to be_a(Integer)
         expect(snap[:total_cost]).to be_a(Numeric)
         expect(snap[:cost_source]).to be_a(String)
+      end
+    end
+  end
+
+  describe "grouped sources" do
+    def registry_with_groups(dir)
+      write_session_file(dir, session_id: "sess_manual01", name: "manual",
+                         created_at: "2026-04-01T00:00:00+00:00")
+      write_session_file(dir, session_id: "sess_ext00001", name: "ext one", source: "ext",
+                         created_at: "2026-04-02T00:00:00+00:00")
+      write_session_file(dir, session_id: "sess_ext00002", name: "ext two", source: "ext",
+                         created_at: "2026-04-03T00:00:00+00:00")
+      write_session_file(dir, session_id: "sess_extproj1", name: "ext in project", source: "ext",
+                         project_id: "proj_1", created_at: "2026-04-04T00:00:00+00:00")
+      write_session_file(dir, session_id: "sess_cron0001", name: "cron one", source: "cron",
+                         created_at: "2026-04-05T00:00:00+00:00")
+
+      manager = Clacky::SessionManager.new(sessions_dir: dir)
+      described_class.new(session_manager: manager, agent_config: default_config)
+    end
+
+    it "excludes grouped sources from the main list via exclude_type" do
+      Dir.mktmpdir("clacky_groups_spec") do |dir|
+        registry = registry_with_groups(dir)
+
+        ids = registry.list(exclude_type: Clacky::SessionManager::GROUPED_SOURCES).map { |s| s[:id] }
+
+        expect(ids).to contain_exactly("sess_manual01")
+      end
+    end
+
+    it "counts only project-less sessions in #group_stats" do
+      Dir.mktmpdir("clacky_groups_spec") do |dir|
+        registry = registry_with_groups(dir)
+
+        stats = registry.group_stats("ext")
+
+        # sess_extproj1 belongs to a project, so it shows in the project section
+        # rather than the folded ext group.
+        expect(stats[:count]).to eq(2)
+        expect(stats[:latest_updated_at]).to eq("2026-04-03T00:00:00+00:00")
+      end
+    end
+
+    it "returns stats for every grouped source in #group_stats_all" do
+      Dir.mktmpdir("clacky_groups_spec") do |dir|
+        registry = registry_with_groups(dir)
+
+        all = registry.group_stats_all
+
+        expect(all.keys).to eq(Clacky::SessionManager::GROUPED_SOURCES)
+        expect(all["ext"][:count]).to eq(2)
+        expect(all["cron"][:count]).to eq(1)
+      end
+    end
+
+    it "still lists a grouped-source session when filtering by its project" do
+      Dir.mktmpdir("clacky_groups_spec") do |dir|
+        registry = registry_with_groups(dir)
+
+        ids = registry.list(project_id: "proj_1").map { |s| s[:id] }
+
+        # A project's session list must never hide ext/cron sessions, otherwise
+        # they'd vanish from the UI entirely: exclude_type keeps them out of the
+        # flat list and the folded group skips project-scoped ones.
+        expect(ids).to contain_exactly("sess_extproj1")
       end
     end
   end
@@ -300,38 +367,6 @@ RSpec.describe Clacky::Server::SessionRegistry do
         registry.instance_variable_get(:@sessions)["s1"] = { idle_timer: timer }
 
         expect { registry.shutdown_all_idle_timers }.not_to raise_error
-      end
-    end
-  end
-
-  describe "#list hidden filtering" do
-    it "excludes hidden sessions by default" do
-      Dir.mktmpdir("clacky_hidden_spec") do |dir|
-        write_session_file(dir, session_id: "sess_visible", name: "v",
-                           created_at: "2026-04-01T00:00:00+00:00")
-        write_session_file(dir, session_id: "sess_hidden", name: "h",
-                           created_at: "2026-04-02T00:00:00+00:00", hidden: true)
-
-        manager  = Clacky::SessionManager.new(sessions_dir: dir)
-        registry = described_class.new(session_manager: manager, agent_config: default_config)
-
-        ids = registry.list.map { |s| s[:id] }
-        expect(ids).to contain_exactly("sess_visible")
-      end
-    end
-
-    it "includes hidden sessions when include_hidden: true" do
-      Dir.mktmpdir("clacky_hidden_spec") do |dir|
-        write_session_file(dir, session_id: "sess_visible", name: "v",
-                           created_at: "2026-04-01T00:00:00+00:00")
-        write_session_file(dir, session_id: "sess_hidden", name: "h",
-                           created_at: "2026-04-02T00:00:00+00:00", hidden: true)
-
-        manager  = Clacky::SessionManager.new(sessions_dir: dir)
-        registry = described_class.new(session_manager: manager, agent_config: default_config)
-
-        ids = registry.list(include_hidden: true).map { |s| s[:id] }
-        expect(ids).to contain_exactly("sess_visible", "sess_hidden")
       end
     end
   end

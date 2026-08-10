@@ -155,7 +155,7 @@ RSpec.describe "ApiExtension#create_session with project_id" do
   it "inherits the project working_dir and persists agent.project_id" do
     project = { id: "p1", name: "Proj", working_dir: "/tmp/proj" }
     allow(project_manager).to receive(:find).with("p1").and_return(project)
-    allow(http_server).to receive(:send).with(:build_session, name: nil, working_dir: File.expand_path("/tmp/proj"), profile: "general", source: :manual, hidden: false).and_return("sess-1")
+    allow(http_server).to receive(:send).with(:build_session, name: nil, working_dir: File.expand_path("/tmp/proj"), profile: "general", source: :manual).and_return("sess-1")
     allow(registry).to receive(:with_session).with("sess-1").and_yield({ agent: agent })
     allow(agent).to receive(:project_id=).with("p1")
     allow(agent).to receive(:to_session_data).and_return({ id: "sess-1" })
@@ -181,7 +181,7 @@ RSpec.describe "ApiExtension#create_session with project_id" do
   it "does not override an explicit working_dir with the project's" do
     project = { id: "p1", name: "Proj", working_dir: "/tmp/proj" }
     allow(project_manager).to receive(:find).with("p1").and_return(project)
-    allow(http_server).to receive(:send).with(:build_session, name: nil, working_dir: "/custom/dir", profile: "general", source: :manual, hidden: false).and_return("sess-2")
+    allow(http_server).to receive(:send).with(:build_session, name: nil, working_dir: "/custom/dir", profile: "general", source: :manual).and_return("sess-2")
     allow(registry).to receive(:with_session).with("sess-2").and_yield({ agent: agent })
     allow(agent).to receive(:project_id=).with("p1")
     allow(agent).to receive(:to_session_data).and_return({ id: "sess-2" })
@@ -191,5 +191,20 @@ RSpec.describe "ApiExtension#create_session with project_id" do
     result = instance.create_session(project_id: "p1", working_dir: "/custom/dir")
     expect(result).to eq("sess-2")
     expect(agent).to have_received(:project_id=).with("p1")
+  end
+
+  it "accepts 'ext' so extension sessions land in the folded sidebar group" do
+    allow(http_server).to receive(:send).with(:build_session, name: nil, working_dir: nil, profile: "general", source: :ext).and_return("sess-3")
+    allow(http_server).to receive(:send).with(:broadcast_session_update, "sess-3")
+
+    expect(instance.create_session(source: :ext)).to eq("sess-3")
+  end
+
+  it "rejects sources outside the allowed list" do
+    expect {
+      instance.create_session(source: :cron)
+    }.to raise_error(Clacky::ApiExtension::Halt) { |halt|
+      expect(halt.status).to eq(400)
+    }
   end
 end

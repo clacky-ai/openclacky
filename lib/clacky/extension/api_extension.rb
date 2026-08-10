@@ -27,6 +27,10 @@ module Clacky
     MAX_TIMEOUT  = 600
     DEFAULT_TIMEOUT = 10
 
+    # "ext" groups the session under the sidebar's folded extension entry and
+    # gives it a dedicated cleanup pool; extensions cannot claim other sources.
+    ALLOWED_SESSION_SOURCES = %w[manual ext].freeze
+
     Route = Struct.new(:method, :pattern, :regex, :param_names, :block, :options, keyword_init: true)
 
     class Halt < StandardError
@@ -270,8 +274,13 @@ module Clacky
     # (unless an explicit working_dir overrides it) and the session is
     # associated with the project.
     def create_session(name: nil, prompt: nil, working_dir: nil, profile: "general",
-                       source: :manual, display_message: nil, hidden: false, project_id: nil)
+                       source: :manual, display_message: nil, project_id: nil)
       error!("server not ready", status: 503) unless @http_server
+
+      src = source.to_s
+      unless ALLOWED_SESSION_SOURCES.include?(src)
+        error!("invalid source '#{src}': allowed values are #{ALLOWED_SESSION_SOURCES.join(", ")}", status: 400)
+      end
 
       if project_id
         project_id = project_id.to_s.strip
@@ -288,8 +297,7 @@ module Clacky
         name: name,
         working_dir: working_dir,
         profile: profile,
-        source: source,
-        hidden: hidden
+        source: source
       )
 
       if project_id

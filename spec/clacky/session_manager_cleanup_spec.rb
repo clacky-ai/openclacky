@@ -19,14 +19,15 @@ RSpec.describe Clacky::SessionManager, "#cleanup_by_count" do
 
   # Write a session JSON directly so we control created_at / pinned without
   # triggering save's own cleanup pass.
-  def write_session(id:, created_at:, pinned: false, hidden: false)
+  def write_session(id:, created_at:, pinned: false, source: nil, project_id: nil)
     filename = manager.send(:generate_filename, id, created_at)
     data = {
       session_id: id,
       created_at: created_at,
       updated_at: created_at,
       pinned:     pinned,
-      hidden:     hidden,
+      source:     source,
+      project_id: project_id,
       messages:   []
     }
     File.write(File.join(temp_dir, filename), JSON.generate(data))
@@ -67,20 +68,6 @@ RSpec.describe Clacky::SessionManager, "#cleanup_by_count" do
     expect(trashed_ids).to contain_exactly("bbb")
   end
 
-  it "never soft-deletes hidden sessions and does not count them toward the cap" do
-    write_session(id: "hid", hidden: true, created_at: "2026-01-01T00:00:00Z") # oldest, hidden
-    write_session(id: "bbb", created_at: "2026-02-01T00:00:00Z")
-    write_session(id: "ccc", created_at: "2026-03-01T00:00:00Z")
-    write_session(id: "ddd", created_at: "2026-04-01T00:00:00Z")
-
-    # keep=2 applies only to the 3 non-hidden sessions -> 1 oldest non-hidden evicted.
-    evicted = manager.cleanup_by_count(keep: 2)
-
-    expect(evicted).to eq(1)
-    expect(active_ids).to contain_exactly("hid", "ccc", "ddd")
-    expect(trashed_ids).to contain_exactly("bbb")
-  end
-
   it "is a no-op when the non-pinned count is within the cap" do
     write_session(id: "aaa", created_at: "2026-01-01T00:00:00Z")
     write_session(id: "bbb", created_at: "2026-02-01T00:00:00Z")
@@ -88,5 +75,36 @@ RSpec.describe Clacky::SessionManager, "#cleanup_by_count" do
     expect(manager.cleanup_by_count(keep: 5)).to eq(0)
     expect(active_ids).to contain_exactly("aaa", "bbb")
     expect(trashed_ids).to be_empty
+  end
+
+  it "gives each grouped source its own pool so they never evict each other" do
+    write_session(id: "ext1", source: "ext", created_at: "2026-01-01T00:00:00Z")
+    write_session(id: "ext2", source: "ext", created_at: "2026-02-01T00:00:00Z")
+    write_session(id: "cron1", source: "cron", created_at: "2026-03-01T00:00:00Z")
+    write_session(id: "cron2", source: "cron", created_at: "2026-04-01T00:00:00Z")
+    write_session(id: "reg1", created_at: "2026-05-01T00:00:00Z")
+    write_session(id: "reg2", created_at: "2026-06-01T00:00:00Z")
+
+    # keep=1 only caps the regular pool; grouped_keep=1 caps "ext" and "cron"
+    # independently, so exactly one victim comes out of each of the 3 pools.
+    evicted = manager.cleanup_by_count(keep: 1, grouped_keep: 1)
+
+    expect(evicted).to eq(3)
+    expect(active_ids).to contain_exactly("ext2", "cron2", "reg2")
+    expect(trashed_ids).to contain_exactly("ext1", "cron1", "reg1")
+  end
+
+  it "counts project-scoped grouped sessions toward the regular pool" do
+    write_session(id: "ext_proj", source: "ext", project_id: "p1", created_at: "2026-01-01T00:00:00Z")
+    write_session(id: "reg1", created_at: "2026-02-01T00:00:00Z")
+    write_session(id: "ext_free", source: "ext", created_at: "2026-03-01T00:00:00Z")
+
+    # A project-scoped ext session lives in the project area, not the folded ext
+    # group, so it competes with regular sessions rather than the ext pool.
+    evicted = manager.cleanup_by_count(keep: 1, grouped_keep: 100)
+
+    expect(evicted).to eq(1)
+    expect(active_ids).to contain_exactly("reg1", "ext_free")
+    expect(trashed_ids).to contain_exactly("ext_proj")
   end
 end
