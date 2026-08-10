@@ -415,7 +415,7 @@ module Clacky
         if defined?(Clacky::Logger)
           Clacky::Logger.warn("[parse_simple_openai_response] no content. status=#{response.status} body=#{snippet}")
         end
-        raise Clacky::Error,
+        raise RetryableError,
           "Upstream OpenAI-compatible response missing choices[0].message.content. " \
           "Body snippet: #{snippet}"
       end
