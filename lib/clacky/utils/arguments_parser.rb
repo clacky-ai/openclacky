@@ -227,11 +227,14 @@ module Clacky
         lines << "  Name: #{tool.name}"
         lines << "  Description: #{tool.description}"
 
-        if tool.parameters[:properties]
+        params = tool.parameters
+        properties = params && params[:properties]
+        if properties
           lines << "  Parameters:"
-          tool.parameters[:properties].each do |param, spec|
-            required_mark = tool.parameters[:required]&.include?(param.to_s) ? " (required)" : ""
-            lines << "    - #{param}#{required_mark}: #{spec[:description]}"
+          properties.each do |param, spec|
+            required_mark = params[:required]&.include?(param.to_s) ? " (required)" : ""
+            desc = spec.is_a?(Hash) ? spec[:description] : spec.to_s
+            lines << "    - #{param}#{required_mark}: #{desc}"
           end
         end
 
