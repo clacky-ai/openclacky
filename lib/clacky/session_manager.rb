@@ -25,14 +25,29 @@ module Clacky
     end
 
     # Save a session. Returns the file path.
-    def save(session_data)
+    def save(session_data, skip_cleanup: false)
       filename = generate_filename(session_data[:session_id], session_data[:created_at])
       filepath = File.join(@sessions_dir, filename)
 
-      File.write(filepath, JSON.pretty_generate(session_data))
-      FileUtils.chmod(0o600, filepath)
+      # Extract WAL path — internal field, must not be serialized to session.json
+      wal_path = session_data.delete(:_wal_path)
+
+      # Atomic write: write to a temp file then rename, so a SIGKILL mid-write
+      # cannot leave a truncated / corrupt session.json on disk.
+      tmp = "#{filepath}.tmp"
+      File.write(tmp, JSON.pretty_generate(session_data))
+      FileUtils.chmod(0o600, tmp)
+      File.rename(tmp, filepath)
+
+      # Save succeeded — WAL events are now persisted in session.json.
+      # Delete the WAL file so it doesn't grow unboundedly.
+      if wal_path && File.exist?(wal_path)
+        File.delete(wal_path) rescue nil
+      end
 
       @last_saved_path = filepath
+
+      return filepath if skip_cleanup
 
       # Keep only the most recent 200 sessions (best-effort, never block save)
       begin
@@ -67,6 +82,7 @@ module Clacky
       forked[:updated_at]  = Time.now.iso8601
       forked[:pinned]      = false
       forked[:name]        = "#{original[:name] || "Unnamed session"} (copy)"
+      forked[:wal_seq]     = 0  # Forked session has no WAL of its own
       forked[:stats] = (original[:stats] || {}).merge(
         total_tasks: 0, total_iterations: 0, total_cost_usd: 0.0,
         last_status: nil, last_error: nil
@@ -159,8 +175,11 @@ module Clacky
       base = chunk_base_name(session_id, created_at)
       chunk_path = File.join(@sessions_dir, "#{base}-chunk-#{chunk_index}.md")
 
-      File.write(chunk_path, md_content)
-      FileUtils.chmod(0o600, chunk_path)
+      # 原子写
+      tmp = chunk_path + ".tmp"
+      File.write(tmp, md_content)
+      FileUtils.chmod(0o600, tmp)
+      File.rename(tmp, chunk_path)
 
       chunk_path
     end

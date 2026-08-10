@@ -18,8 +18,9 @@ module Clacky
   #   {"id":"...","choices":[],"usage":{"prompt_tokens":12,"completion_tokens":3,"prompt_tokens_details":{"cached_tokens":2}}}
   #   data: [DONE]
   class OpenAIStreamAggregator
-    def initialize(on_chunk: nil)
+    def initialize(on_chunk: nil, checkpoint: nil)
       @on_chunk = on_chunk
+      @checkpoint = checkpoint
       @content = +""
       @reasoning_content = +""
       @role = "assistant"
@@ -60,6 +61,7 @@ module Clacky
         end
         @finish_reason = choice["finish_reason"] if choice["finish_reason"]
         emit_estimate_progress
+        @checkpoint&.update(to_checkpoint_snapshot)
       end
 
       if (u = data["usage"])
@@ -95,6 +97,19 @@ module Clacky
         "choices" => [{ "index" => 0, "message" => message, "finish_reason" => @finish_reason }],
         "usage"   => @usage || {}
       }
+    end
+
+    # Extract a provider-agnostic snapshot for StreamCheckpoint.
+    def to_checkpoint_snapshot
+      snap = { role: "assistant", content: @content.to_s, incomplete: true, provider: "openai" }
+      snap[:reasoning_content] = @reasoning_content.to_s unless @reasoning_content.empty?
+      unless @tool_calls.empty?
+        snap[:tool_calls] = @tool_calls.keys.sort.map do |idx|
+          tc = @tool_calls[idx]
+          { id: tc[:id], name: tc[:name], arguments: tc[:arguments].to_s }
+        end
+      end
+      snap
     end
 
     private def merge_tool_call(tc)

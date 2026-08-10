@@ -93,6 +93,29 @@ module Clacky
         # want to bill under the model that actually handled the request.
         api_call_model = current_model
 
+        # ── Stream Checkpoint (方案三) ───────────────────────────────────
+        # Create a checkpoint writer for the main agent (not subagents,
+        # whose @session_id is nil). The checkpoint captures streaming LLM
+        # output every 500ms to a .streamcp.json file; if the process dies
+        # mid-stream, the recovery logic in session_serializer.rb picks up
+        # the partial content.
+        #
+        # P4 fix: on success, the checkpoint is NOT cleared here — the
+        # caller (agent.rb think) clears it AFTER appending to history +
+        # WAL, so a SIGKILL between clear! and append can't lose the
+        # complete message. The checkpoint stays alive as a safety net.
+        @stream_checkpoint&.clear! # Clear stale checkpoint from a previous call
+        @stream_checkpoint =
+          if @session_id
+            cp_path = File.join(
+              Clacky::SessionManager::SESSIONS_DIR,
+              ".streaming",
+              "#{@session_id}.streamcp.json"
+            )
+            Clacky::StreamCheckpoint.new(path: cp_path)
+          end
+        checkpoint = @stream_checkpoint
+
         begin
           begin
           # Use active_messages (Time Machine) when undone, otherwise send full history.
@@ -110,7 +133,8 @@ module Clacky
             max_tokens: @config.max_tokens,
             enable_caching: @config.enable_prompt_caching,
             reasoning_effort: @reasoning_effort,
-            on_chunk: build_progress_on_chunk
+            on_chunk: build_progress_on_chunk,
+            checkpoint: checkpoint
           )
 
           # Successful response — if we were probing, confirm primary is healthy.
@@ -458,6 +482,11 @@ module Clacky
           if retrying_progress_opened
             @ui&.show_progress(progress_type: "retrying", phase: "done")
           end
+          # Force-write the checkpoint to disk.
+          # On success: @pending holds the COMPLETE response — the file
+          #   stays until the caller clears it after WAL write.
+          # On failure: captures whatever partial output was received.
+          checkpoint&.flush!
         end
       end
 

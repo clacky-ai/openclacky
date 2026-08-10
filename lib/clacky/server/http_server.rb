@@ -7107,16 +7107,30 @@ module Clacky
         # never made it into session.json (history vanishes on replay).
         @registry.shutdown_all_idle_timers
 
+        # Phase 1: raise AgentInterrupted on every live agent thread.
+        live = []
         @registry.each_live_agent do |id, agent, thread|
           next unless thread&.alive?
+          live << [id, agent, thread]
           begin
             thread.raise(Clacky::AgentInterrupted, "Worker shutting down")
             Clacky::Logger.info("[shutdown] interrupted session=#{id}")
           rescue => e
             Clacky::Logger.error("[shutdown] interrupt failed for session=#{id}: #{e.message}")
           end
-          thread.join(AGENT_INTERRUPT_JOIN_SECONDS)
+        end
+
+        # Phase 2: join all threads in parallel so total wait is a single
+        # timeout, not N × timeout. Without this, many live agents turn
+        # shutdown into a multi-second stall that often exceeds the Master
+        # deadline and triggers a SIGKILL before saves can run.
+        live.map { |_, _, t| Thread.new { t.join(AGENT_INTERRUPT_JOIN_SECONDS) } }.each(&:join)
+
+        # Phase 3: serial save — to_session_data is not thread-safe.
+        live.each do |id, agent, _|
           @session_manager.save(agent.to_session_data(status: :interrupted, updated_at: Time.now))
+        rescue => e
+          Clacky::Logger.error("[shutdown] save failed for session=#{id}: #{e.message}")
         end
       end
 
