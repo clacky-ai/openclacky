@@ -91,4 +91,112 @@ RSpec.describe Clacky::Mcp::HttpTransport do
       end
     end
   end
+
+  describe "OAuth authorization" do
+    class FakeAuthorization
+      attr_reader :invalidations
+
+      def initialize
+        @invalidations = 0
+      end
+
+      def authorization_headers
+        { "Authorization" => "Bearer protected-token" }
+      end
+
+      def invalidate!
+        @invalidations += 1
+      end
+    end
+
+    def response(status, body: "", headers: {})
+      instance_double("Net::HTTPResponse").tap do |res|
+        allow(res).to receive(:code).and_return(status.to_s)
+        allow(res).to receive(:[]).with(anything) do |key|
+          headers[key.to_s.downcase] || headers[key.to_s]
+        end
+        allow(res).to receive(:read_body).and_return(body)
+      end
+    end
+
+    it "injects OAuth headers without mutating static headers" do
+      authorization = FakeAuthorization.new
+      requests = []
+      requester = lambda do |request, &block|
+        requests << request
+        block.call(response(202))
+      end
+      transport = described_class.new(
+        name: "oauth",
+        url: "https://example.com/mcp",
+        headers: { "X-Static" => "yes" },
+        authorization: authorization,
+        requester: requester
+      )
+
+      transport.send(:dispatch_post, '{"id":1}', is_request: true)
+
+      expect(requests.first["Authorization"]).to eq("Bearer protected-token")
+      expect(requests.first["X-Static"]).to eq("yes")
+    end
+
+    it "invalidates and retries exactly once after a 401" do
+      authorization = FakeAuthorization.new
+      attempts = 0
+      requester = lambda do |_request, &block|
+        attempts += 1
+        block.call(response(attempts == 1 ? 401 : 202))
+      end
+      transport = described_class.new(
+        name: "oauth", url: "https://example.com/mcp",
+        authorization: authorization, requester: requester
+      )
+
+      transport.send(:dispatch_post, '{"id":1}', is_request: true)
+
+      expect(attempts).to eq(2)
+      expect(authorization.invalidations).to eq(1)
+    end
+
+    it "does not retry a second 401 or expose its response body" do
+      authorization = FakeAuthorization.new
+      attempts = 0
+      requester = lambda do |_request, &block|
+        attempts += 1
+        block.call(response(401, body: "protected-token"))
+      end
+      transport = described_class.new(
+        name: "oauth", url: "https://example.com/mcp",
+        authorization: authorization, requester: requester
+      )
+
+      expect do
+        transport.send(:dispatch_post, '{"id":1}', is_request: true)
+      end.to raise_error(Clacky::Mcp::Transport::TransportError) { |error|
+        expect(error.message).to include("HTTP 401")
+        expect(error.message).not_to include("protected-token")
+      }
+      expect(attempts).to eq(2)
+      expect(authorization.invalidations).to eq(1)
+    end
+
+    it "preserves a capped response body for non-401 errors" do
+      diagnostic = "validation failed: #{'x' * 600}"
+      requester = lambda do |_request, &block|
+        block.call(response(422, body: diagnostic))
+      end
+      transport = described_class.new(
+        name: "oauth", url: "https://example.com/mcp",
+        authorization: FakeAuthorization.new, requester: requester
+      )
+
+      expect do
+        transport.send(:dispatch_post, '{"id":1}', is_request: true)
+      end.to raise_error(Clacky::Mcp::Transport::TransportError) { |error|
+        expect(error.message).to include("HTTP 422")
+        expect(error.message).to include(diagnostic[0, 500])
+        expect(error.message).not_to include(diagnostic[0, 501])
+      }
+    end
+  end
 end

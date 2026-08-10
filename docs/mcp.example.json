@@ -17,6 +17,15 @@
       "command": "uvx",
       "args": ["mcp-server-sqlite", "--db-path", "/path/to/db.sqlite"],
       "description": "Query a local SQLite database."
+    },
+    "remote-oauth": {
+      "type": "http",
+      "url": "https://mcp.example.com/mcp",
+      "auth": {
+        "type": "oauth",
+        "resource": "https://mcp.example.com/mcp"
+      },
+      "description": "Example OAuth-protected remote MCP server."
     }
   }
 }

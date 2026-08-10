@@ -6,6 +6,10 @@ require "monitor"
 require_relative "transport"
 require_relative "stdio_transport"
 require_relative "http_transport"
+require_relative "oauth/config"
+require_relative "oauth/credential_store"
+require_relative "oauth/authorization_manager"
+require_relative "oauth/session"
 
 module Clacky
   module Mcp
@@ -29,7 +33,7 @@ module Clacky
       # Build a Client from an mcp.json spec hash.
       # Recognized fields:
       #   stdio: command (required), args, env, cwd
-      #   http:  type: "http", url (required), headers
+      #   http:  type: "http", url (required), headers, auth
       def self.from_spec(name, spec)
         type = (spec["type"] || (spec["url"] ? "http" : "stdio")).to_s
         case type
@@ -45,12 +49,24 @@ module Clacky
             )
           )
         when "http", "streamable-http"
+          oauth_config = OAuth::Config.from_server_spec(spec)
+          authorization = nil
+          if oauth_config.enabled?
+            store = OAuth::CredentialStore.new(server_name: name)
+            manager = OAuth::AuthorizationManager.new(
+              server_name: name,
+              config: oauth_config,
+              store: store
+            )
+            authorization = OAuth::Session.new(store: store, manager: manager)
+          end
           new(
             name:    name,
             transport: HttpTransport.new(
               name:    name,
               url:     spec["url"],
-              headers: spec["headers"] || {}
+              headers: spec["headers"] || {},
+              authorization: authorization
             )
           )
         else
