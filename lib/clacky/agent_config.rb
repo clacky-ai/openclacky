@@ -633,16 +633,10 @@ module Clacky
       }.compact
     end
 
-    # Find model by type (default or lite or media kind or ocr sidecar)
-    # Returns the model hash or nil if not found.
-    # For media kinds (image/video/audio): explicit user-configured (custom)
-    # entries win; otherwise an auto-derived virtual entry is returned
-    # based on the default model's provider — mirroring how lite is
-    # virtually derived via #lite_model_config_for_current.
-    # For "ocr": same custom→auto→nil pattern. Auto path first checks
-    # whether the default model itself supports vision (zero-overhead path,
-    # no sidecar needed); if not, derives from the provider's
-    # default_ocr_model.
+    # Raw accessor - returns the stored model entry without mode-aware filtering.
+    # For media/ocr: does NOT check mode field, only legacy disabled flag.
+    # Mode-aware callers should use #effective_media_entry / #effective_ocr_entry.
+    # HTTP server uses this to read raw entries for saved_custom / api_key masking.
     def find_model_by_type(type)
       kind = type.to_s
       if Clacky::Providers::MEDIA_KINDS.include?(kind)
@@ -699,6 +693,38 @@ module Clacky
     # now derived virtually on read; nothing is materialized into @models.
     def derive_media_models!
       @models.reject! { |m| m["auto_injected"] && Clacky::Providers::MEDIA_KINDS.include?(m["type"].to_s) }
+    end
+
+    private def sidecar_off?(entry)
+      entry && (entry["disabled"] || entry["mode"] == "off")
+    end
+
+    private def sidecar_custom?(entry)
+      entry &&
+        entry["base_url"].to_s.strip != "" &&
+        entry["api_key"].to_s.strip != "" &&
+        entry["mode"] != "auto"
+    end
+
+    def effective_media_entry(kind)
+      kind = kind.to_s
+      raw_entry = @models.find { |m| m["type"] == kind }
+      return nil if sidecar_off?(raw_entry)
+
+      is_custom = sidecar_custom?(raw_entry)
+      override_model = raw_entry && !is_custom ? raw_entry["model"] : nil
+
+      is_custom ? raw_entry : derive_media_model(kind, model_override: override_model)
+    end
+
+    def effective_ocr_entry
+      raw_entry = @models.find { |m| m["type"] == "ocr" }
+      return nil if sidecar_off?(raw_entry)
+
+      is_custom = sidecar_custom?(raw_entry)
+      override_model = raw_entry && !is_custom ? raw_entry["model"] : nil
+
+      is_custom ? raw_entry : derive_ocr_model(model_override: override_model)
     end
 
     # Derive an OCR sidecar model entry from the default model's provider.
@@ -763,7 +789,7 @@ module Clacky
       kind = kind.to_s
       raw_entry = @models.find { |m| m["type"] == kind }
 
-      if raw_entry && raw_entry["disabled"]
+      if sidecar_off?(raw_entry)
         default = find_model_by_type("default")
         default_provider = default && Clacky::Providers.resolve_provider(
           base_url: default["base_url"], api_key: default["api_key"]
@@ -782,9 +808,7 @@ module Clacky
         }
       end
 
-      is_custom = raw_entry &&
-                  raw_entry["base_url"].to_s.strip != "" &&
-                  raw_entry["api_key"].to_s.strip != ""
+      is_custom = sidecar_custom?(raw_entry)
       override_model = raw_entry && !is_custom ? raw_entry["model"] : nil
 
       entry = if is_custom
@@ -842,7 +866,7 @@ module Clacky
       )
       available = default_provider ? Clacky::Providers.ocr_models(default_provider) : []
 
-      if raw_entry && raw_entry["disabled"]
+      if sidecar_off?(raw_entry)
         # A disabled OCR sidecar only means "no separate vision model"; it must
         # not override the fact that the chat model may handle images itself.
         anchor = current_model || default
@@ -872,9 +896,7 @@ module Clacky
         }
       end
 
-      is_custom = raw_entry &&
-                  raw_entry["base_url"].to_s.strip != "" &&
-                  raw_entry["api_key"].to_s.strip != ""
+      is_custom = sidecar_custom?(raw_entry)
       override_model = raw_entry && !is_custom ? raw_entry["model"] : nil
 
       entry = if is_custom

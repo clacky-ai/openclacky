@@ -1840,6 +1840,9 @@ module Clacky
             requested_model: state["requested_model"],
             configured: state["configured"]
           }
+          if entry && entry["base_url"] && state["source"] != "custom"
+            out[t][:saved_custom] = { model: entry["model"], base_url: entry["base_url"] }
+          end
         end
 
         # Surface what the current default model can offer, even when the
@@ -1949,50 +1952,78 @@ module Clacky
       end
 
       def api_update_media_config(kind, req, res)
-        body = parse_json_body(req) || {}
+        update_sidecar_config(res, kind, parse_json_body(req) || {})
+      end
+
+      private def update_sidecar_config(res, kind, body)
         source = body["source"].to_s
         unless %w[off auto custom].include?(source)
           return json_response(res, 422, { error: "invalid source" })
         end
 
-        @agent_config.models.reject! { |m| m["type"] == kind }
+        existing = @agent_config.models.find { |m| m["type"] == kind }
 
         case source
         when "off"
-          @agent_config.models << {
-            "id"       => SecureRandom.uuid,
-            "type"     => kind,
-            "disabled" => true
-          }
+          if existing
+            existing["mode"] = "off"
+          else
+            @agent_config.models << {
+              "id"   => SecureRandom.uuid,
+              "type" => kind,
+              "mode" => "off"
+            }
+          end
         when "auto"
           override = body["model"].to_s.strip
-          unless override.empty?
-            @agent_config.models << {
-              "id"    => SecureRandom.uuid,
-              "type"  => kind,
-              "model" => override
-            }
+          if existing
+            existing.delete("disabled")
+            existing["mode"] = "auto"
+            existing["model"] = override unless override.empty?
+          else
+            unless override.empty?
+              @agent_config.models << {
+                "id"    => SecureRandom.uuid,
+                "type"  => kind,
+                "mode"  => "auto",
+                "model" => override
+              }
+            end
           end
         when "custom"
           model    = body["model"].to_s.strip
           base_url = body["base_url"].to_s.strip
           api_key  = body["api_key"].to_s
-          if model.empty? || base_url.empty? || api_key.empty? || api_key.include?("****")
+          if api_key.empty? || api_key.include?("****")
+            api_key = existing ? existing["api_key"].to_s : ""
+          end
+          if model.empty? || base_url.empty? || api_key.empty?
             return json_response(res, 422, { error: "model, base_url, api_key are required" })
           end
 
-          @agent_config.models << {
-            "id"               => SecureRandom.uuid,
-            "model"            => model,
-            "base_url"         => base_url,
-            "api_key"          => api_key,
-            "anthropic_format" => body["anthropic_format"] || false,
-            "type"             => kind
-          }
+          if existing
+            existing["model"]            = model
+            existing["base_url"]         = base_url
+            existing["api_key"]          = api_key
+            existing["anthropic_format"] = body["anthropic_format"] || false
+            existing["mode"]             = "custom"
+            existing.delete("disabled")
+          else
+            @agent_config.models << {
+              "id"               => SecureRandom.uuid,
+              "model"            => model,
+              "base_url"         => base_url,
+              "api_key"          => api_key,
+              "anthropic_format" => body["anthropic_format"] || false,
+              "type"             => kind,
+              "mode"             => "custom"
+            }
+          end
         end
 
         @agent_config.save
-        json_response(res, 200, { ok: true, state: @agent_config.media_state(kind) })
+        state = kind == "ocr" ? @agent_config.ocr_state : @agent_config.media_state(kind)
+        json_response(res, 200, { ok: true, state: state })
       rescue => e
         json_response(res, 422, { error: e.message })
       end
@@ -2016,6 +2047,9 @@ module Clacky
           configured:     state["configured"],
           primary:        state["primary"] || false
         }
+        if entry && entry["base_url"] && state["source"] != "custom"
+          out[:saved_custom] = { model: entry["model"], base_url: entry["base_url"] }
+        end
 
         # Auto-mode preview: surface what the OCR sidecar *would* be if the
         # user flipped to "auto" — derived from the same provider as the
@@ -2037,58 +2071,8 @@ module Clacky
       # PATCH /api/config/ocr
       # Body: { source: "off"|"auto"|"custom", model?, base_url?, api_key?,
       #         anthropic_format? }
-      # Mirrors api_update_media_config but for the single "ocr" type.
       def api_update_ocr_config(req, res)
-        body = parse_json_body(req) || {}
-        source = body["source"].to_s
-        unless %w[off auto custom].include?(source)
-          return json_response(res, 422, { error: "invalid source" })
-        end
-
-        @agent_config.models.reject! { |m| m["type"] == "ocr" }
-
-        case source
-        when "off"
-          @agent_config.models << {
-            "id"       => SecureRandom.uuid,
-            "type"     => "ocr",
-            "disabled" => true
-          }
-        when "auto"
-          override = body["model"].to_s.strip
-          unless override.empty?
-            @agent_config.models << {
-              "id"    => SecureRandom.uuid,
-              "type"  => "ocr",
-              "model" => override
-            }
-          end
-        when "custom"
-          model    = body["model"].to_s.strip
-          base_url = body["base_url"].to_s.strip
-          api_key  = body["api_key"].to_s
-          if api_key.include?("****")
-            existing = @agent_config.models.find { |m| m["type"] == "ocr" && m["api_key"] }
-            api_key = existing ? existing["api_key"].to_s : ""
-          end
-          if model.empty? || base_url.empty? || api_key.empty?
-            return json_response(res, 422, { error: "model, base_url, api_key are required" })
-          end
-
-          @agent_config.models << {
-            "id"               => SecureRandom.uuid,
-            "model"            => model,
-            "base_url"         => base_url,
-            "api_key"          => api_key,
-            "anthropic_format" => body["anthropic_format"] || false,
-            "type"             => "ocr"
-          }
-        end
-
-        @agent_config.save
-        json_response(res, 200, { ok: true, state: @agent_config.ocr_state })
-      rescue => e
-        json_response(res, 422, { error: e.message })
+        update_sidecar_config(res, "ocr", parse_json_body(req) || {})
       end
 
       # POST /api/config/ocr/test
