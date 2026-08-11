@@ -184,7 +184,7 @@ module Clacky
         - 将大目标拆解为可执行的小步骤
       MD
 
-      def initialize(host: "127.0.0.1", port: 7070, agent_config:, client_factory:, brand_test: false, sessions_dir: nil, socket: nil, master_pid: nil)
+      def initialize(host: "127.0.0.1", port: 7070, agent_config:, client_factory:, brand_test: false, sessions_dir: nil, projects_file: nil, socket: nil, master_pid: nil)
         @host           = host
         @port           = port
         @agent_config   = agent_config
@@ -197,7 +197,7 @@ module Clacky
         @restart_script = File.expand_path($0)
         @restart_argv   = ARGV.dup
         @session_manager = Clacky::SessionManager.new(sessions_dir: sessions_dir)
-        @project_manager = Clacky::Server::ProjectManager.new
+        @project_manager = Clacky::Server::ProjectManager.new(projects_file: projects_file)
         @registry        = SessionRegistry.new(
           session_manager:  @session_manager,
           session_restorer: method(:build_session_from_data),

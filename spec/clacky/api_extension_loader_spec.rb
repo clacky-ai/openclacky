@@ -110,5 +110,73 @@ RSpec.describe Clacky::ApiExtensionLoader do
       result = load_from_layer
       expect(result.loaded).to include("webhook2")
     end
+
+    it "isolates two extensions that define the same class and constant names" do
+      shared_handler = lambda do |route|
+        <<~RUBY
+          module SharedHelper
+            LIMIT = #{route}
+          end
+
+          class CollidingExt < Clacky::ApiExtension
+            get "/#{route}" do
+              json(limit: SharedHelper::LIMIT)
+            end
+          end
+        RUBY
+      end
+
+      make_container("twin-a", handler_rb: shared_handler.call(1))
+      make_container("twin-b", handler_rb: shared_handler.call(2))
+
+      result = load_from_layer
+
+      expect(result.skipped).to be_empty
+      expect(result.loaded).to include("twin-a", "twin-b")
+
+      a = Clacky::ApiExtension.registry["twin-a"]
+      b = Clacky::ApiExtension.registry["twin-b"]
+      expect(a).not_to equal(b)
+      expect(a.routes.size).to eq(1)
+      expect(b.routes.size).to eq(1)
+      expect(a.ext_id).to eq("twin-a")
+      expect(b.ext_id).to eq("twin-b")
+      expect(Object.const_defined?(:CollidingExt)).to be(false)
+      expect(Object.const_defined?(:SharedHelper)).to be(false)
+    end
+
+    it "keeps each colliding extension's constants bound to its own copy at request time" do
+      handler = lambda do |limit|
+        <<~RUBY
+          module TwinLimits
+            LIMIT = #{limit}
+          end
+
+          class TwinRuntimeExt < Clacky::ApiExtension
+            get "/limit" do
+              json(limit: TwinLimits::LIMIT)
+            end
+          end
+        RUBY
+      end
+
+      make_container("rt-a", handler_rb: handler.call(11))
+      make_container("rt-b", handler_rb: handler.call(22))
+      load_from_layer
+
+      limits = %w[rt-a rt-b].map do |id|
+        klass = Clacky::ApiExtension.registry[id]
+        route = klass.routes.first
+        inst = klass.new(req: nil, res: nil, route: route, params: {}, http_server: nil)
+        begin
+          inst.invoke
+          nil
+        rescue Clacky::ApiExtension::Halt => e
+          JSON.parse(e.payload)["limit"]
+        end
+      end
+
+      expect(limits).to eq([11, 22])
+    end
   end
 end

@@ -10,9 +10,12 @@ require "tmpdir"
 ENV["CLACKY_BILLING_DIR"] = Dir.mktmpdir("clacky_billing_test")
 
 require "clacky"
+require "clacky/server/project_manager"
 require "fileutils"
 require "climate_control"
 require_relative "support/test_helpers"
+
+TEST_PROJECTS_FILE = File.join(Dir.mktmpdir("clacky_projects_test"), "projects.json")
 
 RSpec.configure do |config|
   # Enable flags like --only-failures and --next-failure
@@ -26,6 +29,13 @@ RSpec.configure do |config|
   # hits the remote API; stub it out globally so every Agent.new is fast.
   config.before(:each) do
     allow_any_instance_of(Clacky::BrandConfig).to receive(:sync_brand_skills_async!)
+  end
+
+  # Last-resort guard: a spec that builds a ProjectManager without injecting a
+  # path would otherwise write into the developer's real ~/.clacky/projects.json.
+  config.before(:suite) do
+    Clacky::Server::ProjectManager.send(:remove_const, :PROJECTS_FILE)
+    Clacky::Server::ProjectManager.const_set(:PROJECTS_FILE, TEST_PROJECTS_FILE)
   end
 
   config.expect_with :rspec do |c|

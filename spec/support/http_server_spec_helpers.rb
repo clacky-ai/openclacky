@@ -9,14 +9,16 @@ require "clacky/agent_config"
 module HttpServerSpecHelpers
   # Start the server in a background thread; yield a Net::HTTP instance.
   # The server is shut down after the block returns.
-  def with_server(agent_config:, client_factory: -> { double("client") }, sessions_dir: nil)
+  def with_server(agent_config:, client_factory: -> { double("client") }, sessions_dir: nil, projects_file: nil)
     dir = sessions_dir || Dir.mktmpdir("clacky_http_spec_sessions")
+    projects_dir = Dir.mktmpdir("clacky_http_spec_projects") unless projects_file
     server = Clacky::Server::HttpServer.new(
       host:           "127.0.0.1",
       port:           0,  # OS picks a free port
       agent_config:   agent_config,
       client_factory: client_factory,
-      sessions_dir:   dir
+      sessions_dir:   dir,
+      projects_file:  projects_file || File.join(projects_dir, "projects.json")
     )
 
     # We only need the dispatcher (dispatch method), not the full WEBrick loop.
@@ -25,6 +27,7 @@ module HttpServerSpecHelpers
     yield server
   ensure
     FileUtils.rm_rf(dir) unless sessions_dir  # only clean up if we created it
+    FileUtils.rm_rf(projects_dir) if projects_dir
   end
 
   # Build a minimal fake WEBrick request object.

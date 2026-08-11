@@ -65,17 +65,10 @@ module Clacky
         existing = reload ? Clacky::ApiExtension.registry[ext_id] : nil
         existing&.reset_routes!
 
-        if reload
-          old_verbose = $VERBOSE
-          $VERBOSE = nil
-          begin
-            load(handler_path)
-          ensure
-            $VERBOSE = old_verbose
-          end
-        else
-          require(handler_path)
-        end
+        # Wrapped load: each handler gets a fresh anonymous module, so two exts
+        # defining the same top-level class/constant names cannot clobber each
+        # other (and the `inherited` hook fires even on repeat loads).
+        load(handler_path, true)
 
         new_subclasses = Clacky::ApiExtension.pending_subclasses[before..] || []
         klass = new_subclasses.last || existing
