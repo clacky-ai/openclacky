@@ -821,7 +821,7 @@ body {
   gap: 8px;
   padding: 14px 8px 7px;
   font-family: var(--font-mono);
-  font-size: 0.65625rem;
+  font-size: 0.72rem;
   font-weight: 500;
   color: var(--color-text-tertiary);
   text-transform: uppercase;
@@ -13991,11 +13991,23 @@ body.setup-mode[data-theme="dark"] {
 }
 
 /* ── Section-level collapse ────────────────────────────────────────────────── */
+#projects-section-header {
+  cursor: pointer;
+  padding: 0.25rem 0.5rem;
+  margin-top: 0.5rem;
+  border-radius: var(--radius-sm);
+  transition: background var(--transition-fast);
+}
+#projects-section-header:hover {
+  background: var(--color-bg-hover);
+}
+#projects-section-header:hover .btn-icon-sm:hover {
+  background: var(--color-border-primary);
+}
 .projects-section-title {
   display: inline-flex;
   align-items: center;
   gap: 3px;
-  cursor: pointer;
 }
 .projects-section-chevron {
   flex-shrink: 0;
@@ -14036,7 +14048,7 @@ body.setup-mode[data-theme="dark"] {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 0.8125rem;
+  font-size: 0.825rem;
   color: var(--color-text-primary);
 }
 
@@ -14079,109 +14091,6 @@ body.setup-mode[data-theme="dark"] {
   padding: 0.25rem 0.5rem 0.25rem 0.625rem;
   font-size: 0.75rem;
   color: var(--color-text-muted);
-}
-
-/* ── Project hover tooltip ─────────────────────────────────────────────────── */
-.project-tooltip {
-  position: fixed;
-  z-index: 1200;
-  background: var(--color-bg-secondary);
-  border: 1px solid var(--color-border-primary);
-  border-radius: 10px;
-  box-shadow: 0 8px 24px rgba(0,0,0,.10), 0 2px 8px rgba(0,0,0,.06);
-  padding: 0.75rem 0.875rem 0.75rem 1.125rem; /* extra left padding = visual gap */
-  min-width: 13rem;
-  max-width: 18rem;
-  animation: fadeIn 0.12s ease;
-}
-/* Transparent bridge on the left side fills the gap between sidebar and tooltip */
-.project-tooltip::before {
-  content: "";
-  position: absolute;
-  top: 0;
-  left: -8px;
-  width: 8px;
-  height: 100%;
-}
-[data-theme="dark"] .project-tooltip {
-  box-shadow: 0 8px 28px rgba(0,0,0,.55), 0 2px 8px rgba(0,0,0,.35);
-}
-
-.project-tooltip-header {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  margin-bottom: 0.75rem;
-}
-.project-tooltip-icon {
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--color-text-secondary);
-  line-height: 0;
-}
-.project-tooltip-icon svg {
-  display: block;
-  flex-shrink: 0;
-}
-.project-tooltip-name {
-  flex: 1;
-  min-width: 0;
-  font-size: 0.8125rem;
-  font-weight: 500;
-  color: var(--color-text-primary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.project-tooltip-rows {
-  display: flex;
-  flex-direction: column;
-  gap: 0.3rem;
-}
-.project-tooltip-row {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  font-size: 0.75rem;
-  color: var(--color-text-secondary);
-  min-width: 0;
-}
-.project-tooltip-row--clickable {
-  cursor: pointer;
-  border-radius: 4px;
-  margin: 0 -0.25rem;
-  padding: 0.15rem 0.25rem;
-  transition: background var(--transition-fast);
-}
-.project-tooltip-row--clickable:hover {
-  background: var(--color-bg-hover);
-}
-
-.project-tooltip-divider {
-  height: 1px;
-  background: var(--color-border-primary);
-  margin: 0.25rem 0;
-}
-
-.project-tooltip-row-icon {
-  flex-shrink: 0;
-  color: var(--color-text-muted);
-  display: flex;
-  align-items: center;
-  line-height: 0;
-}
-.project-tooltip-row-icon svg {
-  display: block;
-  flex-shrink: 0;
-}
-.project-tooltip-row-text {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  line-height: 1.4;
 }
 
 /* ── Project context menu (rename / delete) ────────────────────────────────── */
@@ -14345,6 +14254,13 @@ body.setup-mode[data-theme="dark"] {
 /* Source folders section */
 .create-project-folder-section {
   margin-top: 0.75rem;
+}
+
+.create-project-folder-hint {
+  font-size: 0.72rem;
+  color: var(--color-text-muted);
+  margin-top: 0.35rem;
+  line-height: 1.4;
 }
 
 .create-project-folder-label {
