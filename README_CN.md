@@ -23,7 +23,7 @@ OpenClacky 在任务能力上对齐 Claude Code，成本相当，同时相比其
 | **OpenClacky** | **~0.8×** | 16 个工具 · 近 100% 缓存命中 · 子 Agent 路由 |
 | Claude Code | 1.0×（基准） | 世界级 Harness，闭源订阅制 |
 | OpenClaw | ~1.5× | 能力对标的 Harness Agent |
-| Hermes | ~3× | 52 个内置工具，Schema 体积膨胀 ~3–4× |
+| Hermes | ~3× 成本 | 52 个内置工具，Schema 体积膨胀 ~3–4× |
 
 *数据为内部常见 Agent 任务均值，以 Claude Code 为基准。完整基准测试报告将在 GitHub 发布。*
 
