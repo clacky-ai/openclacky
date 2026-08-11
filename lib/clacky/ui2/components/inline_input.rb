@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require "tty-screen"
 require_relative "../line_editor"
 
 module Clacky

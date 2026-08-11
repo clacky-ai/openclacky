@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "pastel"
+require "tty-screen"
 require "tempfile"
 require_relative "../theme_manager"
 require_relative "../line_editor"

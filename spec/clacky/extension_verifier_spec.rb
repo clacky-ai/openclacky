@@ -209,4 +209,13 @@ RSpec.describe Clacky::ExtensionVerifier do
     expect(miss).not_to be_nil
     expect(miss.level).to eq(:warning)
   end
+
+  it "reports no issues for the gem's own bundled default extensions" do
+    result = Clacky::ExtensionLoader.load_all(
+      layers: { builtin: Clacky::ExtensionLoader::BUILTIN_DIR }, force: true
+    )
+
+    issues = described_class.verify(result)
+    expect(issues).to be_empty, -> { issues.map { |i| "#{i.code} #{i.ext}: #{i.message}" }.join("\n") }
+  end
 end

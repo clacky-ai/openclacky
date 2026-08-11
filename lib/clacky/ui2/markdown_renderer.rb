@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-require "tty-markdown"
+require "tty-screen"
 require_relative "theme_manager"
 
 module Clacky
@@ -13,6 +13,10 @@ module Clacky
         # @return [String] Rendered content with ANSI colors
         def render(content)
           return content if content.nil? || content.empty?
+
+          # tty-markdown pulls in rouge + kramdown (~0.4s). Server mode renders
+          # markdown in the browser, so only pay that cost on a real terminal render.
+          require "tty-markdown" unless defined?(TTY::Markdown)
 
           # Get current theme colors
           theme = ThemeManager.current_theme

@@ -3,7 +3,6 @@
 require "securerandom"
 require "json"
 require "cgi"
-require "tty-prompt"
 require "set"
 require_relative "null_ui_controller"
 require_relative "utils/arguments_parser"

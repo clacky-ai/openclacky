@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "pastel"
+require "tty-screen"
 
 module Clacky
   module UI2

@@ -1,7 +1,6 @@
 # frozen_string_literal: true
 
 require "thor"
-require "tty-prompt"
 require "fileutils"
 require_relative "ui2"
 require_relative "json_ui_controller"

@@ -1,7 +1,6 @@
 # frozen_string_literal: true
 
 require 'io/console'
-require 'tty-prompt'
 require_relative 'base_component'
 
 module Clacky

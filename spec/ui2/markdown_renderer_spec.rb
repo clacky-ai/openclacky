@@ -2,6 +2,7 @@
 
 require "spec_helper"
 require "clacky/ui2/markdown_renderer"
+require "tty-markdown"
 
 RSpec.describe Clacky::UI2::MarkdownRenderer do
   describe ".render" do

@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require "pastel"
 require_relative "layout_manager"
 require_relative "view_renderer"
 require_relative "progress_handle"

@@ -423,8 +423,9 @@ smallest change, re-run verify, repeat until clean — fix ONE issue at a time.
 - **`schema.unknown_contributes`** → a top-level key under `contributes:` is misspelled.
   **Do:** fix the spelling to one of `panels api skills agents channels patches hooks`.
 - **`schema.unknown_key`** → an unknown **top-level** key in `ext.yml`. **Do:** fix the
-  spelling. Allowed top-level keys: `id name title description version origin author
-  homepage license public license_required keywords contributes`.
+  spelling. Allowed top-level keys: `id name name_zh display_name display_name_zh title
+  description description_zh emoji version origin author homepage license public
+  license_required keywords contributes`.
 - **`schema.unknown_field`** → a unit has a field not allowed for its type. **Do:** delete
   or rename that field. Allowed fields per type (this is the authoritative list — do not
   invent others):
