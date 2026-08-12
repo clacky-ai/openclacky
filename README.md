@@ -27,7 +27,7 @@ Same task, how much do you pay? Under comparable agent workloads, OpenClacky sav
 | **OpenClacky** | **~0.8×** | 16 tools · ~100% cache hit · subagent routing |
 | Claude Code | 1.0× (baseline) | World-class harness, closed-source subscription |
 | OpenClaw | ~1.5× | Comparable harness agent |
-| Hermes | ~3× cost | 52 built-in tools — schema bloat ~3–4× |
+| Hermes | ~3× | 52 built-in tools — schema bloat ~3–4× |
 
 *Numbers are averages measured on internal common agent tasks, using Claude Code as the baseline. Full benchmark reports will be published on GitHub.*
 
