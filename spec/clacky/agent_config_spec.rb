@@ -1298,4 +1298,291 @@ RSpec.describe Clacky::AgentConfig do
       end
     end
   end
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # effective_media_entry / effective_ocr_entry / media_state / ocr_state
+  # ─────────────────────────────────────────────────────────────────────────
+  # These are the mode-aware entry points that respect the "mode" field
+  # (off / auto / custom) introduced to replace the legacy "disabled" boolean.
+  # The derive paths depend on Clacky::Providers, so we stub those calls
+  # rather than relying on real preset data.
+
+  let(:default_anchor) do
+    {
+      "model"    => "sonnet",
+      "base_url" => "https://api.anthropic.com/v1",
+      "api_key"  => "sk-ant-test",
+      "type"     => "default"
+    }
+  end
+
+  let(:custom_media_entry) do
+    {
+      "model"    => "gpt-image-1",
+      "base_url" => "https://api.openai.com/v1",
+      "api_key"  => "sk-openai-test",
+      "type"     => "image",
+      "mode"     => "custom"
+    }
+  end
+
+  let(:custom_ocr_entry) do
+    {
+      "model"    => "gpt-4o",
+      "base_url" => "https://api.openai.com/v1",
+      "api_key"  => "sk-openai-test",
+      "type"     => "ocr",
+      "mode"     => "custom"
+    }
+  end
+
+  describe "#effective_media_entry" do
+    it "returns nil when mode is off" do
+      config = described_class.new(models: [default_anchor.merge("type" => "image", "mode" => "off")])
+      expect(config.effective_media_entry("image")).to be_nil
+    end
+
+    it "returns nil when legacy disabled is true" do
+      config = described_class.new(models: [default_anchor, { "type" => "image", "disabled" => true }])
+      expect(config.effective_media_entry("image")).to be_nil
+    end
+
+    it "returns the raw entry when mode is custom" do
+      config = described_class.new(models: [default_anchor, custom_media_entry])
+      result = config.effective_media_entry("image")
+      expect(result["model"]).to eq("gpt-image-1")
+      expect(result["base_url"]).to eq("https://api.openai.com/v1")
+    end
+
+    it "returns the raw entry for a legacy entry without mode but with credentials" do
+      legacy = custom_media_entry.reject { |k, _| k == "mode" }
+      config = described_class.new(models: [default_anchor, legacy])
+      result = config.effective_media_entry("image")
+      expect(result["model"]).to eq("gpt-image-1")
+    end
+
+    it "derives from provider when mode is auto" do
+      config = described_class.new(models: [default_anchor, { "type" => "image", "mode" => "auto", "model" => "dall-e-3" }])
+      allow(Clacky::Providers).to receive(:resolve_provider)
+        .with(base_url: "https://api.anthropic.com/v1", api_key: "sk-ant-test")
+        .and_return("anthropic")
+      allow(Clacky::Providers).to receive(:media_models).with("anthropic", "image").and_return(["dall-e-3"])
+      allow(Clacky::Providers).to receive(:default_media_model).with("anthropic", "image").and_return("dall-e-3")
+
+      result = config.effective_media_entry("image")
+      expect(result["model"]).to eq("dall-e-3")
+      expect(result["base_url"]).to eq("https://api.anthropic.com/v1")
+      expect(result["auto_injected"]).to be true
+    end
+
+    it "falls back to default_media_model when auto override is not in available list" do
+      config = described_class.new(models: [default_anchor, { "type" => "image", "mode" => "auto", "model" => "unknown-model" }])
+      allow(Clacky::Providers).to receive(:resolve_provider)
+        .with(base_url: "https://api.anthropic.com/v1", api_key: "sk-ant-test")
+        .and_return("anthropic")
+      allow(Clacky::Providers).to receive(:media_models).with("anthropic", "image").and_return(["dall-e-3"])
+      allow(Clacky::Providers).to receive(:default_media_model).with("anthropic", "image").and_return("dall-e-3")
+
+      result = config.effective_media_entry("image")
+      expect(result["model"]).to eq("dall-e-3")
+    end
+
+    it "returns nil when no entry exists and provider has no media models" do
+      config = described_class.new(models: [default_anchor])
+      allow(Clacky::Providers).to receive(:resolve_provider)
+        .with(base_url: "https://api.anthropic.com/v1", api_key: "sk-ant-test")
+        .and_return("anthropic")
+      allow(Clacky::Providers).to receive(:media_models).with("anthropic", "image").and_return([])
+      allow(Clacky::Providers).to receive(:default_media_model).with("anthropic", "image").and_return(nil)
+
+      expect(config.effective_media_entry("image")).to be_nil
+    end
+  end
+
+  describe "#effective_ocr_entry" do
+    it "returns nil when mode is off" do
+      config = described_class.new(models: [default_anchor, { "type" => "ocr", "mode" => "off" }])
+      expect(config.effective_ocr_entry).to be_nil
+    end
+
+    it "returns nil when legacy disabled is true" do
+      config = described_class.new(models: [default_anchor, { "type" => "ocr", "disabled" => true }])
+      expect(config.effective_ocr_entry).to be_nil
+    end
+
+    it "returns the raw entry when mode is custom" do
+      config = described_class.new(models: [default_anchor, custom_ocr_entry])
+      result = config.effective_ocr_entry
+      expect(result["model"]).to eq("gpt-4o")
+      expect(result["base_url"]).to eq("https://api.openai.com/v1")
+    end
+
+    it "returns the raw entry for a legacy entry without mode but with credentials" do
+      legacy = custom_ocr_entry.reject { |k, _| k == "mode" }
+      config = described_class.new(models: [default_anchor, legacy])
+      result = config.effective_ocr_entry
+      expect(result["model"]).to eq("gpt-4o")
+    end
+
+    it "derives from provider and returns default model directly when it supports vision" do
+      config = described_class.new(models: [default_anchor, { "type" => "ocr", "mode" => "auto" }])
+      allow(Clacky::Providers).to receive(:resolve_provider)
+        .with(base_url: "https://api.anthropic.com/v1", api_key: "sk-ant-test")
+        .and_return("anthropic")
+      allow(Clacky::Providers).to receive(:supports?)
+        .with("anthropic", :vision, model_name: "sonnet")
+        .and_return(true)
+
+      result = config.effective_ocr_entry
+      expect(result["model"]).to eq("sonnet")
+      expect(result["base_url"]).to eq("https://api.anthropic.com/v1")
+      expect(result["primary"]).to be true
+      expect(result["auto_injected"]).to be true
+    end
+
+    it "derives a separate sidecar model when default does not support vision" do
+      config = described_class.new(models: [default_anchor, { "type" => "ocr", "mode" => "auto" }])
+      allow(Clacky::Providers).to receive(:resolve_provider)
+        .with(base_url: "https://api.anthropic.com/v1", api_key: "sk-ant-test")
+        .and_return("anthropic")
+      allow(Clacky::Providers).to receive(:supports?)
+        .with("anthropic", :vision, model_name: "sonnet")
+        .and_return(false)
+      allow(Clacky::Providers).to receive(:ocr_models).with("anthropic").and_return(["claude-haiku"])
+      allow(Clacky::Providers).to receive(:default_ocr_model).with("anthropic").and_return("claude-haiku")
+
+      result = config.effective_ocr_entry
+      expect(result["model"]).to eq("claude-haiku")
+      expect(result["base_url"]).to eq("https://api.anthropic.com/v1")
+      expect(result["primary"]).to be_nil
+      expect(result["auto_injected"]).to be true
+    end
+
+    it "returns nil when provider has no vision-capable models at all" do
+      config = described_class.new(models: [default_anchor, { "type" => "ocr", "mode" => "auto" }])
+      allow(Clacky::Providers).to receive(:resolve_provider)
+        .with(base_url: "https://api.anthropic.com/v1", api_key: "sk-ant-test")
+        .and_return("deepseek")
+      allow(Clacky::Providers).to receive(:supports?)
+        .with("deepseek", :vision, model_name: "sonnet")
+        .and_return(false)
+      allow(Clacky::Providers).to receive(:ocr_models).with("deepseek").and_return([])
+      allow(Clacky::Providers).to receive(:default_ocr_model).with("deepseek").and_return(nil)
+
+      expect(config.effective_ocr_entry).to be_nil
+    end
+  end
+
+  describe "#media_state" do
+    it "returns source off when mode is off" do
+      config = described_class.new(models: [default_anchor, { "type" => "image", "mode" => "off" }])
+      allow(Clacky::Providers).to receive(:resolve_provider)
+        .with(base_url: "https://api.anthropic.com/v1", api_key: "sk-ant-test")
+        .and_return("anthropic")
+      allow(Clacky::Providers).to receive(:media_models).with("anthropic", "image").and_return(["dall-e-3"])
+      allow(Clacky::Providers).to receive(:media_model_aliases).with("anthropic", "image").and_return({})
+
+      state = config.media_state("image")
+      expect(state["source"]).to eq("off")
+      expect(state["configured"]).to be false
+      expect(state["available"]).to eq(["dall-e-3"])
+    end
+
+    it "returns source custom when mode is custom" do
+      config = described_class.new(models: [default_anchor, custom_media_entry])
+      allow(Clacky::Providers).to receive(:resolve_provider)
+        .with(base_url: "https://api.openai.com/v1", api_key: "sk-openai-test")
+        .and_return("openai")
+      allow(Clacky::Providers).to receive(:media_models).with("openai", "image").and_return(["gpt-image-1"])
+      allow(Clacky::Providers).to receive(:media_model_aliases).with("openai", "image").and_return({})
+
+      state = config.media_state("image")
+      expect(state["source"]).to eq("custom")
+      expect(state["configured"]).to be true
+      expect(state["model"]).to eq("gpt-image-1")
+    end
+
+    it "returns source auto when mode is auto and derivation succeeds" do
+      config = described_class.new(models: [default_anchor, { "type" => "image", "mode" => "auto" }])
+      allow(Clacky::Providers).to receive(:resolve_provider)
+        .with(base_url: "https://api.anthropic.com/v1", api_key: "sk-ant-test")
+        .and_return("anthropic")
+      allow(Clacky::Providers).to receive(:media_models).with("anthropic", "image").and_return(["dall-e-3"])
+      allow(Clacky::Providers).to receive(:default_media_model).with("anthropic", "image").and_return("dall-e-3")
+      allow(Clacky::Providers).to receive(:media_model_aliases).with("anthropic", "image").and_return({})
+
+      state = config.media_state("image")
+      expect(state["source"]).to eq("auto")
+      expect(state["configured"]).to be true
+      expect(state["model"]).to eq("dall-e-3")
+    end
+  end
+
+  describe "#ocr_state" do
+    it "returns source off when mode is off and default does not support vision" do
+      config = described_class.new(models: [default_anchor, { "type" => "ocr", "mode" => "off" }])
+      allow(Clacky::Providers).to receive(:resolve_provider)
+        .with(base_url: "https://api.anthropic.com/v1", api_key: "sk-ant-test")
+        .and_return("anthropic")
+      allow(Clacky::Providers).to receive(:supports?)
+        .with("anthropic", :vision, model_name: "sonnet")
+        .and_return(false)
+      allow(Clacky::Providers).to receive(:ocr_models).with("anthropic").and_return(["claude-haiku"])
+
+      state = config.ocr_state
+      expect(state["source"]).to eq("off")
+      expect(state["configured"]).to be false
+      expect(state["available"]).to eq(["claude-haiku"])
+    end
+
+    it "returns source primary when mode is off but default supports vision" do
+      config = described_class.new(models: [default_anchor, { "type" => "ocr", "mode" => "off" }])
+      allow(Clacky::Providers).to receive(:resolve_provider)
+        .with(base_url: "https://api.anthropic.com/v1", api_key: "sk-ant-test")
+        .and_return("anthropic")
+      allow(Clacky::Providers).to receive(:supports?)
+        .with("anthropic", :vision, model_name: "sonnet")
+        .and_return(true)
+      allow(Clacky::Providers).to receive(:ocr_models).with("anthropic").and_return(["sonnet"])
+
+      state = config.ocr_state
+      expect(state["source"]).to eq("primary")
+      expect(state["configured"]).to be true
+      expect(state["primary"]).to be true
+      expect(state["model"]).to eq("sonnet")
+    end
+
+    it "returns source custom when mode is custom" do
+      config = described_class.new(models: [default_anchor, custom_ocr_entry])
+      allow(Clacky::Providers).to receive(:resolve_provider)
+        .with(base_url: "https://api.openai.com/v1", api_key: "sk-openai-test")
+        .and_return("openai")
+      allow(Clacky::Providers).to receive(:resolve_provider)
+        .with(base_url: "https://api.anthropic.com/v1", api_key: "sk-ant-test")
+        .and_return("anthropic")
+      allow(Clacky::Providers).to receive(:ocr_models).with("anthropic").and_return([])
+
+      state = config.ocr_state
+      expect(state["source"]).to eq("custom")
+      expect(state["configured"]).to be true
+      expect(state["model"]).to eq("gpt-4o")
+    end
+
+    it "returns source auto when mode is auto and derivation succeeds" do
+      config = described_class.new(models: [default_anchor, { "type" => "ocr", "mode" => "auto" }])
+      allow(Clacky::Providers).to receive(:resolve_provider)
+        .with(base_url: "https://api.anthropic.com/v1", api_key: "sk-ant-test")
+        .and_return("anthropic")
+      allow(Clacky::Providers).to receive(:supports?)
+        .with("anthropic", :vision, model_name: "sonnet")
+        .and_return(false)
+      allow(Clacky::Providers).to receive(:ocr_models).with("anthropic").and_return(["claude-haiku"])
+      allow(Clacky::Providers).to receive(:default_ocr_model).with("anthropic").and_return("claude-haiku")
+
+      state = config.ocr_state
+      expect(state["source"]).to eq("auto")
+      expect(state["configured"]).to be true
+      expect(state["model"]).to eq("claude-haiku")
+    end
+  end
 end

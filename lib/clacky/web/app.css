@@ -826,7 +826,7 @@ body {
   gap: 8px;
   padding: 14px 8px 7px;
   font-family: var(--font-mono);
-  font-size: 0.8rem;
+  font-size: 0.75rem;
   font-weight: 500;
   color: var(--color-text-tertiary);
   text-transform: uppercase;
@@ -1516,7 +1516,7 @@ body {
   display: flex;
   align-items: center;
   gap: 0.25rem;
-  font-size: 0.8125rem;
+  font-size: 0.8325rem;
   font-weight: 400;
   transition: color var(--transition-fast), font-weight var(--transition-fast);
 }
@@ -8003,7 +8003,6 @@ body {
   border: 1px solid var(--color-warning-border, #fcd34d);
   border-radius: 8px;
   padding: 0.5rem 0.75rem;
-  margin-bottom: 0.75rem;
   line-height: 1.4;
   display: flex;
   align-items: center;
@@ -14117,6 +14116,14 @@ body.setup-mode[data-theme="dark"] {
 .project-session-group {
   padding-left: 0.875rem;
   margin-top: 0.08rem;
+}
+
+.project-session-group .session-item.active {
+  background: var(--color-bg-hover);
+}
+
+.project-session-group .session-item.active::before {
+  display: none;
 }
 
 .project-sessions-empty {

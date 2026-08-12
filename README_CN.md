@@ -10,7 +10,7 @@
 
 **最省 Token 的开源 AI Agent。**
 
-OpenClacky 在任务能力上对齐 Claude Code，成本相当，同时相比其他开源 Agent 有显著优势（约节省 50% vs OpenClaw，约便宜 3× vs Hermes）。100% 开源（MIT），支持 BYOK 接入任意 OpenAI 兼容模型，背后是两年 Agentic 研发与 Harness 工程积累。
+OpenClacky 在任务能力上对齐 Claude Code，成本相当，同时相比其他开源 Agent 有显著优势（约节省 50% vs OpenClaw，成本约为 Hermes 的 1/3）。100% 开源（MIT），支持 BYOK 接入任意 OpenAI 兼容模型，背后是两年 Agentic 研发与 Harness 工程积累。
 
 > 官网：https://www.openclacky.com/ · 投资方：**奇绩创坛 · 真格基金 · 红杉中国 · 高瓴资本**
 

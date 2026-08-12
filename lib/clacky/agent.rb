@@ -1391,7 +1391,7 @@ module Clacky
       # plain text, inflating token counts by 20-40x.  The tool result carries a
       # plain-text description for the LLM; the actual image is delivered here.
       vision_supported = @config.current_model_supports?(:vision)
-      ocr_entry = vision_supported ? nil : @config.find_model_by_type("ocr")
+      ocr_entry = vision_supported ? nil : @config.effective_ocr_entry
 
       tool_results.each do |tr|
         inject = tr[:image_inject]
@@ -1958,7 +1958,7 @@ module Clacky
       # OCR sidecar — only consulted when the primary doesn't see images.
       # When the sidecar entry has "primary"=>true, the primary itself can see,
       # so vision_supported was already true and we never enter the OCR branch.
-      ocr_entry = vision_supported ? nil : @config.find_model_by_type("ocr")
+      ocr_entry = vision_supported ? nil : @config.effective_ocr_entry
 
       vision_images = []  # Array of { url:, name:, size_bytes:, path: }
       downgraded    = []

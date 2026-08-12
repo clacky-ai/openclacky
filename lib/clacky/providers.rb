@@ -472,7 +472,8 @@ module Clacky
         "model_capabilities" => {
           "glm-5.2"           => { "vision" => false }.freeze,
           "deepseek-v4-pro"   => { "vision" => false }.freeze,
-          "deepseek-v4-flash" => { "vision" => false }.freeze
+          "deepseek-v4-flash" => { "vision" => false }.freeze,
+          "minimax-m2.7"      => { "vision" => false }.freeze
         }.freeze,
         "default_ocr_model" => "doubao-seed-2.0-lite",
         "website_url" => "https://console.volcengine.com/ark/region:cn-beijing/overview"

@@ -49,17 +49,17 @@ module Clacky
 
       # @return [Hash, nil] the type=image model entry, or nil if not configured
       def image_model_entry
-        @agent_config.find_model_by_type("image")
+        @agent_config.effective_media_entry("image")
       end
 
       # @return [Hash, nil] the type=video model entry, or nil if not configured
       def video_model_entry
-        @agent_config.find_model_by_type("video")
+        @agent_config.effective_media_entry("video")
       end
 
       # @return [Hash, nil] the type=audio model entry, or nil if not configured
       def audio_model_entry
-        @agent_config.find_model_by_type("audio")
+        @agent_config.effective_media_entry("audio")
       end
 
       def generate_image(prompt:, aspect_ratio: "landscape", output_dir: nil, **kwargs)
