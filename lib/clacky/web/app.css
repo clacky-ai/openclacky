@@ -1516,7 +1516,7 @@ body {
   display: flex;
   align-items: center;
   gap: 0.25rem;
-  font-size: 0.8125rem;
+  font-size: 0.8325rem;
   font-weight: 400;
   transition: color var(--transition-fast), font-weight var(--transition-fast);
 }
@@ -8000,7 +8000,6 @@ body {
   border: 1px solid var(--color-warning-border, #fcd34d);
   border-radius: 8px;
   padding: 0.5rem 0.75rem;
-  margin-bottom: 0.75rem;
   line-height: 1.4;
   display: flex;
   align-items: center;
