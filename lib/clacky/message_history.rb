@@ -286,7 +286,7 @@ module Clacky
     private def estimate_content_tokens(content)
       case content
       when String
-        ascii_chars = content.scan(/[ -~]/).length
+        ascii_chars = content.count(" -~")
         multibyte_chars = content.length - ascii_chars
         ((ascii_chars / 4.0) + (multibyte_chars / 1.5)).ceil
       when Array
