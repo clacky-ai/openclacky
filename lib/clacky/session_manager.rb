@@ -335,6 +335,13 @@ module Clacky
     # sessions are never deleted and do not count toward the cap.
     # Returns count of soft-deleted sessions.
     def cleanup_by_count(keep:, grouped_keep: 200)
+      # Fast path: if total session files can't exceed any single group's cap,
+      # skip the expensive all_sessions() full-scan (read + JSON.parse every file).
+      # min() is correct because groups are mutually exclusive — any single
+      # group's count ≤ non_pinned ≤ file_count ≤ min(keep, grouped_keep).
+      file_count = Dir.glob(File.join(@sessions_dir, "*.json")).size
+      return 0 if file_count <= [keep, grouped_keep].min
+
       non_pinned = all_sessions.reject { |s| s[:pinned] }
 
       groups = non_pinned.group_by do |s|
