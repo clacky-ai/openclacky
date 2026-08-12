@@ -100,23 +100,29 @@ module Clacky
         # but "developer" is the documented role).
         api_role = role == "system" ? "developer" : role
 
-        # Build the message item
+        # Build the message item (skip when assistant message has no text
+        # content but only tool_calls - the Responses API rejects null content)
         content = msg[:content]
-        message_item = {
-          type:    "message",
-          role:    api_role,
-          content: normalize_content(content, vision_supported: vision_supported)
-        }
-        items << message_item
+        has_content = content && !(content.is_a?(String) && content.empty?) &&
+                      !(content.is_a?(Array) && content.empty?)
+
+        if has_content || role != "assistant"
+          items << {
+            type:    "message",
+            role:    api_role,
+            content: normalize_content(content, vision_supported: vision_supported)
+          }
+        end
 
         # If the assistant message has tool_calls, emit separate function_call items
         if role == "assistant" && msg[:tool_calls]
           msg[:tool_calls].each do |tc|
+            func = tc[:function] || tc  # Handle both nested and flat formats
             items << {
               type:      "function_call",
               call_id:   tc[:id],
-              name:      tc[:name],
-              arguments: tc[:arguments].to_s
+              name:      func[:name],
+              arguments: func[:arguments].to_s
             }
           end
         end
@@ -134,7 +140,7 @@ module Clacky
       # @param vision_supported [Boolean]
       # @return [String, Array]
       def normalize_content(content, vision_supported:)
-        return content unless content.is_a?(Array)
+        return content.to_s unless content.is_a?(Array)
 
         blocks = content.map { |b| normalize_block(b, vision_supported: vision_supported) }.compact
         blocks = [{ type: "input_text", text: "..." }] if blocks.empty?

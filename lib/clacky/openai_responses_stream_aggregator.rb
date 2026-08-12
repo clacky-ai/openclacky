@@ -184,6 +184,11 @@ module Clacky
     end
 
     private def parse_or_nil(s)
+      # Some providers / proxies append a "[DONE]" sentinel (inherited from
+      # Chat Completions SSE) even for the Responses API.  Silently ignore it
+      # instead of logging a parse failure.
+      return nil if s.to_s.strip == "[DONE]"
+
       JSON.parse(s)
     rescue JSON::ParserError => e
       @parse_failures += 1

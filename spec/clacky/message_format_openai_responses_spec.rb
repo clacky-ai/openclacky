@@ -95,14 +95,28 @@ RSpec.describe Clacky::MessageFormat::OpenAIResponses do
       ]
 
       body = described_class.build_request_body(messages, model, tools, max_tokens, false)
-      # User message -> 1 item, assistant message -> 1 message + 1 function_call = 2 items
-      expect(body[:input].length).to eq(3)
-      expect(body[:input][1][:type]).to eq("message")
-      expect(body[:input][1][:role]).to eq("assistant")
-      expect(body[:input][2][:type]).to eq("function_call")
-      expect(body[:input][2][:call_id]).to eq("call_001")
-      expect(body[:input][2][:name]).to eq("get_weather")
-      expect(body[:input][2][:arguments]).to eq("{\"city\":\"Tokyo\"}")
+      # User message -> 1 item, assistant (nil content, only tool_calls) -> 1 function_call
+      expect(body[:input].length).to eq(2)
+      expect(body[:input][1][:type]).to eq("function_call")
+      expect(body[:input][1][:call_id]).to eq("call_001")
+      expect(body[:input][1][:name]).to eq("get_weather")
+      expect(body[:input][1][:arguments]).to eq("{\"city\":\"Tokyo\"}")
+    end
+
+    it "handles nested tool_calls format (as stored in history)" do
+      messages = [
+        { role: "user", content: "What is the weather?" },
+        { role: "assistant", content: nil, tool_calls: [
+          { id: "call_002", type: "function", function: { name: "get_weather", arguments: "{\"city\":\"London\"}" } }
+        ] }
+      ]
+
+      body = described_class.build_request_body(messages, model, tools, max_tokens, false)
+      expect(body[:input].length).to eq(2)
+      expect(body[:input][1][:type]).to eq("function_call")
+      expect(body[:input][1][:call_id]).to eq("call_002")
+      expect(body[:input][1][:name]).to eq("get_weather")
+      expect(body[:input][1][:arguments]).to eq("{\"city\":\"London\"}")
     end
 
     it "converts tool result messages to function_call_output items" do

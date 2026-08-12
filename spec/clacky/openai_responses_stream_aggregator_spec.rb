@@ -206,6 +206,14 @@ RSpec.describe Clacky::OpenAIResponsesStreamAggregator do
       result = agg.to_h
       expect(result["output"][0]["content"][0]["text"]).to eq("Hi")
     end
+
+    it "silently ignores [DONE] sentinel without counting as parse failure" do
+      agg.handle(JSON.generate({ "type" => "response.output_text.delta", "delta" => "Hi" }))
+      agg.handle("[DONE]")
+
+      expect(agg.parse_failures).to eq(0)
+      expect(agg.frames_seen).to eq(2)
+    end
   end
 
   describe "saw_done?" do

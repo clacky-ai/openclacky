@@ -50,7 +50,7 @@ module Clacky
       private def skill_invoked_in_history?
         @history.to_a.any? { |msg|
           msg[:role] == "assistant" &&
-            msg[:tool_calls]&.any? { |tc| tc[:name] == "invoke_skill" }
+            msg[:tool_calls]&.any? { |tc| (tc.dig(:function, :name) || tc[:name]) == "invoke_skill" }
         }
       end
 

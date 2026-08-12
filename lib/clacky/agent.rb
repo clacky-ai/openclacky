@@ -1843,7 +1843,7 @@ module Clacky
       # Extract tool calls
       tool_calls = new_messages
         .select { |m| m[:role] == "assistant" && m[:tool_calls] }
-        .flat_map { |m| m[:tool_calls].map { |tc| tc[:name] } }
+        .flat_map { |m| m[:tool_calls].map { |tc| tc.dig(:function, :name) || tc[:name] } }
         .uniq
 
       # Extract final assistant response
