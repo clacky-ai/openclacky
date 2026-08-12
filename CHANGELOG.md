@@ -4,6 +4,39 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
+## [1.5.8] - 2026-08-12
+
+### Added
+- Inline SVG icons (edit, clear sessions, delete) in project action menu (#474)
+- New project button in project selector popover
+- Verified badge for officially reviewed extensions in marketplace
+
+### Improved
+- Skip full session/file scan when count is under cap (#470 - @shipinliang)
+- Token estimation uses count() instead of scan().length (#471 - @shipinliang)
+- Faster server startup
+- Brand user extension UI (non-admin publish button grayed out, unverified banner hidden)
+- Sidebar my-data section icons refreshed
+- Section chevron icon size increased from 11px to 13px
+- Project sidebar hover effects, folder default hints, project icon sizing
+- Billing UI cleanup and global theme color adjustment
+- Section header font and project group spacing tweaks
+- Project menu labels updated
+- Billing disclaimer about provider billing
+
+### Fixed
+- Extension pack max zip size increased from 50 MB to 80 MB
+- New session button in project area now correctly preselects the project
+- Chat navigation popup no longer overlaps sidebar collapse button
+- Sub-model config preserved when switching modes (auto/off/custom)
+- minimax-m2.7 vision detection fixed
+- Project icon no longer reverts to default after page refresh
+- Load constant warning fixed
+
+### More
+- README cost table formatting normalized
+- Ambiguous cost phrasing clarified across READMEs (#475 - @chengoak)
+
 ## [1.5.7] - 2026-08-10
 
 ### Added
