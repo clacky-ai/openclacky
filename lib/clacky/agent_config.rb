@@ -611,9 +611,27 @@ module Clacky
       end
     end
 
-    # Check if should use Anthropic format for current model
+    # Resolve the API protocol for the current model.
+    # Priority: explicit "api_protocol" field > legacy "anthropic_format"
+    # boolean > "auto" (let Client resolve from provider preset).
+    # @return [String] one of: "auto", "anthropic-messages", "openai-completions", "openai-responses"
+    def api_protocol
+      entry = current_model
+      return "auto" unless entry
+
+      explicit = entry["api_protocol"]
+      return explicit if explicit && explicit != "auto"
+
+      # Legacy compatibility: anthropic_format: true -> "anthropic-messages"
+      return "anthropic-messages" if entry["anthropic_format"] == true
+
+      "auto"
+    end
+
+    # Check if should use Anthropic format for current model.
+    # Delegates to api_protocol for backward compatibility.
     def anthropic_format?
-      current_model&.dig("anthropic_format") || false
+      api_protocol == "anthropic-messages"
     end
 
     # Check if current model uses Bedrock Converse API (ABSK key prefix or abs- model prefix)
@@ -622,12 +640,13 @@ module Clacky
     end
 
     # Add a new model configuration
-    def add_model(model:, api_key:, base_url:, anthropic_format: false, type: nil)
+    def add_model(model:, api_key:, base_url:, anthropic_format: false, api_protocol: nil, type: nil)
       @models << {
         "id" => SecureRandom.uuid,
         "api_key" => api_key,
         "base_url" => base_url,
         "model" => model,
+        "api_protocol" => api_protocol,
         "anthropic_format" => anthropic_format,
         "type" => type
       }.compact

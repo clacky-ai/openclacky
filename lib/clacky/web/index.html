@@ -1373,6 +1373,16 @@
 
           <div id="model-modal-test-result" class="model-test-result"></div>
 
+          <label class="model-field" id="model-modal-api-protocol-field">
+            <span class="field-label" data-i18n="settings.models.field.apiProtocol">API Protocol</span>
+            <select id="model-modal-api-protocol" class="field-input">
+              <option value="auto" data-i18n="settings.models.apiProtocol.auto">Auto (detect from provider)</option>
+              <option value="openai-completions">OpenAI Chat Completions</option>
+              <option value="openai-responses">OpenAI Responses API</option>
+              <option value="anthropic-messages">Anthropic Messages API</option>
+            </select>
+          </label>
+
           <label class="model-field model-field-checkbox" id="model-modal-default-field">
             <input type="checkbox" id="model-modal-set-default" class="field-checkbox">
             <span class="field-label" data-i18n="settings.models.field.setDefault">Set as default model</span>

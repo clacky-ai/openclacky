@@ -1181,6 +1181,106 @@ RSpec.describe Clacky::AgentConfig do
     end
   end
 
+  describe "#api_protocol" do
+    it "returns 'auto' when no models configured" do
+      config = described_class.new(models: [])
+      expect(config.api_protocol).to eq("auto")
+    end
+
+    it "returns the explicit api_protocol field when set" do
+      config = described_class.new(models: [
+        { "model" => "gpt-4o", "api_protocol" => "openai-responses" }
+      ])
+      expect(config.api_protocol).to eq("openai-responses")
+    end
+
+    it "returns 'anthropic-messages' for legacy anthropic_format: true" do
+      config = described_class.new(models: [
+        { "model" => "claude-3-opus", "anthropic_format" => true }
+      ])
+      expect(config.api_protocol).to eq("anthropic-messages")
+    end
+
+    it "returns 'auto' when neither api_protocol nor anthropic_format is set" do
+      config = described_class.new(models: [
+        { "model" => "gpt-4o" }
+      ])
+      expect(config.api_protocol).to eq("auto")
+    end
+
+    it "returns 'auto' when api_protocol is explicitly 'auto'" do
+      config = described_class.new(models: [
+        { "model" => "gpt-4o", "api_protocol" => "auto" }
+      ])
+      expect(config.api_protocol).to eq("auto")
+    end
+  end
+
+  describe "#anthropic_format?" do
+    it "returns true when api_protocol is 'anthropic-messages'" do
+      config = described_class.new(models: [
+        { "model" => "claude-3-opus", "api_protocol" => "anthropic-messages" }
+      ])
+      expect(config.anthropic_format?).to be true
+    end
+
+    it "returns false when api_protocol is 'openai-completions'" do
+      config = described_class.new(models: [
+        { "model" => "gpt-4o", "api_protocol" => "openai-completions" }
+      ])
+      expect(config.anthropic_format?).to be false
+    end
+
+    it "returns true for legacy anthropic_format: true without api_protocol" do
+      config = described_class.new(models: [
+        { "model" => "claude-3-opus", "anthropic_format" => true }
+      ])
+      expect(config.anthropic_format?).to be true
+    end
+
+    it "returns false for models without anthropic or protocol config" do
+      config = described_class.new(models: [
+        { "model" => "gpt-4o" }
+      ])
+      expect(config.anthropic_format?).to be false
+    end
+  end
+
+  describe "#add_model" do
+    it "stores api_protocol when provided" do
+      config = described_class.new(models: [])
+      config.add_model(
+        model: "gpt-4o",
+        api_key: "sk-test",
+        base_url: "https://api.test.com",
+        api_protocol: "openai-responses"
+      )
+      expect(config.models.last["api_protocol"]).to eq("openai-responses")
+    end
+
+    it "defaults api_protocol to nil (which resolves to 'auto' in api_protocol getter)" do
+      config = described_class.new(models: [])
+      config.add_model(
+        model: "gpt-4o",
+        api_key: "sk-test",
+        base_url: "https://api.test.com"
+      )
+      expect(config.models.last["api_protocol"]).to be_nil
+      expect(config.api_protocol).to eq("auto")
+    end
+
+    it "still stores anthropic_format for backward compatibility" do
+      config = described_class.new(models: [])
+      config.add_model(
+        model: "claude-3-opus",
+        api_key: "sk-test",
+        base_url: "https://api.anthropic.com",
+        anthropic_format: true
+      )
+      expect(config.models.last["anthropic_format"]).to be true
+    end
+  end
+
   describe "#clacky_license_server" do
     it "is nil when the user has not saved a platform source" do
       expect(described_class.new.clacky_license_server).to be_nil

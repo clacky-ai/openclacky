@@ -655,4 +655,54 @@ RSpec.describe Clacky::Providers do
       expect(described_class.max_output_for("")).to be_nil
     end
   end
+
+  describe ".resolve_api_protocol" do
+    it "returns the explicit user override when not 'auto'" do
+      result = described_class.resolve_api_protocol("openrouter", "gpt-4o", "anthropic-messages")
+      expect(result).to eq("anthropic-messages")
+    end
+
+    it "returns the preset default when override is 'auto'" do
+      # openrouter preset declares api: openai-responses
+      result = described_class.resolve_api_protocol("openrouter", "gpt-4o", "auto")
+      expect(result).to eq("openai-responses")
+    end
+
+    it "returns the preset default when override is nil" do
+      result = described_class.resolve_api_protocol("anthropic", "claude-3-opus", nil)
+      expect(result).to eq("anthropic-messages")
+    end
+
+    it "returns 'openai-completions' for unknown provider with auto override" do
+      result = described_class.resolve_api_protocol("unknown-provider", "some-model", "auto")
+      expect(result).to eq("openai-completions")
+    end
+
+    it "respects model-level api overrides when override is auto" do
+      # openrouter has model_api_overrides for claude models -> anthropic-messages
+      result = described_class.resolve_api_protocol("openrouter", "anthropic/claude-3.5-sonnet", "auto")
+      expect(result).to eq("anthropic-messages")
+    end
+
+    it "falls back to 'openai-completions' when no preset and no override" do
+      result = described_class.resolve_api_protocol(nil, nil, "auto")
+      expect(result).to eq("openai-completions")
+    end
+  end
+
+  describe ".supported_protocols" do
+    it "returns an array including all four protocol identifiers" do
+      protocols = described_class.supported_protocols("openrouter")
+      expect(protocols).to include("auto", "anthropic-messages", "openai-completions", "openai-responses")
+    end
+
+    it "returns the same list for nil/unknown provider" do
+      expect(described_class.supported_protocols(nil))
+        .to eq(%w[auto anthropic-messages openai-completions openai-responses])
+    end
+
+    it "returns an array of exactly 4 elements" do
+      expect(described_class.supported_protocols("anthropic").length).to eq(4)
+    end
+  end
 end

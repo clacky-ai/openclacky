@@ -221,7 +221,7 @@ module Clacky
         @config.api_key,
         base_url: @config.effective_base_url,
         model: @config.model_name,
-        anthropic_format: @config.anthropic_format?
+        api_protocol: @config.api_protocol
       )
       # Update message compressor with new client and model
       @message_compressor = MessageCompressor.new(@client, model: current_model)
@@ -1746,7 +1746,7 @@ module Clacky
         subagent_config.api_key,
         base_url: subagent_config.base_url,
         model: subagent_config.model_name,
-        anthropic_format: subagent_config.anthropic_format?
+        api_protocol: subagent_config.api_protocol
       )
 
       # Create subagent (reuses all tools from parent, inherits agent profile from parent)

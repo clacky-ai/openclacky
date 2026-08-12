@@ -5761,6 +5761,7 @@ module Clacky
             model:            m["model"],
             base_url:         m["base_url"],
             api_key_masked:   mask_api_key(m["api_key"]),
+            api_protocol:     m["api_protocol"] || "auto",
             anthropic_format: m["anthropic_format"] || false,
             provider_id:      m["provider_id"],
             type:             m["type"]
@@ -6043,7 +6044,8 @@ module Clacky
           "model"            => model,
           "base_url"         => base_url,
           "api_key"          => api_key,
-          "anthropic_format" => body["anthropic_format"] || false,
+          "api_protocol"     => body["api_protocol"] || "auto",
+          "anthropic_format" => body["anthropic_format"] || (body["api_protocol"] == "anthropic-messages" ? true : false),
           "provider_id"      => body["provider_id"].to_s.strip.then { |v| v.empty? ? nil : v }
         }
         type = body["type"].to_s
@@ -6104,6 +6106,12 @@ module Clacky
         end
         if body.key?("anthropic_format")
           target["anthropic_format"] = !!body["anthropic_format"]
+        end
+        if body.key?("api_protocol")
+          v = body["api_protocol"].to_s.strip
+          target["api_protocol"] = v unless v.empty?
+          # Keep anthropic_format in sync for backward compatibility
+          target["anthropic_format"] = (v == "anthropic-messages") if !v.empty?
         end
         if body.key?("provider_id")
           v = body["provider_id"].to_s.strip
@@ -6212,9 +6220,10 @@ module Clacky
 
         model            = body["model"].to_s
         base_url         = body["base_url"].to_s
-        anthropic_format = body["anthropic_format"] || false
+        api_protocol     = body["api_protocol"] || "auto"
+        anthropic_format = body["anthropic_format"] || (api_protocol == "anthropic-messages" ? true : false)
 
-        result, used_base_url = try_test_with_base_url(api_key, base_url, model, anthropic_format)
+        result, used_base_url = try_test_with_base_url(api_key, base_url, model, api_protocol, anthropic_format)
 
         if result[:success] && used_base_url != base_url
           json_response(res, 200, {
@@ -6231,22 +6240,23 @@ module Clacky
         json_response(res, 200, { ok: false, message: e.message })
       end
 
-      private def try_test_with_base_url(api_key, base_url, model, anthropic_format)
-        result = run_test_connection(api_key, base_url, model, anthropic_format)
+      private def try_test_with_base_url(api_key, base_url, model, api_protocol, anthropic_format)
+        result = run_test_connection(api_key, base_url, model, api_protocol, anthropic_format)
         return [result, base_url] if result[:success]
         return [result, base_url] unless result[:status] == 404
         return [result, base_url] if base_url.match?(%r{/v\d+/?\z})
 
         candidate = "#{base_url.chomp("/")}/v1"
-        retried   = run_test_connection(api_key, candidate, model, anthropic_format)
+        retried   = run_test_connection(api_key, candidate, model, api_protocol, anthropic_format)
         retried[:success] ? [retried, candidate] : [result, base_url]
       end
 
-      private def run_test_connection(api_key, base_url, model, anthropic_format)
+      private def run_test_connection(api_key, base_url, model, api_protocol, anthropic_format)
         client = Clacky::Client.new(
           api_key,
           base_url:         base_url,
           model:            model,
+          api_protocol:     api_protocol,
           anthropic_format: anthropic_format
         )
         client.test_connection(model: model)
@@ -6268,7 +6278,9 @@ module Clacky
             # billing-plan variants) when present. Absent for single-endpoint
             # providers — UI renders a plain text input in that case.
             endpoint_variants: preset["endpoint_variants"],
-            website_url:       preset["website_url"]
+            website_url:       preset["website_url"],
+            default_api_protocol: preset["api"],
+            supported_protocols:  Clacky::Providers.supported_protocols(id)
           }
         end
         json_response(res, 200, { providers: providers })

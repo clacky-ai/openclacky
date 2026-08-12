@@ -720,6 +720,29 @@ module Clacky
         api_type_for_model(provider_id, model_name) == "anthropic-messages"
       end
 
+      # Resolve the final API protocol: user override > preset default > fallback.
+      # Used by the frontend to show the effective protocol and by the Client
+      # when api_protocol is "auto".
+      # @param provider_id [String, nil]
+      # @param model_name [String, nil]
+      # @param user_override [String, nil] "auto" or explicit protocol name
+      # @return [String] one of the protocol identifiers
+      def resolve_api_protocol(provider_id, model_name, user_override = "auto")
+        return user_override if user_override && user_override != "auto"
+
+        api_type_for_model(provider_id, model_name) || "openai-completions"
+      end
+
+      # Return the list of API protocols a provider supports.
+      # Used by the frontend to populate the protocol selector dropdown.
+      # All providers can theoretically use any OpenAI-compatible protocol;
+      # the preset's declared "api" type is marked as the default.
+      # @param provider_id [String, nil] provider identifier (nil for custom/unknown)
+      # @return [Array<String>] list of protocol identifiers including "auto"
+      def supported_protocols(provider_id)
+        %w[auto anthropic-messages openai-completions openai-responses]
+      end
+
       # List all available provider IDs
       # @return [Array<String>] List of provider identifiers
       def provider_ids
