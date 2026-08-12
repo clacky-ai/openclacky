@@ -16,7 +16,7 @@ module Clacky
   # optional URL fetch in `install`.
   module ExtensionPackager
     MANIFEST     = "ext.yml"
-    MAX_ZIP_SIZE = 50 * 1024 * 1024
+    MAX_ZIP_SIZE = 80 * 1024 * 1024
 
     # Network timeouts for the download step. `read_timeout` is an *idle*
     # timeout (resets on every chunk received), so a stalled connection with
