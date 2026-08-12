@@ -125,6 +125,8 @@ module Clacky
                         when "tool_use"   then "tool_calls"
                         when "max_tokens", "model_context_window_exceeded" then "length"
                         when "refusal"    then "content_filter"
+                        # `compaction` is a beta stop_reason (compact-2026-01-12);
+                        # see anthropic.rb for the full note.
                         when "compaction" then "other"
                         else data["stopReason"]
                         end

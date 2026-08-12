@@ -191,6 +191,10 @@ module Clacky
         #              empty-response detector, which exempts "length")
         #   content_filter — model declined (refusal)
         #   other    — context compaction (compaction)
+        # Note: `compaction` is a real stop_reason but only emitted under the
+        # `compact-2026-01-12` beta header (server-side context compaction),
+        # so it is not yet in the stable SDK's StopReason literal list.
+        # See: https://platform.claude.com/docs/en/build-with-claude/compaction
         # Unmapped values fall through unchanged.
         finish_reason = case data["stop_reason"]
                         when "end_turn", "pause_turn", "stop_sequence" then "stop"
