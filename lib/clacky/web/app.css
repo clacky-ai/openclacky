@@ -812,7 +812,11 @@ body {
   margin-bottom: 6px;
   border-bottom: 1px solid var(--color-border-secondary);
 }
-#ext-slot-sidebar-nav      { padding: 10px 0 0px; }
+#ext-slot-sidebar-nav {
+  margin-top: 10px;
+  padding: 10px 0 0px; 
+  border-top: 1px solid var(--color-border-secondary);
+}
 #ext-slot-sidebar-nav-bottom {
   padding: 8px 0 10px;
   margin-top: 6px;
@@ -1809,7 +1813,7 @@ body {
   opacity: 1;
 }
 .task-item.active {
-  background: var(--color-accent-soft);
+  background: var(--color-bg-hover);
 }
 .task-item.active::before {
   content: "";
@@ -2806,7 +2810,7 @@ body {
   position: absolute;
   top: 0.5rem;
   right: 0.5rem;
-  z-index: 8;
+  z-index: 100;
   display: inline-flex;
   align-items: center;
   justify-content: center;
