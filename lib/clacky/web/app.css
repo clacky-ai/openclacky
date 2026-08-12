@@ -826,7 +826,7 @@ body {
   gap: 8px;
   padding: 14px 8px 7px;
   font-family: var(--font-mono);
-  font-size: 0.8rem;
+  font-size: 0.75rem;
   font-weight: 500;
   color: var(--color-text-tertiary);
   text-transform: uppercase;
@@ -14114,6 +14114,14 @@ body.setup-mode[data-theme="dark"] {
 .project-session-group {
   padding-left: 0.875rem;
   margin-top: 0.08rem;
+}
+
+.project-session-group .session-item.active {
+  background: var(--color-bg-hover);
+}
+
+.project-session-group .session-item.active::before {
+  display: none;
 }
 
 .project-sessions-empty {
