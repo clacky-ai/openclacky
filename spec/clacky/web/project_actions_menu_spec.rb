@@ -5,12 +5,12 @@ RSpec.describe "Project actions menu UI" do
   let(:projects) { File.read(File.join(web_dir, "projects.js")) }
   let(:styles) { File.read(File.join(web_dir, "app.css")) }
 
-  it "embeds Lucide Pencil and Trash2 icons for the three actions" do
+  it "embeds Lucide Pencil, Brush, and Trash icons for the three actions" do
     expect(projects).to include(
       'addItem("projects.menu.edit", "Edit Project", iconEdit, false'
     )
     expect(projects).to include(
-      'addItem("projects.menu.deleteSessions", "Delete Sessions", iconTrash, false'
+      'addItem("projects.menu.deleteSessions", "Delete Sessions", iconClearSessions, false'
     )
     expect(projects).to include(
       'addItem("projects.menu.delete", "Delete", iconTrash, true'
@@ -18,10 +18,11 @@ RSpec.describe "Project actions menu UI" do
     expect(projects).to include('viewBox="0 0 24 24" width="14" height="14"')
     expect(projects).to include('stroke="currentColor" stroke-width="2"')
     expect(projects).to include(
-      'M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174'
+      'M12 20h9'
     )
-    expect(projects).to include('<path d="M10 11v6"/><path d="M14 11v6"/>')
+    expect(projects).to include('M3 6h18')
     expect(projects).to include('const iconEdit = `<svg')
+    expect(projects).to include('const iconClearSessions = `<svg')
     expect(projects).to include('const iconTrash = `<svg')
   end
 
