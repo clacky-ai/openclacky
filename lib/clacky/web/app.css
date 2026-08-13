@@ -649,7 +649,6 @@ body {
 }
 #header-cmdbar:hover {
   border-color: var(--color-accent-primary);
-  background: var(--color-bg-hover);
   color: var(--color-text-secondary);
 }
 #header-cmdbar svg {
@@ -14216,7 +14215,7 @@ body.setup-mode[data-theme="dark"] {
 
 /* ── Session group (indented children) ────────────────────────────────────── */
 .project-session-group {
-  padding-left: 0.875rem;
+  padding-left: 1.5rem;
   margin-top: 0.08rem;
 }
 
