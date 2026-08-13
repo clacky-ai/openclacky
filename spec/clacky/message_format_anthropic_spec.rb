@@ -169,4 +169,36 @@ RSpec.describe Clacky::MessageFormat::Anthropic do
       expect(use_block[:id]).to match(/\A[a-zA-Z0-9_-]+\z/)
     end
   end
+
+  describe ".parse_response finish_reason mapping" do
+    let(:base_response) do
+      {
+        "content" => [{ "type" => "text", "text" => "hello" }],
+        "usage" => { "input_tokens" => 10, "output_tokens" => 5 }
+      }
+    end
+
+    def parse_with(stop_reason)
+      described_class.parse_response(base_response.merge("stop_reason" => stop_reason))
+    end
+
+    {
+      "end_turn" => "stop",
+      "pause_turn" => "stop",
+      "stop_sequence" => "stop",
+      "tool_use" => "tool_calls",
+      "max_tokens" => "length",
+      "model_context_window_exceeded" => "length",
+      "refusal" => "content_filter",
+      "compaction" => "other"
+    }.each do |stop_reason, expected|
+      it "maps #{stop_reason} → #{expected}" do
+        expect(parse_with(stop_reason)[:finish_reason]).to eq(expected)
+      end
+    end
+
+    it "passes through unmapped stop_reason values unchanged" do
+      expect(parse_with("some_unknown_reason")[:finish_reason]).to eq("some_unknown_reason")
+    end
+  end
 end
