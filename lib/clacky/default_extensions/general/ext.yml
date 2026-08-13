@@ -15,4 +15,4 @@ contributes:
       order: 1
       prompt: agents/general/system_prompt.md
       avatar: agents/general/avatar.png
-      panels: [meeting/meeting]
+      panels: []
