@@ -777,21 +777,26 @@ module Clacky
     end
 
     # Search the public extension marketplace. Anonymous — no license required.
-    # Uses GET /api/v1/extensions. Returns { success:, extensions: [], error: }.
-    def search_extensions!(query: nil, sort: nil)
+    # Uses GET /api/v1/extensions. Returns { success:, extensions: [], meta:, error: }.
+    # `meta` carries the platform's pagination info ({ current_page, total_pages,
+    # total_count, per_page }) when available.
+    def search_extensions!(query: nil, sort: nil, page: nil, per_page: nil)
       params = {}
-      params["q"]    = query if query && !query.to_s.strip.empty?
-      params["sort"] = sort  if sort && !sort.to_s.strip.empty?
+      params["q"]        = query    if query && !query.to_s.strip.empty?
+      params["sort"]     = sort     if sort && !sort.to_s.strip.empty?
+      params["page"]     = page     if page && page.to_i > 1
+      params["per_page"] = per_page if per_page && per_page.to_i > 0
       qs   = params.empty? ? "" : "?#{URI.encode_www_form(params)}"
       response = platform_client.get("/api/v1/extensions#{qs}")
 
       if response[:success]
-        { success: true, extensions: response[:data]["extensions"] || [] }
+        data = response[:data] || {}
+        { success: true, extensions: data["extensions"] || [], meta: data["meta"] }
       else
-        { success: false, error: response[:error] || "Search failed", extensions: [] }
+        { success: false, error: response[:error] || "Search failed", extensions: [], meta: nil }
       end
     rescue StandardError => e
-      { success: false, error: "Network error: #{e.message}", extensions: [] }
+      { success: false, error: "Network error: #{e.message}", extensions: [], meta: nil }
     end
 
     # Fetch a single public marketplace extension's detail (contributes +

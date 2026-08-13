@@ -2546,7 +2546,7 @@ module Clacky
       # the same public marketplace here.
       def api_store_extensions(req, res)
         brand  = Clacky::BrandConfig.load
-        result = brand.search_extensions!(query: req.query["q"], sort: req.query["sort"])
+        result = brand.search_extensions!(query: req.query["q"], sort: req.query["sort"], page: req.query["page"], per_page: req.query["per_page"])
 
         if result[:success]
           installed = installed_extension_containers
@@ -2558,7 +2558,7 @@ module Clacky
               "installed_version" => container&.dig(:version)
             )
           end
-          json_response(res, 200, { ok: true, extensions: extensions })
+          json_response(res, 200, { ok: true, extensions: extensions, meta: result[:meta] })
         else
           json_response(res, 200, {
             ok:         true,
