@@ -485,6 +485,10 @@ module Clacky
 
       result.skills.each do |unit|
         next if unit.spec["protected"] || unit.spec["encrypted"]
+        # Builtin extension skills are already loaded as :default by
+        # load_default_skills; skipping them here keeps their source stable
+        # instead of being re-registered (and reclassified) as :extension.
+        next if unit.layer == :builtin
 
         skill_dir_abs = unit.spec["skill_dir_abs"]
         next unless File.directory?(skill_dir_abs) && File.file?(File.join(skill_dir_abs, "SKILL.md"))

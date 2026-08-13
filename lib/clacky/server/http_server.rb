@@ -4505,7 +4505,11 @@ module Clacky
         upload_meta = Clacky::BrandConfig.load_upload_meta
         shadowed    = @skill_loader.shadowed_by_local
 
-        skills = @skill_loader.all_skills.reject(&:brand_skill).map do |skill|
+        skills = @skill_loader.all_skills.reject(&:brand_skill).reject do |skill|
+          # Third-party extension skills (installed/local) are managed from the
+          # extension panel, not the skills panel.
+          @skill_loader.loaded_from[skill.identifier] == :extension
+        end.map do |skill|
           source = @skill_loader.loaded_from[skill.identifier]
           meta   = upload_meta[skill.identifier] || {}
 
