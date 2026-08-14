@@ -10512,6 +10512,7 @@ body.setup-mode[data-theme="dark"] {
   letter-spacing: 0.03em;
   transition: color .15s;
   line-height: 1;
+  text-decoration: none;
 }
 /* Highlight version text when badge is actionable and btn is hovered */
 .version-badge:hover .version-text { color: var(--color-text-tertiary); }
@@ -10666,17 +10667,21 @@ body.setup-mode[data-theme="dark"] {
 }
 .vup-btn-primary:hover  { background: var(--color-button-primary-hover); }
 .vup-btn-primary:active { transform: scale(.97); }
-.vup-btn-cancel {
-  padding: 0.4375rem 0.75rem;
+.vup-btn-changelog {
+  flex: 1;
+  padding: 0.4375rem 0;
   background: transparent;
-  color: var(--color-text-muted);
-  border: 1px solid var(--color-border-primary);
+  color: var(--color-accent-primary);
+  border: 1px solid var(--color-accent-primary);
   border-radius: 6px;
   font-size: 0.75rem;
+  font-weight: 500;
+  text-decoration: none;
+  text-align: center;
   cursor: pointer;
-  transition: background .15s, color .15s;
+  transition: background .15s, opacity .15s;
 }
-.vup-btn-cancel:hover { background: var(--color-bg-hover); color: var(--color-text-secondary); }
+.vup-btn-changelog:hover { background: var(--color-accent-primary); color: var(--color-button-primary-text); }
 
 /* Progress state */
 .vup-progress-header {
