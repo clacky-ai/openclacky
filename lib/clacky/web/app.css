@@ -843,6 +843,11 @@ body {
   white-space: nowrap;
   flex: 0 0 auto;
 }
+.sidebar-divider [data-group-title] {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
 /* Pure label dividers (Config / My Data / Creator) get a trailing rule line */
 .sidebar-divider:not(:has(.sidebar-divider-actions))::after {
   content: "";
@@ -1529,6 +1534,13 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.session-item .session-name .session-cron-icon {
+  flex-shrink: 0;
+  margin-top: 0.0625rem;
+}
+.session-item .session-name .session-group-icon {
+  flex-shrink: 0;
 }
 .session-item .session-name .session-badge {
   flex-shrink: 0;
