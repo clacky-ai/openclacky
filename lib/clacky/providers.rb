@@ -231,59 +231,6 @@ module Clacky
         "website_url" => "https://openrouter.ai/keys"
       }.freeze,
 
-      "orcarouter" => {
-        "name" => "OrcaRouter",
-        "base_url" => "https://api.orcarouter.ai/v1",
-        "api" => "openai-completions",
-        "default_model" => "openai/gpt-5.5",
-        # Curated default lineup. OrcaRouter exposes 190+ models from OpenAI,
-        # Anthropic, Google, DeepSeek, Qwen, MiniMax, Zhipu and others behind a
-        # single OpenAI-compatible endpoint. Shipping a small list of the
-        # mainstream Claude + GPT entries gives users a working dropdown out
-        # of the box; users can still type any other OrcaRouter model id
-        # manually (e.g. "orcarouter/auto" for request-level auto-routing).
-        "models" => [
-          "anthropic/claude-sonnet-5",
-          "anthropic/claude-opus-4.8",
-          "anthropic/claude-haiku-4.5",
-          "openai/gpt-5.5",
-          "openai/gpt-5.4",
-          "openai/gpt-5.4-mini",
-          "google/gemini-3.5-flash",
-          "deepseek/deepseek-v4-flash",
-          "z-ai/glm-5.2",
-          "orcarouter/auto"
-        ],
-        # Per-primary lite pairing — Claude family pairs with Haiku, GPT
-        # family pairs with the mini variant. Mirrors the openrouter preset
-        # so subagents on OrcaRouter get a sensible cheap/fast sidekick.
-        "lite_models" => {
-          "anthropic/claude-sonnet-5" => "anthropic/claude-haiku-4.5",
-          "anthropic/claude-opus-4.8" => "anthropic/claude-haiku-4.5",
-          "openai/gpt-5.5"            => "openai/gpt-5.4-mini",
-          "openai/gpt-5.4"            => "openai/gpt-5.4-mini"
-        },
-        # Per-model API type overrides. OrcaRouter proxies Claude through a
-        # native Anthropic /v1/messages endpoint (https://api.orcarouter.ai/v1/messages)
-        # in addition to its OpenAI-compatible /chat/completions endpoint.
-        # Routing "anthropic/*" via the native endpoint preserves cache_control
-        # fidelity, matching what Claude Code CLI does internally (same rationale
-        # as the openrouter preset). Non-Claude models keep the OpenAI shim.
-        "model_api_overrides" => {
-          /\Aanthropic\// => "anthropic-messages"
-        }.freeze,
-        # Most models on OrcaRouter are vision-capable; DeepSeek / GLM-5.2 and
-        # the "orcarouter/auto" router are text-only.
-        "capabilities" => { "vision" => true }.freeze,
-        "model_capabilities" => {
-          "deepseek/deepseek-v4-flash" => { "vision" => false }.freeze,
-          "z-ai/glm-5.2"               => { "vision" => false }.freeze,
-          "orcarouter/auto"            => { "vision" => false }.freeze
-        }.freeze,
-        "default_ocr_model" => "google/gemini-3.5-flash",
-        "website_url" => "https://www.orcarouter.ai"
-      }.freeze,
-
       "deepseekv4" => {
         "name" => "DeepSeek V4",
         # DeepSeek API is compatible with both OpenAI and Anthropic formats.
@@ -306,32 +253,34 @@ module Clacky
         "website_url" => "https://platform.deepseek.com/api_keys"
       }.freeze,
 
-      "minimax" => {
-        "name" => "Minimax",
-        "base_url" => "https://api.minimaxi.com/v1",
+      "glm" => {
+        "name" => "GLM (Z.ai / Zhipu)",
+        "base_url" => "https://open.bigmodel.cn/api/paas/v4",
         "api" => "openai-completions",
-        "default_model" => "MiniMax-M3",
-        "models" => ["MiniMax-M3", "MiniMax-M2.7", "MiniMax-M2.5"],
-        # MiniMax operates two regional endpoints with identical APIs & model
-        # lineup — mainland China (.com) and international (.io). Listing both
-        # lets find_by_base_url identify either one as provider "minimax",
-        # so capability checks (vision=false) fire correctly regardless of
-        # which endpoint the user configured.
+        "default_model" => "glm-5.2",
+        "models" => ["glm-5.2", "glm-5.1", "glm-5", "glm-5-turbo", "glm-5v-turbo", "glm-4.7"],
+        # Zhipu / Z.ai expose four functionally-equivalent endpoints:
+        # two regional sites (mainland open.bigmodel.cn + international api.z.ai)
+        # each with a general-billing and a Coding-Plan subpath. They share the
+        # same model lineup & identical capability profile, so a single preset
+        # with endpoint_variants is the right shape — one source of truth for
+        # vision/model_capabilities, four URLs recognised by find_by_base_url.
+        # Without this, users pointing at api.z.ai or the /coding/ path fell
+        # through to the conservative "assume vision=true" default and got
+        # hallucinated image descriptions on text-only GLM models (C-5563).
         "endpoint_variants" => [
-          { "label" => "Mainland China", "label_key" => "settings.models.baseurl.variant.mainland_cn",   "base_url" => "https://api.minimaxi.com/v1", "region" => "cn"   }.freeze,
-          { "label" => "International",  "label_key" => "settings.models.baseurl.variant.international", "base_url" => "https://api.minimax.io/v1",   "region" => "intl" }.freeze
+          { "label" => "Mainland · Pay-as-you-go",      "label_key" => "settings.models.baseurl.variant.mainland_cn_payg",    "base_url" => "https://open.bigmodel.cn/api/paas/v4",        "region" => "cn"   }.freeze,
+          { "label" => "Mainland · Coding Plan",        "label_key" => "settings.models.baseurl.variant.mainland_cn_coding",  "base_url" => "https://open.bigmodel.cn/api/coding/paas/v4", "region" => "cn"   }.freeze,
+          { "label" => "International · Pay-as-you-go", "label_key" => "settings.models.baseurl.variant.international_payg",  "base_url" => "https://api.z.ai/api/paas/v4",                "region" => "intl" }.freeze,
+          { "label" => "International · Coding Plan",   "label_key" => "settings.models.baseurl.variant.international_coding","base_url" => "https://api.z.ai/api/coding/paas/v4",         "region" => "intl" }.freeze
         ].freeze,
-        # MiniMax M2.5/M2.7 are text-only on this endpoint. M3 (released 2026-06-01)
-        # is natively multimodal — it accepts image input via OpenAI-style
-        # image_url content parts — so it overrides the provider-level
-        # vision=false below. M3 exposes a 1,000,000-token context window
-        # (M2.7: 204,800; M2.5: 40,960).
+        # GLM models are text-only except glm-5v-turbo which is vision-capable ("v" = visual).
         "capabilities" => { "vision" => false }.freeze,
         "model_capabilities" => {
-          "MiniMax-M3" => { "vision" => true }.freeze
+          "glm-5v-turbo" => { "vision" => true }.freeze
         }.freeze,
-        "default_ocr_model" => "MiniMax-M3",
-        "website_url" => "https://platform.minimax.io/"
+        "default_ocr_model" => "glm-5v-turbo",
+        "website_url" => "https://open.bigmodel.cn/console/overview"
       }.freeze,
 
       "kimi" => {
@@ -399,6 +348,34 @@ module Clacky
         "website_url" => "https://www.kimi.com/code"
       }.freeze,
 
+      "minimax" => {
+        "name" => "Minimax",
+        "base_url" => "https://api.minimaxi.com/v1",
+        "api" => "openai-completions",
+        "default_model" => "MiniMax-M3",
+        "models" => ["MiniMax-M3", "MiniMax-M2.7", "MiniMax-M2.5"],
+        # MiniMax operates two regional endpoints with identical APIs & model
+        # lineup — mainland China (.com) and international (.io). Listing both
+        # lets find_by_base_url identify either one as provider "minimax",
+        # so capability checks (vision=false) fire correctly regardless of
+        # which endpoint the user configured.
+        "endpoint_variants" => [
+          { "label" => "Mainland China", "label_key" => "settings.models.baseurl.variant.mainland_cn",   "base_url" => "https://api.minimaxi.com/v1", "region" => "cn"   }.freeze,
+          { "label" => "International",  "label_key" => "settings.models.baseurl.variant.international", "base_url" => "https://api.minimax.io/v1",   "region" => "intl" }.freeze
+        ].freeze,
+        # MiniMax M2.5/M2.7 are text-only on this endpoint. M3 (released 2026-06-01)
+        # is natively multimodal — it accepts image input via OpenAI-style
+        # image_url content parts — so it overrides the provider-level
+        # vision=false below. M3 exposes a 1,000,000-token context window
+        # (M2.7: 204,800; M2.5: 40,960).
+        "capabilities" => { "vision" => false }.freeze,
+        "model_capabilities" => {
+          "MiniMax-M3" => { "vision" => true }.freeze
+        }.freeze,
+        "default_ocr_model" => "MiniMax-M3",
+        "website_url" => "https://platform.minimax.io/"
+      }.freeze,
+
       "anthropic" => {
         "name" => "Anthropic (Claude)",
         "base_url" => "https://api.anthropic.com",
@@ -407,6 +384,70 @@ module Clacky
         "models" => ["claude-opus-4-8", "claude-opus-4-7", "claude-opus-4-6", "claude-sonnet-4-6", "claude-haiku-4-5"],
         "default_ocr_model" => "claude-haiku-4-5",
         "website_url" => "https://console.anthropic.com/settings/keys"
+      }.freeze,
+
+      "openai" => {
+        "name" => "OpenAI (GPT)",
+        "base_url" => "https://api.openai.com/v1",
+        "api" => "openai-completions",
+        "default_model" => "gpt-5.5",
+        "models" => [
+          "gpt-5.5",
+          "gpt-5.4",
+          "gpt-5.4-mini",
+          "gpt-5.4-nano",
+          "o4-mini",
+          "o3"
+        ],
+        # GPT-5.x and o-series models are multimodal (text + image input).
+        "capabilities" => { "vision" => true }.freeze,
+        # Per-primary lite pairing: subagents use mini/nano for cheap/fast work.
+        # o4-mini and o3 are reasoning models without a lite-tier sibling here.
+        "lite_models" => {
+          "gpt-5.5" => "gpt-5.4-mini",
+          "gpt-5.4" => "gpt-5.4-mini"
+        },
+        # OpenAI's image generation model — same /v1/images/generations
+        # endpoint, so the OpenAICompat image provider handles it.
+        "image_models" => [
+          "gpt-image-2"
+        ],
+        "default_image_model" => "gpt-image-2",
+        "default_ocr_model" => "gpt-5.4-mini",
+        "website_url" => "https://platform.openai.com/api-keys"
+      }.freeze,
+
+      "qwen" => {
+        "name" => "Qwen (Alibaba)",
+        "base_url" => "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        "api" => "openai-completions",
+        "default_model" => "qwen3.7-max",
+        "models" => [
+          "qwen3.7-max",
+          "qwen3.6-plus",
+          "qwen3.6-max",
+          "qwen3.6-27b",
+          "qwen3.6-flash",
+          "qwen-plus-latest",
+        ],
+        "endpoint_variants" => [
+          { "label" => "Mainland China",  "label_key" => "settings.models.baseurl.variant.mainland_cn",   "base_url" => "https://dashscope.aliyuncs.com/compatible-mode/v1",     "region" => "cn"   }.freeze,
+          { "label" => "Singapore",       "label_key" => "settings.models.baseurl.variant.international", "base_url" => "https://dashscope-intl.aliyuncs.com/compatible-mode/v1", "region" => "intl" }.freeze,
+          { "label" => "US (Virginia)",   "label_key" => "settings.models.baseurl.variant.us",            "base_url" => "https://dashscope-us.aliyuncs.com/compatible-mode/v1",   "region" => "us"   }.freeze
+        ].freeze,
+        "capabilities" => { "vision" => true }.freeze,
+        "model_capabilities" => {
+          "qwen3.7-max" => { "vision" => false }.freeze
+        }.freeze,
+        "default_ocr_model" => "qwen3.6-flash",
+        "lite_models" => {
+          "qwen3.7-max"      => "qwen3.6-flash",
+          "qwen3.6-plus"     => "qwen3.6-flash",
+          "qwen3.6-max"      => "qwen3.6-flash",
+          "qwen3.6-27b"      => "qwen3.6-flash",
+          "qwen-plus-latest" => "qwen3.6-flash"
+        },
+        "website_url" => "https://bailian.console.aliyun.com/?apiKey=1"
       }.freeze,
 
       "mimo" => {
@@ -439,36 +480,6 @@ module Clacky
           { "label" => "Token Plan",    "label_key" => "settings.models.baseurl.variant.mimo_token_plan", "base_url" => "https://token-plan-cn.xiaomimimo.com/v1", "region" => "cn" }.freeze
         ].freeze,
         "website_url" => "https://platform.xiaomimimo.com/"
-      }.freeze,
-
-      "glm" => {
-        "name" => "GLM (Z.ai / Zhipu)",
-        "base_url" => "https://open.bigmodel.cn/api/paas/v4",
-        "api" => "openai-completions",
-        "default_model" => "glm-5.2",
-        "models" => ["glm-5.2", "glm-5.1", "glm-5", "glm-5-turbo", "glm-5v-turbo", "glm-4.7"],
-        # Zhipu / Z.ai expose four functionally-equivalent endpoints:
-        # two regional sites (mainland open.bigmodel.cn + international api.z.ai)
-        # each with a general-billing and a Coding-Plan subpath. They share the
-        # same model lineup & identical capability profile, so a single preset
-        # with endpoint_variants is the right shape — one source of truth for
-        # vision/model_capabilities, four URLs recognised by find_by_base_url.
-        # Without this, users pointing at api.z.ai or the /coding/ path fell
-        # through to the conservative "assume vision=true" default and got
-        # hallucinated image descriptions on text-only GLM models (C-5563).
-        "endpoint_variants" => [
-          { "label" => "Mainland · Pay-as-you-go",      "label_key" => "settings.models.baseurl.variant.mainland_cn_payg",    "base_url" => "https://open.bigmodel.cn/api/paas/v4",        "region" => "cn"   }.freeze,
-          { "label" => "Mainland · Coding Plan",        "label_key" => "settings.models.baseurl.variant.mainland_cn_coding",  "base_url" => "https://open.bigmodel.cn/api/coding/paas/v4", "region" => "cn"   }.freeze,
-          { "label" => "International · Pay-as-you-go", "label_key" => "settings.models.baseurl.variant.international_payg",  "base_url" => "https://api.z.ai/api/paas/v4",                "region" => "intl" }.freeze,
-          { "label" => "International · Coding Plan",   "label_key" => "settings.models.baseurl.variant.international_coding","base_url" => "https://api.z.ai/api/coding/paas/v4",         "region" => "intl" }.freeze
-        ].freeze,
-        # GLM models are text-only except glm-5v-turbo which is vision-capable ("v" = visual).
-        "capabilities" => { "vision" => false }.freeze,
-        "model_capabilities" => {
-          "glm-5v-turbo" => { "vision" => true }.freeze
-        }.freeze,
-        "default_ocr_model" => "glm-5v-turbo",
-        "website_url" => "https://open.bigmodel.cn/console/overview"
       }.freeze,
 
       # Volcengine Ark (Doubao) — ByteDance's model platform, OpenAI-compatible.
@@ -593,68 +604,57 @@ module Clacky
         "website_url" => "https://ollama.com/settings/keys"
       }.freeze,
 
-      "openai" => {
-        "name" => "OpenAI (GPT)",
-        "base_url" => "https://api.openai.com/v1",
+      "orcarouter" => {
+        "name" => "OrcaRouter",
+        "base_url" => "https://api.orcarouter.ai/v1",
         "api" => "openai-completions",
-        "default_model" => "gpt-5.5",
+        "default_model" => "openai/gpt-5.5",
+        # Curated default lineup. OrcaRouter exposes 190+ models from OpenAI,
+        # Anthropic, Google, DeepSeek, Qwen, MiniMax, Zhipu and others behind a
+        # single OpenAI-compatible endpoint. Shipping a small list of the
+        # mainstream Claude + GPT entries gives users a working dropdown out
+        # of the box; users can still type any other OrcaRouter model id
+        # manually (e.g. "orcarouter/auto" for request-level auto-routing).
         "models" => [
-          "gpt-5.5",
-          "gpt-5.4",
-          "gpt-5.4-mini",
-          "gpt-5.4-nano",
-          "o4-mini",
-          "o3"
+          "anthropic/claude-sonnet-5",
+          "anthropic/claude-opus-4.8",
+          "anthropic/claude-haiku-4.5",
+          "openai/gpt-5.5",
+          "openai/gpt-5.4",
+          "openai/gpt-5.4-mini",
+          "google/gemini-3.5-flash",
+          "deepseek/deepseek-v4-flash",
+          "z-ai/glm-5.2",
+          "orcarouter/auto"
         ],
-        # GPT-5.x and o-series models are multimodal (text + image input).
-        "capabilities" => { "vision" => true }.freeze,
-        # Per-primary lite pairing: subagents use mini/nano for cheap/fast work.
-        # o4-mini and o3 are reasoning models without a lite-tier sibling here.
+        # Per-primary lite pairing — Claude family pairs with Haiku, GPT
+        # family pairs with the mini variant. Mirrors the openrouter preset
+        # so subagents on OrcaRouter get a sensible cheap/fast sidekick.
         "lite_models" => {
-          "gpt-5.5" => "gpt-5.4-mini",
-          "gpt-5.4" => "gpt-5.4-mini"
+          "anthropic/claude-sonnet-5" => "anthropic/claude-haiku-4.5",
+          "anthropic/claude-opus-4.8" => "anthropic/claude-haiku-4.5",
+          "openai/gpt-5.5"            => "openai/gpt-5.4-mini",
+          "openai/gpt-5.4"            => "openai/gpt-5.4-mini"
         },
-        # OpenAI's image generation model — same /v1/images/generations
-        # endpoint, so the OpenAICompat image provider handles it.
-        "image_models" => [
-          "gpt-image-2"
-        ],
-        "default_image_model" => "gpt-image-2",
-        "default_ocr_model" => "gpt-5.4-mini",
-        "website_url" => "https://platform.openai.com/api-keys"
-      }.freeze,
-
-      "qwen" => {
-        "name" => "Qwen (Alibaba)",
-        "base_url" => "https://dashscope.aliyuncs.com/compatible-mode/v1",
-        "api" => "openai-completions",
-        "default_model" => "qwen3.7-max",
-        "models" => [
-          "qwen3.7-max",
-          "qwen3.6-plus",
-          "qwen3.6-max",
-          "qwen3.6-27b",
-          "qwen3.6-flash",
-          "qwen-plus-latest",
-        ],
-        "endpoint_variants" => [
-          { "label" => "Mainland China",  "label_key" => "settings.models.baseurl.variant.mainland_cn",   "base_url" => "https://dashscope.aliyuncs.com/compatible-mode/v1",     "region" => "cn"   }.freeze,
-          { "label" => "Singapore",       "label_key" => "settings.models.baseurl.variant.international", "base_url" => "https://dashscope-intl.aliyuncs.com/compatible-mode/v1", "region" => "intl" }.freeze,
-          { "label" => "US (Virginia)",   "label_key" => "settings.models.baseurl.variant.us",            "base_url" => "https://dashscope-us.aliyuncs.com/compatible-mode/v1",   "region" => "us"   }.freeze
-        ].freeze,
+        # Per-model API type overrides. OrcaRouter proxies Claude through a
+        # native Anthropic /v1/messages endpoint (https://api.orcarouter.ai/v1/messages)
+        # in addition to its OpenAI-compatible /chat/completions endpoint.
+        # Routing "anthropic/*" via the native endpoint preserves cache_control
+        # fidelity, matching what Claude Code CLI does internally (same rationale
+        # as the openrouter preset). Non-Claude models keep the OpenAI shim.
+        "model_api_overrides" => {
+          /\Aanthropic\// => "anthropic-messages"
+        }.freeze,
+        # Most models on OrcaRouter are vision-capable; DeepSeek / GLM-5.2 and
+        # the "orcarouter/auto" router are text-only.
         "capabilities" => { "vision" => true }.freeze,
         "model_capabilities" => {
-          "qwen3.7-max" => { "vision" => false }.freeze
+          "deepseek/deepseek-v4-flash" => { "vision" => false }.freeze,
+          "z-ai/glm-5.2"               => { "vision" => false }.freeze,
+          "orcarouter/auto"            => { "vision" => false }.freeze
         }.freeze,
-        "default_ocr_model" => "qwen3.6-flash",
-        "lite_models" => {
-          "qwen3.7-max"      => "qwen3.6-flash",
-          "qwen3.6-plus"     => "qwen3.6-flash",
-          "qwen3.6-max"      => "qwen3.6-flash",
-          "qwen3.6-27b"      => "qwen3.6-flash",
-          "qwen-plus-latest" => "qwen3.6-flash"
-        },
-        "website_url" => "https://bailian.console.aliyun.com/?apiKey=1"
+        "default_ocr_model" => "google/gemini-3.5-flash",
+        "website_url" => "https://www.orcarouter.ai"
       }.freeze
 
     }.freeze
