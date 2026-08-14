@@ -14215,8 +14215,11 @@ body.setup-mode[data-theme="dark"] {
 
 /* ── Session group (indented children) ────────────────────────────────────── */
 .project-session-group {
-  padding-left: 1.6rem;
   margin-top: 0.08rem;
+}
+
+.project-session-group .session-item {
+  padding-left: 2.2rem;
 }
 
 .project-session-group .session-item.active {
