@@ -25,6 +25,7 @@ module Clacky
       "llm.error.network_failed"        => "网络连接失败（已重试 %<retries>d 次）",
       "llm.error.service_unavailable"   => "服务暂时不可用（已重试 %<retries>d 次）",
       "llm.warn.switching_to_fallback_url" => "主节点无法连接，正在切换到备用节点：%<url>s",
+      "agent.warn.degraded_iteration" => "检测到连续 %<count>d 次退化输出（模型推理质量下降，可能是会话过长所致）。建议开启新会话或切换模型后继续。",
       "platform.error.invalid_proof"        => "许可证密钥无效，请检查后重试。",
       "platform.error.invalid_signature"    => "请求签名无效。",
       "platform.error.nonce_replayed"       => "检测到重复请求，请重试。",

@@ -87,6 +87,7 @@ module Clacky
       @history = MessageHistory.new
       @todos = []  # Store todos in memory
       @iterations = 0
+      @degraded_break_count = 0  # consecutive degraded breaks (see DEGRADED_* constants)
       @total_cost = 0.0
       @cost_mutex = Mutex.new
       @cache_stats = {
@@ -791,6 +792,13 @@ module Clacky
             # and skip skill evolution — the task isn't truly complete yet.
             awaiting_user_feedback = true if ends_with_question
 
+            # ── Degraded-iteration detector ─────────────────────────────────
+            # Detect whether this tool-less break exit is "degraded" — the model
+            # gave up without useful work. See #process_degraded_break and the
+            # DEGRADED_* constants for the full logic and rationale.
+            process_degraded_break(content_str, completion_tokens.to_i,
+                                   ends_with_question, finish_reason_str)
+
             break
           end
 
@@ -1452,6 +1460,62 @@ module Clacky
     # content (multipart/image blocks) is left alone since image payloads
     # are handled by the image_inject path above.
     MAX_TOOL_RESULT_CHARS = 80_000
+
+    # ── Degraded-iteration detection ─────────────────────────────────────────
+    # Infinite iteration is not a problem; only *useless* iteration is. When the
+    # agent exits without calling tools (loop-break branch), we check whether the
+    # output is "degraded" — a sign the model has lost coherence under a very long
+    # context. Two patterns, validated against real traces (session d1a680a3):
+    #   ① token-burn: burned many tokens but produced little text
+    #      (completion_tokens / content_len > RATIO_THRESHOLD && tokens > 100).
+    #      Normal turns sit at 0.4–0.8; degraded turns spike to 2.5–7.9.
+    #   ② stunted output: extremely short text (< LEN_THRESHOLD chars) that is
+    #      not a question — normal completions are ≥ 200 chars in practice.
+    # A single degraded break only bumps a counter; a normal break resets it.
+    # CONSECUTIVE_LIMIT consecutive degraded breaks → warn the user.
+    DEGRADED_RATIO_THRESHOLD = 1.5   # completion_tokens / content_len
+    DEGRADED_LEN_THRESHOLD   = 60    # chars
+    DEGRADED_BREAK_LIMIT     = 3     # consecutive degraded breaks before warning
+
+    # Process a tool-less break exit for degradation tracking. Increments the
+    # counter on a degraded break, warns after DEGRADED_BREAK_LIMIT consecutive
+    # ones, and resets on any healthy break.
+    private def process_degraded_break(content_str, completion_tokens, ends_with_question, finish_reason_str)
+      if degraded_break?(content_str, completion_tokens, ends_with_question, finish_reason_str)
+        @degraded_break_count += 1
+        content_len = content_str.length
+        ct = completion_tokens.to_i
+        token_per_char = content_len.positive? ? (ct.to_f / content_len) : 0.0
+        Clacky::Logger.warn("agent.degraded_break_detected",
+          session_id: @session_id,
+          iteration: @iterations,
+          degraded_break_count: @degraded_break_count,
+          content_len: content_len,
+          completion_tokens: ct,
+          token_per_char: token_per_char.round(2)
+        )
+        if @degraded_break_count >= DEGRADED_BREAK_LIMIT
+          @ui&.show_warning(
+            I18n.t("agent.warn.degraded_iteration", count: @degraded_break_count)
+          )
+          @degraded_break_count = 0
+        end
+      else
+        @degraded_break_count = 0
+      end
+    end
+
+    # Pure predicate: is this tool-less break a "degraded completion"?
+    # Excludes length-truncated turns (see comment block above the constants).
+    private def degraded_break?(content_str, completion_tokens, ends_with_question, finish_reason_str)
+      content_len = content_str.length
+      ct = completion_tokens.to_i
+      token_per_char = content_len.positive? ? (ct.to_f / content_len) : 0.0
+      finish_reason_str != "length" && (
+        (ct > 100 && token_per_char > DEGRADED_RATIO_THRESHOLD) ||
+        (content_len < DEGRADED_LEN_THRESHOLD && !ends_with_question)
+      )
+    end
 
     private def truncate_oversized_tool_content(msg)
       content = msg[:content]
