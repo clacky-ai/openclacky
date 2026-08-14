@@ -194,7 +194,7 @@ $ openclacky
 
 **API Key**、**Model**、**Base URL**（任意の OpenAI 互換プロバイダー）を設定します。
 
-標準でサポート: **Claude (Anthropic) · GPT (OpenAI) · DeepSeek · Kimi (Moonshot) · MiniMax · OpenRouter** — または任意のカスタムエンドポイント。
+標準でサポート: **Claude (Anthropic) · GPT (OpenAI) · DeepSeek · Kimi (Moonshot) · MiniMax · OpenRouter · OrcaRouter** — または任意のカスタムエンドポイント。
 
 ## コーディングのユースケース
 
