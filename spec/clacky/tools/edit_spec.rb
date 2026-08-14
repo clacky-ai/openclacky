@@ -280,6 +280,65 @@ RSpec.describe Clacky::Tools::Edit do
     end
   end
   
+  describe "CRLF line-ending preservation" do
+    it "preserves CRLF endings when editing a Windows-style file with LF old_string" do
+      Dir.mktmpdir do |dir|
+        file_path = File.join(dir, "crlf.rb")
+        # File uses CRLF (Windows style)
+        File.binwrite(file_path, "class Foo\r\n  def bar\r\n    'baz'\r\n  end\r\nend\r\n")
+
+        result = tool.execute(
+          path: file_path,
+          old_string: "    'baz'",        # AI provides LF-style string
+          new_string: "    'qux'"
+        )
+
+        expect(result[:error]).to be_nil
+        written = File.binread(file_path)
+        # No mixed line endings: every \n must be preceded by \r
+        expect(written.scan(/(?<!\r)\n/)).to be_empty
+        expect(written).to include("    'qux'\r\n")
+      end
+    end
+
+    it "preserves CRLF endings on replace_all in a CRLF file" do
+      Dir.mktmpdir do |dir|
+        file_path = File.join(dir, "crlf_all.rb")
+        File.binwrite(file_path, "foo\r\nfoo\r\nbar\r\n")
+
+        result = tool.execute(
+          path: file_path,
+          old_string: "foo",
+          new_string: "FOO",
+          replace_all: true
+        )
+
+        expect(result[:error]).to be_nil
+        written = File.binread(file_path)
+        expect(written.scan(/(?<!\r)\n/)).to be_empty
+        expect(written).to eq("FOO\r\nFOO\r\nbar\r\n")
+      end
+    end
+
+    it "does not add CRLF to an LF-only file" do
+      Dir.mktmpdir do |dir|
+        file_path = File.join(dir, "lf.rb")
+        File.write(file_path, "line1\nline2\nline3\n")
+
+        result = tool.execute(
+          path: file_path,
+          old_string: "line2",
+          new_string: "LINE2"
+        )
+
+        expect(result[:error]).to be_nil
+        written = File.binread(file_path)
+        expect(written).not_to include("\r")
+        expect(written).to eq("line1\nLINE2\nline3\n")
+      end
+    end
+  end
+
   describe "#to_function_definition" do
     it "returns OpenAI function calling format" do
       definition = tool.to_function_definition

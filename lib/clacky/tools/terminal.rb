@@ -223,6 +223,11 @@ module Clacky
         timeout = (timeout || DEFAULT_TIMEOUT).to_f
         idle_ms = (idle_ms || DEFAULT_IDLE_MS).to_i
         cwd ||= working_dir
+        # Normalize cwd the same way file tools do: on WSL translate Windows
+        # drive paths (C:\..., C:/...) to /mnt, expand ~ and relative paths.
+        # Without this, a Windows-style cwd fails the Dir.exist? check below
+        # and the agent gets a misleading "cwd does not exist".
+        cwd = expand_path(cwd) if cwd
 
         # Kill
         if kill
