@@ -468,7 +468,7 @@ module Clacky
           "glm-5v-turbo" => { "vision" => true }.freeze
         }.freeze,
         "default_ocr_model" => "glm-5v-turbo",
-        "website_url" => "https://open.bigmodel.cn/usercenter/apikeys"
+        "website_url" => "https://open.bigmodel.cn/console/overview"
       }.freeze,
 
       # Volcengine Ark (Doubao) — ByteDance's model platform, OpenAI-compatible.
