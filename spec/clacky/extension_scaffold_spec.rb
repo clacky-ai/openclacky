@@ -13,6 +13,7 @@ RSpec.describe Clacky::ExtensionScaffold do
       expect(File).to exist(File.join(path, "ext.yml"))
       expect(File).to exist(File.join(path, "panels/hello/view.js"))
       expect(File).to exist(File.join(path, "api/handler.rb"))
+      expect(File).to exist(File.join(path, "test/handler_test.rb"))
 
       result = Clacky::ExtensionLoader.load_all(layers: { local: dir })
       expect(result.errors).to be_empty
@@ -30,6 +31,19 @@ RSpec.describe Clacky::ExtensionScaffold do
       handler = File.read(File.join(path, "api/handler.rb"))
       expect(handler).to match(/class PingExt < Clacky::ApiExtension/)
       expect(handler).to match(%r{get "/"})
+    end
+
+    it "generates a minitest example that loads the handler and asserts the root route" do
+      path = described_class.new_container("ping", dir: dir)
+      test = File.read(File.join(path, "test/handler_test.rb"))
+      expect(test).to match(/require "minitest\/autorun"/)
+      expect(test).to match(/require "clacky"/)
+      expect(test).to match(/require "json"/)
+      expect(test).to match(/load File.expand_path\("\.\.\/api\/handler\.rb", __dir__\)/)
+      expect(test).to match(/class PingExtTest < Minitest::Test/)
+      expect(test).to match(/Clacky::ApiExtension::Halt/)
+      expect(test).to match(/JSON\.parse\(halt\.payload\)\["message"\]/)
+      expect(test).not_to match(/def handler_class/)
     end
 
     it "refuses to overwrite an existing container" do
