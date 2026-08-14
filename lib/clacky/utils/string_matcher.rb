@@ -6,6 +6,22 @@ module Clacky
     # Used by the Edit tool and edit preview to apply a consistent
     # layered matching strategy: exact → trim → unescape → smart line match.
     module StringMatcher
+      # Visually-identical Unicode punctuation LLMs swap for ASCII when
+      # re-quoting file content (and vice versa). Mapping is 1:1 so character
+      # indices are preserved, letting normalized matches map back to the
+      # original string.
+      HOMOGLYPHS = {
+        "\u2013" => "-",  # – EN DASH
+        "\u2014" => "-",  # — EM DASH
+        "\u2212" => "-",  # − MINUS SIGN
+        "\u2018" => "'",  # ‘ LEFT SINGLE QUOTATION MARK
+        "\u2019" => "'",  # ’ RIGHT SINGLE QUOTATION MARK
+        "\u201C" => '"',  # “ LEFT DOUBLE QUOTATION MARK
+        "\u201D" => '"'   # ” RIGHT DOUBLE QUOTATION MARK
+      }.freeze
+
+      HOMOGLYPH_PATTERN = /[\u2013\u2014\u2212\u2018\u2019\u201C\u201D]/.freeze
+
       # Find a matching string in content using a layered strategy.
       #
       # Strategy (applied in order):
@@ -13,7 +29,7 @@ module Clacky
       #   2. Trimmed match (leading/trailing whitespace stripped)
       #   3. Unescaped match (over-escaped sequences normalised)
       #   4. Combined trim + unescape
-      #   5. Smart line-by-line match (tolerates indent differences)
+      #   5. Smart line-by-line match (tolerates indent & Unicode homoglyphs)
       #
       # @param content [String] File content to search in
       # @param old_string [String] String to locate
@@ -75,6 +91,14 @@ module Clacky
           unescaped,         # Unescape over-escaped sequences
           unescaped_trimmed  # Combined: trim + unescape
         ].uniq
+      end
+
+      # Map visually-identical Unicode punctuation to ASCII equivalents.
+      def self.normalize_homoglyphs(str)
+        return str if str.nil? || str.empty?
+        return str unless HOMOGLYPH_PATTERN.match?(str)
+
+        str.each_char.map { |ch| HOMOGLYPHS.fetch(ch, ch) }.join
       end
 
       # Convert over-escaped sequences back to their real characters.
@@ -150,7 +174,10 @@ module Clacky
           norm1 = line1.sub(/^\s+/, " ").chomp
           norm2 = line2.sub(/^\s+/, " ").chomp
 
-          norm1 == norm2 || norm1 == unescape_over_escaped(norm2)
+          norm1 == norm2 ||
+            norm1 == unescape_over_escaped(norm2) ||
+            normalize_homoglyphs(norm1) == normalize_homoglyphs(norm2) ||
+            normalize_homoglyphs(norm1) == normalize_homoglyphs(unescape_over_escaped(norm2))
         end
       end
     end
