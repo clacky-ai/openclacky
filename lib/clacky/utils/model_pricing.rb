@@ -159,37 +159,45 @@ module Clacky
       #   - "cache miss input" = regular prompt_tokens rate
       #   - "cache hit input"  = cache_read rate (DeepSeek has no separate cache-write charge)
       #   - No tiered pricing (single rate regardless of context length)
-      # Cache-hit prices are 1/10 of launch (global, permanent since 2026-04-26).
-      # v4-pro is on a 75% off promo through 2026-05-31 23:59 CST; the same
-      # numbers become the permanent price after that date (= original × 1/4),
-      # so we bill at the discounted rates both before and after the cutover.
+      # Effective 2026-08-16 16:00 UTC DeepSeek switched to peak/off-peak billing
+      # (off-peak = half of peak; peak = 01:00-04:00 & 06:00-10:00 UTC).
+      # Each entry carries legacy/peak/off_peak tiers; calculate_cost resolves
+      # the active tier from the request time.
       "deepseek-v4-flash" => {
-        input: {
-          default: 0.14,                  # $0.14/MTok cache miss
-          over_200k: 0.14                 # no tiered pricing
+        deepseek: true,
+        legacy: {
+          input:  { default: 0.14,   over_200k: 0.14 },   # $0.14/MTok  (pre-cutover flat)
+          output: { default: 0.28,   over_200k: 0.28 },   # $0.28/MTok
+          cache:  { write: 0.14,     read: 0.0028 }       # $0.0028/MTok cache hit
         },
-        output: {
-          default: 0.28,                  # $0.28/MTok
-          over_200k: 0.28
+        peak: {
+          input:  { default: 0.44,   over_200k: 0.44 },   # $0.44/MTok  cache miss (peak)
+          output: { default: 1.32,   over_200k: 1.32 },   # $1.32/MTok
+          cache:  { write: 0.44,     read: 0.014 }        # $0.014/MTok cache hit
         },
-        cache: {
-          write: 0.14,                    # DeepSeek doesn't charge extra for writes; bill at miss rate
-          read: 0.0028                    # $0.0028/MTok cache hit
+        off_peak: {
+          input:  { default: 0.22,   over_200k: 0.22 },   # $0.22/MTok  (half of peak)
+          output: { default: 0.66,   over_200k: 0.66 },   # $0.66/MTok
+          cache:  { write: 0.22,     read: 0.007 }        # $0.007/MTok cache hit
         }
       },
 
       "deepseek-v4-pro" => {
-        input: {
-          default: 0.435,                 # $0.435/MTok cache miss (75% off; permanent after 5/31)
-          over_200k: 0.435
+        deepseek: true,
+        legacy: {
+          input:  { default: 0.435,  over_200k: 0.435 },  # $0.435/MTok  (pre-cutover flat)
+          output: { default: 0.87,   over_200k: 0.87 },   # $0.87/MTok
+          cache:  { write: 0.435,    read: 0.003625 }     # $0.003625/MTok cache hit
         },
-        output: {
-          default: 0.87,                  # $0.87/MTok (75% off; permanent after 5/31)
-          over_200k: 0.87
+        peak: {
+          input:  { default: 1.32,   over_200k: 1.32 },   # $1.32/MTok  cache miss (peak)
+          output: { default: 3.96,   over_200k: 3.96 },   # $3.96/MTok
+          cache:  { write: 1.32,     read: 0.044 }        # $0.044/MTok cache hit
         },
-        cache: {
-          write: 0.435,                   # no separate write charge; bill at miss rate
-          read: 0.003625                  # $0.003625/MTok cache hit (1/10 × 75% off)
+        off_peak: {
+          input:  { default: 0.66,   over_200k: 0.66 },   # $0.66/MTok  (half of peak)
+          output: { default: 1.98,   over_200k: 1.98 },   # $1.98/MTok
+          cache:  { write: 0.66,     read: 0.022 }        # $0.022/MTok cache hit
         }
       },
 
@@ -687,6 +695,10 @@ module Clacky
     # Costs for prompts between 200K–272K will be slightly over-estimated.
     TIERED_PRICING_THRESHOLD = 200_000
 
+    # DeepSeek switched from flat legacy rates to peak/off-peak billing at
+    # 2026-08-17 00:00 Beijing time (= 2026-08-16 16:00 UTC).
+    DEEPSEEK_PEAK_PRICING_START = Time.utc(2026, 8, 16, 16, 0, 0).freeze
+
     class << self
       # Calculate cost for the given model and usage
       #
@@ -696,10 +708,12 @@ module Clacky
       #   - completion_tokens: number of output tokens
       #   - cache_creation_input_tokens: tokens written to cache (optional)
       #   - cache_read_input_tokens: tokens read from cache (optional)
+      # @param now [Time] Request time used to resolve peak/off-peak tiers
+      #   (defaults to the current time)
       # @return [Hash] Hash containing:
       #   - cost: Cost in USD (Float) or nil if model pricing is unknown
       #   - source: Cost source (:price) or nil if unknown (Symbol or nil)
-      def calculate_cost(model:, usage:)
+      def calculate_cost(model:, usage:, now: Time.now)
         pricing_result = get_pricing_with_source(model)
         pricing = pricing_result[:pricing]
         source = pricing_result[:source]
@@ -707,6 +721,9 @@ module Clacky
         # If no pricing table matches this model, return nil cost.
         # Unknown models should display as N/A, never fall back to guesses.
         return { cost: nil, source: nil } unless pricing
+
+        # DeepSeek peak/off-peak pricing: resolve to the tier active at `now`.
+        pricing = resolve_deepseek_tier(pricing, now) if pricing[:deepseek]
 
         prompt_tokens = usage[:prompt_tokens] || 0
         completion_tokens = usage[:completion_tokens] || 0
@@ -959,6 +976,24 @@ module Clacky
         end
 
         cache_cost
+      end
+
+      # Resolve a DeepSeek pricing entry (which holds legacy/peak/off_peak
+      # tiers) to the single tier that applies at the given time.
+      def resolve_deepseek_tier(pricing, now)
+        if now < DEEPSEEK_PEAK_PRICING_START
+          pricing[:legacy]
+        elsif deepseek_peak_hour?(now)
+          pricing[:peak]
+        else
+          pricing[:off_peak]
+        end
+      end
+
+      # Peak hours: 01:00-04:00 and 06:00-10:00 UTC (all other hours off-peak).
+      def deepseek_peak_hour?(time)
+        hour = time.utc.hour
+        (hour >= 1 && hour < 4) || (hour >= 6 && hour < 10)
       end
     end
   end

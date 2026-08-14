@@ -246,7 +246,12 @@ RSpec.describe Clacky::ModelPricing do
     end
     
     context "with DeepSeek V4 models" do
-      it "calculates deepseek-v4-flash basic cost" do
+      let(:legacy_time)   { Time.utc(2026, 8, 16, 2, 0, 0) }  # before cutover -> legacy flat
+      let(:peak_time)     { Time.utc(2026, 8, 17, 2, 0, 0) }  # 02:00 UTC -> peak
+      let(:off_peak_time) { Time.utc(2026, 8, 17, 5, 0, 0) }  # 05:00 UTC -> off-peak
+      let(:cutover_time)  { Time.utc(2026, 8, 16, 16, 0, 0) } # exact cutover -> off-peak (hour 16)
+
+      it "bills deepseek-v4-flash at legacy flat rate before cutover" do
         usage = {
           prompt_tokens: 100_000,         # 100K tokens
           completion_tokens: 50_000        # 50K tokens
@@ -255,38 +260,94 @@ RSpec.describe Clacky::ModelPricing do
         # Input: (100,000 / 1,000,000) * $0.14 = $0.014
         # Output: (50,000 / 1,000,000) * $0.28 = $0.014
         # Total: $0.028
-        result = described_class.calculate_cost(model: "deepseek-v4-flash", usage: usage)
+        result = described_class.calculate_cost(model: "deepseek-v4-flash", usage: usage, now: legacy_time)
         expect(result[:cost]).to be_within(0.0001).of(0.028)
         expect(result[:source]).to eq(:price)
       end
 
-      it "calculates deepseek-v4-pro with cache read (cache hit billing)" do
+      it "bills deepseek-v4-flash at peak rate" do
+        usage = {
+          prompt_tokens: 100_000,         # 100K tokens
+          completion_tokens: 50_000        # 50K tokens
+        }
+
+        # Input: (100,000 / 1,000,000) * $0.44 = $0.044
+        # Output: (50,000 / 1,000,000) * $1.32 = $0.066
+        # Total: $0.110
+        result = described_class.calculate_cost(model: "deepseek-v4-flash", usage: usage, now: peak_time)
+        expect(result[:cost]).to be_within(0.0001).of(0.110)
+        expect(result[:source]).to eq(:price)
+      end
+
+      it "bills deepseek-v4-flash at off-peak rate (half of peak)" do
+        usage = {
+          prompt_tokens: 100_000,         # 100K tokens
+          completion_tokens: 50_000        # 50K tokens
+        }
+
+        # Input: (100,000 / 1,000,000) * $0.22 = $0.022
+        # Output: (50,000 / 1,000,000) * $0.66 = $0.033
+        # Total: $0.055
+        result = described_class.calculate_cost(model: "deepseek-v4-flash", usage: usage, now: off_peak_time)
+        expect(result[:cost]).to be_within(0.0001).of(0.055)
+        expect(result[:source]).to eq(:price)
+      end
+
+      it "bills deepseek-v4-pro with cache at peak rate" do
         usage = {
           prompt_tokens: 100_000,          # includes cache reads per OpenAI-style counting
           completion_tokens: 50_000,
           cache_read_input_tokens: 30_000  # cache hit portion
         }
 
-        # Regular input (non-cached): ((100_000 - 30_000) / 1_000_000) * $0.435 = $0.030450
-        # Output:                     (50_000 / 1_000_000)             * $0.87  = $0.0435
+        # Regular input (non-cached): ((100_000 - 30_000) / 1_000_000) * $1.32  = $0.0924
+        # Output:                     (50_000 / 1_000_000)             * $3.96  = $0.198
+        # Cache read:                 (30_000 / 1_000_000)             * $0.044 = $0.00132
+        # Total: $0.29172
+        result = described_class.calculate_cost(model: "deepseek-v4-pro", usage: usage, now: peak_time)
+        expect(result[:cost]).to be_within(0.0001).of(0.29172)
+        expect(result[:source]).to eq(:price)
+      end
+
+      it "bills deepseek-v4-pro with cache at legacy flat rate" do
+        usage = {
+          prompt_tokens: 100_000,          # includes cache reads per OpenAI-style counting
+          completion_tokens: 50_000,
+          cache_read_input_tokens: 30_000  # cache hit portion
+        }
+
+        # Regular input (non-cached): ((100_000 - 30_000) / 1_000_000) * $0.435   = $0.03045
+        # Output:                     (50_000 / 1_000_000)             * $0.87    = $0.0435
         # Cache read:                 (30_000 / 1_000_000)             * $0.003625 = $0.00010875
         # Total: $0.07405875
-        result = described_class.calculate_cost(model: "deepseek-v4-pro", usage: usage)
+        result = described_class.calculate_cost(model: "deepseek-v4-pro", usage: usage, now: legacy_time)
         expect(result[:cost]).to be_within(0.0001).of(0.07405875)
         expect(result[:source]).to eq(:price)
       end
 
-      it "maps legacy deepseek-chat alias to flash pricing" do
-        usage = { prompt_tokens: 100_000, completion_tokens: 50_000 }
-        result = described_class.calculate_cost(model: "deepseek-chat", usage: usage)
-        expect(result[:cost]).to be_within(0.0001).of(0.028)
+      it "uses peak/off-peak at the exact cutover instant" do
+        usage = {
+          prompt_tokens: 100_000,
+          completion_tokens: 50_000
+        }
+
+        # 16:00 UTC on 2026-08-16 is the cutover instant (hour 16 = off-peak).
+        result = described_class.calculate_cost(model: "deepseek-v4-flash", usage: usage, now: cutover_time)
+        expect(result[:cost]).to be_within(0.0001).of(0.055)
         expect(result[:source]).to eq(:price)
       end
 
-      it "maps legacy deepseek-reasoner alias to flash pricing" do
+      it "maps legacy deepseek-chat alias to flash peak pricing" do
         usage = { prompt_tokens: 100_000, completion_tokens: 50_000 }
-        result = described_class.calculate_cost(model: "deepseek-reasoner", usage: usage)
-        expect(result[:cost]).to be_within(0.0001).of(0.028)
+        result = described_class.calculate_cost(model: "deepseek-chat", usage: usage, now: peak_time)
+        expect(result[:cost]).to be_within(0.0001).of(0.110)
+        expect(result[:source]).to eq(:price)
+      end
+
+      it "maps legacy deepseek-reasoner alias to flash peak pricing" do
+        usage = { prompt_tokens: 100_000, completion_tokens: 50_000 }
+        result = described_class.calculate_cost(model: "deepseek-reasoner", usage: usage, now: peak_time)
+        expect(result[:cost]).to be_within(0.0001).of(0.110)
         expect(result[:source]).to eq(:price)
       end
     end
