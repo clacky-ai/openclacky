@@ -4,6 +4,44 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
+## [1.5.9] - 2026-08-14
+
+### Added
+- OrcaRouter as a named provider preset (#480 - @Marc-oss-hub)
+- DeepSeek peak/off-peak billing support
+- Unicode homoglyph-tolerant string matching in edit mode
+- Load-more pagination in extension marketplace
+- Remove-from-project action in session menu
+- Move-to-project submenu in session actions menu
+- Changelog link in version badge and upgrade popover
+- ext-studio scaffolding generates a runnable test/handler_test.rb and promotes "write tests" to its own step
+- Lucide SVG icons for cron and extension group icons
+
+### Improved
+- Skill "use" button themed with accent color
+- Reordered provider presets list
+- Replaced native confirm() with a Modal component and refreshed aside icons
+- Billing sidebar icon switched to circle-dollar-sign
+- Settings data tab renamed to backup management
+- Refined project session group indentation and hover styling
+
+### Fixed
+- Scroll to top when entering a session group sub-view
+- Zhipu AI website_url now points to the console overview page
+- WSL path translation and CRLF line-ending preservation (#454 - @shipinliang)
+- Project sessions re-render on language switch
+- Corrected arrow direction for move-in/move-out project icons
+- Attachment drafts isolated per session (#478)
+- Pinned sessions prioritized in project session lists
+- Projects.all() returns a sorted list
+- Builtin extension skills classified as system and hidden third-party ext skills from the panel
+- Feishu WebSocket TLS SNI (#479 - @ayers-ltd)
+- stop_reason mapping expanded from 3 to 8 cases (#469 - @shipinliang)
+
+### More
+- Shortened ext-developer title
+- cmdbar hover and session group indent tweaks
+
 ## [1.5.8] - 2026-08-12
 
 ### Added
