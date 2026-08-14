@@ -893,7 +893,10 @@
           <section class="settings-section">
             <div class="settings-section-title">
               <span data-i18n="settings.models.title">Primary Model</span>
-              <button id="btn-add-model" class="btn-settings-add" data-i18n="settings.models.add">+ Add Model</button>
+              <div class="settings-section-actions">
+                <button id="btn-add-group" class="btn-settings-add" data-i18n="settings.models.group.add">+ Add Group</button>
+                <button id="btn-add-model" class="btn-settings-add" data-i18n="settings.models.add">+ Add Model</button>
+              </div>
             </div>
             <div id="model-cards"></div>
           </section>
@@ -1328,6 +1331,19 @@
               <div class="custom-select-dropdown" id="model-modal-provider-dropdown"></div>
             </div>
             <div id="model-modal-promo-hint" class="provider-promo-hint" data-index="modal"></div>
+          </label>
+
+          <label class="model-field" id="model-modal-group-field">
+            <span class="field-label" data-i18n="settings.models.group.field">Group</span>
+            <div class="custom-select-wrapper" id="model-modal-group-wrapper">
+              <div class="custom-select-trigger" tabindex="0" id="model-modal-group-trigger">
+                <span class="custom-select-value placeholder" id="model-modal-group-value" data-i18n="settings.models.group.placeholder">Select group…</span>
+                <svg class="custom-select-arrow" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+                </svg>
+              </div>
+              <div class="custom-select-dropdown" id="model-modal-group-dropdown"></div>
+            </div>
           </label>
 
           <label class="model-field">

@@ -571,6 +571,26 @@ RSpec.describe Clacky::Server::HttpServer do
         expect(body).to have_key("current_index")
       end
     end
+
+    it "exposes the group field (nil when unset)" do
+      with_server(agent_config: agent_config) do |server|
+        agent_config.models << {
+          "model"    => "grouped-model",
+          "api_key"  => "sk-testkey1234567890abcd",
+          "base_url" => "https://api.example.com",
+          "group"    => "main"
+        }
+
+        req = fake_req(method: "GET", path: "/api/config")
+        res = fake_res
+        dispatch(server, req, res)
+
+        body = parsed_body(res)
+        by_model = body["models"].to_h { |m| [m["model"], m] }
+        expect(by_model["test-model"]["group"]).to be_nil
+        expect(by_model["grouped-model"]["group"]).to eq("main")
+      end
+    end
   end
 
   # ── Single-item model CRUD APIs ───────────────────────────────────────────
@@ -646,6 +666,24 @@ RSpec.describe Clacky::Server::HttpServer do
         res = fake_res
         dispatch(server, req, res)
         expect(res.status).to eq(422)
+      end
+    end
+
+    it "stores the group field when provided" do
+      with_server(agent_config: agent_config) do |server|
+        payload = {
+          model:    "claude-opus-4",
+          base_url: "https://api.anthropic.com",
+          api_key:  "sk-newkey0000111122223333",
+          group:    "main"
+        }
+        req = fake_req(method: "POST", path: "/api/config/models", body: payload)
+        res = fake_res
+        dispatch(server, req, res)
+
+        expect(res.status).to eq(200)
+        created = agent_config.models.find { |m| m["model"] == "claude-opus-4" }
+        expect(created["group"]).to eq("main")
       end
     end
 
@@ -747,6 +785,24 @@ RSpec.describe Clacky::Server::HttpServer do
         dispatch(server, req, res)
         expect(res.status).to eq(200)
         expect(agent_config.models[0]).not_to have_key("remark")
+      end
+    end
+
+    it "updates the group field and clears it with an empty string" do
+      with_server(agent_config: agent_config) do |server|
+        id = agent_config.models[0]["id"]
+
+        req = fake_req(method: "PATCH", path: "/api/config/models/#{id}", body: { group: "main" })
+        res = fake_res
+        dispatch(server, req, res)
+        expect(res.status).to eq(200)
+        expect(agent_config.models[0]["group"]).to eq("main")
+
+        req = fake_req(method: "PATCH", path: "/api/config/models/#{id}", body: { group: "" })
+        res = fake_res
+        dispatch(server, req, res)
+        expect(res.status).to eq(200)
+        expect(agent_config.models[0]).not_to have_key("group")
       end
     end
 

@@ -5791,6 +5791,7 @@ module Clacky
             anthropic_format: m["anthropic_format"] || false,
             provider_id:      m["provider_id"],
             remark:           m["remark"],
+            group:            m["group"],
             type:             m["type"]
           }
         end
@@ -6072,7 +6073,8 @@ module Clacky
           "base_url"         => base_url,
           "api_key"          => api_key,
           "anthropic_format" => body["anthropic_format"] || false,
-          "provider_id"      => body["provider_id"].to_s.strip.then { |v| v.empty? ? nil : v }
+          "provider_id"      => body["provider_id"].to_s.strip.then { |v| v.empty? ? nil : v },
+          "group"            => body["group"].to_s.strip.then { |v| v.empty? ? nil : v }
         }
         remark = body["remark"].to_s.strip
         entry["remark"] = remark unless remark.empty?
@@ -6109,7 +6111,7 @@ module Clacky
       end
 
       # PATCH /api/config/models/:id
-      # Body: any subset of { model, base_url, api_key, anthropic_format, type }
+      # Body: any subset of { model, base_url, api_key, anthropic_format, provider_id, group, type }
       # Rules (the whole reason we moved off bulk save):
       #   - Missing key  → field untouched
       #   - api_key with "****" (masked display value) → IGNORED (never overwrites)
@@ -6149,6 +6151,14 @@ module Clacky
             target.delete("remark")
           else
             target["remark"] = v
+          end
+        end
+        if body.key?("group")
+          v = body["group"].to_s.strip
+          if v.empty?
+            target.delete("group")
+          else
+            target["group"] = v
           end
         end
         if body.key?("api_key")
