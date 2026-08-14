@@ -7524,7 +7524,7 @@ body {
   font-size: 0.625rem;
   font-weight: 500;
   padding: 2px 0.4375rem;
-  border-radius: 10px;
+  border-radius: 4px;
   letter-spacing: 0.3px;
   flex-shrink: 0;
 }
@@ -8605,8 +8605,7 @@ body {
   opacity: 0.5;
   cursor: not-allowed;
 }
-.btn-brand-use,
-.btn-skill-use {
+.btn-brand-use {
   background: transparent;
   border: 1px solid var(--color-success-border);
   border-radius: 6px;
@@ -8618,9 +8617,23 @@ body {
   transition: background .15s;
   white-space: nowrap;
 }
-.btn-brand-use:hover,
-.btn-skill-use:hover {
+.btn-brand-use:hover {
   background: var(--color-success-bg);
+}
+.btn-skill-use {
+  background: transparent;
+  border: 1px solid var(--color-accent-primary);
+  border-radius: 6px;
+  color: var(--color-accent-primary);
+  cursor: pointer;
+  font-size: 0.75rem;
+  font-weight: 500;
+  padding: 0.3125rem 0.75rem;
+  transition: background .15s;
+  white-space: nowrap;
+}
+.btn-skill-use:hover {
+  background: var(--color-accent-soft);
 }
 
 /* ── Delete button ────────────────────────────────────────────────────────── */
