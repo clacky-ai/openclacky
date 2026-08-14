@@ -231,6 +231,59 @@ module Clacky
         "website_url" => "https://openrouter.ai/keys"
       }.freeze,
 
+      "orcarouter" => {
+        "name" => "OrcaRouter",
+        "base_url" => "https://api.orcarouter.ai/v1",
+        "api" => "openai-completions",
+        "default_model" => "openai/gpt-5.5",
+        # Curated default lineup. OrcaRouter exposes 190+ models from OpenAI,
+        # Anthropic, Google, DeepSeek, Qwen, MiniMax, Zhipu and others behind a
+        # single OpenAI-compatible endpoint. Shipping a small list of the
+        # mainstream Claude + GPT entries gives users a working dropdown out
+        # of the box; users can still type any other OrcaRouter model id
+        # manually (e.g. "orcarouter/auto" for request-level auto-routing).
+        "models" => [
+          "anthropic/claude-sonnet-5",
+          "anthropic/claude-opus-4.8",
+          "anthropic/claude-haiku-4.5",
+          "openai/gpt-5.5",
+          "openai/gpt-5.4",
+          "openai/gpt-5.4-mini",
+          "google/gemini-3.5-flash",
+          "deepseek/deepseek-v4-flash",
+          "z-ai/glm-5.2",
+          "orcarouter/auto"
+        ],
+        # Per-primary lite pairing — Claude family pairs with Haiku, GPT
+        # family pairs with the mini variant. Mirrors the openrouter preset
+        # so subagents on OrcaRouter get a sensible cheap/fast sidekick.
+        "lite_models" => {
+          "anthropic/claude-sonnet-5" => "anthropic/claude-haiku-4.5",
+          "anthropic/claude-opus-4.8" => "anthropic/claude-haiku-4.5",
+          "openai/gpt-5.5"            => "openai/gpt-5.4-mini",
+          "openai/gpt-5.4"            => "openai/gpt-5.4-mini"
+        },
+        # Per-model API type overrides. OrcaRouter proxies Claude through a
+        # native Anthropic /v1/messages endpoint (https://api.orcarouter.ai/v1/messages)
+        # in addition to its OpenAI-compatible /chat/completions endpoint.
+        # Routing "anthropic/*" via the native endpoint preserves cache_control
+        # fidelity, matching what Claude Code CLI does internally (same rationale
+        # as the openrouter preset). Non-Claude models keep the OpenAI shim.
+        "model_api_overrides" => {
+          /\Aanthropic\// => "anthropic-messages"
+        }.freeze,
+        # Most models on OrcaRouter are vision-capable; DeepSeek / GLM-5.2 and
+        # the "orcarouter/auto" router are text-only.
+        "capabilities" => { "vision" => true }.freeze,
+        "model_capabilities" => {
+          "deepseek/deepseek-v4-flash" => { "vision" => false }.freeze,
+          "z-ai/glm-5.2"               => { "vision" => false }.freeze,
+          "orcarouter/auto"            => { "vision" => false }.freeze
+        }.freeze,
+        "default_ocr_model" => "google/gemini-3.5-flash",
+        "website_url" => "https://www.orcarouter.ai"
+      }.freeze,
+
       "deepseekv4" => {
         "name" => "DeepSeek V4",
         # DeepSeek API is compatible with both OpenAI and Anthropic formats.
