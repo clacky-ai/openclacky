@@ -6107,6 +6107,64 @@ body {
 .model-group-empty {
   grid-column: 1 / -1;
 }
+/* ── Add-models-to-group picker modal ─────────────────────────────────────── */
+.model-group-add-content {
+  max-width: 480px;
+}
+.model-picker-select-all {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--color-text-primary);
+  cursor: pointer;
+  user-select: none;
+}
+.model-picker-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+  max-height: 320px;
+  overflow-y: auto;
+}
+.model-picker-row {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--color-border-primary);
+  border-radius: 8px;
+  background: var(--color-bg-primary);
+  cursor: pointer;
+  transition: border-color 0.15s, background-color 0.15s;
+}
+.model-picker-row:hover {
+  border-color: var(--color-border-secondary);
+  background: var(--color-bg-hover);
+}
+.model-picker-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.875rem;
+  color: var(--color-text-primary);
+}
+.model-picker-group-tag {
+  flex-shrink: 0;
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 0.125rem 0.5rem;
+  border-radius: 999px;
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border-primary);
+  color: var(--color-text-secondary);
+  font-size: 0.75rem;
+}
 .model-group-input-row {
   grid-column: 1 / -1;
   display: flex;
