@@ -51,7 +51,13 @@ RSpec.describe Clacky::Channel::Adapters::Feishu::Bot do
       resp2 = double("resp2", success?: true, body: JSON.generate("code" => 0, "msg" => "ok"))
 
       calls = 0
-      allow(conn).to receive(:post) do |&_block|
+      allow(conn).to receive(:post) do |_path, &block|
+        # Faraday executes the request block, which calls tenant_access_token
+        req = double("req")
+        allow(req).to receive(:headers).and_return({})
+        allow(req).to receive(:params).and_return({})
+        allow(req).to receive(:body=)
+        block.call(req)
         calls += 1
         calls == 1 ? resp1 : resp2
       end
