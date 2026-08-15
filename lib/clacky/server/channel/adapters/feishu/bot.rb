@@ -50,6 +50,7 @@ module Clacky
           DOWNLOAD_TIMEOUT = 60
           ERR_SCOPE_MISSING = 99991672
           ERR_SCOPE_MISSING_2 = 230027
+          ERR_INVALID_TOKEN = 99991663
           GROUP_HISTORY_LIMIT = 15
           SCOPE_GROUP_MSG = "im:message.group_msg"
 
@@ -320,13 +321,15 @@ module Clacky
           # @param params [Hash] Query parameters
           # @return [Hash] Parsed response
           def get(path, params: {})
-            conn = build_connection
-            response = conn.get(path) do |req|
-              req.headers["Authorization"] = "Bearer #{tenant_access_token}"
-              req.params.update(params)
-            end
+            with_token_retry do
+              conn = build_connection
+              response = conn.get(path) do |req|
+                req.headers["Authorization"] = "Bearer #{tenant_access_token}"
+                req.params.update(params)
+              end
 
-            parse_response(response)
+              parse_response(response)
+            end
           end
 
           # Make authenticated POST request
@@ -335,15 +338,17 @@ module Clacky
           # @param params [Hash] Query parameters
           # @return [Hash] Parsed response
           def post(path, body, params: {})
-            conn = build_connection
-            response = conn.post(path) do |req|
-              req.headers["Authorization"] = "Bearer #{tenant_access_token}"
-              req.headers["Content-Type"] = "application/json"
-              req.params.update(params)
-              req.body = JSON.generate(body)
-            end
+            with_token_retry do
+              conn = build_connection
+              response = conn.post(path) do |req|
+                req.headers["Authorization"] = "Bearer #{tenant_access_token}"
+                req.headers["Content-Type"] = "application/json"
+                req.params.update(params)
+                req.body = JSON.generate(body)
+              end
 
-            parse_response(response)
+              parse_response(response)
+            end
           end
 
           # Make authenticated PATCH request
@@ -351,14 +356,31 @@ module Clacky
           # @param body [Hash] Request body
           # @return [Hash] Parsed response
           def patch(path, body)
-            conn = build_connection
-            response = conn.patch(path) do |req|
-              req.headers["Authorization"] = "Bearer #{tenant_access_token}"
-              req.headers["Content-Type"] = "application/json"
-              req.body = JSON.generate(body)
-            end
+            with_token_retry do
+              conn = build_connection
+              response = conn.patch(path) do |req|
+                req.headers["Authorization"] = "Bearer #{tenant_access_token}"
+                req.headers["Content-Type"] = "application/json"
+                req.body = JSON.generate(body)
+              end
 
-            parse_response(response)
+              parse_response(response)
+            end
+          end
+
+          # Wrap an authenticated API call. If Feishu reports an invalid or
+          # revoked access token (99991663) while it is still inside our cache
+          # window, force a token refresh and retry the request once.
+          # @return [Hash] Parsed response
+          def with_token_retry
+            response = yield
+            if response.is_a?(Hash) && response["code"] == ERR_INVALID_TOKEN
+              Clacky::Logger.warn("[feishu] token invalid (99991663), refreshing and retrying once")
+              @token_cache = nil
+              @token_expires_at = nil
+              response = yield
+            end
+            response
           end
 
           # Make POST request without authentication (for token endpoint)
