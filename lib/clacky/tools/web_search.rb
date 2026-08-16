@@ -64,27 +64,40 @@ module Clacky
           end
         end
 
-        # All providers failed
         {
           query: query,
           results: [],
           count: 0,
           provider: nil,
-          error: "All search providers failed. Last error: #{last_error&.message}"
+          error: search_failure_message(providers, last_error)
         }
+      end
+
+      private def search_failure_message(providers, last_error)
+        reason = last_error ? "Last error: #{last_error.message.strip.sub(/\.?\z/, ".")}" : "No results returned."
+
+        if providers == [:custom]
+          name = Clacky::SearchConfig.load["provider"]
+          "Configured search provider '#{name}' failed. #{reason} " \
+            "Check the key and the script at #{Clacky::SearchConfig.script_path}, " \
+            "or reconfigure it in Settings → Search."
+        else
+          "All search providers failed. #{reason}"
+        end
       end
 
       # Skip DuckDuckGo if it failed recently (within last 10 minutes)
       private def active_providers
-        builtin = if @ddg_unavailable_until && Time.now < @ddg_unavailable_until
-                    PROVIDERS.drop(1)
-                  else
-                    PROVIDERS
-                  end
+        # An explicitly configured searcher is authoritative: falling back to a
+        # built-in scraper would silently ignore the user's choice and make a
+        # broken key or script look like a low-quality result set.
+        return [:custom] if Clacky::SearchConfig.script_path
 
-        # A configured searcher is tried first; the built-in scrapers stay as
-        # fallback so a missing key or a provider outage still returns results.
-        Clacky::SearchConfig.script_path ? [:custom, *builtin] : builtin
+        if @ddg_unavailable_until && Time.now < @ddg_unavailable_until
+          PROVIDERS.drop(1)
+        else
+          PROVIDERS
+        end
       end
 
       # ── Configured searcher (~/.clacky/searchers/<provider>.rb) ────────────
