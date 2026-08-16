@@ -1344,6 +1344,15 @@
           </label>
 
           <label class="model-field">
+            <span class="field-label" data-i18n="settings.models.field.apiFormat">API Format</span>
+            <select id="model-modal-api-format" class="field-input field-select">
+              <option value="" data-i18n="settings.models.apiFormat.auto">Auto (detect from provider &amp; model)</option>
+              <option value="anthropic-messages" data-i18n="settings.models.apiFormat.anthropicMessages">Anthropic Messages API</option>
+              <option value="openai-completions" data-i18n="settings.models.apiFormat.openaiCompletions">OpenAI Chat Completions</option>
+            </select>
+          </label>
+
+          <label class="model-field">
             <span class="field-label" data-i18n="settings.models.field.baseurl">Base URL</span>
             <div class="base-url-combobox" id="model-modal-baseurl-combobox">
               <input type="text" id="model-modal-baseurl" class="field-input base-url-input" placeholder="https://api.openai.com/v1" autocomplete="off">
