@@ -5789,6 +5789,7 @@ module Clacky
             base_url:         m["base_url"],
             api_key_masked:   mask_api_key(m["api_key"]),
             anthropic_format: m["anthropic_format"] || false,
+            api_format:       m["api_format"],
             provider_id:      m["provider_id"],
             remark:           m["remark"],
             type:             m["type"]
@@ -6042,13 +6043,27 @@ module Clacky
       # one call can never corrupt unrelated models. Front-end code must
       # never send "the whole list" anymore.
 
+      # Normalize an incoming api_format value into one of the supported
+      # explicit formats ("anthropic-messages" / "openai-completions"), or nil
+      # for auto. Returns :invalid for unsupported values so callers can
+      # reject the request outright.
+      private def normalize_api_format(value)
+        return nil if value.nil? || value.to_s.strip.empty?
+        v = value.to_s.strip
+        return v if %w[anthropic-messages openai-completions].include?(v)
+        :invalid
+      end
+
       # POST /api/config/models
-      # Body: { model, base_url, api_key, anthropic_format, type? }
+      # Body: { model, base_url, api_key, anthropic_format, api_format?, type? }
       # Creates a new model entry, returns { ok:true, id, index } so the
       # frontend can record the new id without reloading the whole list.
       def api_add_model(req, res)
         body = parse_json_body(req)
         return json_response(res, 400, { error: "Invalid JSON" }) unless body
+
+        api_format = normalize_api_format(body["api_format"])
+        return json_response(res, 422, { error: "invalid api_format" }) if api_format == :invalid
 
         model    = body["model"].to_s.strip
         base_url = body["base_url"].to_s.strip
@@ -6076,6 +6091,7 @@ module Clacky
         }
         remark = body["remark"].to_s.strip
         entry["remark"] = remark unless remark.empty?
+        entry["api_format"] = api_format if api_format
         type = body["type"].to_s
         unless type.empty?
           # Preserve the single-slot "default" invariant.
@@ -6109,12 +6125,14 @@ module Clacky
       end
 
       # PATCH /api/config/models/:id
-      # Body: any subset of { model, base_url, api_key, anthropic_format, type }
+      # Body: any subset of { model, base_url, api_key, anthropic_format, api_format, type }
       # Rules (the whole reason we moved off bulk save):
       #   - Missing key  → field untouched
       #   - api_key with "****" (masked display value) → IGNORED (never overwrites)
       #   - api_key empty string → IGNORED (defensive; treat as "not changed")
       #   - api_key real non-masked value → stored
+      #   - api_format null/empty → cleared (back to auto)
+      #   - api_format unsupported value → 422
       #   - type="default" transparently clears the marker on other models
       #   - Unknown id → 404
       def api_update_model(id, req, res)
@@ -6134,6 +6152,15 @@ module Clacky
         end
         if body.key?("anthropic_format")
           target["anthropic_format"] = !!body["anthropic_format"]
+        end
+        if body.key?("api_format")
+          api_format = normalize_api_format(body["api_format"])
+          return json_response(res, 422, { error: "invalid api_format" }) if api_format == :invalid
+          if api_format.nil?
+            target.delete("api_format")
+          else
+            target["api_format"] = api_format
+          end
         end
         if body.key?("provider_id")
           v = body["provider_id"].to_s.strip
@@ -6251,8 +6278,10 @@ module Clacky
         model            = body["model"].to_s
         base_url         = body["base_url"].to_s
         anthropic_format = body["anthropic_format"] || false
+        api_format       = normalize_api_format(body["api_format"])
+        return json_response(res, 422, { error: "invalid api_format" }) if api_format == :invalid
 
-        result, used_base_url = try_test_with_base_url(api_key, base_url, model, anthropic_format)
+        result, used_base_url = try_test_with_base_url(api_key, base_url, model, anthropic_format, api_format)
 
         if result[:success] && used_base_url != base_url
           json_response(res, 200, {
@@ -6269,23 +6298,24 @@ module Clacky
         json_response(res, 200, { ok: false, message: e.message })
       end
 
-      private def try_test_with_base_url(api_key, base_url, model, anthropic_format)
-        result = run_test_connection(api_key, base_url, model, anthropic_format)
+      private def try_test_with_base_url(api_key, base_url, model, anthropic_format, api_format)
+        result = run_test_connection(api_key, base_url, model, anthropic_format, api_format)
         return [result, base_url] if result[:success]
         return [result, base_url] unless result[:status] == 404
         return [result, base_url] if base_url.match?(%r{/v\d+/?\z})
 
         candidate = "#{base_url.chomp("/")}/v1"
-        retried   = run_test_connection(api_key, candidate, model, anthropic_format)
+        retried   = run_test_connection(api_key, candidate, model, anthropic_format, api_format)
         retried[:success] ? [retried, candidate] : [result, base_url]
       end
 
-      private def run_test_connection(api_key, base_url, model, anthropic_format)
+      private def run_test_connection(api_key, base_url, model, anthropic_format, api_format)
         client = Clacky::Client.new(
           api_key,
           base_url:         base_url,
           model:            model,
-          anthropic_format: anthropic_format
+          anthropic_format: anthropic_format,
+          api_format:       api_format
         )
         client.test_connection(model: model)
       end
@@ -6301,6 +6331,9 @@ module Clacky
             name_key:          preset["name_key"],
             base_url:          preset["base_url"],
             default_model:     preset["default_model"],
+            # Preset transport protocol; the frontend shows this as the
+            # "auto" resolution target in the API format dropdown (issue #466).
+            api:               preset["api"],
             models:            preset["models"] || [],
             # Frontend uses this to render a Base URL dropdown (regional /
             # billing-plan variants) when present. Absent for single-endpoint
@@ -6672,6 +6705,7 @@ module Clacky
           base_url:         model_cfg["base_url"].to_s,
           model:            model_name,
           anthropic_format: model_cfg["anthropic_format"] || false,
+          api_format:       model_cfg["api_format"],
           read_timeout:     timeout_sec
         )
 
@@ -7381,7 +7415,8 @@ module Clacky
           config.api_key,
           base_url: config.base_url,
           model: config.model_name,
-          anthropic_format: config.anthropic_format?
+          anthropic_format: config.anthropic_format?,
+          api_format: config.api_format
         )
 
         broadcaster = method(:broadcast)
