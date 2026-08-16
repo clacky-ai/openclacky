@@ -37,9 +37,11 @@ module Clacky
         @events     = events
       end
 
-      def show_user_message(content, created_at: nil, files: [], editable: true)
+      def show_user_message(content, created_at: nil, files: [], editable: true, skill_command: nil, skill_command_display: nil)
         ev = { type: "history_user_message", session_id: @session_id, content: content }
         ev[:created_at] = created_at if created_at
+        ev[:skill_command] = skill_command if skill_command
+        ev[:skill_command_display] = skill_command_display if skill_command_display
         ev[:editable] = false unless editable
         rendered = Array(files).filter_map do |f|
           url  = f[:data_url] || f["data_url"]
@@ -457,6 +459,15 @@ module Clacky
         method = req.request_method
 
         Thread.current[:lang] = req["X-Lang"].to_s.strip.then { |l| l.empty? ? nil : l }
+
+        # CORS preflight — must run BEFORE the access-key guard because a
+        # browser preflight carries no credentials (only the
+        # Access-Control-Request-* headers). Returning 204 with the allow
+        # headers lets cross-origin clients (container behind a domain,
+        # third-party UIs) pass the preflight and reach the real request.
+        if method == "OPTIONS"
+          return handle_cors_preflight(req, res)
+        end
 
         # Access key guard (skip for WebSocket upgrades)
         return unless check_access_key(req, res)
@@ -4141,6 +4152,7 @@ module Clacky
         res["Content-Type"]         = "application/octet-stream"
         res["Content-Disposition"]  = "attachment; filename=\"#{filename}\""
         res["Content-Length"]       = File.size(path).to_s
+        res["Access-Control-Allow-Origin"] = "*"
         res.body = File.binread(path)
       end
 
@@ -6998,13 +7010,25 @@ module Clacky
         msg_created_at = Time.now.to_f
         web_ui = nil
         @registry.with_session(session_id) { |s| web_ui = s[:ui] }
+        # Resolve the slash command once here so the realtime broadcast carries the
+        # confirmed skill name (matched against the authoritative skill registry).
+        # agent.run re-resolves internally for dispatch; the broadcast only needs
+        # the flag for the UI to highlight a valid /command. The display name is
+        # resolved against the client's language (Thread.current[:lang], set from
+        # the WS message's lang field) so a zh client gets the Chinese name.
+        skill_command = agent.parse_skill_command(content)
+        skill_command_display = if skill_command[:found] && skill_command[:skill]
+                                  skill_command[:skill].display_name(Thread.current[:lang])
+                                end
         # Pass the uploaded files through to the realtime broadcast so images and
         # attachments render in the bubble immediately. agent.run later appends the
         # authoritative display_files to history — but only after vision/OCR
         # processing finishes, which can take seconds. Without the preview here, a
         # page refresh inside that window shows the message without its image (the
         # "need to refresh several times before the image appears" bug).
-        web_ui&.show_user_message(content, created_at: msg_created_at, source: :web, files: Array(files))
+        web_ui&.show_user_message(content, created_at: msg_created_at, source: :web, files: Array(files),
+                                  skill_command: skill_command[:found] ? skill_command[:skill_name] : nil,
+                                  skill_command_display: skill_command_display)
 
         # File references are now handled inside agent.run — injected as a system_injected
         # message after the user message, so replay_history skips them automatically.
@@ -7420,6 +7444,19 @@ module Clacky
         res.body = JSON.generate(data)
       end
 
+      # CORS preflight (OPTIONS) — respond with 204 + allow headers before any
+      # auth/routing logic so cross-origin browsers can proceed with the real
+      # request. Headers are echoed from the request where sensible.
+      def handle_cors_preflight(req, res)
+        res.status = 204
+        res["Access-Control-Allow-Origin"]  = req["Origin"] || "*"
+        res["Access-Control-Allow-Methods"] = "GET, POST, PUT, PATCH, DELETE, OPTIONS"
+        res["Access-Control-Allow-Headers"] = req["Access-Control-Request-Headers"] ||
+                                              "Content-Type, X-Lang, Authorization"
+        res["Access-Control-Max-Age"]       = "86400"
+        res.body = ""
+      end
+
       def parse_json_body(req)
         return {} if req.body.nil? || req.body.empty?
 
@@ -7478,6 +7515,7 @@ module Clacky
 
       def not_found(res)
         res.status = 404
+        res["Access-Control-Allow-Origin"] = "*"
         res.body   = "Not Found"
       end
 

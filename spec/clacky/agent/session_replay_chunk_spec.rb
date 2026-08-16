@@ -38,7 +38,7 @@ RSpec.describe "replay_history chunk MD expansion" do
       @events = []
     end
 
-    def show_user_message(content, created_at: nil, files: [], editable: true)
+    def show_user_message(content, created_at: nil, files: [], editable: true, skill_command: nil, skill_command_display: nil)
       @events << { type: :user, content: content, created_at: created_at, editable: editable }
     end
 

@@ -61,4 +61,19 @@ RSpec.describe Clacky::Server::WebUIController, "#show_user_message" do
     ev = events.find { |e| e[:type] == "history_user_message" }
     expect(ev.key?(:images)).to be(false)
   end
+
+  it "passes skill_command_display through to the history_user_message event" do
+    events.clear
+    controller.show_user_message("/pptx", skill_command: "pptx", skill_command_display: "幻灯片制作")
+    ev = events.find { |e| e[:type] == "history_user_message" }
+    expect(ev[:skill_command]).to eq("pptx")
+    expect(ev[:skill_command_display]).to eq("幻灯片制作")
+  end
+
+  it "omits skill_command_display when absent" do
+    events.clear
+    controller.show_user_message("hello")
+    ev = events.find { |e| e[:type] == "history_user_message" }
+    expect(ev.key?(:skill_command_display)).to be(false)
+  end
 end

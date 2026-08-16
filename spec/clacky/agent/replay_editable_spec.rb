@@ -25,8 +25,8 @@ RSpec.describe "replay_history editable flag" do
         @user_messages = []
       end
 
-      def show_user_message(content, created_at: nil, files: [], editable: true)
-        @user_messages << { text: content, editable: editable }
+      def show_user_message(content, created_at: nil, files: [], editable: true, skill_command: nil, skill_command_display: nil)
+        @user_messages << { text: content, editable: editable, skill_command: skill_command, skill_command_display: skill_command_display }
       end
 
       # Swallow all other UI callbacks used by _replay_single_message
@@ -100,5 +100,21 @@ RSpec.describe "replay_history editable flag" do
 
     expect(active).not_to be_nil
     expect(active[:editable]).to be true
+  end
+
+  it "passes skill_command_display through to the ui on replay" do
+    history = Clacky::MessageHistory.new([
+      { role: "system", content: "sys" },
+      { role: "user", content: "/slides", created_at: created_at,
+        skill_command: "slides", skill_command_display: "幻灯片" },
+      { role: "assistant", content: "Done" }
+    ])
+    host = host_class.new(history)
+
+    host.replay_history(ui)
+
+    msg = ui.user_messages.find { |m| m[:text] == "/slides" }
+    expect(msg[:skill_command]).to eq("slides")
+    expect(msg[:skill_command_display]).to eq("幻灯片")
   end
 end

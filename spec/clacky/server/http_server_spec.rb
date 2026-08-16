@@ -1341,4 +1341,63 @@ RSpec.describe Clacky::Server::HttpServer do
       end
     end
   end
+
+  describe "#handle_user_message realtime broadcast" do
+    def seed_session(server, session_id, skill_name: "slides", display: nil)
+      sid = server.instance_variable_get(:@registry).create(session_id: session_id)
+      skill = double("skill")
+      allow(skill).to receive(:display_name).with(anything).and_return(display) if display
+      agent = double("agent",
+                     parse_skill_command: { found: true, skill_name: skill_name, skill: skill },
+                     history: [], name: "My Chat")
+      ui = double("ui")
+      allow(ui).to receive(:show_user_message)
+      server.instance_variable_get(:@registry).with_session(sid) do |s|
+        s[:agent] = agent
+        s[:ui] = ui
+      end
+      allow(server).to receive(:run_agent_task)
+      [sid, agent, skill, ui]
+    end
+
+    it "passes the localized skill_command_display to the web ui for zh clients" do
+      with_server(agent_config: agent_config) do |server|
+        sid, agent, skill, ui = seed_session(server, "sid-broadcast-1", display: "幻灯片")
+
+        Thread.current[:lang] = "zh"
+        begin
+          server.send(:handle_user_message, sid, "/slides")
+        ensure
+          Thread.current[:lang] = nil
+        end
+
+        expect(ui).to have_received(:show_user_message).with(
+          "/slides",
+          created_at: kind_of(Float),
+          source: :web,
+          files: [],
+          skill_command: "slides",
+          skill_command_display: "幻灯片"
+        )
+        expect(skill).to have_received(:display_name).with("zh")
+      end
+    end
+
+    it "passes the identifier as display for non-zh clients" do
+      with_server(agent_config: agent_config) do |server|
+        sid, _agent, _skill, ui = seed_session(server, "sid-broadcast-2", display: "slides")
+
+        server.send(:handle_user_message, sid, "/slides")
+
+        expect(ui).to have_received(:show_user_message).with(
+          "/slides",
+          created_at: kind_of(Float),
+          source: :web,
+          files: [],
+          skill_command: "slides",
+          skill_command_display: "slides"
+        )
+      end
+    end
+  end
 end

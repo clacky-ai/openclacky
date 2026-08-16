@@ -588,9 +588,22 @@ module Clacky
           preview_path: f[:preview_path] || f["preview_path"] }
       end
 
+      # Resolved once here (not after append) so the user message can carry the
+      # confirmed skill name: only a skill that actually dispatches gets marked,
+      # so the UI never highlights a typo'd or unavailable command. The display
+      # name is resolved against the client's language (Thread.current[:lang],
+      # seeded from the WS message / X-Lang header) so the Web UI and third-party
+      # clients can render a localized label without re-resolving the skill.
+      skill_command = parse_skill_command(user_input)
+      skill_command_display = if skill_command[:found] && skill_command[:skill]
+                                skill_command[:skill].display_name(Thread.current[:lang])
+                              end
+
       created_at ||= Time.now.to_f
       @history.append({ role: "user", content: user_content, task_id: task_id, created_at: created_at,
                         display_text: display_text,
+                        skill_command: skill_command[:found] ? skill_command[:skill_name] : nil,
+                        skill_command_display: skill_command_display,
                         display_files: display_files.empty? ? nil : display_files })
       @total_tasks += 1
 
@@ -660,7 +673,7 @@ module Clacky
       # If the user typed a slash command targeting a skill with disable-model-invocation: true,
       # inject the skill content as a synthetic assistant message so the LLM can act on it.
       # Skills already in the system prompt (model_invocation_allowed?) are skipped.
-      inject_skill_command_as_assistant_message(user_input, task_id)
+      inject_skill_command_as_assistant_message(skill_command, task_id)
 
       @hooks.trigger(:on_start, user_input)
 

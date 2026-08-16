@@ -66,9 +66,11 @@ module Clacky
 
       # === Output display ===
 
-      def show_user_message(content, created_at: nil, files: [], source: :web)
+      def show_user_message(content, created_at: nil, files: [], source: :web, skill_command: nil, skill_command_display: nil)
         data = { content: content }
         data[:created_at] = created_at if created_at
+        data[:skill_command] = skill_command if skill_command
+        data[:skill_command_display] = skill_command_display if skill_command_display
         # Build ev.images for the frontend renderer (history_user_message):
         #   - Images with data_url → pass the data_url directly (<img> thumbnail)
         #   - Disk image files (type=="image", has path) → /api/local-image proxy URL

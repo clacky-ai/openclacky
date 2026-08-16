@@ -3253,6 +3253,19 @@ body {
 [data-theme="dark"] .msg-user { background: var(--color-accent-soft); }
 .msg-assistant { background: var(--color-bg-tertiary); border: 1px solid var(--color-border-primary); align-self: flex-start; }
 
+/* Highlighted slash command inside a user bubble (/skill-name …). Rendered by
+   SkillAC.renderUserMessageHtml; spans never contain newlines (pre-wrap safe). */
+.msg-user .msg-slash-cmd {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  color: var(--color-accent-primary);
+  background: color-mix(in srgb, var(--color-accent-primary) 10%, transparent);
+  border-radius: var(--radius-sm);
+  padding: 0.1em 0.35em;
+  margin-right: 0.2em;
+  white-space: nowrap;
+}
+
 /* ── User message action bar (copy + edit) ─────────────────────────────── */
 .msg-user-wrap {
   position: relative;

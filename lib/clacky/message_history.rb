@@ -14,7 +14,7 @@ module Clacky
       task_id created_at system_injected session_context memory_update
       subagent_instructions subagent_result subagent_transcript token_usage
       compressed_summary chunk_path truncated transient
-      chunk_index chunk_count ext_events
+      chunk_index chunk_count ext_events skill_command skill_command_display
     ].freeze
 
     # Cap on persisted ext_events per message. These are milestone events
