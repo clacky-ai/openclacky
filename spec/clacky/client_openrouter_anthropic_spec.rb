@@ -19,9 +19,10 @@ RSpec.describe Clacky::Client, "OpenRouter Anthropic routing" do
   let(:openrouter_url) { "https://openrouter.ai/api/v1" }
   let(:api_key)        { "sk-or-v1-testkey" }
 
-  def build(model, anthropic_format: false, base_url: openrouter_url)
+  def build(model, anthropic_format: false, api_format: nil, base_url: openrouter_url)
     described_class.new(api_key, base_url: base_url, model: model,
-                                 anthropic_format: anthropic_format)
+                                 anthropic_format: anthropic_format,
+                                 api_format: api_format)
   end
 
   describe "#anthropic_format?" do
@@ -54,6 +55,34 @@ RSpec.describe Clacky::Client, "OpenRouter Anthropic routing" do
                                    base_url: "https://custom.example.com",
                                    model: "claude-like-model",
                                    anthropic_format: true)
+      expect(client.anthropic_format?).to be true
+    end
+  end
+
+  describe "explicit api_format override (issue #466)" do
+    it "forces openai-completions even for anthropic/* models on OpenRouter" do
+      client = build("anthropic/claude-sonnet-4-6", api_format: "openai-completions")
+      expect(client.anthropic_format?).to be false
+    end
+
+    it "forces anthropic-messages for models that preset to completions" do
+      client = build("deepseek/deepseek-v4-pro", api_format: "anthropic-messages")
+      expect(client.anthropic_format?).to be true
+    end
+
+    it "wins over a legacy anthropic_format boolean" do
+      client = build("anthropic/claude-sonnet-4-6",
+                     anthropic_format: true, api_format: "openai-completions")
+      expect(client.anthropic_format?).to be false
+    end
+
+    it "maps legacy anthropic_format: true to an explicit anthropic-messages" do
+      client = build("deepseek/deepseek-v4-pro", anthropic_format: true)
+      expect(client.anthropic_format?).to be true
+    end
+
+    it "falls back to preset resolution when api_format is nil (auto)" do
+      client = build("anthropic/claude-sonnet-4-6", api_format: nil)
       expect(client.anthropic_format?).to be true
     end
   end

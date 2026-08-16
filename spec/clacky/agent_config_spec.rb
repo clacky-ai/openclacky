@@ -219,6 +219,47 @@ RSpec.describe Clacky::AgentConfig do
     end
   end
 
+  describe "#api_format" do
+    it "returns nil when the model entry has no api_format (auto)" do
+      config = described_class.new(models: [{ "model" => "gpt" }])
+      expect(config.api_format).to be_nil
+    end
+
+    it "returns the stored api_format" do
+      config = described_class.new(
+        models: [{ "model" => "gpt", "api_format" => "openai-completions" }]
+      )
+      expect(config.api_format).to eq("openai-completions")
+    end
+
+    it "treats an empty-string api_format as unset" do
+      config = described_class.new(
+        models: [{ "model" => "gpt", "api_format" => "" }]
+      )
+      expect(config.api_format).to be_nil
+    end
+
+    it "returns nil when no models are configured" do
+      config = described_class.new(models: [])
+      expect(config.api_format).to be_nil
+    end
+  end
+
+  describe "#add_model with api_format" do
+    it "stores api_format on the new model entry" do
+      config = described_class.new(models: [])
+      config.add_model(model: "gpt", api_key: "k", base_url: "https://x",
+                       api_format: "anthropic-messages")
+      expect(config.models.first["api_format"]).to eq("anthropic-messages")
+    end
+
+    it "omits the api_format key when not given" do
+      config = described_class.new(models: [])
+      config.add_model(model: "gpt", api_key: "k", base_url: "https://x")
+      expect(config.models.first.key?("api_format")).to be false
+    end
+  end
+
   describe "#current_model_supports?" do
     it "returns true when no models are configured (conservative default)" do
       config = described_class.new(models: [])

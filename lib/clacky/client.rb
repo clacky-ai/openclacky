@@ -10,7 +10,7 @@ module Clacky
 
     attr_reader :provider_id
 
-    def initialize(api_key, base_url:, model:, anthropic_format: false, read_timeout: nil)
+    def initialize(api_key, base_url:, model:, anthropic_format: false, api_format: nil, read_timeout: nil)
       @api_key = api_key
       @base_url = base_url
       @model = model
@@ -20,14 +20,18 @@ module Clacky
       # Resolve provider once — reused for capability + api-type lookups.
       provider_id = Providers.resolve_provider(base_url: @base_url, api_key: @api_key)
 
-      # Decide anthropic_format dynamically based on provider+model, falling
-      # back to the explicit constructor flag for unknown providers / custom
-      # base_urls. This lets e.g. OpenRouter's Claude models auto-route to the
-      # native /v1/messages endpoint (preserving cache_control byte-for-byte)
-      # without requiring any change to user YAML.
-      provider_prefers_anthropic = provider_id &&
-                                   Providers.anthropic_format_for_model?(provider_id, @model)
-      @use_anthropic_format = provider_prefers_anthropic || anthropic_format
+      # Decide the transport format: an explicit user-selected api_format wins
+      # over provider preset resolution; the legacy anthropic_format boolean is
+      # mapped to an explicit "anthropic-messages" when true and to auto (nil)
+      # when false — identical to the previous behavior, but now a user can
+      # also force "openai-completions" on presets that default to anthropic.
+      # Auto (nil) resolves via provider presets, which lets e.g. OpenRouter's
+      # Claude models route to the native /v1/messages endpoint (preserving
+      # cache_control byte-for-byte) without any change to user YAML.
+      effective_api_format = api_format
+      effective_api_format ||= "anthropic-messages" if anthropic_format
+      resolved_type = Providers.api_type_for_model(provider_id, @model, user_override: effective_api_format)
+      @use_anthropic_format = resolved_type == "anthropic-messages"
 
       # Remember the provider id so we can tune connection headers below
       # (OpenRouter's /v1/messages accepts either Bearer or x-api-key, but
