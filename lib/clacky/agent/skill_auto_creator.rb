@@ -22,8 +22,10 @@ module Clacky
 
         # Fork an isolated subagent to evaluate + create — does NOT touch main history
         subagent = fork_subagent
-        subagent.run(build_skill_creation_prompt)
-        nil
+        result = subagent.run(build_skill_creation_prompt)
+        cost = absorb_subagent_cost(result)
+
+        "$#{cost.round(4)}"
       end
 
       # Determine if this task is a candidate for skill auto-creation
@@ -84,19 +86,20 @@ module Clacky
           ## Action
 
           If **ALL** criteria are met:
-            → Call invoke_skill with:
+            → Call invoke_skill with EXACTLY these two parameters:
                - skill_name: "skill-creator"
-               - task: A clear description of what to automate and how (be specific)
-               - mode: "quick" (enables fast auto-creation without user interviews)
-               - suggested_name: A descriptive identifier (lowercase, hyphens OK)
+               - task: A clear description of what to automate and how (be specific).
+                 Start it with "Quick mode:" and state the suggested skill name
+                 (lowercase, hyphens OK) inside this text.
+
+          invoke_skill accepts ONLY skill_name and task. Passing any other
+          parameter raises an ArgumentError and the creation fails.
 
           Example invocation:
           ```
           invoke_skill(
             skill_name: "skill-creator",
-            task: "Create a skill to extract and summarize content from URLs. The skill should: 1) fetch the URL content, 2) parse the main text, 3) generate a concise summary. Expected input: URL. Expected output: markdown summary.",
-            mode: "quick",
-            suggested_name: "url-summarizer"
+            task: "Quick mode: create a skill named 'url-summarizer' (no user interviews). It should extract and summarize content from URLs: 1) fetch the URL content, 2) parse the main text, 3) generate a concise summary. Expected input: URL. Expected output: markdown summary."
           )
           ```
 

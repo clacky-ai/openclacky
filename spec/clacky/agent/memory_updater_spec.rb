@@ -263,35 +263,31 @@ RSpec.describe Clacky::Agent::MemoryUpdater do
       expect(full_agent.total_cost).to be_within(1e-9).of(1.0123)
     end
 
-    it "reports no summary when subagent wrote nothing" do
+    it "reports the run's cost even when subagent wrote nothing" do
       allow(subagent_history).to receive(:to_a).and_return([
         { role: "user", content: "hi" },
         { role: "assistant", content: "No memory updates needed." }
       ])
-      expect(ui).to receive(:phase_end).with(anything, summary: nil)
-      expect(full_agent.run_memory_update_subagent).to be_nil
+      expect(ui).to receive(:phase_end).with(anything, summary: /steps · \$/)
+      expect(full_agent.run_memory_update_subagent).to match(/steps · \$/)
     end
 
-    it "reports a summary when subagent called the write tool (OpenAI-style)" do
+    it "stays silent when preconditions are unmet — no phase at all" do
+      full_agent.iterations = 2
+      expect(ui).not_to receive(:phase_start)
+      expect(ui).not_to receive(:phase_end)
+      full_agent.run_memory_update_subagent
+    end
+
+    it "reports a summary with the subagent's step count and cost" do
       allow(subagent_history).to receive(:to_a).and_return([
         {
           role: "assistant",
           tool_calls: [{ function: { name: "write" } }]
         }
       ])
-      expect(ui).to receive(:phase_end).with(anything, summary: /steps · \$/)
-      expect(full_agent.run_memory_update_subagent).to match(/steps · \$/)
-    end
-
-    it "reports a summary when subagent called the edit tool (Anthropic-style tool_use block)" do
-      allow(subagent_history).to receive(:to_a).and_return([
-        {
-          role: "assistant",
-          content: [{ type: "tool_use", name: "edit", input: {} }]
-        }
-      ])
-      expect(ui).to receive(:phase_end).with(anything, summary: /steps · \$/)
-      expect(full_agent.run_memory_update_subagent).to match(/steps · \$/)
+      expect(ui).to receive(:phase_end).with(anything, summary: "2 steps · $0.0123")
+      expect(full_agent.run_memory_update_subagent).to eq("2 steps · $0.0123")
     end
   end
 end

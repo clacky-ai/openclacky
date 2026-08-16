@@ -103,7 +103,7 @@ RSpec.describe Clacky::Agent::SkillEvolution do
       end
     end
 
-    context "when there is no work to do (gating predicates return false)" do
+    context "when preconditions are unmet (gating predicates return false)" do
       let(:agent_no_work) do
         Class.new(agent_class) do
           def should_reflect_on_skill?
@@ -123,32 +123,41 @@ RSpec.describe Clacky::Agent::SkillEvolution do
         expect(agent_no_work.create_called).to eq(0)
       end
 
-      it "still opens a phase and reports it as skipped" do
+      it "stays completely silent — no phase is opened at all" do
         ui = phase_recorder.new
         agent_no_work.ui = ui
         agent_no_work.skill_execution_context = nil
         agent_no_work.run_skill_evolution_hooks
 
+        expect(ui.started).to be_empty
+        expect(ui.ended).to be_empty
+      end
+    end
+
+    context "when the evolution runs" do
+      it "opens a phase and reports the hook's own summary" do
+        ui = phase_recorder.new
+        agent.ui = ui
+        agent.run_skill_evolution_hooks
+
+        expect(agent.create_called).to eq(1)
         expect(ui.started.size).to eq(1)
         expect(ui.started.first[:kind]).to eq("skill_evolution")
-        expect(ui.ended.size).to eq(1)
-        expect(ui.ended.first[:summary]).to eq(Clacky::I18n.t("phase.skipped"))
       end
 
-      it "localizes the skipped summary and label" do
+      it "localizes the phase label" do
         expected = {
-          "en" => { label: "Reflecting on this task", summary: "skipped" },
-          "zh" => { label: "正在复盘本次任务", summary: "已跳过" },
+          "en" => "Reflecting on this task",
+          "zh" => "正在复盘本次任务",
         }
 
         expected.each do |lang, want|
           Thread.current[:lang] = lang
           ui = phase_recorder.new
-          agent_no_work.ui = ui
-          agent_no_work.run_skill_evolution_hooks
+          agent.ui = ui
+          agent.run_skill_evolution_hooks
 
-          expect(ui.started.first[:label]).to eq(want[:label])
-          expect(ui.ended.first[:summary]).to eq(want[:summary])
+          expect(ui.started.first[:label]).to eq(want)
         ensure
           Thread.current[:lang] = nil
         end
@@ -156,7 +165,7 @@ RSpec.describe Clacky::Agent::SkillEvolution do
     end
 
     context "when there is work to do" do
-      it "reports the hook's own summary instead of skipped" do
+      it "reports the hook's own summary" do
         ui = phase_recorder.new
         working = Class.new(agent_class) do
           def maybe_create_skill_from_task

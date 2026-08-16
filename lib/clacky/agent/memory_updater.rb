@@ -74,7 +74,7 @@ module Clacky
       private def with_memory_update_phase
         return yield unless @ui.respond_to?(:with_phase)
 
-        pid = @ui.phase_start(kind: "memory_update", label: "Updating long-term memory")
+        pid = @ui.phase_start(kind: "memory_update", label: Clacky::I18n.t("phase.memory_update"))
         summary = nil
         begin
           summary = yield
@@ -127,11 +127,6 @@ module Clacky
         # still reflects ONLY the user's task, not the memory update.
         subagent_cost = absorb_subagent_cost(result)
 
-        # A summary is only worth showing if the subagent actually wrote
-        # something. The common "No memory updates needed." path returns nil
-        # so the phase leaves no trace at all.
-        return unless subagent_wrote_memory?(subagent)
-
         "#{result[:iterations]} steps · $#{subagent_cost.round(4)}"
       end
 
@@ -140,43 +135,6 @@ module Clacky
         return true unless @config.respond_to?(:memory_update_enabled)
 
         @config.memory_update_enabled != false
-      end
-
-      # Inspect the subagent's history for a successful write/edit tool
-      # call targeting a memory file. Used to decide whether to surface a
-      # "Memory updated" info line (option C — silent when nothing changed).
-      # @param subagent [Clacky::Agent]
-      # @return [Boolean]
-      private def subagent_wrote_memory?(subagent)
-        return false unless subagent.respond_to?(:history) && subagent.history
-
-        subagent.history.to_a.any? do |msg|
-          next false unless msg.is_a?(Hash)
-
-          # Match OpenAI-style tool_calls on assistant messages …
-          tool_calls = msg[:tool_calls] || msg["tool_calls"]
-          if tool_calls.is_a?(Array) && tool_calls.any?
-            next true if tool_calls.any? do |tc|
-              name = tc.dig(:function, :name) || tc.dig("function", "name") || tc[:name] || tc["name"]
-              %w[write edit].include?(name.to_s)
-            end
-          end
-
-          # … and Anthropic-style content blocks with type=tool_use.
-          content = msg[:content] || msg["content"]
-          if content.is_a?(Array)
-            next true if content.any? do |block|
-              block.is_a?(Hash) &&
-                (block[:type] == "tool_use" || block["type"] == "tool_use") &&
-                %w[write edit].include?((block[:name] || block["name"]).to_s)
-            end
-          end
-
-          false
-        end
-      rescue StandardError
-        # Defensive: never let introspection errors break memory update.
-        false
       end
 
       # Build the memory update prompt for the forked subagent.

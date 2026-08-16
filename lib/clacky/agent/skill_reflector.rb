@@ -26,11 +26,11 @@ module Clacky
         subagent = fork_subagent
         result = subagent.run(build_skill_reflection_prompt(skill_name))
 
-        cost = absorb_subagent_cost(result) if result
+        cost = absorb_subagent_cost(result)
 
         @skill_execution_context = nil
 
-        "#{skill_name} · $#{cost.round(4)}" if cost
+        "#{skill_name} · $#{cost.round(4)}"
       end
 
       private def should_reflect_on_skill?
