@@ -181,10 +181,27 @@ module Clacky
           { id: tc["id"], type: "function", name: tc["name"], arguments: args }
         end
 
+        # Map Anthropic stop_reason → OpenAI-style finish_reason so downstream
+        # (llm_caller empty-response detector, agent loop, CostTracker) stays
+        # provider-agnostic. Each cluster shares the same semantic class:
+        #   stop     — natural end of turn (end_turn / pause_turn / stop_sequence)
+        #   length   — token or context-window limit hit (max_tokens /
+        #              model_context_window_exceeded; mapping the latter to
+        #              "length" also prevents a futile retry in llm_caller's
+        #              empty-response detector, which exempts "length")
+        #   content_filter — model declined (refusal)
+        #   other    — context compaction (compaction)
+        # Note: `compaction` is a real stop_reason but only emitted under the
+        # `compact-2026-01-12` beta header (server-side context compaction),
+        # so it is not yet in the stable SDK's StopReason literal list.
+        # See: https://platform.claude.com/docs/en/build-with-claude/compaction
+        # Unmapped values fall through unchanged.
         finish_reason = case data["stop_reason"]
-                        when "end_turn"   then "stop"
+                        when "end_turn", "pause_turn", "stop_sequence" then "stop"
                         when "tool_use"   then "tool_calls"
-                        when "max_tokens" then "length"
+                        when "max_tokens", "model_context_window_exceeded" then "length"
+                        when "refusal"    then "content_filter"
+                        when "compaction" then "other"
                         else data["stop_reason"]
                         end
 

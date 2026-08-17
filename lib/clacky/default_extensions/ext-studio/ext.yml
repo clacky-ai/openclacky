@@ -17,7 +17,7 @@ contributes:
       order: 210
   agents:
     - id: ext-developer
-      title: Extension Developer
+      title: Ext Developer
       title_zh: 扩展开发
       description: AI expert that helps you build custom AI agent workflows
       description_zh: 帮你开发自定义 AI Agent 工作流的专家

@@ -2546,7 +2546,7 @@ module Clacky
       # the same public marketplace here.
       def api_store_extensions(req, res)
         brand  = Clacky::BrandConfig.load
-        result = brand.search_extensions!(query: req.query["q"], sort: req.query["sort"])
+        result = brand.search_extensions!(query: req.query["q"], sort: req.query["sort"], page: req.query["page"], per_page: req.query["per_page"])
 
         if result[:success]
           installed = installed_extension_containers
@@ -2558,7 +2558,7 @@ module Clacky
               "installed_version" => container&.dig(:version)
             )
           end
-          json_response(res, 200, { ok: true, extensions: extensions })
+          json_response(res, 200, { ok: true, extensions: extensions, meta: result[:meta] })
         else
           json_response(res, 200, {
             ok:         true,
@@ -4505,7 +4505,11 @@ module Clacky
         upload_meta = Clacky::BrandConfig.load_upload_meta
         shadowed    = @skill_loader.shadowed_by_local
 
-        skills = @skill_loader.all_skills.reject(&:brand_skill).map do |skill|
+        skills = @skill_loader.all_skills.reject(&:brand_skill).reject do |skill|
+          # Third-party extension skills (installed/local) are managed from the
+          # extension panel, not the skills panel.
+          @skill_loader.loaded_from[skill.identifier] == :extension
+        end.map do |skill|
           source = @skill_loader.loaded_from[skill.identifier]
           meta   = upload_meta[skill.identifier] || {}
 

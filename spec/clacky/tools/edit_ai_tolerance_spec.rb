@@ -132,5 +132,40 @@ RSpec.describe Clacky::Tools::Edit do
         end
       end
     end
+    context "when AI swaps Unicode punctuation for ASCII" do
+      it "replaces content containing em-dash when old_string uses hyphen" do
+        Dir.mktmpdir do |dir|
+          file_path = File.join(dir, "test.rb")
+          File.write(file_path, "# use the \u2014 dash here\n")
+
+          result = tool.execute(
+            path: file_path,
+            old_string: "# use the - dash here",
+            new_string: "# replaced\n"
+          )
+
+          expect(result[:error]).to be_nil
+          expect(result[:replacements]).to eq(1)
+          expect(File.read(file_path)).to eq("# replaced\n")
+        end
+      end
+
+      it "replaces content containing smart apostrophe when old_string uses ASCII" do
+        Dir.mktmpdir do |dir|
+          file_path = File.join(dir, "test.rb")
+          File.write(file_path, "# don\u2019t use this\n")
+
+          result = tool.execute(
+            path: file_path,
+            old_string: "# don't use this",
+            new_string: "# done\n"
+          )
+
+          expect(result[:error]).to be_nil
+          expect(result[:replacements]).to eq(1)
+          expect(File.read(file_path)).to eq("# done\n")
+        end
+      end
+    end
   end
 end

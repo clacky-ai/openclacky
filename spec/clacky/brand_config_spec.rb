@@ -389,6 +389,39 @@ RSpec.describe Clacky::BrandConfig do
       expect(result[:extensions]).to eq([])
     end
 
+    it "forwards page and exposes pagination meta" do
+      allow(fake_client).to receive(:get)
+        .with("/api/v1/extensions?q=weather&page=2")
+        .and_return(success: true, data: {
+          "extensions" => [{ "name" => "weather2" }],
+          "meta"       => { "current_page" => 2, "total_pages" => 3, "total_count" => 65, "per_page" => 30 }
+        })
+
+      result = config.search_extensions!(query: "weather", page: 2)
+      expect(result[:success]).to be true
+      expect(result[:extensions]).to eq([{ "name" => "weather2" }])
+      expect(result[:meta]).to eq({ "current_page" => 2, "total_pages" => 3, "total_count" => 65, "per_page" => 30 })
+    end
+
+    it "omits page when it is the first page" do
+      allow(fake_client).to receive(:get)
+        .with("/api/v1/extensions")
+        .and_return(success: true, data: { "extensions" => [] })
+
+      result = config.search_extensions!(page: 1)
+      expect(result[:success]).to be true
+      expect(result[:meta]).to be_nil
+    end
+
+    it "forwards per_page" do
+      allow(fake_client).to receive(:get)
+        .with("/api/v1/extensions?per_page=15")
+        .and_return(success: true, data: { "extensions" => [] })
+
+      result = config.search_extensions!(per_page: 15)
+      expect(result[:success]).to be true
+    end
+
     it "returns error on failure" do
       allow(fake_client).to receive(:get).and_return(success: false, error: "boom")
 

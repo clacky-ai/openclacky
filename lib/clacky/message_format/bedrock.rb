@@ -118,11 +118,16 @@ module Clacky
           { id: tc["toolUseId"], type: "function", name: tc["name"], arguments: args }
         end
 
-        # Map Bedrock stopReason → canonical finish_reason
+        # Map Bedrock stopReason → canonical finish_reason (same clusters as
+        # the Anthropic direct adapter — see lib/clacky/message_format/anthropic.rb).
         finish_reason = case data["stopReason"]
-                        when "end_turn"   then "stop"
+                        when "end_turn", "pause_turn", "stop_sequence" then "stop"
                         when "tool_use"   then "tool_calls"
-                        when "max_tokens" then "length"
+                        when "max_tokens", "model_context_window_exceeded" then "length"
+                        when "refusal"    then "content_filter"
+                        # `compaction` is a beta stop_reason (compact-2026-01-12);
+                        # see anthropic.rb for the full note.
+                        when "compaction" then "other"
                         else data["stopReason"]
                         end
 

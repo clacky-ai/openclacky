@@ -71,6 +71,12 @@ module Clacky
               ssl_context = OpenSSL::SSL::SSLContext.new
               ssl_context.set_params(verify_mode: OpenSSL::SSL::VERIFY_PEER)
               ssl = OpenSSL::SSL::SSLSocket.new(tcp, ssl_context)
+              # Feishu/Lark WebSocket endpoints are served behind CDN edges that
+              # require SNI to select the correct certificate/backend. Some
+              # Ruby/OpenSSL combinations do not infer the hostname for manually
+              # created SSLSocket instances, which can make the peer abort the TLS
+              # handshake with `tlsv1 alert internal error`.
+              ssl.hostname = uri.host if ssl.respond_to?(:hostname=)
               ssl.sync_close = true
               ssl.connect
               ssl

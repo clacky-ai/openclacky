@@ -1,0 +1,22 @@
+# frozen_string_literal: true
+
+# Run from the container root:
+#   ruby test/handler_test.rb
+require "minitest/autorun"
+require "clacky"
+require "json"
+
+load File.expand_path("../api/handler.rb", __dir__)
+
+class <%= const_prefix %>ExtTest < Minitest::Test
+  def test_root_route_returns_json
+    route = <%= const_prefix %>Ext.routes.find { |r| r.method == :get && r.pattern == "/" }
+    refute_nil route, "expected a GET / route"
+
+    handler = <%= const_prefix %>Ext.new(req: nil, res: nil, route: route, params: {}, http_server: nil)
+    halt = assert_raises(Clacky::ApiExtension::Halt) { handler.invoke }
+
+    assert_equal 200, halt.status
+    assert_equal "hello from <%= slug %>", JSON.parse(halt.payload)["message"]
+  end
+end

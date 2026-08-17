@@ -49,6 +49,14 @@ module Clacky
           # and cause JSON.generate to fail during replay.
           content = safe_utf8(File.read(path))
 
+          # Detect the file's dominant line-ending style BEFORE any
+          # modification. Windows-created files (and /mnt/c on WSL) use
+          # CRLF; AI-supplied old_string/new_string always use LF. Without
+          # preservation, the replaced fragment introduces LF into a CRLF
+          # file, creating mixed line endings that confuse Git diff and
+          # Windows IDEs.
+          preserve_crlf = content.include?("\r\n")
+
           # Find matching string using layered strategy (shared with preview)
           match_result = Utils::StringMatcher.find_match(content, old_string)
 
@@ -81,6 +89,11 @@ module Clacky
                     else
                       content.sub(actual_old_string) { new_string }
                     end
+
+          # Preserve the original line-ending style: if the file was CRLF,
+          # re-normalize the entire content to CRLF so the newly inserted
+          # LF fragments (from new_string) match the rest of the file.
+          content = normalize_line_endings(content, :crlf) if preserve_crlf
 
           File.write(path, content)
 
@@ -141,6 +154,21 @@ module Clacky
 
         replacements = result[:replacements] || result["replacements"] || 1
         "Modified #{replacements} occurrence#{replacements > 1 ? "s" : ""}"
+      end
+
+      # Normalize all line endings in `content` to the given style.
+      # Works by first collapsing everything to LF, then expanding to the
+      # target — this avoids double-converting existing CRLF into CRCRLF.
+      # @param content [String]
+      # @param style [Symbol] :crlf or :lf
+      # @return [String]
+      private def normalize_line_endings(content, style)
+        case style
+        when :crlf
+          content.gsub(/\r\n/, "\n").gsub(/\r/, "\n").gsub(/\n/, "\r\n")
+        else
+          content.gsub(/\r\n/, "\n").gsub(/\r/, "\n")
+        end
       end
 
       # Scrub invalid UTF-8 byte sequences (see file_reader.rb for rationale).

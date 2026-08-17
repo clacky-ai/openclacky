@@ -433,6 +433,36 @@ RSpec.describe Clacky::SkillLoader do
       })
     end
 
+    it "skips builtin-layer skill units (already loaded as :default)" do
+      builtin_dir = Dir.mktmpdir
+      begin
+        dir = File.join(builtin_dir, "builtin-pack")
+        FileUtils.mkdir_p(File.join(dir, "skills", "builtin-skill"))
+        File.write(File.join(dir, "ext.yml"), <<~YAML)
+          id: builtin-pack
+          origin: self
+          contributes:
+            skills:
+              - id: builtin-skill
+        YAML
+        File.write(File.join(dir, "skills", "builtin-skill", "SKILL.md"),
+                   "---\nname: builtin-skill\ndescription: builtin\n---\nbody")
+
+        Clacky::ExtensionLoader.load_all(layers: {
+          builtin:   builtin_dir,
+          installed: nil,
+          local:     nil,
+        })
+
+        loader = described_class.new(working_dir: working_dir, brand_config: nil)
+
+        expect(loader.loaded_from["builtin-skill"]).to be_nil
+        expect(loader.all_skills.map(&:identifier)).not_to include("builtin-skill")
+      ensure
+        FileUtils.rm_rf(builtin_dir) if Dir.exist?(builtin_dir)
+      end
+    end
+
     it "loads plain skills declared in ext.yml" do
       make_ext_container("triage-pack",
         files: { "skills/triage/SKILL.md" => "---\nname: triage\ndescription: Triage incidents\n---\nbody" },

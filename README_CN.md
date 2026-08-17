@@ -189,7 +189,7 @@ $ openclacky
 
 设置你的 **API Key**、**模型**和 **Base URL**（任意 OpenAI 兼容提供商）。
 
-开箱即支持：**Claude (Anthropic) · GPT (OpenAI) · DeepSeek · Kimi (Moonshot) · MiniMax · OpenRouter**，或任意自定义端点。
+开箱即支持：**Claude (Anthropic) · GPT (OpenAI) · DeepSeek · Kimi (Moonshot) · MiniMax · OpenRouter · OrcaRouter**，或任意自定义端点。
 
 ## 代码开发场景
 

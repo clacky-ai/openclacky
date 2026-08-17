@@ -280,14 +280,15 @@ This creates `~/.clacky/ext/local/<id>/` with a working hello panel + handler:
 - `ext.yml` — the manifest
 - `panels/hello/view.js` — a panel that pings the backend
 - `api/handler.rb` — a `Clacky::ApiExtension` subclass mounted at `/api/ext/<id>/`
+- `test/handler_test.rb` — a runnable minitest example (`ruby test/handler_test.rb`)
 
 Use `--full` only when the user needs the kitchen-sink reference exercising all seven
 contributes types — it's a lot to read, so prefer the plain scaffold otherwise.
 
 ### 3 — Read what was generated
 
-Always read the generated `ext.yml`, `view.js`, and `handler.rb` before editing. This
-is your starting point; you'll reshape it to match the idea.
+Always read the generated `ext.yml`, `view.js`, `handler.rb`, and `test/handler_test.rb`
+before editing. This is your starting point; you'll reshape it to match the idea.
 
 ### 4 — Reshape to the idea
 
@@ -366,7 +367,22 @@ Rules while reshaping:
   reference `panels: [id]` and `skills: [id]`. Add those blocks to `ext.yml` only if the
   idea needs them.
 
-### 5 — Confirm it loads
+### 5 — Write tests
+
+Test the backend before you call it done. Rewrite the scaffolded `test/handler_test.rb`
+to exercise your real routes (parse the JSON response, assert its fields), then run it
+green:
+
+```
+ruby test/handler_test.rb
+```
+
+- If `test/` is missing from the scaffold, create `test/handler_test.rb` yourself
+  (`mkdir -p test` then write it) — do NOT skip tests just because the file is absent.
+- A handler that only returns a static string may keep the scaffold's hello test;
+  anything that fetches, transforms, caches, or computes MUST have a real test.
+
+### 6 — Confirm it loads
 
 Run `clacky ext verify` and confirm the new units resolve with no errors, then have the
 user reload the WebUI page. If verify reports problems, go to **Debug & verify**.

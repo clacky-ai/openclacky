@@ -54,6 +54,38 @@ RSpec.describe Clacky::Utils::StringMatcher do
       expect(result).not_to be_nil
       expect(result[:matched_string]).to include("do_work")
     end
+
+    it "matches em-dash against ASCII hyphen" do
+      result = described_class.find_match("a\u2014b", "a-b")
+      expect(result).not_to be_nil
+      expect(result[:matched_string]).to eq("a\u2014b")
+    end
+
+    it "matches smart apostrophe against ASCII apostrophe" do
+      result = described_class.find_match("don\u2019t", "don't")
+      expect(result).not_to be_nil
+      expect(result[:matched_string]).to eq("don\u2019t")
+    end
+
+    it "matches ASCII hyphen against em-dash (reverse direction)" do
+      result = described_class.find_match("a-b", "a\u2014b")
+      expect(result).not_to be_nil
+      expect(result[:matched_string]).to eq("a-b")
+    end
+
+    it "matches smart double quotes against ASCII double quotes" do
+      content = "say \u201chello\u201d now"
+      result = described_class.find_match(content, "say \"hello\" now")
+      expect(result).not_to be_nil
+      expect(result[:matched_string]).to eq(content)
+    end
+
+    it "returns the original (non-normalized) substring as matched_string" do
+      content = "prefix \u2014 suffix"
+      result = described_class.find_match(content, "prefix - suffix")
+      expect(result[:matched_string]).to eq(content)
+      expect(result[:matched_string]).to include("\u2014")
+    end
   end
 
   describe ".count_occurrences" do

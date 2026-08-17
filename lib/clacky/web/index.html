@@ -298,8 +298,9 @@
           <div id="billing-sidebar-item" class="task-item task-item-summary">
             <div class="task-row">
               <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="task-icon">
-                <line x1="12" x2="12" y1="2" y2="22"/>
-                <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>
+                <circle cx="12" cy="12" r="10"/>
+                <path d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8"/>
+                <path d="M12 18V6"/>
               </svg>
               <div class="task-info">
                 <span class="task-name" id="billing-sidebar-label" data-i18n="sidebar.billing">Billing</span>
@@ -326,7 +327,7 @@
         </button>
         <!-- Version badge: independent button, right side of the row -->
         <span id="version-badge" class="version-badge" style="display:none">
-          <span id="version-text" class="version-text"></span>
+          <a id="version-text" class="version-text" target="_blank" rel="noopener noreferrer"></a>
           <span id="version-update-dot"   class="version-update-dot"   style="display:none"></span>
           <span id="version-restart-dot"  class="version-restart-dot"  style="display:none"></span>
           <span id="version-spinner"      class="version-spinner"       style="display:none"></span>
@@ -539,7 +540,7 @@
       <div id="session-aside" class="session-aside">
         <div id="session-aside-resize" class="session-aside-resize"></div>
         <button id="btn-aside-collapse" class="session-aside-collapse" data-i18n-title="aside.collapse" title="Collapse">
-          <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>
+          <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/><path d="m14 9 3 3-3 3"/></svg>
         </button>
         <div id="ext-slot-session-aside" class="session-aside-slot" data-slot="session.aside"></div>
       </div>
@@ -547,7 +548,7 @@
       <!-- Collapsed-state opener tab -->
       <div id="workspace-overlay"></div>
       <button id="btn-aside-open" class="session-aside-opener" data-i18n-title="aside.expand" title="Open panel" style="display:none">
-        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M15 3v18"/><path d="m10 15-3-3 3-3"/></svg>
       </button>
     </div>
 
