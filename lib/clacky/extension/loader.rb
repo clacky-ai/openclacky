@@ -428,6 +428,7 @@ module Clacky
                    "license"        => container[:license],
                    "panels"         => Array(spec["panels"]).map(&:to_s),
                    "skills"         => Array(spec["skills"]).map(&:to_s),
+                   "disabled_skills" => Array(spec["disabled_skills"]).map(&:to_s),
                  })
       end
 

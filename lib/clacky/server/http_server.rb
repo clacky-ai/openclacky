@@ -321,8 +321,14 @@ module Clacky
           t3.join(1.5)
           server.shutdown rescue nil
         end
-        trap("INT")  { shutdown_proc.call }
-        trap("TERM") { shutdown_proc.call }
+        # Ruby forbids Mutex#synchronize / Thread#join inside a trap handler
+        # (ThreadError: can't be called from trap context), and interrupt_all_agents
+        # needs both. So the trap only flips @draining (so /health answers
+        # "draining" immediately) and hands the rest to a plain thread, where
+        # session persistence and WEBrick shutdown can run normally. GVL makes
+        # the shutdown_once check below atomic even if INT+TERM race.
+        trap("INT")  { @draining = true; Thread.new { shutdown_proc.call } }
+        trap("TERM") { @draining = true; Thread.new { shutdown_proc.call } }
 
         if @inherited_socket
           server.listeners << @inherited_socket
@@ -4605,10 +4611,7 @@ module Clacky
         end
 
         agent.skill_loader.load_all
-        profile = agent.agent_profile
-
-        skills = agent.skill_loader.user_invocable_skills
-        skills = skills.select { |s| s.allowed_for_agent?(profile.name) } if profile
+        skills = agent.skill_loader.user_invocable_skills(agent.agent_profile)
 
         loader      = agent.skill_loader
         loaded_from = loader.loaded_from
@@ -4641,8 +4644,7 @@ module Clacky
         end
 
         @skill_loader.load_all
-        skills = @skill_loader.user_invocable_skills
-        skills = skills.select { |s| s.allowed_for_agent?(profile.name) } if profile
+        skills = @skill_loader.user_invocable_skills(profile)
 
         loaded_from = @skill_loader.loaded_from
         skill_data = skills.map do |skill|

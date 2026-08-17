@@ -57,6 +57,32 @@ RSpec.describe Clacky::AgentProfile, "with extension-contributed agents" do
     expect { described_class.load("ghost") }.to raise_error(ArgumentError, /not found/)
   end
 
+  it "reads disabled_skills from the ext agent spec and blocks those skills" do
+    manifest = <<~YAML
+      id: lean-pack
+      origin: self
+      contributes:
+        agents:
+          - id: lean
+            prompt: prompts/lean.md
+            description: Minimal agent
+            disabled_skills: [cron-task-creator, media-gen]
+    YAML
+    make_ext(local, "lean-pack", manifest, "prompts/lean.md" => "Lean agent.")
+
+    reload_layers
+
+    profile = described_class.load("lean")
+    expect(profile.disabled_skills).to eq(%w[cron-task-creator media-gen])
+
+    disabled = double("skill", identifier: "cron-task-creator")
+    expect(profile.skill_allowed?(disabled)).to be(false)
+
+    allowed = double("skill", identifier: "commit")
+    allow(allowed).to receive(:allowed_for_agent?).with("lean").and_return(true)
+    expect(profile.skill_allowed?(allowed)).to be(true)
+  end
+
   it "lets a physical user dir override an ext unit with the same id" do
     manifest = <<~YAML
       id: shadow-pack

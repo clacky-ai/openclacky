@@ -82,7 +82,7 @@ module Clacky
           return { matched: true, found: false, skill_name: skill_name, reason: :not_user_invocable, skill: skill }
         end
 
-        if @agent_profile && !skill.allowed_for_agent?(@agent_profile.name)
+        if @agent_profile && !@agent_profile.skill_allowed?(skill)
           return { matched: true, found: false, skill_name: skill_name, reason: :agent_not_allowed, skill: skill }
         end
 
@@ -441,7 +441,7 @@ module Clacky
       def filter_skills_by_profile(skills)
         return skills unless @agent_profile
 
-        skills.select { |skill| skill.allowed_for_agent?(@agent_profile.name) }
+        skills.select { |skill| @agent_profile.skill_allowed?(skill) }
       end
 
       # Build template context for skill content expansion.

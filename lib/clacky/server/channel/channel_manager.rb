@@ -630,7 +630,7 @@ module Clacky
           return
         end
 
-        skills = agent.skill_loader.user_invocable_skills
+        skills = agent.skill_loader.user_invocable_skills(agent.agent_profile)
           .reject { |s| s.source == :default }
           .first(10)
         if skills.empty?

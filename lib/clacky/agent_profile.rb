@@ -40,9 +40,25 @@ module Clacky
         result = ExtensionLoader.load_all(force: true)
         @ext_unit = result&.agents&.find { |u| u.id == @name }
       end
-      profile_data = load_profile_yml
-      @description = profile_data["description"] || ""
+      @profile_data = load_profile_yml
+      @description = @profile_data["description"] || ""
       @system_prompt_content = load_agent_file("system_prompt.md")
+    end
+
+    # Skills explicitly disabled for this agent, matched by skill identifier.
+    # Declared via `disabled_skills` in profile.yml or the ext agent spec.
+    # @return [Array<String>]
+    def disabled_skills
+      @disabled_skills ||= Array(@profile_data["disabled_skills"]).map(&:to_s)
+    end
+
+    # Whether a skill is usable by this agent: it must not be in the agent's
+    # disabled list AND must be allowed by the skill's own `agent:` declaration.
+    # @param skill [Skill]
+    # @return [Boolean]
+    def skill_allowed?(skill)
+      return false if disabled_skills.include?(skill.identifier)
+      skill.allowed_for_agent?(name)
     end
 
     # @param name [String, Symbol] profile name (e.g. "coding", "general")
@@ -178,6 +194,7 @@ module Clacky
           "description" => @ext_unit.spec["description"],
           "panels"      => @ext_unit.spec["panels"],
           "skills"      => @ext_unit.spec["skills"],
+          "disabled_skills" => @ext_unit.spec["disabled_skills"],
         }
       end
 

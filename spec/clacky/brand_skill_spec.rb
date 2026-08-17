@@ -639,6 +639,24 @@ RSpec.describe "Brand Skill system" do
       expect(ctx).to include("Proprietary advisory skill.")
     end
 
+    it "excludes skills disabled by the agent profile" do
+      loader = double("skill_loader")
+      allow(loader).to receive(:load_all).and_return([plain_skill, brand_skill])
+
+      profile = double("profile")
+      allow(profile).to receive(:skill_allowed?).with(plain_skill).and_return(false)
+      allow(profile).to receive(:skill_allowed?).with(brand_skill).and_return(true)
+
+      obj = Object.new
+      obj.instance_variable_set(:@skill_loader, loader)
+      obj.instance_variable_set(:@agent_profile, profile)
+      obj.extend(Clacky::Agent::SkillManager)
+
+      ctx = obj.build_skill_context
+      expect(ctx).not_to include("code-explorer")
+      expect(ctx).to include("secret-advisor")
+    end
+
     it "does not include privacy rules when no brand skills are present" do
       loader = double("skill_loader")
       allow(loader).to receive(:load_all).and_return([plain_skill])
