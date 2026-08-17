@@ -182,6 +182,12 @@ module Clacky
       end
 
 
+      # Replace in-memory channel config without restarting adapters.
+      # Applies instantly to settings like status_messages.
+      def update_config(config)
+        @channel_config = config
+      end
+
       def start_adapter(platform)
         klass = Adapters.find(platform)
         unless klass
@@ -328,7 +334,7 @@ module Clacky
         adapter.start_typing_keepalive(chat_id, context_token) if adapter.respond_to?(:start_typing_keepalive)
 
         # Acknowledge to the IM channel only — WebUI doesn't need a "Thinking..." noise.
-        adapter.send_text(chat_id, "Thinking...")
+        adapter.send_text(chat_id, "Thinking...") if @channel_config.status_messages_enabled?
 
         @run_agent_task.call(session_id, agent) do
           begin
@@ -395,7 +401,7 @@ module Clacky
               end
             end
           else
-            channel_ui = ChannelUIController.new(event, -> { adapter_for(event[:platform]) })
+            channel_ui = ChannelUIController.new(event, -> { adapter_for(event[:platform]) }, -> { @channel_config.status_messages_enabled? })
           end
 
           bind_key_to_session(key, session_id)
@@ -689,7 +695,7 @@ module Clacky
         # Create a long-lived ChannelUIController for this session and subscribe it
         # to the session's WebUIController. It stays for the session's full lifetime
         # so all events (agent output, errors, status) flow through web_ui → channel_ui.
-        channel_ui = ChannelUIController.new(event, -> { adapter_for(event[:platform]) })
+        channel_ui = ChannelUIController.new(event, -> { adapter_for(event[:platform]) }, -> { @channel_config.status_messages_enabled? })
         @registry.with_session(session_id) do |s|
           s[:ui]&.subscribe_channel(channel_ui)
           s[:channel_ui] = channel_ui
@@ -716,7 +722,7 @@ module Clacky
         end
         return unless needs_attach
 
-        channel_ui = ChannelUIController.new(event, -> { adapter_for(event[:platform]) })
+        channel_ui = ChannelUIController.new(event, -> { adapter_for(event[:platform]) }, -> { @channel_config.status_messages_enabled? })
         @registry.with_session(session_id) do |s|
           next unless s[:ui] && s[:channel_ui].nil?
           s[:ui].subscribe_channel(channel_ui)

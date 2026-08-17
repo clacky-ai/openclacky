@@ -10314,6 +10314,34 @@ body.setup-mode[data-theme="dark"] {
   gap: 0.875rem;
 }
 
+.channel-status-messages {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border-primary);
+  border-radius: 8px;
+}
+
+.channel-status-messages-text {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.channel-status-messages-label {
+  font-size: 0.875rem;
+  color: var(--color-text-primary);
+}
+
+.channel-status-messages-desc {
+  font-size: 0.75rem;
+  color: var(--color-text-secondary);
+}
+
 /* Platform logo circle */
 .channel-logo {
   width: 2.5rem;

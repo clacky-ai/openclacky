@@ -666,6 +666,8 @@ module Clacky
           elsif method == "POST" && path.match?(%r{^/api/channels/[^/]+/test$})
             platform = path.sub("/api/channels/", "").sub("/test", "")
             api_test_channel(platform, req, res)
+          elsif method == "PATCH" && path == "/api/channels/status_messages"
+            api_channel_status_messages(req, res)
           elsif method == "PATCH" && path.match?(%r{^/api/channels/[^/]+/enabled$})
             platform = path.sub("/api/channels/", "").sub("/enabled", "")
             api_toggle_channel(platform, req, res)
@@ -3732,7 +3734,7 @@ module Clacky
           }.merge(platform_safe_fields(platform, config))
         end
 
-        json_response(res, 200, { channels: platforms })
+        json_response(res, 200, { channels: platforms, status_messages: config.status_messages_enabled? })
       end
 
       # GET /api/mcp
@@ -4280,6 +4282,24 @@ module Clacky
         @channel_manager.reload_platform(platform, config)
 
         json_response(res, 200, { ok: true })
+      rescue StandardError => e
+        json_response(res, 422, { ok: false, error: e.message })
+      end
+
+      # PATCH /api/channels/status_messages
+      # Body: { status_messages: true|false }
+      # Global toggle for process-status messages ("Thinking...", "Done"
+      # summary, file/shell previews) across all IM channels.
+      # Hot-applies without restarting adapters.
+      def api_channel_status_messages(req, res)
+        enabled = parse_json_body(req)["status_messages"] == true
+        config  = Clacky::ChannelConfig.load
+
+        config.set_status_messages(enabled)
+        config.save
+        @channel_manager.update_config(config)
+
+        json_response(res, 200, { ok: true, status_messages: config.status_messages_enabled? })
       rescue StandardError => e
         json_response(res, 422, { ok: false, error: e.message })
       end
