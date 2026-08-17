@@ -5751,6 +5751,7 @@ module Clacky
             api_key_masked:   mask_api_key(m["api_key"]),
             anthropic_format: m["anthropic_format"] || false,
             provider_id:      m["provider_id"],
+            remark:           m["remark"],
             type:             m["type"]
           }
         end
@@ -6034,6 +6035,8 @@ module Clacky
           "anthropic_format" => body["anthropic_format"] || false,
           "provider_id"      => body["provider_id"].to_s.strip.then { |v| v.empty? ? nil : v }
         }
+        remark = body["remark"].to_s.strip
+        entry["remark"] = remark unless remark.empty?
         type = body["type"].to_s
         unless type.empty?
           # Preserve the single-slot "default" invariant.
@@ -6099,6 +6102,14 @@ module Clacky
             target.delete("provider_id")
           else
             target["provider_id"] = v
+          end
+        end
+        if body.key?("remark")
+          v = body["remark"].to_s.strip
+          if v.empty?
+            target.delete("remark")
+          else
+            target["remark"] = v
           end
         end
         if body.key?("api_key")

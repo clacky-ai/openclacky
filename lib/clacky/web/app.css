@@ -5305,7 +5305,7 @@ body {
   outline: none !important;
   color: var(--color-text-primary);
   padding: 4px 6px;
-  font-size: 0.875rem;
+  font-size: 0.9375rem;
   resize: none;
   max-height: 12.5rem;
   font-family: var(--font-sans);
@@ -6061,6 +6061,13 @@ body {
   border-radius: 4px;
   display: inline-flex;
   max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.model-card-grid-remark {
+  font-size: 0.75rem;
+  color: var(--color-text-secondary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

@@ -601,6 +601,44 @@ RSpec.describe Clacky::Server::HttpServer do
       end
     end
 
+    it "stores the optional remark when provided" do
+      with_server(agent_config: agent_config) do |server|
+        payload = {
+          model:    "claude-opus-4",
+          base_url: "https://api.anthropic.com",
+          api_key:  "sk-newkey0000111122223333",
+          remark:   "relay A"
+        }
+        req = fake_req(method: "POST", path: "/api/config/models", body: payload)
+        res = fake_res
+        dispatch(server, req, res)
+
+        expect(res.status).to eq(200)
+        body = parsed_body(res)
+        created = agent_config.models.find { |m| m["id"] == body["id"] }
+        expect(created["remark"]).to eq("relay A")
+      end
+    end
+
+    it "does not store an empty remark key" do
+      with_server(agent_config: agent_config) do |server|
+        payload = {
+          model:    "claude-opus-4",
+          base_url: "https://api.anthropic.com",
+          api_key:  "sk-newkey0000111122223333",
+          remark:   "   "
+        }
+        req = fake_req(method: "POST", path: "/api/config/models", body: payload)
+        res = fake_res
+        dispatch(server, req, res)
+
+        expect(res.status).to eq(200)
+        body = parsed_body(res)
+        created = agent_config.models.find { |m| m["id"] == body["id"] }
+        expect(created).not_to have_key("remark")
+      end
+    end
+
     it "rejects creation without a real api_key" do
       with_server(agent_config: agent_config) do |server|
         payload = { model: "x", base_url: "https://x", api_key: "" }
@@ -690,6 +728,25 @@ RSpec.describe Clacky::Server::HttpServer do
         res = fake_res
         dispatch(server, req, res)
         expect(res.status).to eq(404)
+      end
+    end
+
+    it "sets and clears the remark" do
+      with_server(agent_config: agent_config) do |server|
+        id = agent_config.models[0]["id"]
+        base_path = "/api/config/models/" + id
+
+        req = fake_req(method: "PATCH", path: base_path, body: { remark: "relay A" })
+        res = fake_res
+        dispatch(server, req, res)
+        expect(res.status).to eq(200)
+        expect(agent_config.models[0]["remark"]).to eq("relay A")
+
+        req = fake_req(method: "PATCH", path: base_path, body: { remark: "" })
+        res = fake_res
+        dispatch(server, req, res)
+        expect(res.status).to eq(200)
+        expect(agent_config.models[0]).not_to have_key("remark")
       end
     end
 

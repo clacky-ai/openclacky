@@ -622,14 +622,16 @@ module Clacky
     end
 
     # Add a new model configuration
-    def add_model(model:, api_key:, base_url:, anthropic_format: false, type: nil)
+    def add_model(model:, api_key:, base_url:, anthropic_format: false, type: nil,
+                  remark: nil)
       @models << {
         "id" => SecureRandom.uuid,
         "api_key" => api_key,
         "base_url" => base_url,
         "model" => model,
         "anthropic_format" => anthropic_format,
-        "type" => type
+        "type" => type,
+        "remark" => remark
       }.compact
     end
 
