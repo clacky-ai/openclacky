@@ -250,8 +250,11 @@ module Clacky
         # One-time migration: move legacy trash contents into file-trash/ subdirectory.
         Clacky::TrashDirectory.migrate_legacy_if_needed
 
-        # Enable console logging for the server process so log lines are visible in the terminal.
-        Clacky::Logger.console = true
+        # Enable console logging for the server process so log lines are visible
+        # in the terminal. Only echo when stderr is a real terminal — under a
+        # LaunchAgent it's redirected to the log file, and echoing would write
+        # every line twice (Logger already wrote it to that same file).
+        Clacky::Logger.console = $stderr.isatty
 
         Clacky::Logger.info("[HttpServer PID=#{Process.pid}] start() mode=#{@inherited_socket ? 'worker' : 'standalone'} inherited_socket=#{@inherited_socket.inspect} master_pid=#{@master_pid.inspect}")
 

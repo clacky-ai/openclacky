@@ -1394,7 +1394,10 @@ module Clacky
         # returns a single Socket, not [Socket, Addrinfo] — WEBrick expects the former.
         socket     = TCPServer.for_fd(fd)
 
-        Clacky::Logger.console = true
+        # Only echo to console when there's a real terminal. Under a LaunchAgent
+        # stderr is redirected to the log file, and echoing would duplicate every
+        # line the Logger already wrote to that same file.
+        Clacky::Logger.console = $stderr.isatty
         Clacky::Logger.info("[cli worker PID=#{Process.pid}] CLACKY_INHERIT_FD=#{fd} CLACKY_MASTER_PID=#{master_pid} socket=#{socket.class} fd=#{socket.fileno}")
 
         agent_config = Clacky::AgentConfig.load
@@ -1453,7 +1456,16 @@ module Clacky
         extra_flags << "--no-caching" if options[:no_caching]
         extra_flags << "--no-skill-evolution" if options[:no_skill_evolution]
 
-        Clacky::Logger.console = true
+        # Echo logs to the terminal only when there is one. Under a LaunchAgent
+        # stderr has no terminal, so redirect it to the daily log file instead —
+        # uncaught exceptions print to $stderr, and this captures Master's own
+        # crash output (e.g. config/brand load failures) instead of losing it.
+        Clacky::Logger.console = $stderr.isatty
+        unless $stderr.isatty
+          log_io = File.open(Clacky::Logger.current_log_file, "a")
+          $stderr.reopen(log_io)
+          log_io.close
+        end
 
         # ── Telemetry (anonymous, opt-out via CLACKY_TELEMETRY=0) ──────────
         Clacky::Telemetry.startup!
