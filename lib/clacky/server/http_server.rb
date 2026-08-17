@@ -291,6 +291,7 @@ module Clacky
         shutdown_proc = proc do
           next if shutdown_once
           shutdown_once = true
+          @draining = true
           # Persist in-flight agent sessions BEFORE starting the forced-exit
           # timer, so any new messages added to @history since the last save
           # are on disk before the new worker reads them after a hot restart.
@@ -365,10 +366,14 @@ module Clacky
 
         # Health check endpoint — no auth, minimal overhead.
         # Docker / orchestrators can probe this to decide container health.
+        # Status stays 200 while draining so liveness probes do not kill a worker
+        # that is merely handing over; readers must check the status field.
+        # pid lets a caller confirm a hot restart actually swapped the worker.
         server.mount_proc("/health") do |_req, res|
           res.status          = 200
           res["Content-Type"] = "application/json"
-          res.body            = '{"status":"ok"}'
+          state               = @draining ? "draining" : "ok"
+          res.body            = %Q({"status":"#{state}","pid":#{Process.pid}})
         end
 
         # Mount static file handler for the entire web directory.
