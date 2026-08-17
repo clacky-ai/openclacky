@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-require "clacky/server/channel/adapters/feishu/bot"
+require "clacky/server/channel/adapters/feishu/adapter"
 
 RSpec.describe Clacky::Channel::Adapters::Feishu::Bot do
   let(:bot) do
