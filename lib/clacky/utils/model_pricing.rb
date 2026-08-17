@@ -522,6 +522,15 @@ module Clacky
       # endpoints don't charge separately for cache writes (Z.ai's page lists
       # "Cached Input Storage: Limited-time Free"), so bill writes at the
       # regular input miss rate for safe "displayed ≤ actual" behaviour.
+      # GLM-5.3 shares GLM-5.2's base model (all gains are post-training per
+      # Z.ai's release notes) and Z.ai's pricing page does not list a separate
+      # GLM-5.3 row yet, so it is billed at the GLM-5.2 flat rate.
+      "glm-5.3" => {
+        input:  { default: 1.40, over_200k: 1.40 },
+        output: { default: 4.40, over_200k: 4.40 },
+        cache:  { write: 1.40, read: 0.26 }
+      },
+
       "glm-5.2" => {
         input:  { default: 1.40, over_200k: 1.40 },
         output: { default: 4.40, over_200k: 4.40 },
@@ -863,15 +872,16 @@ module Clacky
           "kimi-k2.5"
         when /^kimi-k2\.?6$/i
           "kimi-k2.6"
-        # GLM (Zhipu / Z.ai) — the five models registered in providers.rb.
-        # GLM-5V-Turbo is the vision variant; all five share the same Z.ai
+        # GLM (Zhipu / Z.ai) - the models registered in providers.rb.
+        # GLM-5V-Turbo is the vision variant; all share the same Z.ai
         # international flat-rate pricing regardless of which endpoint
         # (mainland bigmodel.cn vs intl z.ai) the user configured.
         # Strict anchored match so unrelated strings like "glm-5-x-foo"
         # don't silently borrow a nearby model's rate.
+        when /^glm-5\.3$/i
+          "glm-5.3"
         when /^glm-5\.2$/i
-          "glm-5.2"
-        when /^glm-5\.1$/i
+          "glm-5.2"        when /^glm-5\.1$/i
           "glm-5.1"
         when /^glm-5v-turbo$/i
           "glm-5v-turbo"

@@ -257,8 +257,8 @@ module Clacky
         "name" => "GLM (Z.ai / Zhipu)",
         "base_url" => "https://open.bigmodel.cn/api/paas/v4",
         "api" => "openai-completions",
-        "default_model" => "glm-5.2",
-        "models" => ["glm-5.2", "glm-5.1", "glm-5", "glm-5-turbo", "glm-5v-turbo", "glm-4.7"],
+        "default_model" => "glm-5.3",
+        "models" => ["glm-5.3", "glm-5.2", "glm-5.1", "glm-5", "glm-5-turbo", "glm-5v-turbo", "glm-4.7"],
         # Zhipu / Z.ai expose four functionally-equivalent endpoints:
         # two regional sites (mainland open.bigmodel.cn + international api.z.ai)
         # each with a general-billing and a Coding-Plan subpath. They share the
@@ -506,7 +506,11 @@ module Clacky
           "minimax-m2.7",
           "kimi-k2.7-code",
           "kimi-k2.6",
-          "glm-5.2",
+          # GLM-5.2 is delisted from Ark on 2026-08-31, so new setups only
+          # offer GLM-5.3. It is available on the Coding/Agent Plan endpoints;
+          # the pay-as-you-go endpoint does not carry it yet (no versioned id),
+          # so no payg alias is registered for it.
+          "glm-5.3",
           "deepseek-v4-pro",
           "deepseek-v4-flash"
         ],
@@ -522,6 +526,8 @@ module Clacky
         # actually differ are listed here.
         "api_model_aliases" => {
           "payg" => {
+            # glm-5.2 is delisted 2026-08-31 but existing configs must keep
+            # working until then, so the alias stays.
             "glm-5.2"            => "glm-5-2-260617",
             "deepseek-v4-pro"    => "deepseek-v4-pro-260425",
             "deepseek-v4-flash"  => "deepseek-v4-flash-260425",
@@ -530,10 +536,11 @@ module Clacky
             "doubao-seed-2.0-lite"  => "doubao-seed-2-0-lite-260428"
           }.freeze
         }.freeze,
-        # Most Doubao/multimodal models accept image input; GLM-5.2 and
+        # Most Doubao/multimodal models accept image input; GLM-5.2/5.3 and
         # DeepSeek-V4 on Ark are text-only.
         "capabilities" => { "vision" => true }.freeze,
         "model_capabilities" => {
+          "glm-5.3"           => { "vision" => false }.freeze,
           "glm-5.2"           => { "vision" => false }.freeze,
           "deepseek-v4-pro"   => { "vision" => false }.freeze,
           "deepseek-v4-flash" => { "vision" => false }.freeze,
