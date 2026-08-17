@@ -20,7 +20,7 @@ Three layers, override precedence `local > installed > builtin`:
 - `installed` — `~/.clacky/ext/installed/<id>/` (from `ext install`)
 - `local`     — `~/.clacky/ext/local/<id>/` (where users develop; `ext new` lands here)
 
-Seven `contributes:` types (use one, several, or all):
+Eight `contributes:` types (use one, several, or all):
 - `panels`   — WebUI panels (a `view.js`, no build step, no React, no iframe)
 - `api`      — one backend file `api/handler.rb`, mounted at `/api/ext/<id>/`
 - `skills`   — a `SKILL.md` under `skills/<id>/` (prompt-only capability)
@@ -28,6 +28,7 @@ Seven `contributes:` types (use one, several, or all):
 - `channels` — an IM adapter
 - `patches`  — monkey-patch a real class (advanced, supply-chain risk)
 - `hooks`    — lifecycle hooks like `before_tool_use` (advanced)
+- `tools`    — a custom agent tool (a `Clacky::Tools::Base` subclass in `tools/<id>.rb`)
 
 Hot reload is per-request: after editing `view.js`, `handler.rb`, or a `SKILL.md`,
 the user just reloads the WebUI page — no server restart. Editing `ext.yml` also
@@ -240,6 +241,47 @@ Response helpers: `json` / `text(str)` / `send_data(bytes, content_type:, filena
   persist: true, **data)` to push structured events to the frontend. `persist: false`
   (default) vanishes on refresh — emit a `persist: true` terminal event at the end.
 
+### Custom tools
+
+**Tool** (`contributes.tools: [{ id, file }]`): adds a brand-new tool to an agent's
+schema. The tool is injected **only into agents that declare it** via `tools: [<id>]`
+in the same container's agent spec — an agent can only reference tools from its own
+container. `file` points at a Ruby file in the container (`tools/<id>.rb`) defining
+`Clacky::Tools::<Camelized id>` — the file name IS the class-name mapping
+(`tools/hello.rb` → `Clacky::Tools::Hello`). The class contract is identical to a
+built-in tool:
+
+```ruby
+module Clacky
+  module Tools
+    class Weather < Base
+      self.tool_name = "weather"          # the name the model calls
+      self.tool_description = "Get current weather for a city."
+      self.tool_category = "general"
+      self.tool_parameters = {
+        type: "object",
+        properties: { city: { type: "string", description: "City name" } },
+        required: %w[city]
+      }
+
+      def execute(city:, **)
+        { temperature: 22, city: city }
+      end
+    end
+  end
+end
+```
+
+Rules:
+- **Instance methods only** — `execute(**args)` takes keyword args; `working_dir: nil`
+  is passed when the agent runs inside a project directory.
+- A broken tool file is logged and skipped at startup — it never blocks the agent.
+- Name collisions with built-ins: the extension tool **wins** (registered last, same as
+  the `local > installed > builtin` layer precedence).
+- Prefer a `skill` when the capability can be composed from existing tools — a tool is
+  only needed for something no built-in tool can do (new API integration, new
+  system-level operation).
+
 ## Scaffold
 
 Turn a plain-language idea into a working skeleton, then read the generated files.
@@ -257,6 +299,7 @@ question only if genuinely ambiguous. Common mappings:
 | Connect to Slack / an in-house IM | `channels:` |
 | Change behavior of a built-in method | `patches:` |
 | Audit / block / observe tool calls | `hooks:` |
+| A brand-new tool the model can call (new API, new system op) | `tools:` (+ agent-side `tools:` declaration) |
 
 Keep it minimal — most useful extensions are one panel + one handler, or one skill.
 Do NOT add `patches` or `hooks` unless the user explicitly asks; they run arbitrary
@@ -282,7 +325,7 @@ This creates `~/.clacky/ext/local/<id>/` with a working hello panel + handler:
 - `api/handler.rb` — a `Clacky::ApiExtension` subclass mounted at `/api/ext/<id>/`
 - `test/handler_test.rb` — a runnable minitest example (`ruby test/handler_test.rb`)
 
-Use `--full` only when the user needs the kitchen-sink reference exercising all seven
+Use `--full` only when the user needs the kitchen-sink reference exercising all eight
 contributes types — it's a lot to read, so prefer the plain scaffold otherwise.
 
 ### 3 — Read what was generated
@@ -391,8 +434,11 @@ user reload the WebUI page. If verify reports problems, go to **Debug & verify**
 
 - The user is building features in their own app that just *use* openclacky — that's
   normal coding, no extension container needed.
-- The user wants a tool/skill for *their own* project — use `.clacky/skills/` or
-  `.clacky/tools/` in their project, not a gem-level container.
+- The user wants a skill for *their own* project — use `.clacky/skills/` in their
+  project, not a gem-level container.
+- The user wants a custom agent **tool** — contribute it from a local extension
+  (`contributes.tools`), which is the supported way to add a tool name to the agent's
+  schema. Don't patch a built-in tool to fake new behavior.
 - The change can be made via `clacky config set ...` — prefer config over patches.
 
 ---

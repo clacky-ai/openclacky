@@ -52,6 +52,22 @@ module Clacky
       @disabled_skills ||= Array(@profile_data["disabled_skills"]).map(&:to_s)
     end
 
+    # Extension tools this agent opts into, via `tools:` in profile.yml or the
+    # ext agent spec — the only way a contributed tool reaches an agent. Each
+    # id is a bare tool id in the agent's own container: `tools/<id>.rb`.
+    # @return [Array<String>]
+    def tools
+      @tools ||= Array(@profile_data["tools"]).map(&:to_s)
+    end
+
+    # Directory of the ext container this agent belongs to, or nil for a user
+    # profile. Extension tools only exist inside containers, so a user profile
+    # cannot reference them.
+    # @return [String, nil]
+    def container_dir
+      @ext_unit&.dir
+    end
+
     # Whether a skill is usable by this agent: it must not be in the agent's
     # disabled list AND must be allowed by the skill's own `agent:` declaration.
     # @param skill [Skill]
@@ -195,6 +211,7 @@ module Clacky
           "panels"      => @ext_unit.spec["panels"],
           "skills"      => @ext_unit.spec["skills"],
           "disabled_skills" => @ext_unit.spec["disabled_skills"],
+          "tools"       => @ext_unit.spec["tools"],
         }
       end
 

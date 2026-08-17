@@ -9,6 +9,10 @@ module Clacky
         attr_accessor :tool_name, :tool_description, :tool_parameters, :tool_category
       end
 
+      # Host agent, injected at registration for extension tools so they can
+      # reach its public API (fan_out_labeled, fork_subagent, skill_loader).
+      attr_accessor :agent
+
       def name
         self.class.tool_name
       end

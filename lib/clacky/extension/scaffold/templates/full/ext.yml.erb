@@ -1,6 +1,6 @@
 id: <%= slug %>
 name: <%= slug %>
-description: Kitchen-sink reference container — exercises all 7 contributes types.
+description: Kitchen-sink reference container — exercises all 8 contributes types.
 version: "0.1.0"
 author: (your name)               # shown as the credit on the New Session card
 origin: self
@@ -25,6 +25,7 @@ contributes:
       prompt: agents/designer.md
       panels: [dashboard]
       skills: [<%= slug %>-skill]
+      tools: [hello]              # the only way the hello tool reaches an agent
   channels:
     - id: noop
       adapter: channels/noop.rb
@@ -39,3 +40,9 @@ contributes:
   hooks:
     - event: before_tool_use
       file: hooks/audit.rb
+  tools:
+    - id: hello
+      file: tools/hello.rb        # defines Clacky::Tools::Hello < Clacky::Tools::Base
+      # Injected only into agents that declare `tools: [hello]` — see the
+      # `designer` agent below. The file name maps to the class name
+      # (tools/hello.rb → Clacky::Tools::Hello).

@@ -20,12 +20,13 @@ the parts you actually need into a real extension.
 - `channels/noop.rb`  — a no-op IM channel adapter (`:<%= slug %>_noop`)
 - `patches/audit.rb`  — a monkey-patch on `Clacky::Tools::Terminal#execute`
 - `hooks/audit.rb`    — a `before_tool_use` hook callback
+- `tools/hello.rb`    — a custom tool (`hello`), injected only into agents that declare `tools: [hello]` (here, `designer`); the file name maps to the class name `Clacky::Tools::Hello`
 
 ## Verify
 
 ```bash
 clacky ext verify       # schema + reference integrity check
-clacky ext list         # see all 7 units listed under <%= slug %>
+clacky ext list         # see all 8 units listed under <%= slug %>
 ```
 
 ## Try it
@@ -40,6 +41,7 @@ clacky ext list         # see all 7 units listed under <%= slug %>
 - `clacky --agent designer "say hi"` — uses the contributed skill
 - Run any tool from chat → see `[ext-hook] before_tool_use` in the log
 - Run a shell tool → see `[ext-audit] terminal.execute` from the patch
+- `clacky --agent designer "say hi"` — the `designer` agent has the contributed `hello` tool; other agents do not
 
 ## Trim it down
 
