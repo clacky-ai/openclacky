@@ -446,6 +446,8 @@ RSpec.describe Clacky::Providers do
           https://ark.cn-beijing.volces.com/api/plan/v3
         ].each do |url|
           id = described_class.find_by_base_url(url)
+          expect(described_class.supports?(id, :vision, model_name: "glm-5.3"))
+            .to be(false), "expected vision=false at #{url} for glm-5.3"
           expect(described_class.supports?(id, :vision, model_name: "glm-5.2"))
             .to be(false), "expected vision=false at #{url} for glm-5.2"
           expect(described_class.supports?(id, :vision, model_name: "deepseek-v4-pro"))

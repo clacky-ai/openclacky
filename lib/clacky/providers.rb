@@ -506,6 +506,7 @@ module Clacky
           "minimax-m2.7",
           "kimi-k2.7-code",
           "kimi-k2.6",
+          "glm-5.3",
           "glm-5.2",
           "deepseek-v4-pro",
           "deepseek-v4-flash"
@@ -530,10 +531,11 @@ module Clacky
             "doubao-seed-2.0-lite"  => "doubao-seed-2-0-lite-260428"
           }.freeze
         }.freeze,
-        # Most Doubao/multimodal models accept image input; GLM-5.2 and
-        # DeepSeek-V4 on Ark are text-only.
+        # Most Doubao/multimodal models accept image input; GLM-5.3, GLM-5.2
+        # and DeepSeek-V4 on Ark are text-only.
         "capabilities" => { "vision" => true }.freeze,
         "model_capabilities" => {
+          "glm-5.3"           => { "vision" => false }.freeze,
           "glm-5.2"           => { "vision" => false }.freeze,
           "deepseek-v4-pro"   => { "vision" => false }.freeze,
           "deepseek-v4-flash" => { "vision" => false }.freeze,
