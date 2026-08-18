@@ -222,12 +222,15 @@ module Clacky
     # Rebuild the underlying Client (and dependent components) to pick up
     # credentials/model name from the currently-selected model in @config.
     private def rebuild_client_for_current_model!
+      entry = @config.current_model
       @client = Clacky::Client.new(
         @config.api_key,
         base_url: @config.effective_base_url,
         model: @config.model_name,
         anthropic_format: @config.anthropic_format?,
-        api_format: @config.api_format
+        api_format: @config.api_format,
+        provider_id: @config.provider_id_for(entry),
+        capabilities: entry && entry["capabilities"]
       )
       # Update message compressor with new client and model
       @message_compressor = MessageCompressor.new(@client, model: current_model)
@@ -1826,12 +1829,15 @@ module Clacky
       end
 
       # Create new client for subagent
+      subagent_entry = subagent_config.current_model
       subagent_client = Clacky::Client.new(
         subagent_config.api_key,
         base_url: subagent_config.base_url,
         model: subagent_config.model_name,
         anthropic_format: subagent_config.anthropic_format?,
-        api_format: subagent_config.api_format
+        api_format: subagent_config.api_format,
+        provider_id: subagent_config.provider_id_for(subagent_entry),
+        capabilities: subagent_entry && subagent_entry["capabilities"]
       )
 
       # Create subagent (reuses all tools from parent, inherits agent profile from parent)

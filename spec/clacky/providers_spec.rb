@@ -1,6 +1,19 @@
 # frozen_string_literal: true
 
 RSpec.describe Clacky::Providers do
+  describe ".preset?" do
+    it "returns true for a known preset id" do
+      expect(described_class.preset?("minimax")).to be true
+      expect(described_class.preset?("kimi")).to be true
+    end
+
+    it "returns false for an unknown id" do
+      expect(described_class.preset?("nope-provider")).to be false
+      expect(described_class.preset?("")).to be false
+      expect(described_class.preset?(nil)).to be false
+    end
+  end
+
   describe ".capabilities" do
     it "returns {} for an unknown provider" do
       expect(described_class.capabilities("nope-provider")).to eq({})

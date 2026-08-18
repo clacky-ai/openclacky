@@ -120,12 +120,15 @@ module Clacky
       # field (easy to miss @model / @use_bedrock) and then reused for a
       # later Agent.new, serving stale credentials.
       client_factory = lambda do
+        entry = agent_config.current_model
         Clacky::Client.new(
           agent_config.api_key,
           base_url: agent_config.base_url,
           model: agent_config.model_name,
           anthropic_format: agent_config.anthropic_format?,
-          api_format: agent_config.api_format
+          api_format: agent_config.api_format,
+          provider_id: agent_config.provider_id_for(entry),
+          capabilities: entry && entry["capabilities"]
         )
       end
 
@@ -1415,12 +1418,12 @@ module Clacky
         end
 
         client_factory = lambda do
+          entry = agent_config.current_model
           Clacky::Client.new(
             agent_config.api_key,
             base_url: agent_config.base_url,
             model: agent_config.model_name,
             anthropic_format: agent_config.anthropic_format?,
-            api_format: agent_config.api_format
           )
         end
 

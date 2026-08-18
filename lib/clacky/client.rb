@@ -10,15 +10,27 @@ module Clacky
 
     attr_reader :provider_id
 
-    def initialize(api_key, base_url:, model:, anthropic_format: false, api_format: nil, read_timeout: nil)
+    # @param provider_id [String, nil] explicit provider preset id from the
+    #   model card. When it names a known preset it wins over base_url/api_key
+    #   heuristics, so a custom base_url still inherits the preset's capability
+    #   table (e.g. vision support). nil falls back to base_url inference.
+    # @param capabilities [Hash, nil] explicit capability declarations from the
+    #   model card (e.g. { "vision" => false }). These win over both provider_id
+    #   and base_url inference, so a custom gateway can declare "text-only"
+    #   without matching any preset.
+    def initialize(api_key, base_url:, model:, anthropic_format: false, api_format: nil, read_timeout: nil, provider_id: nil, capabilities: nil)
       @api_key = api_key
       @base_url = base_url
       @model = model
+      @capabilities = capabilities.is_a?(Hash) ? capabilities : nil
       # Detect Bedrock: ABSK key prefix (native AWS) or abs- model prefix (Clacky AI proxy)
       @use_bedrock = MessageFormat::Bedrock.bedrock_api_key?(api_key, model)
 
       # Resolve provider once — reused for capability + api-type lookups.
-      provider_id = Providers.resolve_provider(base_url: @base_url, api_key: @api_key)
+      # An explicit provider_id naming a known preset wins over base_url
+      # inference (mirrors AgentConfig#provider_id_for); unknown/blank values
+      # fall through to the historical base_url/api_key heuristics.
+      provider_id = Providers.preset?(provider_id) ? provider_id : Providers.resolve_provider(base_url: @base_url, api_key: @api_key)
 
       # Decide the transport format: an explicit user-selected api_format wins
       # over provider preset resolution; the legacy anthropic_format boolean is
@@ -358,9 +370,10 @@ module Clacky
       # table can't match — so the caller passes the display name separately
       # via capability_model to keep the vision judgement accurate.
       cap_model = capability_model || model
+      vision_supported = capability_supported?(:vision, cap_model)
       body = MessageFormat::OpenAI.build_request_body(
         messages, model, tools, max_tokens, caching_enabled,
-        vision_supported: Providers.supports?(@provider_id, :vision, model_name: cap_model),
+        vision_supported: vision_supported,
         reasoning_effort: reasoning_effort
       )
       return send_openai_stream_request(body, on_chunk) if on_chunk
@@ -372,6 +385,24 @@ module Clacky
 
       parsed_body = safe_json_parse(response.body, context: "LLM response")
       MessageFormat::OpenAI.parse_response(parsed_body)
+    end
+
+    # Whether the target model supports a capability. Resolution order mirrors
+    # AgentConfig#current_model_supports? so the client and agent agree:
+    #   1. explicit `capabilities` declared on the model card win
+    #      (e.g. { "vision" => false } on a custom text-only gateway)
+    #   2. provider preset capability table (via provider_id / base_url inference)
+    #   3. conservative default true (unknown provider assumed capable)
+    #
+    # @param capability [Symbol] capability name (e.g. :vision)
+    # @param cap_model [String, nil] display model name for preset lookups
+    # @return [Boolean]
+    private def capability_supported?(capability, cap_model)
+      if @capabilities
+        key = capability.to_s
+        return @capabilities[key] != false if @capabilities.key?(key)
+      end
+      Providers.supports?(@provider_id, capability, model_name: cap_model)
     end
 
     # Streaming variant for OpenAI-compatible chat completions (DeepSeek/OpenRouter

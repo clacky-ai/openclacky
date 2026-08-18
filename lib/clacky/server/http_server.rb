@@ -1876,10 +1876,7 @@ module Clacky
         # user is currently in "off" — the UI uses this to render the
         # auto-mode preview ("Auto would use X").
         default = @agent_config.find_model_by_type("default")
-        provider_id = default && Clacky::Providers.resolve_provider(
-          base_url: default["base_url"],
-          api_key:  default["api_key"]
-        )
+        provider_id = default && @agent_config.provider_id_for(default)
         defaults = {}
         Clacky::Providers::MEDIA_KINDS.each do |t|
           defaults[t] = {
@@ -2082,10 +2079,7 @@ module Clacky
         # user flipped to "auto" — derived from the same provider as the
         # current default model.
         default = @agent_config.find_model_by_type("default")
-        provider_id = default && Clacky::Providers.resolve_provider(
-          base_url: default["base_url"],
-          api_key:  default["api_key"]
-        )
+        provider_id = default && @agent_config.provider_id_for(default)
         default_preview = {
           provider:  provider_id,
           model:     provider_id ? Clacky::Providers.default_ocr_model(provider_id) : nil,
@@ -5794,6 +5788,7 @@ module Clacky
             anthropic_format: m["anthropic_format"] || false,
             api_format:       m["api_format"],
             provider_id:      m["provider_id"],
+            capabilities:     m["capabilities"],
             remark:           m["remark"],
             type:             m["type"]
           }
@@ -6092,6 +6087,10 @@ module Clacky
           "anthropic_format" => body["anthropic_format"] || false,
           "provider_id"      => body["provider_id"].to_s.strip.then { |v| v.empty? ? nil : v }
         }
+        caps = body["capabilities"]
+        if caps.is_a?(Hash) && !caps.empty?
+          entry["capabilities"] = caps.each_with_object({}) { |(k, v), h| h[k.to_s] = v == true }
+        end
         remark = body["remark"].to_s.strip
         entry["remark"] = remark unless remark.empty?
         entry["api_format"] = api_format if api_format
@@ -6128,7 +6127,8 @@ module Clacky
       end
 
       # PATCH /api/config/models/:id
-      # Body: any subset of { model, base_url, api_key, anthropic_format, api_format, type }
+      # Body: any subset of { model, base_url, api_key, anthropic_format, type }
+      #                       provider_id, capabilities, remark }
       # Rules (the whole reason we moved off bulk save):
       #   - Missing key  → field untouched
       #   - api_key with "****" (masked display value) → IGNORED (never overwrites)
@@ -6137,6 +6137,7 @@ module Clacky
       #   - api_format null/empty → cleared (back to auto)
       #   - api_format unsupported value → 422
       #   - type="default" transparently clears the marker on other models
+      #   - capabilities is a hash like { vision: false }; empty hash clears it
       #   - Unknown id → 404
       def api_update_model(id, req, res)
         body = parse_json_body(req)
@@ -6178,6 +6179,14 @@ module Clacky
             target.delete("provider_id")
           else
             target["provider_id"] = v
+          end
+        end
+        if body.key?("capabilities")
+          caps = body["capabilities"]
+          if caps.is_a?(Hash) && !caps.empty?
+            target["capabilities"] = caps.each_with_object({}) { |(k, v), h| h[k.to_s] = v == true }
+          else
+            target.delete("capabilities")
           end
         end
         if body.key?("remark")

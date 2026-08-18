@@ -1139,6 +1139,13 @@ module Clacky
         provider_caps.merge(model_caps)
       end
 
+      # True when +id+ names a known preset. Callers use this to decide
+      # whether a model entry's `provider_id` can drive capability lookups,
+      # or whether it should fall through to base_url matching instead.
+      def preset?(id)
+        id.is_a?(String) && PRESETS.key?(id)
+      end
+
       # Check if a provider+model supports a capability.
       # Unknown provider / missing capability declaration → returns true
       # (conservative default: assume supported unless we explicitly say otherwise).

@@ -668,14 +668,27 @@ module Clacky
       @models.find { |m| m["type"] == type }
     end
 
+    # Resolve the provider id for a model entry. An explicit `provider_id`
+    # naming a known preset wins over base_url/api_key heuristics — that lets
+    # a custom base_url inherit a preset's lineup (media sidecars, OCR models,
+    # capabilities) without the URL having to match the preset exactly.
+    def provider_id_for(entry)
+      return nil unless entry
+
+      pid = entry["provider_id"]
+      return pid if Clacky::Providers.preset?(pid)
+
+      Clacky::Providers.resolve_provider(
+        base_url: entry["base_url"],
+        api_key:  entry["api_key"]
+      )
+    end
+
     private def derive_media_model(kind, model_override: nil)
       anchor = current_model || find_model_by_type("default")
       return nil unless anchor
 
-      provider_id = Clacky::Providers.resolve_provider(
-        base_url: anchor["base_url"],
-        api_key:  anchor["api_key"]
-      )
+      provider_id = provider_id_for(anchor)
       return nil unless provider_id
 
       if model_override && !model_override.to_s.strip.empty?
@@ -752,9 +765,7 @@ module Clacky
       anchor = current_model || find_model_by_type("default")
       return nil unless anchor
 
-      provider_id = Clacky::Providers.resolve_provider(
-        base_url: anchor["base_url"], api_key: anchor["api_key"]
-      )
+      provider_id = provider_id_for(anchor)
       return nil unless provider_id
 
       if Clacky::Providers.supports?(provider_id, :vision, model_name: anchor["model"])
@@ -801,9 +812,7 @@ module Clacky
 
       if sidecar_off?(raw_entry)
         default = find_model_by_type("default")
-        default_provider = default && Clacky::Providers.resolve_provider(
-          base_url: default["base_url"], api_key: default["api_key"]
-        )
+        default_provider = default && provider_id_for(default)
         available = default_provider ? Clacky::Providers.media_models(default_provider, kind) : []
         aliases  = default_provider ? Clacky::Providers.media_model_aliases(default_provider, kind) : {}
         return {
@@ -828,18 +837,14 @@ module Clacky
               end
 
       provider_id = if entry
-                      Clacky::Providers.resolve_provider(
-                        base_url: entry["base_url"], api_key: entry["api_key"]
-                      )
+                      provider_id_for(entry)
                     end
 
       available_provider_id = if is_custom
                                 provider_id
                               else
                                 default = find_model_by_type("default")
-                                default && Clacky::Providers.resolve_provider(
-                                  base_url: default["base_url"], api_key: default["api_key"]
-                                )
+                                default && provider_id_for(default)
                               end
       available = available_provider_id ? Clacky::Providers.media_models(available_provider_id, kind) : []
       aliases   = available_provider_id ? Clacky::Providers.media_model_aliases(available_provider_id, kind) : {}
@@ -871,18 +876,14 @@ module Clacky
       raw_entry = @models.find { |m| m["type"] == "ocr" }
 
       default = find_model_by_type("default")
-      default_provider = default && Clacky::Providers.resolve_provider(
-        base_url: default["base_url"], api_key: default["api_key"]
-      )
+      default_provider = default && provider_id_for(default)
       available = default_provider ? Clacky::Providers.ocr_models(default_provider) : []
 
       if sidecar_off?(raw_entry)
         # A disabled OCR sidecar only means "no separate vision model"; it must
         # not override the fact that the chat model may handle images itself.
         anchor = current_model || default
-        anchor_provider = anchor && Clacky::Providers.resolve_provider(
-          base_url: anchor["base_url"], api_key: anchor["api_key"]
-        )
+        anchor_provider = anchor && provider_id_for(anchor)
         if anchor && anchor_provider &&
            Clacky::Providers.supports?(anchor_provider, :vision, model_name: anchor["model"])
           return {
@@ -916,9 +917,7 @@ module Clacky
               end
 
       provider_id = if entry
-                      Clacky::Providers.resolve_provider(
-                        base_url: entry["base_url"], api_key: entry["api_key"]
-                      )
+                      provider_id_for(entry)
                     end
 
       {
@@ -1000,12 +999,9 @@ module Clacky
       primary = current_model
       return nil unless primary && primary["base_url"] && primary["model"]
 
-      # Use resolve_provider (base_url first, then clacky-* api_key fallback
-      # for local-debug / self-hosted proxies).
-      provider_id = Clacky::Providers.resolve_provider(
-        base_url: primary["base_url"],
-        api_key:  primary["api_key"]
-      )
+      # Resolve provider via explicit provider_id first, then base_url and
+      # the clacky-* api_key fallback for local-debug / self-hosted proxies.
+      provider_id = provider_id_for(primary)
       return nil unless provider_id
 
       lite_name = Clacky::Providers.lite_model(provider_id, primary["model"])
@@ -1037,10 +1033,7 @@ module Clacky
       m = current_model
       return nil unless m
 
-      provider_id = Clacky::Providers.resolve_provider(
-        base_url: m["base_url"],
-        api_key:  m["api_key"]
-      )
+      provider_id = provider_id_for(m)
       return nil unless provider_id
 
       Clacky::Providers.fallback_model(provider_id, model_name)
@@ -1278,17 +1271,41 @@ module Clacky
     #     conservative default (assume supported), so self-hosted or new
     #     providers don't get accidentally downgraded.
     #
+    # Resolution order (most specific wins):
+    #   1. Explicit `capabilities` hash on the model entry itself — the
+    #      escape hatch for custom gateways, e.g.
+    #      `capabilities: { vision: false }` on a text-only self-hosted model.
+    #   2. `provider_id` when it names a known preset — lets a custom base_url
+    #      inherit a preset's capability table (e.g. a DeepSeek relay with
+    #      `provider_id: deepseekv4`).
+    #   3. base_url match against the preset list.
+    #   4. Conservative default: true (unknown provider assumed capable).
+    #
     # @param capability [String, Symbol] capability name (e.g. :vision)
     # @return [Boolean] true if supported (or unknown); false only when the
-    #   preset explicitly declares the capability as unsupported.
+    #   model entry or a preset explicitly declares the capability unsupported.
     def current_model_supports?(capability)
       m = current_model
       # No model configured yet → nothing to judge; assume supported so we
       # don't preemptively downgrade before a model is even picked.
       return true unless m && m["base_url"]
 
-      provider_id = Clacky::Providers.find_by_base_url(m["base_url"])
+      key = capability.to_s
+
+      caps = m["capabilities"]
+      if caps.is_a?(Hash) && caps.key?(key)
+        return caps[key] != false
+      end
+
+      # A saved provider_id only counts when it names a real preset; a
+      # stale/unknown value falls through to base_url matching below.
+      provider_id = m["provider_id"]
+      if Clacky::Providers.preset?(provider_id)
+        return Clacky::Providers.supports?(provider_id, capability, model_name: m["model"])
+      end
+
       # Custom / self-hosted base_url not in our preset list → be conservative.
+      provider_id = Clacky::Providers.find_by_base_url(m["base_url"])
       return true unless provider_id
 
       Clacky::Providers.supports?(provider_id, capability, model_name: m["model"])

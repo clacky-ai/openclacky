@@ -333,6 +333,50 @@ RSpec.describe Clacky::AgentConfig do
       )
       expect(config.current_model_supports?(:some_future_cap)).to be true
     end
+
+    it "honors an explicit capabilities:false on a custom entry (overrides conservative default)" do
+      config = described_class.new(
+        models: [{ "api_key" => "x", "base_url" => "https://my-proxy.example/v1", "model" => "text-only", "capabilities" => { "vision" => false } }]
+      )
+      expect(config.current_model_supports?(:vision)).to be false
+    end
+
+    it "honors an explicit capabilities:true on a custom entry" do
+      config = described_class.new(
+        models: [{ "api_key" => "x", "base_url" => "https://my-proxy.example/v1", "model" => "vision-model", "capabilities" => { "vision" => true } }]
+      )
+      expect(config.current_model_supports?(:vision)).to be true
+    end
+
+    it "resolves capabilities through provider_id preset (deepseekv4 is text-only)" do
+      config = described_class.new(
+        models: [{ "api_key" => "x", "base_url" => "https://my-proxy.example/v1", "model" => "deepseek-v4-pro", "provider_id" => "deepseekv4" }]
+      )
+      expect(config.current_model_supports?(:vision)).to be false
+    end
+
+    it "resolves capabilities through provider_id preset (kimi is vision-capable)" do
+      config = described_class.new(
+        models: [{ "api_key" => "x", "base_url" => "https://my-proxy.example/v1", "model" => "kimi-k3", "provider_id" => "kimi" }]
+      )
+      expect(config.current_model_supports?(:vision)).to be true
+    end
+
+    it "prefers an explicit capabilities hash over the provider_id preset" do
+      # Scheme B wins over scheme C: a user-declared override on the model
+      # entry must beat whatever the preset table says.
+      config = described_class.new(
+        models: [{ "api_key" => "x", "base_url" => "https://my-proxy.example/v1", "model" => "kimi-k3", "provider_id" => "kimi", "capabilities" => { "vision" => false } }]
+      )
+      expect(config.current_model_supports?(:vision)).to be false
+    end
+
+    it "falls back to base_url matching when provider_id is not a known preset" do
+      config = described_class.new(
+        models: [{ "api_key" => "x", "base_url" => "https://api.minimaxi.com/v1", "model" => "MiniMax-M2.7", "provider_id" => "stale-preset-id" }]
+      )
+      expect(config.current_model_supports?(:vision)).to be false
+    end
   end
 
   describe "#get_model" do
