@@ -6061,6 +6061,27 @@ body {
 .model-search-input::placeholder {
   color: var(--color-text-tertiary);
 }
+.model-provider-filter {
+  height: 2.25rem;
+  padding: 0 1.75rem 0 0.625rem;
+  border: 1px solid var(--color-border-primary);
+  border-radius: 6px;
+  background: var(--color-bg-primary);
+  color: var(--color-text-primary);
+  font-size: 0.8125rem;
+  outline: none;
+  cursor: pointer;
+  transition: border-color 0.15s;
+  max-width: 12rem;
+  min-width: 0;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238b949e' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M19 9l-7 7-7-7'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.625rem center;
+}
+.model-provider-filter:focus {
+  border-color: var(--color-accent-primary);
+}
 
 /* ── Grid Model Card ────────────────────────────────────────────────────────── */
 .model-card-grid {
