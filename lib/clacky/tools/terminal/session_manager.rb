@@ -49,6 +49,8 @@ module Clacky
         @sessions = {}
         @next_id  = 0
         @mutex    = Mutex.new
+        @reaper_thread = nil
+        @reaper_parent_pid = nil
 
         class << self
           # Register a new session.  Caller has already spawned the PTY and
@@ -189,6 +191,83 @@ module Clacky
             end
           end
 
+          # Reap orphaned PTY sessions when the openclacky process dies
+          # uncleanly (`kill -9`, Ruby crash, OOM, `wsl --shutdown`,
+          # power loss, ...).
+          #
+          # The at_exit hook in this file only fires on a normal
+          # interpreter exit, so on SIGKILL / hard crash the PTY
+          # children get reparented to PID 1 and keep burning CPU
+          # (and on Windows/WSL each one leaves a residual headless
+          # `conhost.exe` on the Windows side). This is the same class
+          # of bug Linux daemons solve with `prctl(PR_SET_PDEATHSIG)`,
+          # which Ruby doesn't expose — so we run a tiny watchdog
+          # thread that polls `Process.ppid` and, if the parent PID
+          # changes (the parent died and we were reparented to init /
+          # the Windows reaper), SIGKILLs every tracked PTY child.
+          #
+          # The watchdog is cheap (~1 syscall/sec), only starts once
+          # per process, and is a no-op when no PTY sessions exist.
+          # It also installs fast-path Signal.trap handlers for
+          # SIGTERM / SIGINT / SIGHUP so a clean `kill <pid>` doesn't
+          # have to wait for the at_exit round trip.
+          #
+          # Test-only: call with parent_pid: to inject a synthetic
+          # parent and force the reaper to think it died. Pass
+          # interval: to skip the sleep in tight tests.
+          def start_reaper!(parent_pid: Process.ppid, interval: 1.0)
+            @mutex.synchronize do
+              return @reaper_thread if @reaper_thread
+              @reaper_parent_pid = parent_pid
+            end
+
+            # Fast-path signal handlers: deliver the same kill_all!
+            # we get from at_exit, but immediately. Restoring the
+            # previous handler means a second SIGTERM (after we've
+            # already cleaned up) falls through to the default
+            # behavior and actually terminates us.
+            %w[TERM INT HUP].each do |sig|
+              Signal.trap(sig) do
+                begin
+                  kill_all!
+                rescue StandardError
+                  # never raise out of a trap
+                end
+                # Re-raise so the default disposition still runs.
+                Signal.trap(sig, "DEFAULT")
+                Process.kill(sig, Process.pid)
+              end
+            end
+
+            @reaper_thread = Thread.new do
+              loop do
+                begin
+                  if Process.ppid != @reaper_parent_pid
+                    # Parent is gone — we are reparented. Best-effort
+                    # SIGKILL the tracked PTY children and exit; the
+                    # Ruby process would be torn down by the kernel
+                    # init / Windows reaper momentarily anyway.
+                    kill_all!
+                    break
+                  end
+                rescue StandardError
+                  # ppid can race; just retry.
+                end
+                sleep interval
+              end
+            end
+            @reaper_thread
+          end
+
+          # Test-only: stop the reaper and clear state.
+          def stop_reaper!
+            @mutex.synchronize do
+              @reaper_thread&.kill
+              @reaper_thread = nil
+              @reaper_parent_pid = nil
+            end
+          end
+
           # Test-only: clear state without killing processes.
           def reset!
             @mutex.synchronize do
@@ -196,6 +275,7 @@ module Clacky
               @next_id = 0
               @log_dir = nil
             end
+            stop_reaper!
           end
         end
       end
@@ -204,10 +284,24 @@ module Clacky
 end
 
 # Ensure orphaned PTY children are reaped even on unclean exit.
+# The at_exit hook below fires on a normal interpreter exit; the
+# reaper thread started by SessionManager.start_reaper! covers the
+# unclean case (SIGKILL, Ruby crash, OOM, wsl --shutdown, ...).
 at_exit do
   begin
     Clacky::Tools::Terminal::SessionManager.kill_all!
   rescue StandardError
     # never raise out of at_exit
   end
+end
+
+# Start the orphan-PTY watchdog as soon as this file is loaded.
+# Idempotent: calling start_reaper! more than once is a no-op, so
+# tools / servers that explicitly start it again are harmless.
+begin
+  Clacky::Tools::Terminal::SessionManager.start_reaper!
+rescue StandardError
+  # Best-effort: if we can't start the reaper (e.g. a weird test
+  # harness that has stubbed Process.ppid), fall back to the at_exit
+  # path. The bug is still better than it was before this commit.
 end
