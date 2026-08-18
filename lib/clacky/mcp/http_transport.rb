@@ -141,21 +141,37 @@ module Clacky
 
       private def consume_sse(res)
         buffer = String.new
+        held_cr = false
         res.read_body do |chunk|
+          chunk = "\r#{chunk}" if held_cr
+          # A trailing CR may be the first half of a CRLF pair split across
+          # chunks; hold it back so the pair still normalizes to one "\n"
+          # instead of two, which would fabricate an event boundary.
+          held_cr = chunk.end_with?("\r")
+          chunk = chunk.chomp("\r") if held_cr
           buffer << chunk.gsub("\r\n", "\n").gsub("\r", "\n")
-          while (idx = buffer.index("\n\n"))
-            event = buffer.slice!(0, idx + 2)
-            data_lines = event.each_line.map(&:chomp).select { |l| l.start_with?("data:") }
-            next if data_lines.empty?
-            payload = data_lines.map { |l| l.sub(/\Adata:\s?/, "") }.join("\n")
-            next if payload.empty?
-            begin
-              msg = JSON.parse(payload)
-            rescue JSON::ParserError
-              next
-            end
-            deliver(msg)
+          drain_events(buffer)
+        end
+        return unless held_cr
+
+        # Stream ended while holding a CR: it was a lone CR terminator.
+        buffer << "\n"
+        drain_events(buffer)
+      end
+
+      private def drain_events(buffer)
+        while (idx = buffer.index("\n\n"))
+          event = buffer.slice!(0, idx + 2)
+          data_lines = event.each_line.map(&:chomp).select { |l| l.start_with?("data:") }
+          next if data_lines.empty?
+          payload = data_lines.map { |l| l.sub(/\Adata:\s?/, "") }.join("\n")
+          next if payload.empty?
+          begin
+            msg = JSON.parse(payload)
+          rescue JSON::ParserError
+            next
           end
+          deliver(msg)
         end
       end
 
