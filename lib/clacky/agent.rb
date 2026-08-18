@@ -1394,9 +1394,17 @@ module Clacky
       # the new task's @current_task_id, orphaned from its assistant.
       check_stale!
 
+      # Build a tool_call_id → tool_name lookup so truncate_oversized_tool_content
+      # can apply tool-specific truncation strategies (e.g. terminal head+tail).
+      tool_name_by_id = {}
+      response[:tool_calls]&.each do |tc|
+        tool_name_by_id[tc[:id]] = tc[:name]
+      end
+
       formatted_messages = @client.format_tool_results(response, tool_results, model: current_model)
       formatted_messages.each do |msg|
-        truncated = truncate_oversized_tool_content(msg)
+        tool_name = tool_name_by_id[msg[:tool_call_id]]
+        truncated = truncate_oversized_tool_content(msg, tool_name: tool_name)
         @history.append(truncated.merge(task_id: @current_task_id))
       end
 
@@ -1473,16 +1481,37 @@ module Clacky
     # are handled by the image_inject path above.
     MAX_TOOL_RESULT_CHARS = 80_000
 
-    private def truncate_oversized_tool_content(msg)
+    # For terminal output, keep both head and tail because build/test logs
+    # put the most actionable information (error summaries, exit codes) at
+    # the end. Splitting the budget evenly preserves both the command echo
+    # and the final error summary.
+    TERMINAL_HEAD_CHARS = 40_000
+    TERMINAL_TAIL_CHARS = 40_000
+
+    private def truncate_oversized_tool_content(msg, tool_name: nil)
       content = msg[:content]
       return msg unless content.is_a?(String) && content.length > MAX_TOOL_RESULT_CHARS
 
       original_len = content.length
-      head = content[0, MAX_TOOL_RESULT_CHARS]
-      truncated = head + "\n\n[Tool result truncated: #{original_len} chars total, " \
-        "showing first #{MAX_TOOL_RESULT_CHARS}. Use a more specific query/limit, " \
-        "or read the raw output via file_reader/grep on the underlying source.]"
-      msg.merge(content: truncated)
+
+      if tool_name == "terminal"
+        head = content[0, TERMINAL_HEAD_CHARS]
+        tail_start = content.length - TERMINAL_TAIL_CHARS
+        tail = content[tail_start, TERMINAL_TAIL_CHARS]
+        omitted = original_len - TERMINAL_HEAD_CHARS - TERMINAL_TAIL_CHARS
+        truncated = head + "\n\n" \
+          "[... #{omitted} chars omitted — terminal output truncated: " \
+          "#{original_len} chars total, showing first #{TERMINAL_HEAD_CHARS} + " \
+          "last #{TERMINAL_TAIL_CHARS}. Use a more specific command or redirect " \
+          "to a file and read the relevant section. ...]\n\n" + tail
+        msg.merge(content: truncated)
+      else
+        head = content[0, MAX_TOOL_RESULT_CHARS]
+        truncated = head + "\n\n[Tool result truncated: #{original_len} chars total, " \
+          "showing first #{MAX_TOOL_RESULT_CHARS}. Use a more specific query/limit, " \
+          "or read the raw output via file_reader/grep on the underlying source.]"
+        msg.merge(content: truncated)
+      end
     end
 
     # Enqueue an inline skill injection to be flushed after observe().
