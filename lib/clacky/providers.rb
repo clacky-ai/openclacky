@@ -751,10 +751,12 @@ module Clacky
       # Resolve the API type for a specific provider+model pair.
       #
       # Resolution order:
-      #   1. PRESETS[provider_id]["model_api_overrides"] — first key (String or
+      #   1. user_override — an explicit user-selected api_format on the model
+      #      entry (e.g. "anthropic-messages" / "openai-completions").
+      #   2. PRESETS[provider_id]["model_api_overrides"] — first key (String or
       #      Regexp) that matches the model name wins.
-      #   2. PRESETS[provider_id]["api"] — the provider-wide default.
-      #   3. nil — unknown provider.
+      #   3. PRESETS[provider_id]["api"] — the provider-wide default.
+      #   4. nil — unknown provider.
       #
       # Use this instead of api_type when you need the precise transport for a
       # given model (e.g. routing OpenRouter's Claude requests to the native
@@ -762,8 +764,12 @@ module Clacky
       #
       # @param provider_id [String] The provider identifier
       # @param model_name [String, nil] The specific model name
+      # @param user_override [String, nil] Explicit user-selected API format,
+      #   wins over all preset resolution when present
       # @return [String, nil] The API type (e.g. "anthropic-messages")
-      def api_type_for_model(provider_id, model_name)
+      def api_type_for_model(provider_id, model_name, user_override: nil)
+        return user_override unless user_override.nil? || user_override.to_s.strip.empty?
+
         preset = PRESETS[provider_id]
         return nil unless preset
 

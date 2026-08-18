@@ -571,11 +571,40 @@ RSpec.describe Clacky::Server::HttpServer do
         expect(body).to have_key("current_index")
       end
     end
+
+    it "serializes api_format on models (issue #466)" do
+      agent_config.models[0]["api_format"] = "openai-completions"
+      with_server(agent_config: agent_config) do |server|
+        req = fake_req(method: "GET", path: "/api/config")
+        res = fake_res
+        dispatch(server, req, res)
+
+        expect(res.status).to eq(200)
+        m = parsed_body(res)["models"].first
+        expect(m["api_format"]).to eq("openai-completions")
+      end
+    end
   end
 
   # ── Single-item model CRUD APIs ───────────────────────────────────────────
   # These replace the old bulk POST /api/config. Each endpoint touches
   # exactly ONE model, so a bug in one save path cannot corrupt other rows.
+
+  describe "GET /api/providers" do
+    it "includes the preset api protocol for each provider (issue #466)" do
+      with_server(agent_config: agent_config) do |server|
+        req = fake_req(method: "GET", path: "/api/providers")
+        res = fake_res
+        dispatch(server, req, res)
+
+        expect(res.status).to eq(200)
+        providers = parsed_body(res)["providers"]
+        expect(providers).to be_an(Array)
+        expect(providers).not_to be_empty
+        providers.each { |p| expect(p).to have_key("api") }
+      end
+    end
+  end
 
   describe "POST /api/config/models" do
     it "creates a new model and returns its id" do
@@ -656,6 +685,40 @@ RSpec.describe Clacky::Server::HttpServer do
         res = fake_res
         dispatch(server, req, res)
         expect(res.status).to eq(422)
+      end
+    end
+
+    it "persists api_format when provided (issue #466)" do
+      with_server(agent_config: agent_config) do |server|
+        payload = {
+          model:      "gpt-5",
+          base_url:   "https://api.openai.com",
+          api_key:    "sk-newkey0000111122223333",
+          api_format: "openai-completions"
+        }
+        req = fake_req(method: "POST", path: "/api/config/models", body: payload)
+        res = fake_res
+        dispatch(server, req, res)
+
+        expect(res.status).to eq(200)
+        created = agent_config.models.find { |m| m["model"] == "gpt-5" }
+        expect(created["api_format"]).to eq("openai-completions")
+      end
+    end
+
+    it "rejects invalid api_format with 422" do
+      with_server(agent_config: agent_config) do |server|
+        payload = {
+          model:      "gpt-5",
+          base_url:   "https://api.openai.com",
+          api_key:    "sk-newkey0000111122223333",
+          api_format: "openai-responses"
+        }
+        req = fake_req(method: "POST", path: "/api/config/models", body: payload)
+        res = fake_res
+        dispatch(server, req, res)
+        expect(res.status).to eq(422)
+        expect(agent_config.models.none? { |m| m["model"] == "gpt-5" }).to be true
       end
     end
   end
@@ -747,6 +810,37 @@ RSpec.describe Clacky::Server::HttpServer do
         dispatch(server, req, res)
         expect(res.status).to eq(200)
         expect(agent_config.models[0]).not_to have_key("remark")
+      end
+    end
+
+    it "sets and clears api_format (issue #466)" do
+      with_server(agent_config: agent_config) do |server|
+        id = agent_config.models[0]["id"]
+
+        set = { api_format: "anthropic-messages" }
+        req = fake_req(method: "PATCH", path: "/api/config/models/#{id}", body: set)
+        res = fake_res
+        dispatch(server, req, res)
+        expect(res.status).to eq(200)
+        expect(agent_config.models[0]["api_format"]).to eq("anthropic-messages")
+
+        clear = { api_format: nil }
+        req = fake_req(method: "PATCH", path: "/api/config/models/#{id}", body: clear)
+        res = fake_res
+        dispatch(server, req, res)
+        expect(res.status).to eq(200)
+        expect(agent_config.models[0]).not_to have_key("api_format")
+      end
+    end
+
+    it "rejects invalid api_format with 422" do
+      with_server(agent_config: agent_config) do |server|
+        id = agent_config.models[0]["id"]
+        req = fake_req(method: "PATCH", path: "/api/config/models/#{id}", body: { api_format: "bogus" })
+        res = fake_res
+        dispatch(server, req, res)
+        expect(res.status).to eq(422)
+        expect(agent_config.models[0]).not_to have_key("api_format")
       end
     end
 
@@ -872,6 +966,49 @@ RSpec.describe Clacky::Server::HttpServer do
         body = parsed_body(res)
         expect(body["ok"]).to be true
         expect(body["message"]).to eq("Connected successfully")
+      end
+    end
+
+    it "passes api_format through to the test client (issue #466)" do
+      test_client = double("client")
+      allow(test_client).to receive(:test_connection).and_return({ success: true })
+
+      client_factory = -> { double("main_client") }
+      captured = nil
+      allow(Clacky::Client).to receive(:new) do |*_args, **kwargs|
+        captured = kwargs
+        test_client
+      end
+
+      with_server(agent_config: agent_config, client_factory: client_factory) do |server|
+        payload = {
+          model:      "test-model",
+          base_url:   "https://api.example.com",
+          api_key:    "sk-testkey1234567890abcd",
+          api_format: "openai-completions"
+        }
+        req = fake_req(method: "POST", path: "/api/config/test", body: payload)
+        res = fake_res
+        dispatch(server, req, res)
+
+        expect(res.status).to eq(200)
+        expect(captured[:api_format]).to eq("openai-completions")
+      end
+    end
+
+    it "rejects invalid api_format with 422" do
+      client_factory = -> { double("main_client") }
+      with_server(agent_config: agent_config, client_factory: client_factory) do |server|
+        payload = {
+          model:      "test-model",
+          base_url:   "https://api.example.com",
+          api_key:    "sk-testkey1234567890abcd",
+          api_format: "nope"
+        }
+        req = fake_req(method: "POST", path: "/api/config/test", body: payload)
+        res = fake_res
+        dispatch(server, req, res)
+        expect(res.status).to eq(422)
       end
     end
 

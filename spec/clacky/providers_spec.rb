@@ -655,6 +655,35 @@ RSpec.describe Clacky::Providers do
       expect(described_class.api_type_for_model("openrouter", nil)).to eq("openai-responses")
     end
 
+    context "with a user_override" do
+      it "returns the explicit override regardless of preset resolution" do
+        expect(described_class.api_type_for_model("openrouter", "anthropic/claude-sonnet-4-6",
+                                                  user_override: "openai-completions"))
+          .to eq("openai-completions")
+      end
+
+      it "can force anthropic-messages on a provider that defaults to completions" do
+        expect(described_class.api_type_for_model("openrouter", "deepseek/deepseek-v4-pro",
+                                                  user_override: "anthropic-messages"))
+          .to eq("anthropic-messages")
+      end
+
+      it "treats nil and empty-string overrides as absent (auto)" do
+        expect(described_class.api_type_for_model("openrouter", "anthropic/claude-sonnet-4-6",
+                                                  user_override: nil))
+          .to eq("anthropic-messages")
+        expect(described_class.api_type_for_model("openrouter", "anthropic/claude-sonnet-4-6",
+                                                  user_override: ""))
+          .to eq("anthropic-messages")
+      end
+
+      it "still returns the override for unknown providers" do
+        expect(described_class.api_type_for_model("no-such-provider", "anything",
+                                                  user_override: "anthropic-messages"))
+          .to eq("anthropic-messages")
+      end
+    end
+
     it "routes OrcaRouter anthropic/* models to anthropic-messages" do
       # OrcaRouter also exposes a native Anthropic /v1/messages endpoint, so
       # Claude models route there to preserve cache_control fidelity (same

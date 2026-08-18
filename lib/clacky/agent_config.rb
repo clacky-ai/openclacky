@@ -616,13 +616,20 @@ module Clacky
       current_model&.dig("anthropic_format") || false
     end
 
+    # Explicit user-selected API format for the current model, or nil when
+    # unset (auto: follow provider preset resolution).
+    def api_format
+      value = current_model&.dig("api_format")
+      value.nil? || value.to_s.strip.empty? ? nil : value.to_s
+    end
+
     # Check if current model uses Bedrock Converse API (ABSK key prefix or abs- model prefix)
     def bedrock?
       Clacky::MessageFormat::Bedrock.bedrock_api_key?(api_key.to_s, model_name.to_s)
     end
 
     # Add a new model configuration
-    def add_model(model:, api_key:, base_url:, anthropic_format: false, type: nil,
+    def add_model(model:, api_key:, base_url:, anthropic_format: false, api_format: nil, type: nil,
                   remark: nil)
       @models << {
         "id" => SecureRandom.uuid,
@@ -630,6 +637,7 @@ module Clacky
         "base_url" => base_url,
         "model" => model,
         "anthropic_format" => anthropic_format,
+        "api_format" => api_format,
         "type" => type,
         "remark" => remark
       }.compact

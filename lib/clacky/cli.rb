@@ -124,7 +124,8 @@ module Clacky
           agent_config.api_key,
           base_url: agent_config.base_url,
           model: agent_config.model_name,
-          anthropic_format: agent_config.anthropic_format?
+          anthropic_format: agent_config.anthropic_format?,
+          api_format: agent_config.api_format
         )
       end
 
@@ -227,7 +228,8 @@ module Clacky
             test_config.api_key,
             base_url: test_config.base_url,
             model: test_config.model_name,
-            anthropic_format: test_config.anthropic_format?
+            anthropic_format: test_config.anthropic_format?,
+            api_format: test_config.api_format
           )
           test_client.test_connection(model: test_config.model_name)
         end
@@ -1417,7 +1419,8 @@ module Clacky
             agent_config.api_key,
             base_url: agent_config.base_url,
             model: agent_config.model_name,
-            anthropic_format: agent_config.anthropic_format?
+            anthropic_format: agent_config.anthropic_format?,
+            api_format: agent_config.api_format
           )
         end
 
