@@ -1408,13 +1408,12 @@ RSpec.describe Clacky::Server::HttpServer do
       stuck_thread.join
     end
 
-    it "waits in parallel — total wall time reflects a single timeout, not N × timeout" do
+    it "waits serially — total wall time reflects N × per-thread timeout" do
       server   = build_server
       registry = server.instance_variable_get(:@registry)
       sm       = server.instance_variable_get(:@session_manager)
 
-      # Three unresponsive threads. With parallel joins the total wait is a
-      # single AGENT_INTERRUPT_JOIN_SECONDS window, not 3 ×.
+      # Three unresponsive threads, each burning the full join window.
       stuck_threads = []
       3.times do |i|
         sid   = "stuck-#{i}"
@@ -1431,9 +1430,9 @@ RSpec.describe Clacky::Server::HttpServer do
       server.send(:interrupt_all_agents)
       elapsed = Process.clock_gettime(Process::CLOCK_MONOTONIC) - started
 
-      # Parallel: ~0.2s. Serial would be 3 × 0.2s = 0.6s, so <0.4s proves the
-      # joins overlap.
-      expect(elapsed).to be < 0.4
+      # Serial: 3 × 0.2s. Parallel would finish in ~0.2s, so >0.4s proves the
+      # waits stack up.
+      expect(elapsed).to be > 0.4
 
       stuck_threads.each(&:kill)
       stuck_threads.each(&:join)

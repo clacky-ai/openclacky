@@ -29,12 +29,8 @@ module Clacky
       filename = generate_filename(session_data[:session_id], session_data[:created_at])
       filepath = File.join(@sessions_dir, filename)
 
-      # Atomic write: write to a temp file then rename, so a SIGKILL mid-write
-      # cannot leave a truncated / corrupt session.json on disk.
-      tmp = "#{filepath}.tmp"
-      File.write(tmp, JSON.pretty_generate(session_data))
-      FileUtils.chmod(0o600, tmp)
-      File.rename(tmp, filepath)
+      File.write(filepath, JSON.pretty_generate(session_data))
+      FileUtils.chmod(0o600, filepath)
 
       @last_saved_path = filepath
 
@@ -163,10 +159,8 @@ module Clacky
       base = chunk_base_name(session_id, created_at)
       chunk_path = File.join(@sessions_dir, "#{base}-chunk-#{chunk_index}.md")
 
-      tmp = "#{chunk_path}.tmp"
-      File.write(tmp, md_content)
-      FileUtils.chmod(0o600, tmp)
-      File.rename(tmp, chunk_path)
+      File.write(chunk_path, md_content)
+      FileUtils.chmod(0o600, chunk_path)
 
       chunk_path
     end
