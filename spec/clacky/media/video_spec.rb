@@ -38,12 +38,12 @@ RSpec.describe Clacky::Media::OpenAICompat, "#generate_video" do
       })
     end
 
-    it "saves the mp4 under assets/generated and returns success" do
+    it "saves the mp4 directly under output_dir and returns success" do
       Dir.mktmpdir do |tmp|
         result = provider.generate_video(prompt: "a drone shot over mountains", output_dir: tmp)
 
         expect(result["success"]).to be true
-        expect(result["video"]).to start_with(File.join(tmp, "assets", "generated"))
+        expect(result["video"]).to start_with(File.join(tmp, "vid"))
         expect(result["video"]).to end_with(".mp4")
         expect(File.binread(result["video"])).to eq("MP4_BYTES")
         expect(result["duration_seconds"]).to eq(8)

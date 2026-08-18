@@ -31,12 +31,12 @@ RSpec.describe Clacky::Media::OpenAICompat do
       let(:b64) { Base64.strict_encode64("PNG_BYTES") }
       let(:response_body) { JSON.generate({ "data" => [{ "b64_json" => b64 }] }) }
 
-      it "saves the image to <output_dir>/assets/generated/ and returns success" do
+      it "saves the image directly under output_dir and returns success" do
         Dir.mktmpdir do |tmp|
           result = provider.generate_image(prompt: "a cute cat", aspect_ratio: "square", output_dir: tmp)
 
           expect(result["success"]).to be true
-          expect(result["image"]).to start_with(File.join(tmp, "assets", "generated"))
+          expect(result["image"]).to start_with(tmp)
           expect(File.exist?(result["image"])).to be true
           expect(File.binread(result["image"])).to eq("PNG_BYTES")
           expect(result["size"]).to eq("1024x1024")
@@ -70,7 +70,7 @@ RSpec.describe Clacky::Media::OpenAICompat do
           result = provider.generate_image(prompt: "x", output_dir: tmp)
           expect(result["success"]).to be true
           expect(result["image"]).to eq("https://cdn.example.com/img.png")
-          expect(Dir.glob(File.join(tmp, "assets", "generated", "*"))).to be_empty
+          expect(Dir.glob(File.join(tmp, "*"))).to be_empty
         end
       end
     end

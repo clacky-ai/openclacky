@@ -62,7 +62,7 @@ RSpec.describe Clacky::Media::DashScope do
 
         # response
         expect(result["success"]).to be true
-        expect(result["image"]).to start_with(File.join(tmp, "assets", "generated"))
+        expect(result["image"]).to start_with(tmp)
         expect(File.binread(result["image"])).to eq("RAW_BYTES")
         expect(result["provider"]).to eq("qwen")
         expect(result["model"]).to eq("qwen-image-2.0-pro")
@@ -142,7 +142,7 @@ RSpec.describe Clacky::Media::DashScope do
           result = speech_provider.generate_speech(input: "hello world", voice: "longanyang", output_dir: tmp)
 
           expect(result["success"]).to be true
-          expect(result["audio"]).to start_with(File.join(tmp, "assets", "generated"))
+          expect(result["audio"]).to start_with(tmp)
           expect(File.binread(result["audio"])).to eq("AUDIO_BYTES")
           expect(result["provider"]).to eq("qwen")
           expect(result["model"]).to eq("cosyvoice-v3-flash")
@@ -318,7 +318,7 @@ RSpec.describe Clacky::Media::DashScope do
           result = video_provider.generate_video(prompt: "a horse running", aspect_ratio: "landscape", output_dir: tmp)
 
           expect(result["success"]).to be true
-          expect(result["video"]).to start_with(File.join(tmp, "assets", "generated"))
+          expect(result["video"]).to start_with(tmp)
           expect(File.binread(result["video"])).to eq("VIDEO_BYTES")
           expect(result["provider"]).to eq("qwen")
           expect(result["model"]).to eq("happyhorse-1.1-t2v")

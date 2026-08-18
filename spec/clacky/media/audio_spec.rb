@@ -39,12 +39,12 @@ RSpec.describe Clacky::Media::OpenAICompat, "#generate_speech" do
       })
     end
 
-    it "saves the wav under assets/generated and returns success" do
+    it "saves the wav directly under output_dir and returns success" do
       Dir.mktmpdir do |tmp|
         result = provider.generate_speech(input: "hello world", output_dir: tmp)
 
         expect(result["success"]).to be true
-        expect(result["audio"]).to start_with(File.join(tmp, "assets", "generated"))
+        expect(result["audio"]).to start_with(File.join(tmp, "tts"))
         expect(result["audio"]).to end_with(".wav")
         expect(File.binread(result["audio"])).to eq("WAV_BYTES")
         expect(result["mime_type"]).to eq("audio/wav")
