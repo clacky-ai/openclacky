@@ -11,12 +11,12 @@ RSpec.describe Clacky::ExtensionScaffold, "full container" do
   let(:tmp) { Dir.mktmpdir }
   after { FileUtils.remove_entry(tmp) if File.directory?(tmp) }
 
-  it "scaffolds a manifest contributing all 7 unit types" do
+  it "scaffolds a manifest contributing all 8 unit types" do
     Clacky::ExtensionScaffold.new_container("demo", dir: tmp, full: true)
 
     manifest = YAML.safe_load(File.read(File.join(tmp, "demo", "ext.yml")))
     expect(manifest["contributes"].keys).to match_array(
-      %w[panels api skills agents channels patches hooks]
+      %w[panels api skills agents channels patches hooks tools]
     )
   end
 
@@ -27,7 +27,19 @@ RSpec.describe Clacky::ExtensionScaffold, "full container" do
 
     expect(result.errors).to be_empty
     kinds = result.units.map(&:kind).uniq
-    expect(kinds).to include(:panel, :api, :skill, :agent, :channel, :patch, :hook)
+    expect(kinds).to include(:panel, :api, :skill, :agent, :channel, :patch, :hook, :tool)
+  end
+
+  it "scaffolds a runnable contributed tool file" do
+    Clacky::ExtensionScaffold.new_container("demo", dir: tmp, full: true)
+
+    tool_file = File.join(tmp, "demo", "tools", "hello.rb")
+    expect(File).to exist(tool_file)
+
+    result = Clacky::ExtensionLoader.load_all(layers: { local: tmp })
+    tool = result.tools.find { |u| u.id == "hello" }
+    expect(tool).not_to be_nil
+    expect(tool.spec["file_abs"]).to eq(tool_file)
   end
 
   it "verifies clean (no errors, no warnings)" do

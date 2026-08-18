@@ -15,7 +15,7 @@ module Clacky
 
     desc "new ID", "Scaffold a runnable hello-panel container at ~/.clacky/ext/local/ID/"
     method_option :full, type: :boolean, default: false,
-                  desc: "Generate a kitchen-sink container exercising all 7 contributes types"
+                  desc: "Generate a kitchen-sink container exercising all 8 contributes types"
     def new(id)
       path = Clacky::ExtensionScaffold.new_container(id, full: options[:full])
       puts "Created extension container: #{path}"

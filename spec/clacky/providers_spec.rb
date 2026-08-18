@@ -408,14 +408,14 @@ RSpec.describe Clacky::Providers do
       end
     end
 
-    context "GLM-5.2 default model and lineup" do
-      it "resolves default model to glm-5.2" do
-        expect(described_class.default_model("glm")).to eq("glm-5.2")
+    context "GLM default model and lineup" do
+      it "resolves default model to glm-5.3" do
+        expect(described_class.default_model("glm")).to eq("glm-5.3")
       end
 
-      it "includes glm-5.2 at the top of the model list" do
-        expect(described_class.models("glm")).to include("glm-5.2")
-        expect(described_class.models("glm").first).to eq("glm-5.2")
+      it "includes glm-5.3 at the top of the model list" do
+        expect(described_class.models("glm")).to include("glm-5.3", "glm-5.2")
+        expect(described_class.models("glm").first).to eq("glm-5.3")
       end
     end
 
@@ -491,7 +491,9 @@ RSpec.describe Clacky::Providers do
         end
 
         it "leaves models without an alias unchanged on payg" do
-          ["doubao-seed-evolving", "kimi-k2.7-code", "minimax-m3"].each do |m|
+          # glm-5.3 has no payg alias yet (Ark pay-as-you-go has not listed it);
+          # it stays a display-name pass-through until a versioned id is known.
+          ["doubao-seed-evolving", "kimi-k2.7-code", "minimax-m3", "glm-5.3"].each do |m|
             expect(described_class.resolve_api_model(base_url: "#{base}/api/v3", model: m)).to eq(m)
           end
         end

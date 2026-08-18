@@ -27,13 +27,18 @@ module Clacky
       #   Using a resolver (instead of caching the adapter instance) ensures that after
       #   reload_platform replaces an adapter, in-flight sessions automatically pick up the
       #   new one — no swap/patch needed.
-      def initialize(event, adapter_resolver)
-        @platform         = event[:platform]
-        @chat_id          = event[:chat_id]
-        @message_id       = event[:message_id]  # original message to reply under
-        @adapter_resolver = adapter_resolver
-        @buffer           = []
-        @mutex            = Mutex.new
+      # @param status_messages_resolver [Proc] callable returning true/false — whether
+      #   process-status messages ("Thinking...", "Done", file/shell previews)
+      #   should be sent. Resolved per call so config changes apply without
+      #   rebuilding this controller.
+      def initialize(event, adapter_resolver, status_messages_resolver = nil)
+        @platform                 = event[:platform]
+        @chat_id                  = event[:chat_id]
+        @message_id               = event[:message_id]  # original message to reply under
+        @adapter_resolver         = adapter_resolver
+        @status_messages_resolver = status_messages_resolver
+        @buffer                   = []
+        @mutex                    = Mutex.new
       end
 
       # Update the reply context for the current inbound message.
@@ -118,6 +123,8 @@ module Clacky
 
       def show_complete(iterations:, cost:, duration: nil, cache_stats: nil, awaiting_user_feedback: false, cost_source: nil)
         flush_buffer
+        return unless status_messages?
+
         parts = ["Done", "#{iterations} step#{"s" if iterations != 1}"]
         # Only show cost when pricing source is known (model matched pricing table).
         # Unknown models return nil — skip to avoid misleading numbers.
@@ -220,7 +227,13 @@ module Clacky
         send_text("Failed to send file: #{File.basename(path)}\nError: #{e.message}")
       end
 
+      private def status_messages?
+        @status_messages_resolver ? @status_messages_resolver.call : false
+      end
+
       def buffer_line(line)
+        return unless status_messages?
+
         @mutex.synchronize do
           @buffer << line
           flush_buffer_unlocked if @buffer.size >= BUFFER_FLUSH_SIZE

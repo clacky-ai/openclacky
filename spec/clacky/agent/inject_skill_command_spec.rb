@@ -9,10 +9,11 @@ RSpec.describe "Agent#inject_skill_command_as_assistant_message" do
   let(:config) { Clacky::AgentConfig.new(model: "gpt-3.5-turbo", permission_mode: :auto_approve) }
 
   # Helper: create a temp skill with given frontmatter flags
-  def create_skill(dir, name:, disable_model_invocation: false, user_invocable: true, content: "Skill instructions here.")
+  def create_skill(dir, name:, disable_model_invocation: false, user_invocable: true, name_zh: nil, content: "Skill instructions here.")
     skill_dir = File.join(dir, ".clacky", "skills", name)
     FileUtils.mkdir_p(skill_dir)
     frontmatter = ["---", "name: #{name}", "description: Test skill #{name}"]
+    frontmatter << "name_zh: #{name_zh}" if name_zh
     frontmatter << "disable-model-invocation: true" if disable_model_invocation
     frontmatter << "user-invocable: #{user_invocable}"
     frontmatter << "---"
@@ -134,6 +135,42 @@ RSpec.describe "Agent#inject_skill_command_as_assistant_message" do
       injected = agent.history.to_a.select { |m| m[:system_injected] && !m[:session_context] }
       assistant_notice = injected.find { |m| m[:role] == "assistant" }
       expect(assistant_notice[:content]).to include("/onboard")
+    end
+  end
+
+  it "stores a localized skill_command_display in history for zh clients" do
+    Dir.mktmpdir do |tmpdir|
+      create_skill(tmpdir, name: "slides", name_zh: "幻灯片", disable_model_invocation: true, content: "Make slides.")
+
+      agent = Clacky::Agent.new(client, config, working_dir: tmpdir, ui: nil, profile: "general", session_id: Clacky::SessionManager.generate_id, source: :manual)
+      allow(agent).to receive(:think).and_return({ finish_reason: "stop", content: "Done", tool_calls: [] })
+      allow(agent).to receive(:inject_memory_prompt!).and_return(false)
+
+      Thread.current[:lang] = "zh"
+      begin
+        agent.run("/slides")
+      ensure
+        Thread.current[:lang] = nil
+      end
+
+      user_msg = agent.history.to_a.find { |m| m[:role] == "user" && m[:skill_command] }
+      expect(user_msg[:skill_command]).to eq("slides")
+      expect(user_msg[:skill_command_display]).to eq("幻灯片")
+    end
+  end
+
+  it "stores the skill identifier as display for non-zh clients" do
+    Dir.mktmpdir do |tmpdir|
+      create_skill(tmpdir, name: "slides", name_zh: "幻灯片", disable_model_invocation: true, content: "Make slides.")
+
+      agent = Clacky::Agent.new(client, config, working_dir: tmpdir, ui: nil, profile: "general", session_id: Clacky::SessionManager.generate_id, source: :manual)
+      allow(agent).to receive(:think).and_return({ finish_reason: "stop", content: "Done", tool_calls: [] })
+      allow(agent).to receive(:inject_memory_prompt!).and_return(false)
+
+      agent.run("/slides")
+
+      user_msg = agent.history.to_a.find { |m| m[:role] == "user" && m[:skill_command] }
+      expect(user_msg[:skill_command_display]).to eq("slides")
     end
   end
 end

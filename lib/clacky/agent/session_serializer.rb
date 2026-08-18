@@ -392,7 +392,9 @@ module Clacky
           }
           all_files = image_files + disk_files
           ui.show_user_message(raw_text, created_at: msg[:created_at], files: all_files,
-                               editable: round[:editable] != false)
+                               editable: round[:editable] != false,
+                               skill_command: msg[:skill_command],
+                               skill_command_display: msg[:skill_command_display])
           replay_ext_events(msg, ui)
 
           round[:events].each do |ev|

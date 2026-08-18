@@ -12,8 +12,9 @@ module Clacky
     class << self
       # Create a new local container with a runnable hello panel + backend.
       # @param full [Boolean] when true, generate a "kitchen-sink" container
-      #   exercising all 7 contributes types (panels, api, skills, agents,
-      #   channels, patches, hooks) — useful as a learn-by-example reference.
+      #   exercising all 8 contributes types (panels, api, skills, agents,
+      #   channels, patches, hooks, tools) — useful as a learn-by-example
+      #   reference.
       # @return [String] path to the created container directory
       def new_container(id, dir: Clacky::ExtensionLoader::LOCAL_DIR, full: false)
         slug = slugify(id)

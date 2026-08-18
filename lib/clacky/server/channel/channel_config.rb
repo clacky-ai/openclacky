@@ -29,8 +29,11 @@ module Clacky
     CONFIG_FILE = File.join(CONFIG_DIR, "channels.yml")
 
     # @param channels [Hash<String, Hash>] string-keyed platform configs (raw from YAML)
-    def initialize(channels: {})
-      @channels = channels || {}
+    # @param status_messages [Boolean] global toggle for process-status messages
+    #   ("Thinking...", "Done" summary, file/shell previews) sent to IM chats
+    def initialize(channels: {}, status_messages: false)
+      @channels        = channels || {}
+      @status_messages = status_messages == true ? true : false
     end
 
     # Load from disk. Returns an empty instance if the file does not exist.
@@ -43,7 +46,7 @@ module Clacky
         data = {}
       end
 
-      new(channels: data["channels"] || {})
+      new(channels: data["channels"] || {}, status_messages: data["status_messages"])
     end
 
     # Persist to disk.
@@ -57,7 +60,7 @@ module Clacky
     # Serialize to YAML string.
     # @return [String]
     def to_yaml
-      YAML.dump({ "channels" => @channels })
+      YAML.dump({ "status_messages" => @status_messages, "channels" => @channels })
     end
 
     # Returns true if at least one channel is enabled.
@@ -146,6 +149,18 @@ module Clacky
       @channels[key]["enabled"] = true unless @channels[key].key?("enabled")
     end
 
+    # Global toggle: whether process-status messages ("Thinking...", "Done"
+    # summary, file/shell previews) are sent to IM chats. Defaults to false.
+    def status_messages_enabled?
+      @status_messages == true
+    end
+
+    # Enable/disable process-status messages globally.
+    # @param enabled [Boolean]
+    def set_status_messages(enabled)
+      @status_messages = enabled ? true : false
+    end
+
     # Enable a platform (requires it to already be configured).
     # @param platform [Symbol, String]
     # @raise [ArgumentError] if the platform has no stored credentials yet.
@@ -169,10 +184,9 @@ module Clacky
       @channels.delete(platform.to_s)
     end
 
-    # Deep copy — prevents callers from mutating shared config state.
+    # Deep copy - prevents callers from mutating shared config state.
     # @return [ChannelConfig]
     def deep_copy
-      self.class.new(channels: JSON.parse(JSON.generate(@channels)))
-    end
-  end
+      self.class.new(channels: JSON.parse(JSON.generate(@channels)), status_messages: @status_messages)
+    end  end
 end

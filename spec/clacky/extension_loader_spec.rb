@@ -465,6 +465,47 @@ RSpec.describe Clacky::ExtensionLoader do
       expect(result.hooks).to be_empty
       expect(result.errors.first.message).to match(/hook file not found/)
     end
+
+    it "resolves a tool unit pointing at a tool file" do
+      manifest = <<~YAML
+        id: tool-pack
+        origin: self
+        contributes:
+          tools:
+            - id: weather
+              file: tools/weather.rb
+      YAML
+      make_container(local, "tool-pack", manifest: manifest, files: {
+        "tools/weather.rb" => "# tool content",
+      })
+
+      result = described_class.load_all(layers: layers)
+
+      expect(result.errors).to be_empty
+      expect(result.tools.size).to eq(1)
+      unit = result.tools.first
+      expect(unit.kind).to eq(:tool)
+      expect(unit.id).to eq("weather")
+      expect(unit.spec["file_abs"]).to end_with("tools/weather.rb")
+      expect(result.units).to include(unit)
+    end
+
+    it "errors when a tool file is missing" do
+      manifest = <<~YAML
+        id: ghost-tool
+        origin: self
+        contributes:
+          tools:
+            - id: weather
+              file: tools/missing.rb
+      YAML
+      make_container(local, "ghost-tool", manifest: manifest)
+
+      result = described_class.load_all(layers: layers)
+
+      expect(result.tools).to be_empty
+      expect(result.errors.first.message).to match(/tool file not found/)
+    end
   end
 
   describe "manifest mtime cache" do

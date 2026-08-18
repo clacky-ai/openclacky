@@ -17,15 +17,16 @@ module Clacky
     Issue = Struct.new(:ext, :unit, :level, :code, :message, :file, :hint, keyword_init: true)
 
     KNOWN_TOP_KEYS    = %w[id name name_zh display_name display_name_zh title description description_zh emoji version origin author homepage license public license_required keywords contributes].freeze
-    KNOWN_CONTRIBUTES = %w[panels api skills agents channels patches hooks].freeze
+    KNOWN_CONTRIBUTES = %w[panels api skills agents channels patches hooks tools].freeze
 
     PANEL_KEYS   = %w[id title title_zh description description_zh view order attach entry_points].freeze
     API_KEYS     = %w[id handler].freeze
     SKILL_KEYS   = %w[id dir protected].freeze
-    AGENT_KEYS   = %w[id title title_zh description description_zh order prompt panels skills avatar hidden].freeze
+    AGENT_KEYS   = %w[id title title_zh description description_zh order prompt panels skills avatar hidden tools].freeze
     CHANNEL_KEYS = %w[id platform adapter].freeze
     PATCH_KEYS   = %w[target file fingerprint on_mismatch].freeze
     HOOK_KEYS    = %w[event file].freeze
+    TOOL_KEYS    = %w[id file].freeze
 
     ATTACH_TOKEN_RE = /\A(\*|[\w\-]+)\z/.freeze
 
@@ -105,6 +106,7 @@ module Clacky
         check_unit_keys(issues, ext_id, manifest_path, contributes["channels"], CHANNEL_KEYS, "channel")
         check_unit_keys(issues, ext_id, manifest_path, contributes["patches"],  PATCH_KEYS,   "patch")
         check_unit_keys(issues, ext_id, manifest_path, contributes["hooks"],    HOOK_KEYS,    "hook")
+        check_unit_keys(issues, ext_id, manifest_path, contributes["tools"],    TOOL_KEYS,    "tool")
 
         Array(contributes["panels"]).each do |entry|
           next unless entry.is_a?(Hash)

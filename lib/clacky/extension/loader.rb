@@ -40,6 +40,7 @@ module Clacky
   #   - channel units → channel.rb extension_adapter_loader (require + register at boot)
   #   - patch units   → PatchLoader.load_extension_patches (require at boot)
   #   - hook units    → ShellHookLoader.load_extension_hooks (register at boot)
+  #   - tool units    → Agent#register_extension_tools (require + register at agent init)
   module ExtensionLoader
     BUILTIN_DIR   = File.expand_path("../default_extensions", __dir__)
     INSTALLED_DIR = File.expand_path("~/.clacky/ext/installed")
@@ -65,9 +66,9 @@ module Clacky
     # One resolution error, structured so an AI author can locate and fix it.
     Error = Struct.new(:ext_id, :layer, :unit, :message, :file, keyword_init: true)
 
-    Result = Struct.new(:panels, :api, :skills, :agents, :channels, :patches, :hooks, :errors, :overridden, :containers, keyword_init: true) do
+    Result = Struct.new(:panels, :api, :skills, :agents, :channels, :patches, :hooks, :tools, :errors, :overridden, :containers, keyword_init: true) do
       def units
-        panels + api + skills + agents + channels + patches + hooks
+        panels + api + skills + agents + channels + patches + hooks + tools
       end
     end
 
@@ -124,7 +125,7 @@ module Clacky
           end
         end
 
-        result = Result.new(panels: [], api: [], skills: [], agents: [], channels: [], patches: [], hooks: [], errors: errors, overridden: overridden, containers: by_id)
+        result = Result.new(panels: [], api: [], skills: [], agents: [], channels: [], patches: [], hooks: [], tools: [], errors: errors, overridden: overridden, containers: by_id)
         disabled = disabled_ids
         by_id.each_value do |container|
           container[:disabled] = disabled.include?(container[:ext_id])
@@ -302,6 +303,11 @@ module Clacky
           unit = build_hook_unit(container, spec, result.errors)
           result.hooks << unit if unit
         end
+
+        Array(contributes["tools"]).each do |spec|
+          unit = build_tool_unit(container, spec, result.errors)
+          result.tools << unit if unit
+        end
       end
 
       private def build_panel_unit(container, spec, errors)
@@ -428,6 +434,8 @@ module Clacky
                    "license"        => container[:license],
                    "panels"         => Array(spec["panels"]).map(&:to_s),
                    "skills"         => Array(spec["skills"]).map(&:to_s),
+                   "disabled_skills" => Array(spec["disabled_skills"]).map(&:to_s),
+                   "tools"          => Array(spec["tools"]).map(&:to_s),
                  })
       end
 
@@ -498,6 +506,31 @@ module Clacky
                  layer: container[:layer], origin: container[:origin],
                  dir: container[:dir],
                  spec: { "event" => spec["event"].to_s, "file" => spec["file"], "file_abs" => file_abs })
+      end
+
+      private def build_tool_unit(container, spec, errors)
+        ext_id = container[:ext_id]
+        unless spec.is_a?(Hash) && spec["id"] && spec["file"]
+          errors << Error.new(ext_id: ext_id, layer: container[:layer].to_s, unit: "tool",
+                              message: "tool needs both `id` and `file`")
+          return nil
+        end
+
+        file_abs = File.join(container[:dir], spec["file"])
+        unless File.file?(file_abs)
+          errors << Error.new(ext_id: ext_id, layer: container[:layer].to_s, unit: "tool/#{spec['id']}",
+                              message: "tool file not found: #{spec['file']}", file: file_abs)
+          return nil
+        end
+
+        Unit.new(kind: :tool, id: spec["id"].to_s, ext_id: ext_id,
+                 layer: container[:layer], origin: container[:origin],
+                 dir: container[:dir],
+                 spec: {
+                   "id"      => spec["id"].to_s,
+                   "file"    => spec["file"],
+                   "file_abs" => file_abs,
+                 })
       end
     end
   end

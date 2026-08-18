@@ -151,8 +151,7 @@ module Clacky
     def set_skill_loader(skill_loader, agent_profile = nil)
       return unless skill_loader
 
-      skills = skill_loader.user_invocable_skills
-      skills = skills.select { |s| s.allowed_for_agent?(agent_profile.name) } if agent_profile
+      skills = skill_loader.user_invocable_skills(agent_profile)
 
       skills.each do |skill|
         desc = skill.description.to_s

@@ -228,6 +228,7 @@ module Clacky
       # order would have business messages appearing below the spinner.
       def append_output(content)
         return nil if Thread.current[:clacky_chore_phase]
+        return nil if Thread.current[:clacky_concurrent_phase]
 
         content = prefix_with_phase_label(content)
         @progress_mutex.synchronize do
@@ -753,6 +754,12 @@ module Clacky
           return nil
         end
 
+        # Same reasoning inside a concurrent phase: its nested handles own no
+        # line, since the shared parallel-progress line is the only thing on
+        # screen. Without this, unregister_progress would commit a permanent
+        # final frame straight into the buffer, bypassing append_output's gate.
+        return nil if Thread.current[:clacky_concurrent_phase]
+
         @progress_mutex.synchronize do
           prev_top = @progress_stack.last
           if prev_top
@@ -1044,6 +1051,8 @@ module Clacky
       CHORE_DIGEST_MAX_ERRORS = 3
 
       def phase_start(kind:, label:, concurrent: false)
+        return concurrent_phase_start(kind: kind, label: label) if concurrent && !verbose_phases?
+
         phase_id = SecureRandom.uuid
         chore = CHORE_PHASE_KINDS.include?(kind.to_s) && !verbose_phases?
         @phase_mutex ||= Mutex.new
@@ -1069,6 +1078,8 @@ module Clacky
       end
 
       def phase_end(phase_id, summary: nil)
+        return if concurrent_phase_end(phase_id, summary: summary)
+
         Thread.current[:clacky_phase_id] = nil if Thread.current[:clacky_phase_id] == phase_id
         Thread.current[:clacky_phase_label] = nil
         @phase_mutex ||= Mutex.new
@@ -1109,6 +1120,91 @@ module Clacky
 
       private def verbose_phases?
         @config.respond_to?(:verbose) && @config.verbose
+      end
+
+      # Concurrent phases in a line-oriented terminal.
+      #
+      # The web UI gives each phase its own live card; the CLI has one output
+      # stream, so N interleaved transcripts are unreadable. Instead every
+      # concurrent phase shares a single progress line listing each label's
+      # state, and their transcripts are suppressed (same trade-off as a chore
+      # phase, but keyed per-thread since several run at once).
+      private def concurrent_phase_start(kind:, label:)
+        phase_id = SecureRandom.uuid
+        @phase_mutex ||= Mutex.new
+        @phase_mutex.synchronize do
+          @active_phases ||= {}
+          @active_phases[phase_id] = { kind: kind, label: label, started_at: Time.now, concurrent: true }
+          @concurrent_phases ||= {}
+          @concurrent_phases[phase_id] = { label: label, done: false }
+          # First one in owns the shared line; the rest just join it.
+          @concurrent_started_at ||= Time.now
+          @concurrent_progress ||= start_progress(message: concurrent_phase_message, style: :quiet)
+        end
+        Thread.current[:clacky_phase_id] = phase_id
+        Thread.current[:clacky_concurrent_phase] = phase_id
+        refresh_concurrent_phase_line
+        phase_id
+      end
+
+      # @return [Boolean] true when this was a concurrent phase and got handled.
+      private def concurrent_phase_end(phase_id, summary: nil)
+        @phase_mutex ||= Mutex.new
+        info = nil
+        last = false
+        @phase_mutex.synchronize do
+          break unless @concurrent_phases&.key?(phase_id)
+
+          @concurrent_phases[phase_id][:done] = true
+          @concurrent_phases[phase_id][:summary] = summary
+          info = @active_phases&.delete(phase_id)
+          last = @concurrent_phases.values.all? { |p| p[:done] }
+        end
+        return false unless info
+
+        Thread.current[:clacky_phase_id] = nil if Thread.current[:clacky_phase_id] == phase_id
+        Thread.current[:clacky_concurrent_phase] = nil
+
+        if last
+          handle = nil
+          labels = []
+          started = info[:started_at]
+          @phase_mutex.synchronize do
+            handle = @concurrent_progress
+            labels = @concurrent_phases.values.map { |p| p[:label] }
+            started = @concurrent_started_at || started
+            @concurrent_progress = nil
+            @concurrent_phases = nil
+            @concurrent_started_at = nil
+          end
+          handle&.discard
+          elapsed = (Time.now - started).round
+          head = "#{labels.size} parallel task#{"s" if labels.size > 1} done (#{elapsed}s)"
+          append_output(@renderer.render_system_message(head, prefix_newline: true))
+        else
+          refresh_concurrent_phase_line
+        end
+        true
+      end
+
+      private def refresh_concurrent_phase_line
+        @phase_mutex ||= Mutex.new
+        handle, message = @phase_mutex.synchronize do
+          [@concurrent_progress, concurrent_phase_message]
+        end
+        return unless handle&.entry_id
+
+        handle.update(message: message)
+        update_entry(handle.entry_id, @renderer.render_progress(message))
+      end
+
+      # Caller must hold @phase_mutex.
+      private def concurrent_phase_message
+        phases = @concurrent_phases || {}
+        done = phases.values.count { |p| p[:done] }
+        parts = phases.values.map { |p| "#{p[:done] ? "✓" : "·"} #{p[:label]}" }
+        "Running #{phases.size} task#{"s" if phases.size > 1} in parallel " \
+          "(#{done}/#{phases.size})  #{parts.join("  ")}"
       end
 
       # Set workspace status to idle (called when agent stops working)

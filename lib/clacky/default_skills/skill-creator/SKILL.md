@@ -34,7 +34,7 @@ Always be flexible. If the user says "skip the evals, just vibe with me", do tha
 
 ### 2. Quick Mode (for agent self-evolution)
 
-**Trigger**: When invoked with `mode: "quick"` in the task arguments.
+**Trigger**: When the task text starts with `Quick mode:`.
 
 Fast, opinionated skill creation without user interaction. This mode is used by the agent's self-evolution system to automatically create or improve skills.
 
@@ -48,9 +48,12 @@ Fast, opinionated skill creation without user interaction. This mode is used by 
 - Focus on the happy path; edge cases can be added later
 
 **Expected arguments when using quick mode**:
-- `task`: Clear description of what to automate and how (be specific about workflow steps)
-- `mode`: Must be set to `"quick"`
-- `suggested_name`: (optional) Proposed skill identifier (lowercase, hyphens OK)
+- `task`: Must start with `Quick mode:`, then a clear description of what to
+  automate and how (be specific about workflow steps). State the suggested skill
+  identifier (lowercase, hyphens OK) inside this text.
+
+`invoke_skill` accepts ONLY `skill_name` and `task` — there is no `mode` or
+`suggested_name` parameter, and passing one raises an ArgumentError.
 
 **Quick mode principles**:
 - **Be opinionated**: Make reasonable assumptions without asking
@@ -63,9 +66,7 @@ Fast, opinionated skill creation without user interaction. This mode is used by 
 ```
 invoke_skill(
   skill_name: "skill-creator",
-  task: "Create a skill to extract and summarize content from URLs. The skill should: 1) fetch the URL using terminal with curl, 2) parse the HTML to extract main text content, 3) generate a concise markdown summary. Expected input: URL string. Expected output: markdown summary with title and key points.",
-  mode: "quick",
-  suggested_name: "url-summarizer"
+  task: "Quick mode: create a skill named 'url-summarizer'. It should extract and summarize content from URLs: 1) fetch the URL using terminal with curl, 2) parse the HTML to extract main text content, 3) generate a concise markdown summary. Expected input: URL string. Expected output: markdown summary with title and key points."
 )
 ```
 

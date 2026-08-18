@@ -172,6 +172,50 @@ RSpec.describe Clacky::ExtensionVerifier do
     expect(over.level).to eq(:warning)
   end
 
+  it "flags unknown fields on a tool unit" do
+    manifest = <<~YAML
+      id: typo-tool
+      origin: self
+      contributes:
+        tools:
+          - id: hello
+            file: tools/hello.rb
+            name: Hello
+    YAML
+    make_ext(local, "typo-tool", manifest, "tools/hello.rb" => "class Clacky::Tools::Hello < Clacky::Tools::Base; end")
+    result = reload_layers
+
+    issues = described_class.verify(result)
+    field_issue = issues.find { |i| i.code == "schema.unknown_field" && i.unit == "hello" }
+    expect(field_issue).not_to be_nil
+    expect(field_issue.message).to include("name")
+  end
+
+  it "accepts agent `tools:` opt-in references without warning" do
+    manifest = <<~YAML
+      id: tool-owner
+      origin: self
+      contributes:
+        tools:
+          - id: hello
+            file: tools/hello.rb
+        agents:
+          - id: designer
+            title: Designer
+            description: owns the tool
+            prompt: prompt.md
+            tools: [hello]
+    YAML
+    make_ext(local, "tool-owner", manifest,
+             "tools/hello.rb" => "class Clacky::Tools::Hello < Clacky::Tools::Base; end",
+             "prompt.md" => "hi")
+    result = reload_layers
+
+    issues = described_class.verify(result)
+    unknown = issues.select { |i| i.code == "schema.unknown_field" }
+    expect(unknown).to be_empty
+  end
+
   it "flags a malformed panel `attach` value" do
     manifest = <<~YAML
       id: bad-attach

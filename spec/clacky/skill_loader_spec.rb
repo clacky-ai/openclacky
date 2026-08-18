@@ -531,4 +531,19 @@ RSpec.describe Clacky::SkillLoader do
       end
     end
   end
+
+  describe "#user_invocable_skills" do
+    it "filters by profile when one is given, unfiltered otherwise" do
+      loader = described_class.new(working_dir: working_dir, brand_config: nil)
+
+      profile = double("profile")
+      allow(profile).to receive(:skill_allowed?) { |s| s.identifier != "skill-add" }
+
+      filtered = loader.user_invocable_skills(profile).map(&:identifier)
+      expect(filtered).not_to include("skill-add")
+
+      unfiltered = loader.user_invocable_skills.map(&:identifier)
+      expect(unfiltered).to include("skill-add")
+    end
+  end
 end

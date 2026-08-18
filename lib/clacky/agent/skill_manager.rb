@@ -82,7 +82,7 @@ module Clacky
           return { matched: true, found: false, skill_name: skill_name, reason: :not_user_invocable, skill: skill }
         end
 
-        if @agent_profile && !skill.allowed_for_agent?(@agent_profile.name)
+        if @agent_profile && !@agent_profile.skill_allowed?(skill)
           return { matched: true, found: false, skill_name: skill_name, reason: :agent_not_allowed, skill: skill }
         end
 
@@ -266,22 +266,20 @@ module Clacky
       # is injected instructing the LLM to inform the user in their own language and
       # suggest similar skills — no error is raised, the LLM handles the reply.
       #
-      # @param user_input [String] Raw user input
+      # @param skill_command [Hash] Result of parse_skill_command for the user input
       # @param task_id [Integer] Current task ID (for message tagging)
       # @return [void]
-      def inject_skill_command_as_assistant_message(user_input, task_id)
-        result = parse_skill_command(user_input)
-
+      def inject_skill_command_as_assistant_message(skill_command, task_id)
         # Not a slash command at all — nothing to do
-        return unless result[:matched]
+        return unless skill_command[:matched]
 
-        skill_name = result[:skill_name]
+        skill_name = skill_command[:skill_name]
 
         # Slash command recognised but skill could not be dispatched — inject an
         # LLM-facing notice so the model explains the situation to the user in
         # their own language instead of silently ignoring the command.
-        unless result[:found]
-          notice = case result[:reason]
+        unless skill_command[:found]
+          notice = case skill_command[:reason]
           when :not_found
             suggestions = suggest_similar_skills(skill_name)
             msg = "[SYSTEM] The user entered the slash command /#{skill_name} but no matching skill was found. " \
@@ -302,8 +300,8 @@ module Clacky
           return
         end
 
-        skill     = result[:skill]
-        arguments = result[:arguments]
+        skill     = skill_command[:skill]
+        arguments = skill_command[:arguments]
 
         # fork_agent skills run in an isolated subagent
         if skill.fork_agent?
@@ -443,7 +441,7 @@ module Clacky
       def filter_skills_by_profile(skills)
         return skills unless @agent_profile
 
-        skills.select { |skill| skill.allowed_for_agent?(@agent_profile.name) }
+        skills.select { |skill| @agent_profile.skill_allowed?(skill) }
       end
 
       # Build template context for skill content expansion.

@@ -104,6 +104,15 @@ module Clacky
       @name || @directory.basename.to_s
     end
 
+    # Localized display name for a given UI language. Returns the Chinese name
+    # when one exists and the client speaks Chinese, else the identifier.
+    # Shared by slash-command highlighting and the skills UI.
+    # @param lang [String, nil] client language (e.g. "zh")
+    # @return [String]
+    def display_name(lang)
+      lang.to_s == "zh" && name_zh ? name_zh : identifier
+    end
+
     # Check if skill can be invoked by user via slash command
     # @return [Boolean]
     def user_invocable?

@@ -37,9 +37,11 @@ module Clacky
         @events     = events
       end
 
-      def show_user_message(content, created_at: nil, files: [], editable: true)
+      def show_user_message(content, created_at: nil, files: [], editable: true, skill_command: nil, skill_command_display: nil)
         ev = { type: "history_user_message", session_id: @session_id, content: content }
         ev[:created_at] = created_at if created_at
+        ev[:skill_command] = skill_command if skill_command
+        ev[:skill_command_display] = skill_command_display if skill_command_display
         ev[:editable] = false unless editable
         rendered = Array(files).filter_map do |f|
           url  = f[:data_url] || f["data_url"]
@@ -248,8 +250,11 @@ module Clacky
         # One-time migration: move legacy trash contents into file-trash/ subdirectory.
         Clacky::TrashDirectory.migrate_legacy_if_needed
 
-        # Enable console logging for the server process so log lines are visible in the terminal.
-        Clacky::Logger.console = true
+        # Enable console logging for the server process so log lines are visible
+        # in the terminal. Only echo when stderr is a real terminal — under a
+        # LaunchAgent it's redirected to the log file, and echoing would write
+        # every line twice (Logger already wrote it to that same file).
+        Clacky::Logger.console = $stderr.isatty
 
         Clacky::Logger.info("[HttpServer PID=#{Process.pid}] start() mode=#{@inherited_socket ? 'worker' : 'standalone'} inherited_socket=#{@inherited_socket.inspect} master_pid=#{@master_pid.inspect}")
 
@@ -289,6 +294,7 @@ module Clacky
         shutdown_proc = proc do
           next if shutdown_once
           shutdown_once = true
+          @draining = true
           # Persist in-flight agent sessions BEFORE starting the forced-exit
           # timer, so any new messages added to @history since the last save
           # are on disk before the new worker reads them after a hot restart.
@@ -318,8 +324,14 @@ module Clacky
           t3.join(1.5)
           server.shutdown rescue nil
         end
-        trap("INT")  { shutdown_proc.call }
-        trap("TERM") { shutdown_proc.call }
+        # Ruby forbids Mutex#synchronize / Thread#join inside a trap handler
+        # (ThreadError: can't be called from trap context), and interrupt_all_agents
+        # needs both. So the trap only flips @draining (so /health answers
+        # "draining" immediately) and hands the rest to a plain thread, where
+        # session persistence and WEBrick shutdown can run normally. GVL makes
+        # the shutdown_once check below atomic even if INT+TERM race.
+        trap("INT")  { @draining = true; Thread.new { shutdown_proc.call } }
+        trap("TERM") { @draining = true; Thread.new { shutdown_proc.call } }
 
         if @inherited_socket
           server.listeners << @inherited_socket
@@ -363,10 +375,14 @@ module Clacky
 
         # Health check endpoint — no auth, minimal overhead.
         # Docker / orchestrators can probe this to decide container health.
+        # Status stays 200 while draining so liveness probes do not kill a worker
+        # that is merely handing over; readers must check the status field.
+        # pid lets a caller confirm a hot restart actually swapped the worker.
         server.mount_proc("/health") do |_req, res|
           res.status          = 200
           res["Content-Type"] = "application/json"
-          res.body            = '{"status":"ok"}'
+          state               = @draining ? "draining" : "ok"
+          res.body            = %Q({"status":"#{state}","pid":#{Process.pid}})
         end
 
         # Mount static file handler for the entire web directory.
@@ -457,6 +473,15 @@ module Clacky
         method = req.request_method
 
         Thread.current[:lang] = req["X-Lang"].to_s.strip.then { |l| l.empty? ? nil : l }
+
+        # CORS preflight — must run BEFORE the access-key guard because a
+        # browser preflight carries no credentials (only the
+        # Access-Control-Request-* headers). Returning 204 with the allow
+        # headers lets cross-origin clients (container behind a domain,
+        # third-party UIs) pass the preflight and reach the real request.
+        if method == "OPTIONS"
+          return handle_cors_preflight(req, res)
+        end
 
         # Access key guard (skip for WebSocket upgrades)
         return unless check_access_key(req, res)
@@ -644,6 +669,8 @@ module Clacky
           elsif method == "POST" && path.match?(%r{^/api/channels/[^/]+/test$})
             platform = path.sub("/api/channels/", "").sub("/test", "")
             api_test_channel(platform, req, res)
+          elsif method == "PATCH" && path == "/api/channels/status_messages"
+            api_channel_status_messages(req, res)
           elsif method == "PATCH" && path.match?(%r{^/api/channels/[^/]+/enabled$})
             platform = path.sub("/api/channels/", "").sub("/enabled", "")
             api_toggle_channel(platform, req, res)
@@ -3710,7 +3737,7 @@ module Clacky
           }.merge(platform_safe_fields(platform, config))
         end
 
-        json_response(res, 200, { channels: platforms })
+        json_response(res, 200, { channels: platforms, status_messages: config.status_messages_enabled? })
       end
 
       # GET /api/mcp
@@ -4141,6 +4168,7 @@ module Clacky
         res["Content-Type"]         = "application/octet-stream"
         res["Content-Disposition"]  = "attachment; filename=\"#{filename}\""
         res["Content-Length"]       = File.size(path).to_s
+        res["Access-Control-Allow-Origin"] = "*"
         res.body = File.binread(path)
       end
 
@@ -4257,6 +4285,24 @@ module Clacky
         @channel_manager.reload_platform(platform, config)
 
         json_response(res, 200, { ok: true })
+      rescue StandardError => e
+        json_response(res, 422, { ok: false, error: e.message })
+      end
+
+      # PATCH /api/channels/status_messages
+      # Body: { status_messages: true|false }
+      # Global toggle for process-status messages ("Thinking...", "Done"
+      # summary, file/shell previews) across all IM channels.
+      # Hot-applies without restarting adapters.
+      def api_channel_status_messages(req, res)
+        enabled = parse_json_body(req)["status_messages"] == true
+        config  = Clacky::ChannelConfig.load
+
+        config.set_status_messages(enabled)
+        config.save
+        @channel_manager.update_config(config)
+
+        json_response(res, 200, { ok: true, status_messages: config.status_messages_enabled? })
       rescue StandardError => e
         json_response(res, 422, { ok: false, error: e.message })
       end
@@ -4588,10 +4634,7 @@ module Clacky
         end
 
         agent.skill_loader.load_all
-        profile = agent.agent_profile
-
-        skills = agent.skill_loader.user_invocable_skills
-        skills = skills.select { |s| s.allowed_for_agent?(profile.name) } if profile
+        skills = agent.skill_loader.user_invocable_skills(agent.agent_profile)
 
         loader      = agent.skill_loader
         loaded_from = loader.loaded_from
@@ -4624,8 +4667,7 @@ module Clacky
         end
 
         @skill_loader.load_all
-        skills = @skill_loader.user_invocable_skills
-        skills = skills.select { |s| s.allowed_for_agent?(profile.name) } if profile
+        skills = @skill_loader.user_invocable_skills(profile)
 
         loaded_from = @skill_loader.loaded_from
         skill_data = skills.map do |skill|
@@ -5752,6 +5794,7 @@ module Clacky
             api_protocol:     m["api_protocol"] || "auto",
             anthropic_format: m["anthropic_format"] || false,
             provider_id:      m["provider_id"],
+            remark:           m["remark"],
             type:             m["type"]
           }
         end
@@ -6036,6 +6079,8 @@ module Clacky
           "anthropic_format" => body["anthropic_format"] || (body["api_protocol"] == "anthropic-messages" ? true : false),
           "provider_id"      => body["provider_id"].to_s.strip.then { |v| v.empty? ? nil : v }
         }
+        remark = body["remark"].to_s.strip
+        entry["remark"] = remark unless remark.empty?
         type = body["type"].to_s
         unless type.empty?
           # Preserve the single-slot "default" invariant.
@@ -6107,6 +6152,14 @@ module Clacky
             target.delete("provider_id")
           else
             target["provider_id"] = v
+          end
+        end
+        if body.key?("remark")
+          v = body["remark"].to_s.strip
+          if v.empty?
+            target.delete("remark")
+          else
+            target["remark"] = v
           end
         end
         if body.key?("api_key")
@@ -6999,13 +7052,25 @@ module Clacky
         msg_created_at = Time.now.to_f
         web_ui = nil
         @registry.with_session(session_id) { |s| web_ui = s[:ui] }
+        # Resolve the slash command once here so the realtime broadcast carries the
+        # confirmed skill name (matched against the authoritative skill registry).
+        # agent.run re-resolves internally for dispatch; the broadcast only needs
+        # the flag for the UI to highlight a valid /command. The display name is
+        # resolved against the client's language (Thread.current[:lang], set from
+        # the WS message's lang field) so a zh client gets the Chinese name.
+        skill_command = agent.parse_skill_command(content)
+        skill_command_display = if skill_command[:found] && skill_command[:skill]
+                                  skill_command[:skill].display_name(Thread.current[:lang])
+                                end
         # Pass the uploaded files through to the realtime broadcast so images and
         # attachments render in the bubble immediately. agent.run later appends the
         # authoritative display_files to history — but only after vision/OCR
         # processing finishes, which can take seconds. Without the preview here, a
         # page refresh inside that window shows the message without its image (the
         # "need to refresh several times before the image appears" bug).
-        web_ui&.show_user_message(content, created_at: msg_created_at, source: :web, files: Array(files))
+        web_ui&.show_user_message(content, created_at: msg_created_at, source: :web, files: Array(files),
+                                  skill_command: skill_command[:found] ? skill_command[:skill_name] : nil,
+                                  skill_command_display: skill_command_display)
 
         # File references are now handled inside agent.run — injected as a system_injected
         # message after the user message, so replay_history skips them automatically.
@@ -7421,6 +7486,19 @@ module Clacky
         res.body = JSON.generate(data)
       end
 
+      # CORS preflight (OPTIONS) — respond with 204 + allow headers before any
+      # auth/routing logic so cross-origin browsers can proceed with the real
+      # request. Headers are echoed from the request where sensible.
+      def handle_cors_preflight(req, res)
+        res.status = 204
+        res["Access-Control-Allow-Origin"]  = req["Origin"] || "*"
+        res["Access-Control-Allow-Methods"] = "GET, POST, PUT, PATCH, DELETE, OPTIONS"
+        res["Access-Control-Allow-Headers"] = req["Access-Control-Request-Headers"] ||
+                                              "Content-Type, X-Lang, Authorization"
+        res["Access-Control-Max-Age"]       = "86400"
+        res.body = ""
+      end
+
       def parse_json_body(req)
         return {} if req.body.nil? || req.body.empty?
 
@@ -7479,6 +7557,7 @@ module Clacky
 
       def not_found(res)
         res.status = 404
+        res["Access-Control-Allow-Origin"] = "*"
         res.body   = "Not Found"
       end
 

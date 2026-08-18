@@ -149,6 +149,11 @@ module Clacky
       # Register built-in tools
       register_builtin_tools
 
+      # Register tools contributed by ext.yml containers (contributes.tools).
+      # Each tool file must define at least one Clacky::Tools::Base subclass —
+      # every subclass defined in that file is instantiated and registered.
+      register_extension_tools
+
       # Load declarative shell hooks from ~/.clacky/hooks.yml. Entries with
       # `type: rewrite` use the rich JSON protocol (updatedInput rewrite);
       # entries without `type` use the simple exit-code protocol.
@@ -257,6 +262,7 @@ module Clacky
         model: model["model"],
         base_url: model["base_url"],
         provider_id: model["provider_id"],
+        remark: model["remark"],
         card_model: base_entry&.dig("model"),
         sub_model: sub_model
       }
@@ -587,9 +593,22 @@ module Clacky
           preview_path: f[:preview_path] || f["preview_path"] }
       end
 
+      # Resolved once here (not after append) so the user message can carry the
+      # confirmed skill name: only a skill that actually dispatches gets marked,
+      # so the UI never highlights a typo'd or unavailable command. The display
+      # name is resolved against the client's language (Thread.current[:lang],
+      # seeded from the WS message / X-Lang header) so the Web UI and third-party
+      # clients can render a localized label without re-resolving the skill.
+      skill_command = parse_skill_command(user_input)
+      skill_command_display = if skill_command[:found] && skill_command[:skill]
+                                skill_command[:skill].display_name(Thread.current[:lang])
+                              end
+
       created_at ||= Time.now.to_f
       @history.append({ role: "user", content: user_content, task_id: task_id, created_at: created_at,
                         display_text: display_text,
+                        skill_command: skill_command[:found] ? skill_command[:skill_name] : nil,
+                        skill_command_display: skill_command_display,
                         display_files: display_files.empty? ? nil : display_files })
       @total_tasks += 1
 
@@ -659,7 +678,7 @@ module Clacky
       # If the user typed a slash command targeting a skill with disable-model-invocation: true,
       # inject the skill content as a synthetic assistant message so the LLM can act on it.
       # Skills already in the system prompt (model_invocation_allowed?) are skipped.
-      inject_skill_command_as_assistant_message(user_input, task_id)
+      inject_skill_command_as_assistant_message(skill_command, task_id)
 
       @hooks.trigger(:on_start, user_input)
 
@@ -1593,6 +1612,37 @@ module Clacky
       @tool_registry.register(Tools::Browser.new)
     end
 
+    # Register tools the agent declared via `tools:` — each id maps to
+    # <container>/tools/<id>.rb, and the file name maps to the class name
+    # (Clacky::Tools::<Camelized id>), so an id alone gives the path and the
+    # class. A failing file is logged and skipped so one broken tool never
+    # blocks agent startup.
+    private def register_extension_tools
+      dir = @agent_profile.container_dir
+      return unless dir
+      @agent_profile.tools.each do |id|
+        require File.join(dir, "tools", "#{id}.rb")
+        klass = extension_tool_class_for(id)
+        next unless klass
+
+        tool = klass.new
+        tool.agent = self if tool.respond_to?(:agent=)
+        @tool_registry.register(tool)
+      rescue StandardError, ScriptError => e
+        Clacky::Logger.warn("agent.register_extension_tool",
+          error: e.message, tool: id)
+      end
+    end
+
+    # tools/<id>.rb must define Clacky::Tools::<Camelized id> — the file name
+    # IS the class-name mapping (web-search → Clacky::Tools::WebSearch).
+    private def extension_tool_class_for(id)
+      const_name = id.split(/[_-]/).map(&:capitalize).join
+      Clacky::Tools.const_get(const_name)
+    rescue NameError
+      nil
+    end
+
     # Run a one-off task on a forked subagent and return its final reply text,
     # WITHOUT mutating this (parent) agent's history. Used by extensions that
     # need a side analysis (e.g. meeting annotate) which must reuse the parent's
@@ -1615,61 +1665,51 @@ module Clacky
       # to the parent's session_id) would broadcast the subagent's raw output
       # into the parent chat transcript. Swap in a no-op UI so nothing leaks.
       subagent.instance_variable_set(:@ui, NullUIController.new)
-      parent_count = subagent.instance_variable_get(:@parent_message_count) || 0
       result = subagent.run(task)
 
       # A detached run stays invisible, so its cost is merged silently — the
       # sessionbar refresh would be the one thing that gives it away.
       absorb_subagent_cost(result, notify_ui: false)
 
-      final_assistant_text(subagent, parent_count)
+      final_reply(subagent)
     end
 
-    # Run several independent tasks on forked subagents at the same time.
+    # Run labeled jobs in parallel, each inside its own concurrent UI phase.
     #
-    # Each subagent is forked on the calling thread (forking deep-copies parent
-    # config + history, which must not race) and only the blocking run is moved
-    # onto the pool. Results keep the order of `tasks`; a task that raises or
-    # overruns the budget yields a failed slot instead of aborting its siblings.
+    # Exposed for extension tools that build their own subagents (e.g. one per
+    # skill) but still need the UI wiring to be correct: the web UI folds each
+    # phase into its own live card, and the CLI collapses concurrent phases into
+    # a single progress line. Getting that right by hand is easy to botch, so
+    # the orchestration lives here while job construction stays with the caller.
     #
-    # Subagents run silently by default: they share the parent's session, so a
-    # live UI would interleave several raw transcripts into one chat.
+    # Callers must build their subagents on the calling thread before handing
+    # the jobs over — forking deep-copies parent config + history, which must
+    # not race. Only the blocking run belongs in the lambda.
     #
-    # @param tasks [Array<String>] one prompt per subagent
-    # @param model [String, nil] model for every subagent (nil = current)
-    # @param forbidden_tools [Array<String>] tool names blocked at runtime
-    # @param max_concurrency [Integer] subagents allowed to run at once
+    # @param jobs [Array<Hash>] each { label: String, run: #call }
+    # @param max_concurrency [Integer] jobs allowed to run at once
     # @param timeout [Numeric, nil] wall-clock budget for the whole batch
-    # @return [Array<Fanout::Result>] value is the subagent's final reply text
-    def fan_out_subagents(tasks, model: nil, forbidden_tools: [], max_concurrency: Fanout::DEFAULT_MAX_CONCURRENCY,
-                          timeout: nil)
-      return [] if tasks.empty?
+    # @return [Array<Fanout::Result>] aligned to the input order
+    def fan_out_labeled(jobs, max_concurrency: Fanout::DEFAULT_MAX_CONCURRENCY, timeout: nil)
+      return [] if jobs.empty?
 
-      jobs = tasks.each_with_index.map do |task, index|
-        subagent = fork_subagent(
-          model: model,
-          forbidden_tools: forbidden_tools,
-          system_prompt_suffix: "You are one of several subagents running in parallel on independent tasks. " \
-                                "Do your task and return only the requested output. Do not ask follow-up questions."
-        )
-        parent_count = subagent.instance_variable_get(:@parent_message_count) || 0
-        label = "Subagent #{index + 1}/#{tasks.size}"
-        # Fanout workers are fresh threads, so the epoch that lets the web
-        # broadcaster drop events from superseded tasks has to be carried over
-        # by hand — otherwise interrupted subagents keep writing to the new task.
-        epoch = Thread.current[:task_epoch]
+      # Fanout workers are fresh threads, so the epoch that lets the web
+      # broadcaster drop events from superseded tasks has to be carried over
+      # by hand — otherwise interrupted subagents keep writing to the new task.
+      epoch = Thread.current[:task_epoch]
+
+      wrapped = jobs.each_with_index.map do |job, index|
+        label = job[:label] || job["label"] || "Subagent #{index + 1}/#{jobs.size}"
+        run = job[:run] || job["run"]
+        raise ArgumentError, "job #{index} must provide a callable :run" unless run.respond_to?(:call)
 
         lambda do
           Thread.current[:task_epoch] = epoch
-          within_phase(label, kind: "fanout_subagent", concurrent: true) do
-            result = subagent.run(task)
-            absorb_subagent_cost(result, notify_ui: false)
-            final_assistant_text(subagent, parent_count)
-          end
+          within_phase(label, kind: "fanout_subagent", concurrent: true) { run.call }
         end
       end
 
-      Fanout.new(max_concurrency: max_concurrency, timeout: timeout).run(jobs)
+      Fanout.new(max_concurrency: max_concurrency, timeout: timeout).run(wrapped)
     end
 
     private def within_phase(label, kind:, concurrent:, &block)
@@ -1678,7 +1718,21 @@ module Clacky
       @ui.with_phase(kind: kind, label: label, concurrent: concurrent, &block)
     end
 
-    private def final_assistant_text(subagent, parent_count)
+    # The subagent's last non-empty assistant message — its actual answer.
+    #
+    # A subagent's `run` result carries cost and iteration counts but no reply
+    # text, and its trailing history entries are usually tool results, so the
+    # answer has to be found by scanning backwards from the end. Only messages
+    # appended after the fork are considered; earlier ones are the inherited
+    # parent conversation.
+    #
+    # Use this when the caller wants the raw answer to pass on programmatically.
+    # For a human-facing digest use {#generate_subagent_summary} instead.
+    #
+    # @param subagent [Agent] a subagent produced by {#fork_subagent}
+    # @return [String] the reply, or "" when the subagent never answered
+    def final_reply(subagent)
+      parent_count = subagent.instance_variable_get(:@parent_message_count) || 0
       new_messages = subagent.history.to_a[parent_count..] || []
       new_messages
         .reverse

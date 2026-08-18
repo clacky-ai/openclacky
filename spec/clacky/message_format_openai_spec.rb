@@ -199,6 +199,56 @@ RSpec.describe Clacky::MessageFormat::OpenAI do
       end
     end
 
+    context "for GLM-5.3 models" do
+      let(:model) { "glm-5.3" }
+
+      it "maps 'off' to thinking enabled + effort low (thinking cannot be disabled)" do
+        body = described_class.build_request_body(
+          messages, model, tools, max_tokens, false, reasoning_effort: "off"
+        )
+        expect(body[:thinking]).to eq({ type: "enabled" })
+        expect(body[:reasoning_effort]).to eq("low")
+      end
+
+      it "keeps 'low' as native low (unlike GLM-5.2 which collapses to high)" do
+        body = described_class.build_request_body(
+          messages, model, tools, max_tokens, false, reasoning_effort: "low"
+        )
+        expect(body[:reasoning_effort]).to eq("low")
+      end
+
+      it "maps 'medium' to low" do
+        body = described_class.build_request_body(
+          messages, model, tools, max_tokens, false, reasoning_effort: "medium"
+        )
+        expect(body[:reasoning_effort]).to eq("low")
+      end
+
+      it "maps 'max' to max" do
+        body = described_class.build_request_body(
+          messages, model, tools, max_tokens, false, reasoning_effort: "max"
+        )
+        expect(body[:thinking]).to eq({ type: "enabled" })
+        expect(body[:reasoning_effort]).to eq("max")
+      end
+
+      it "sends thinking enabled without effort when reasoning_effort is nil" do
+        body = described_class.build_request_body(
+          messages, model, tools, max_tokens, false, reasoning_effort: nil
+        )
+        expect(body[:thinking]).to eq({ type: "enabled" })
+        expect(body).not_to have_key(:reasoning_effort)
+      end
+
+      it "matches Ark-style ids like glm-5-3-260817" do
+        body = described_class.build_request_body(
+          messages, "glm-5-3-260817", tools, max_tokens, false, reasoning_effort: "off"
+        )
+        expect(body[:thinking]).to eq({ type: "enabled" })
+        expect(body[:reasoning_effort]).to eq("low")
+      end
+    end
+
     context "for Kimi K3 models" do
       let(:model) { "kimi-k3" }
 

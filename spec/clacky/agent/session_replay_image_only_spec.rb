@@ -43,7 +43,7 @@ RSpec.describe "replay_history image-only user message" do
       @user_messages = []
     end
 
-    def show_user_message(content, created_at: nil, files: [], editable: true)
+    def show_user_message(content, created_at: nil, files: [], editable: true, skill_command: nil, skill_command_display: nil)
       @user_messages << { content: content, files: files }
     end
 

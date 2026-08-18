@@ -601,6 +601,44 @@ RSpec.describe Clacky::Server::HttpServer do
       end
     end
 
+    it "stores the optional remark when provided" do
+      with_server(agent_config: agent_config) do |server|
+        payload = {
+          model:    "claude-opus-4",
+          base_url: "https://api.anthropic.com",
+          api_key:  "sk-newkey0000111122223333",
+          remark:   "relay A"
+        }
+        req = fake_req(method: "POST", path: "/api/config/models", body: payload)
+        res = fake_res
+        dispatch(server, req, res)
+
+        expect(res.status).to eq(200)
+        body = parsed_body(res)
+        created = agent_config.models.find { |m| m["id"] == body["id"] }
+        expect(created["remark"]).to eq("relay A")
+      end
+    end
+
+    it "does not store an empty remark key" do
+      with_server(agent_config: agent_config) do |server|
+        payload = {
+          model:    "claude-opus-4",
+          base_url: "https://api.anthropic.com",
+          api_key:  "sk-newkey0000111122223333",
+          remark:   "   "
+        }
+        req = fake_req(method: "POST", path: "/api/config/models", body: payload)
+        res = fake_res
+        dispatch(server, req, res)
+
+        expect(res.status).to eq(200)
+        body = parsed_body(res)
+        created = agent_config.models.find { |m| m["id"] == body["id"] }
+        expect(created).not_to have_key("remark")
+      end
+    end
+
     it "rejects creation without a real api_key" do
       with_server(agent_config: agent_config) do |server|
         payload = { model: "x", base_url: "https://x", api_key: "" }
@@ -690,6 +728,25 @@ RSpec.describe Clacky::Server::HttpServer do
         res = fake_res
         dispatch(server, req, res)
         expect(res.status).to eq(404)
+      end
+    end
+
+    it "sets and clears the remark" do
+      with_server(agent_config: agent_config) do |server|
+        id = agent_config.models[0]["id"]
+        base_path = "/api/config/models/" + id
+
+        req = fake_req(method: "PATCH", path: base_path, body: { remark: "relay A" })
+        res = fake_res
+        dispatch(server, req, res)
+        expect(res.status).to eq(200)
+        expect(agent_config.models[0]["remark"]).to eq("relay A")
+
+        req = fake_req(method: "PATCH", path: base_path, body: { remark: "" })
+        res = fake_res
+        dispatch(server, req, res)
+        expect(res.status).to eq(200)
+        expect(agent_config.models[0]).not_to have_key("remark")
       end
     end
 
@@ -1281,6 +1338,65 @@ RSpec.describe Clacky::Server::HttpServer do
         dispatch(server, req, res)
 
         expect(res.status).to eq(400)
+      end
+    end
+  end
+
+  describe "#handle_user_message realtime broadcast" do
+    def seed_session(server, session_id, skill_name: "slides", display: nil)
+      sid = server.instance_variable_get(:@registry).create(session_id: session_id)
+      skill = double("skill")
+      allow(skill).to receive(:display_name).with(anything).and_return(display) if display
+      agent = double("agent",
+                     parse_skill_command: { found: true, skill_name: skill_name, skill: skill },
+                     history: [], name: "My Chat")
+      ui = double("ui")
+      allow(ui).to receive(:show_user_message)
+      server.instance_variable_get(:@registry).with_session(sid) do |s|
+        s[:agent] = agent
+        s[:ui] = ui
+      end
+      allow(server).to receive(:run_agent_task)
+      [sid, agent, skill, ui]
+    end
+
+    it "passes the localized skill_command_display to the web ui for zh clients" do
+      with_server(agent_config: agent_config) do |server|
+        sid, agent, skill, ui = seed_session(server, "sid-broadcast-1", display: "幻灯片")
+
+        Thread.current[:lang] = "zh"
+        begin
+          server.send(:handle_user_message, sid, "/slides")
+        ensure
+          Thread.current[:lang] = nil
+        end
+
+        expect(ui).to have_received(:show_user_message).with(
+          "/slides",
+          created_at: kind_of(Float),
+          source: :web,
+          files: [],
+          skill_command: "slides",
+          skill_command_display: "幻灯片"
+        )
+        expect(skill).to have_received(:display_name).with("zh")
+      end
+    end
+
+    it "passes the identifier as display for non-zh clients" do
+      with_server(agent_config: agent_config) do |server|
+        sid, _agent, _skill, ui = seed_session(server, "sid-broadcast-2", display: "slides")
+
+        server.send(:handle_user_message, sid, "/slides")
+
+        expect(ui).to have_received(:show_user_message).with(
+          "/slides",
+          created_at: kind_of(Float),
+          source: :web,
+          files: [],
+          skill_command: "slides",
+          skill_command_display: "slides"
+        )
       end
     end
   end

@@ -606,4 +606,30 @@ RSpec.describe Clacky::Skill do
       end
     end
   end
+
+  describe "#display_name" do
+    def build_skill(name, name_zh: nil)
+      skill_dir = File.join(temp_dir, name)
+      FileUtils.mkdir_p(skill_dir)
+      content = +"---\nname: #{name}\n"
+      content << "name_zh: #{name_zh}\n" if name_zh
+      content << "---\n\nContent\n"
+      File.write(File.join(skill_dir, "SKILL.md"), content)
+      described_class.new(skill_dir)
+    end
+
+    it "returns name_zh for zh clients when name_zh exists" do
+      expect(build_skill("pptx", name_zh: "幻灯片制作").display_name("zh")).to eq("幻灯片制作")
+    end
+
+    it "returns the identifier for non-zh clients" do
+      skill = build_skill("pptx", name_zh: "幻灯片制作")
+      expect(skill.display_name("en")).to eq("pptx")
+      expect(skill.display_name(nil)).to eq("pptx")
+    end
+
+    it "returns the identifier when no name_zh is defined" do
+      expect(build_skill("pptx").display_name("zh")).to eq("pptx")
+    end
+  end
 end

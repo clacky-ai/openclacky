@@ -72,25 +72,34 @@ RSpec.describe Clacky::Tools::WebSearch, "configured searcher" do
     expect(tool.execute(query: "q")[:results].map { |r| r[:title] }).to eq(["ok"])
   end
 
-  it "falls back to the built-in providers when the searcher fails" do
+  it "surfaces the failure instead of falling back when the searcher fails" do
     install_searcher("warn 'bad key'\nexit 1\n")
-    allow(tool).to receive(:search_duckduckgo).and_return(
-      [{ title: "ddg", url: "https://example.com", snippet: "" }]
-    )
+    expect(tool).not_to receive(:search_duckduckgo)
+    expect(tool).not_to receive(:search_bing)
 
     result = tool.execute(query: "q")
 
-    expect(result[:provider]).to eq("duckduckgo")
-    expect(result[:error]).to be_nil
+    expect(result[:provider]).to be_nil
+    expect(result[:results]).to be_empty
+    expect(result[:error]).to include("fake", "bad key")
   end
 
-  it "falls back when the searcher emits invalid JSON" do
+  it "surfaces the failure when the searcher emits invalid JSON" do
     install_searcher("puts 'not json'\n")
-    allow(tool).to receive(:search_duckduckgo).and_return(
-      [{ title: "ddg", url: "https://example.com", snippet: "" }]
-    )
+    expect(tool).not_to receive(:search_duckduckgo)
 
-    expect(tool.execute(query: "q")[:provider]).to eq("duckduckgo")
+    expect(tool.execute(query: "q")[:error]).to include("fake")
+  end
+
+  it "does not fall back when the searcher returns zero results" do
+    install_searcher("puts '[]'\n")
+    expect(tool).not_to receive(:search_duckduckgo)
+    expect(tool).not_to receive(:search_bing)
+
+    result = tool.execute(query: "q")
+
+    expect(result[:count]).to eq(0)
+    expect(result[:error]).to include("fake")
   end
 
   it "ignores an unset provider and uses the built-ins" do

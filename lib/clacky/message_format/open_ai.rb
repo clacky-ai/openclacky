@@ -218,7 +218,23 @@ module Clacky
       private_class_method def self.apply_reasoning_params(body, model, reasoning_effort)
         effort_str = reasoning_effort.to_s
 
-        if model.to_s.match?(/^glm-[45]/i)
+        if model.to_s.match?(/\Aglm-5[-.]3/i)
+          # GLM-5.3 always thinks: thinking.type "disabled" is rejected with an
+          # error (Z.ai migration guide), so "off" maps to the lightest effort
+          # "low". Effort accepts low/high/max only; server default is max.
+          body[:thinking] = { type: "enabled" }
+          if %w[off nothink disabled].include?(effort_str)
+            body[:reasoning_effort] = "low"
+          elsif !effort_str.empty?
+            body[:reasoning_effort] =
+              case effort_str
+              when "max", "xhigh"  then "max"
+              when "high"          then "high"
+              when "medium", "low" then "low"
+              else                      "max"
+              end
+          end
+        elsif model.to_s.match?(/^glm-[45]/i)
           # GLM (Zhipu / Z.ai) supports a native top-level "thinking" field
           # ({type: "enabled"|"disabled"}) plus a restricted reasoning_effort
           # that only accepts "max" or "high". Other effort levels collapse

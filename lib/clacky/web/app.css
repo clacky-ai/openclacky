@@ -3253,6 +3253,19 @@ body {
 [data-theme="dark"] .msg-user { background: var(--color-accent-soft); }
 .msg-assistant { background: var(--color-bg-tertiary); border: 1px solid var(--color-border-primary); align-self: flex-start; }
 
+/* Highlighted slash command inside a user bubble (/skill-name …). Rendered by
+   SkillAC.renderUserMessageHtml; spans never contain newlines (pre-wrap safe). */
+.msg-user .msg-slash-cmd {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  color: var(--color-accent-primary);
+  background: color-mix(in srgb, var(--color-accent-primary) 10%, transparent);
+  border-radius: var(--radius-sm);
+  padding: 0.1em 0.35em;
+  margin-right: 0.2em;
+  white-space: nowrap;
+}
+
 /* ── User message action bar (copy + edit) ─────────────────────────────── */
 .msg-user-wrap {
   position: relative;
@@ -5305,7 +5318,7 @@ body {
   outline: none !important;
   color: var(--color-text-primary);
   padding: 4px 6px;
-  font-size: 0.875rem;
+  font-size: 0.9375rem;
   resize: none;
   max-height: 12.5rem;
   font-family: var(--font-sans);
@@ -6061,6 +6074,13 @@ body {
   border-radius: 4px;
   display: inline-flex;
   max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.model-card-grid-remark {
+  font-size: 0.75rem;
+  color: var(--color-text-secondary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -10295,6 +10315,34 @@ body.setup-mode[data-theme="dark"] {
   display: flex;
   align-items: center;
   gap: 0.875rem;
+}
+
+.channel-status-messages {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border-primary);
+  border-radius: 8px;
+}
+
+.channel-status-messages-text {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.channel-status-messages-label {
+  font-size: 0.875rem;
+  color: var(--color-text-primary);
+}
+
+.channel-status-messages-desc {
+  font-size: 0.75rem;
+  color: var(--color-text-secondary);
 }
 
 /* Platform logo circle */

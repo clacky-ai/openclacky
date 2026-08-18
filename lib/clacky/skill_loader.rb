@@ -199,10 +199,15 @@ module Clacky
       []
     end
 
-    # Get skills that can be invoked by user
+    # Get skills that can be invoked by user, optionally filtered by an agent
+    # profile (profile-level `disabled_skills` + the skill's own `agent:`
+    # declaration). Centralizes profile filtering so consumers never have to
+    # assemble their own select chains.
+    # @param profile [Clacky::AgentProfile, nil] When nil, no profile filtering.
     # @return [Array<Skill>]
-    def user_invocable_skills
-      all_skills.select(&:user_invocable?)
+    def user_invocable_skills(profile = nil)
+      skills = all_skills.select(&:user_invocable?)
+      profile ? skills.select { |s| profile.skill_allowed?(s) } : skills
     end
 
     # Get the count of loaded skills
