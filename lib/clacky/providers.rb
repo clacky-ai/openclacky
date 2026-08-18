@@ -191,6 +191,9 @@ module Clacky
           "anthropic/claude-opus-4-7",
           "anthropic/claude-opus-4-6",
           "anthropic/claude-haiku-4-5",
+          "openai/gpt-5.6-sol",
+          "openai/gpt-5.6-terra",
+          "openai/gpt-5.6-luna",
           "openai/gpt-5.5",
           "openai/gpt-5.4",
           "openai/gpt-5.4-mini"
@@ -204,6 +207,8 @@ module Clacky
           "anthropic/claude-opus-4-8"   => "anthropic/claude-haiku-4-5",
           "anthropic/claude-opus-4-7"   => "anthropic/claude-haiku-4-5",
           "anthropic/claude-opus-4-6"   => "anthropic/claude-haiku-4-5",
+          "openai/gpt-5.6-sol"         => "openai/gpt-5.6-luna",
+          "openai/gpt-5.6-terra"       => "openai/gpt-5.6-luna",
           "openai/gpt-5.5"              => "openai/gpt-5.4-mini",
           "openai/gpt-5.4"              => "openai/gpt-5.4-mini"
         },
@@ -392,6 +397,9 @@ module Clacky
         "api" => "openai-completions",
         "default_model" => "gpt-5.5",
         "models" => [
+          "gpt-5.6-sol",
+          "gpt-5.6-terra",
+          "gpt-5.6-luna",
           "gpt-5.5",
           "gpt-5.4",
           "gpt-5.4-mini",
@@ -403,7 +411,11 @@ module Clacky
         "capabilities" => { "vision" => true }.freeze,
         # Per-primary lite pairing: subagents use mini/nano for cheap/fast work.
         # o4-mini and o3 are reasoning models without a lite-tier sibling here.
+        # GPT-5.6 *-pro variants are priced identically to their base tier and
+        # can be typed manually; only the three base tiers are listed.
         "lite_models" => {
+          "gpt-5.6-sol"   => "gpt-5.6-luna",
+          "gpt-5.6-terra" => "gpt-5.6-luna",
           "gpt-5.5" => "gpt-5.4-mini",
           "gpt-5.4" => "gpt-5.4-mini"
         },
