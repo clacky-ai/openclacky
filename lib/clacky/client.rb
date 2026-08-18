@@ -44,6 +44,7 @@ module Clacky
       effective_api_format ||= "anthropic-messages" if anthropic_format
       resolved_type = Providers.api_type_for_model(provider_id, @model, user_override: effective_api_format)
       @use_anthropic_format = resolved_type == "anthropic-messages"
+      @use_responses_format = resolved_type == "openai-responses"
 
       # Remember the provider id so we can tune connection headers below
       # (OpenRouter's /v1/messages accepts either Bearer or x-api-key, but
@@ -66,6 +67,12 @@ module Clacky
       @use_anthropic_format && !@use_bedrock
     end
 
+    # Returns true when the client talks to the OpenAI Responses API
+    # (/v1/responses) instead of Chat Completions.
+    def responses_format?(model = nil)
+      @use_responses_format && !@use_bedrock
+    end
+
     # ── Connection test ───────────────────────────────────────────────────────
 
     # Test API connection by sending a minimal request.
@@ -81,6 +88,11 @@ module Clacky
         minimal_body = { model: api_model, max_tokens: 16,
                          messages: [{ role: "user", content: "hi" }] }.to_json
         response = anthropic_connection.post(anthropic_messages_path) { |r| r.body = minimal_body }
+      elsif responses_format?
+        minimal_body = MessageFormat::OpenAIResponses.build_request_body(
+          [{ role: "user", content: "hi" }], api_model, [], 16, false
+        ).to_json
+        response = openai_connection.post("responses") { |r| r.body = minimal_body }
       else
         minimal_body = { model: api_model, max_tokens: 16,
                          messages: [{ role: "user", content: "hi" }] }.to_json
@@ -113,6 +125,10 @@ module Clacky
         body     = MessageFormat::Anthropic.build_request_body(messages, api_model, [], max_tokens, false)
         response = anthropic_connection.post(anthropic_messages_path) { |r| r.body = body.to_json }
         parse_simple_anthropic_response(response)
+      elsif responses_format?
+        body     = MessageFormat::OpenAIResponses.build_request_body(messages, api_model, [], max_tokens, false)
+        response = openai_connection.post("responses") { |r| r.body = body.to_json }
+        parse_simple_openai_responses_response(response)
       else
         body     = MessageFormat::OpenAI.build_request_body(messages, api_model, [], max_tokens, false, reasoning_effort: reasoning_effort)
         response = openai_connection.post("chat/completions") { |r| r.body = body.to_json }
@@ -164,6 +180,9 @@ module Clacky
         elsif anthropic_format?
           streaming_used = !on_chunk.nil?
           send_anthropic_request(cloned, api_model, tools, max_tokens, caching_enabled, reasoning_effort: reasoning_effort, on_chunk: wrapped_on_chunk)
+        elsif responses_format?
+          streaming_used = !on_chunk.nil?
+          send_openai_responses_request(cloned, api_model, tools, max_tokens, caching_enabled, reasoning_effort: reasoning_effort, on_chunk: wrapped_on_chunk, capability_model: model)
         else
           streaming_used = !on_chunk.nil?
           send_openai_request(cloned, api_model, tools, max_tokens, caching_enabled, reasoning_effort: reasoning_effort, on_chunk: wrapped_on_chunk, capability_model: model)
@@ -206,6 +225,8 @@ module Clacky
         MessageFormat::Bedrock.format_tool_results(response, tool_results)
       elsif anthropic_format?
         MessageFormat::Anthropic.format_tool_results(response, tool_results)
+      elsif responses_format?
+        MessageFormat::OpenAIResponses.format_tool_results(response, tool_results)
       else
         MessageFormat::OpenAI.format_tool_results(response, tool_results)
       end
@@ -455,6 +476,88 @@ module Clacky
         end
         raise RetryableError,
           "Upstream OpenAI-compatible response missing choices[0].message.content. " \
+          "Body snippet: #{snippet}"
+      end
+      content
+    end
+
+    # ── OpenAI Responses API request / response ───────────────────────────────
+
+    def send_openai_responses_request(messages, model, tools, max_tokens, caching_enabled, reasoning_effort: nil, on_chunk: nil, capability_model: nil)
+      # Override max_tokens when the model declares a higher output ceiling
+      model_for_limit = capability_model || model
+      model_limit = Providers.max_output_for(model_for_limit)
+      max_tokens = model_limit if model_limit
+
+      # Apply cache_control markers to messages when caching is enabled.
+      messages = apply_message_caching(messages) if caching_enabled
+
+      cap_model = capability_model || model
+      body = MessageFormat::OpenAIResponses.build_request_body(
+        messages, model, tools, max_tokens, caching_enabled,
+        vision_supported: Providers.supports?(@provider_id, :vision, model_name: cap_model),
+        reasoning_effort: reasoning_effort
+      )
+      return send_openai_responses_stream_request(body, on_chunk) if on_chunk
+
+      response = openai_connection.post("responses") { |r| r.body = body.to_json }
+
+      raise_error(response) unless response.status == 200
+      check_html_response(response)
+
+      parsed_body = safe_json_parse(response.body, context: "LLM response")
+      MessageFormat::OpenAIResponses.parse_response(parsed_body)
+    end
+
+    # Streaming variant for the OpenAI Responses API.
+    # Posts to the "responses" endpoint with stream:true; the upstream returns
+    # typed SSE events (response.output_text.delta,
+    # response.function_call_arguments.delta, response.completed, etc.) that
+    # the aggregator reassembles into the non-streaming response shape.
+    private def send_openai_responses_stream_request(body, on_chunk)
+      stream_body = body.merge(stream: true)
+      aggregator = OpenAIResponsesStreamAggregator.new(on_chunk: on_chunk)
+      sse_buf = +""
+
+      response = openai_connection.post("responses") do |req|
+        req.headers["Accept"] = "text/event-stream"
+        req.body = stream_body.to_json
+        req.options.on_data = proc do |chunk, _bytes_received, _env|
+          sse_buf << chunk
+          drain_sse_frames(sse_buf) { |_event, data| aggregator.handle(data) }
+        end
+      end
+
+      unless response.status == 200
+        response.env.body = sse_buf if response.body.to_s.empty?
+        raise_error(response)
+      end
+
+      result = aggregator.to_h
+      log_stream_summary("openai-responses", aggregator, aggregator.saw_done? ? "completed" : nil)
+      # A complete Responses API stream always terminates with a
+      # response.completed / response.done (or response.incomplete) event.
+      # Its absence means the upstream cut the stream mid-response; retry
+      # rather than accept a silently truncated answer.
+      unless aggregator.saw_done?
+        raise Clacky::UpstreamTruncatedError,
+          "[LLM] Streaming response ended without response.completed (upstream cut the stream). Retrying..."
+      end
+      MessageFormat::OpenAIResponses.parse_response(result)
+    end
+
+    def parse_simple_openai_responses_response(response)
+      raise_error(response) unless response.status == 200
+      parsed_body = safe_json_parse(response.body, context: "LLM response")
+      result = MessageFormat::OpenAIResponses.parse_response(parsed_body)
+      content = result[:content]
+      if content.nil?
+        snippet = response.body.to_s[0, 1200]
+        if defined?(Clacky::Logger)
+          Clacky::Logger.warn("[parse_simple_openai_responses_response] no content. status=#{response.status} body=#{snippet}")
+        end
+        raise RetryableError,
+          "Upstream Responses API response missing text content. " \
           "Body snippet: #{snippet}"
       end
       content

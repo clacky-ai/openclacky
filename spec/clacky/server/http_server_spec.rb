@@ -706,13 +706,31 @@ RSpec.describe Clacky::Server::HttpServer do
       end
     end
 
-    it "rejects invalid api_format with 422" do
+    it "accepts openai-responses as a valid api_format" do
       with_server(agent_config: agent_config) do |server|
         payload = {
           model:      "gpt-5",
           base_url:   "https://api.openai.com",
           api_key:    "sk-newkey0000111122223333",
           api_format: "openai-responses"
+        }
+        req = fake_req(method: "POST", path: "/api/config/models", body: payload)
+        res = fake_res
+        dispatch(server, req, res)
+
+        expect(res.status).to eq(200)
+        created = agent_config.models.find { |m| m["model"] == "gpt-5" }
+        expect(created["api_format"]).to eq("openai-responses")
+      end
+    end
+
+    it "rejects invalid api_format with 422" do
+      with_server(agent_config: agent_config) do |server|
+        payload = {
+          model:      "gpt-5",
+          base_url:   "https://api.openai.com",
+          api_key:    "sk-newkey0000111122223333",
+          api_format: "bogus-format"
         }
         req = fake_req(method: "POST", path: "/api/config/models", body: payload)
         res = fake_res

@@ -81,6 +81,17 @@ RSpec.describe Clacky::Client, "OpenRouter Anthropic routing" do
       expect(client.anthropic_format?).to be true
     end
 
+    it "enables responses_format? for openai-responses" do
+      client = build("deepseek/deepseek-v4-pro", api_format: "openai-responses")
+      expect(client.responses_format?).to be true
+      expect(client.anthropic_format?).to be false
+    end
+
+    it "keeps responses_format? false for openai-completions" do
+      client = build("deepseek/deepseek-v4-pro", api_format: "openai-completions")
+      expect(client.responses_format?).to be false
+    end
+
     it "falls back to preset resolution when api_format is nil (auto)" do
       client = build("anthropic/claude-sonnet-4-6", api_format: nil)
       expect(client.anthropic_format?).to be true
