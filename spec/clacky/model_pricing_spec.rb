@@ -510,6 +510,79 @@ RSpec.describe Clacky::ModelPricing do
       end
     end
     
+    context "with GPT-5.6 models (Sol / Terra / Luna)" do
+      it "bills gpt-5.6-luna at flat economy rates" do
+        usage = { prompt_tokens: 1_000_000, completion_tokens: 1_000_000 }
+
+        # Input:  1M * $0.20 = $0.20
+        # Output: 1M * $1.20 = $1.20
+        # Total: $1.40
+        result = described_class.calculate_cost(model: "gpt-5.6-luna", usage: usage)
+        expect(result[:cost]).to be_within(0.0001).of(1.40)
+        expect(result[:source]).to eq(:price)
+      end
+
+      it "bills gpt-5.6-terra at flat rates" do
+        usage = { prompt_tokens: 1_000_000, completion_tokens: 1_000_000 }
+
+        # $2.00 + $12.00 = $14.00
+        result = described_class.calculate_cost(model: "gpt-5.6-terra", usage: usage)
+        expect(result[:cost]).to be_within(0.0001).of(14.00)
+        expect(result[:source]).to eq(:price)
+      end
+
+      it "bills gpt-5.6-sol at flat rates with cache read" do
+        usage = {
+          prompt_tokens: 1_000_000,
+          completion_tokens: 0,
+          cache_read_input_tokens: 200_000
+        }
+
+        # Regular input: (1_000_000 - 200_000)/1M * $2.50 = $2.00
+        # Cache read:     200_000 / 1M * $0.25            = $0.05
+        # Total: $2.05
+        result = described_class.calculate_cost(model: "gpt-5.6-sol", usage: usage)
+        expect(result[:cost]).to be_within(0.0001).of(2.05)
+        expect(result[:source]).to eq(:price)
+      end
+
+      it "resolves the openai/ OpenRouter prefix" do
+        result = described_class.calculate_cost(
+          model: "openai/gpt-5.6-luna",
+          usage: { prompt_tokens: 1_000_000, completion_tokens: 0 }
+        )
+        expect(result[:cost]).to be_within(0.0001).of(0.20)
+        expect(result[:source]).to eq(:price)
+      end
+
+      it "bills *-pro variants at the base-tier rate (identical pricing)" do
+        usage = { prompt_tokens: 1_000_000, completion_tokens: 1_000_000 }
+        base = described_class.calculate_cost(model: "gpt-5.6-sol", usage: usage)
+        pro  = described_class.calculate_cost(model: "openai/gpt-5.6-sol-pro", usage: usage)
+        expect(pro[:cost]).to eq(base[:cost])
+        expect(pro[:source]).to eq(:price)
+      end
+
+      it "keeps flat rates above 200K (no tier bump)" do
+        small = described_class.calculate_cost(
+          model: "gpt-5.6-terra", usage: { prompt_tokens: 10_000, completion_tokens: 0 }
+        )[:cost]
+        large = described_class.calculate_cost(
+          model: "gpt-5.6-terra", usage: { prompt_tokens: 250_000, completion_tokens: 0 }
+        )[:cost]
+        expect(small / 10_000).to be_within(0.0000001).of(large / 250_000)
+      end
+
+      it "returns nil for :batch ids (half-price billing not modeled)" do
+        result = described_class.calculate_cost(
+          model: "openai/gpt-5.6-luna:batch",
+          usage: { prompt_tokens: 1_000_000, completion_tokens: 0 }
+        )
+        expect(result[:cost]).to be_nil
+        expect(result[:source]).to be_nil
+      end
+    end
+
     context "with unknown model" do
       it "returns nil cost (no default fallback)" do
         usage = {

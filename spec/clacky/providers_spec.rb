@@ -111,6 +111,8 @@ RSpec.describe Clacky::Providers do
       end
 
       it "returns correct lite model mappings" do
+        expect(described_class.lite_model("openai", "gpt-5.6-sol")).to eq("gpt-5.6-luna")
+        expect(described_class.lite_model("openai", "gpt-5.6-terra")).to eq("gpt-5.6-luna")
         expect(described_class.lite_model("openai", "gpt-5.5")).to eq("gpt-5.4-mini")
         expect(described_class.lite_model("openai", "gpt-5.4")).to eq("gpt-5.4-mini")
       end
@@ -127,7 +129,7 @@ RSpec.describe Clacky::Providers do
       end
 
       it "includes expected models" do
-        expect(described_class.models("openai")).to include("gpt-5.5", "gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano", "o4-mini", "o3")
+        expect(described_class.models("openai")).to include("gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.5", "gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano", "o4-mini", "o3")
       end
     end
 
@@ -644,10 +646,11 @@ RSpec.describe Clacky::Providers do
         .to eq("openai-responses")
       expect(described_class.api_type_for_model("openrouter", "openai/gpt-5.5"))
         .to eq("openai-responses")
+      expect(described_class.api_type_for_model("openrouter", "openai/gpt-5.6-luna"))
+        .to eq("openai-responses")
       expect(described_class.api_type_for_model("openrouter", "deepseek/deepseek-v4-pro"))
         .to eq("openai-responses")
     end
-
     it "tolerates a nil model_name by returning the provider default" do
       expect(described_class.api_type_for_model("openrouter", nil)).to eq("openai-responses")
     end

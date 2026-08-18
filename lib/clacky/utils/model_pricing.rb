@@ -404,8 +404,57 @@ module Clacky
         }
       },
 
-      # OpenAI GPT-5.5 / GPT-5.4 — breakpoint at 272K input tokens
-      # Source: https://openai.com/api/pricing/ (USD / 1M tokens)
+      # GPT-5.6 flat-rate models (no breakpoint, single rate regardless of
+      # context; *-pro variants are priced identically to the base tier).
+      # Source: OpenAI list price ($/MTok) via OpenRouter model pages, incl.
+      # the OpenAI-direct provider row (verified 2026-08-18). Cache write is
+      # not published separately; it follows the GPT-5.5 convention (= input).
+      "gpt-5.6-sol" => {
+        input: {
+          default: 2.50,
+          over_200k: 2.50
+        },
+        output: {
+          default: 15.00,
+          over_200k: 15.00
+        },
+        cache: {
+          write: 2.50,
+          read: 0.25
+        }
+      },
+
+      "gpt-5.6-terra" => {
+        input: {
+          default: 2.00,
+          over_200k: 2.00
+        },
+        output: {
+          default: 12.00,
+          over_200k: 12.00
+        },
+        cache: {
+          write: 2.00,
+          read: 0.20
+        }
+      },
+
+      "gpt-5.6-luna" => {
+        input: {
+          default: 0.20,
+          over_200k: 0.20
+        },
+        output: {
+          default: 1.20,
+          over_200k: 1.20
+        },
+        cache: {
+          write: 0.20,
+          read: 0.02
+        }
+      },
+
+      # OpenAI GPT-5.5 / GPT-5.4 - breakpoint at 272K input tokens      # Source: https://openai.com/api/pricing/ (USD / 1M tokens)
       # Note: OpenAI's actual tiered-pricing threshold is 272K, not the
       # global 200K below.  Prompts between 200K–272K will slightly
       # over-estimate costs until a per-model threshold is implemented.
@@ -931,10 +980,20 @@ module Clacky
         when /^or-gemini-3-6-flash$/i, /^gemini-3\.6-flash$/i
           "gemini-3.6-flash"
 
-        # OpenAI GPT-5.x models — match various dashed/dotted/compact forms
+        # OpenAI GPT-5.x models - match various dashed/dotted/compact forms
         # (e.g. "gpt-5.5", "gpt-5-5", "gpt5.5", "gpt55")
+        # GPT-5.6 tiers also accept an "openai/" OpenRouter prefix (the
+        # anchored rules above would otherwise miss it) and the "-pro"
+        # suffix (pro is priced identically to the base tier). Batch ids
+        # (":batch") stay unmatched - they bill at half price.
+        when %r{^(openai/)?gpt-?5[\.-]?6[\.-]?sol(-pro)?$}i
+          "gpt-5.6-sol"
+        when %r{^(openai/)?gpt-?5[\.-]?6[\.-]?terra(-pro)?$}i
+          "gpt-5.6-terra"
+        when %r{^(openai/)?gpt-?5[\.-]?6[\.-]?luna(-pro)?$}i
+          "gpt-5.6-luna"
         when /^gpt-?5\.?5$/i, /^gpt-?5[\.-]?5$/i
-          "gpt-5.5"
+          "gpt-5.5"        
         when /^gpt-?5\.?4[^.]*mini$/i, /^gpt-?5\.?4[\.-]?mini$/i
           "gpt-5.4-mini"
         when /^gpt-?5\.?4[^.]*nano$/i, /^gpt-?5\.?4[\.-]?nano$/i
