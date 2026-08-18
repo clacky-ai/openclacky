@@ -893,7 +893,15 @@
           <section class="settings-section">
             <div class="settings-section-title">
               <span data-i18n="settings.models.title">Primary Model</span>
-              <button id="btn-add-model" class="btn-settings-add" data-i18n="settings.models.add">+ Add Model</button>
+              <div class="models-header-actions">
+                <div class="model-search-box">
+                  <svg class="model-search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                  <input type="text" id="model-search" class="model-search-input"
+                         data-i18n-placeholder="settings.models.search.placeholder"
+                         placeholder="Search model / provider / remark / base URL" autocomplete="off">
+                </div>
+                <button id="btn-add-model" class="btn-settings-add" data-i18n="settings.models.add">+ Add Model</button>
+              </div>
             </div>
             <div id="model-cards"></div>
           </section>
