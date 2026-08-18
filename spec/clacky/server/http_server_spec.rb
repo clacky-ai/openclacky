@@ -844,6 +844,24 @@ RSpec.describe Clacky::Server::HttpServer do
       end
     end
 
+    it "applies no partial writes when api_format is invalid" do
+      original_model = agent_config.models[0]["model"]
+      original_key = agent_config.models[0]["api_key"]
+
+      with_server(agent_config: agent_config) do |server|
+        id = agent_config.models[0]["id"]
+        payload = { model: "renamed-model", base_url: "https://hijacked.example.com", api_format: "bogus" }
+        req = fake_req(method: "PATCH", path: "/api/config/models/#{id}", body: payload)
+        res = fake_res
+        dispatch(server, req, res)
+
+        expect(res.status).to eq(422)
+        expect(agent_config.models[0]["model"]).to eq(original_model)
+        expect(agent_config.models[0]["base_url"]).to eq("https://api.example.com")
+        expect(agent_config.models[0]["api_key"]).to eq(original_key)
+      end
+    end
+
     # Regression for the "saving one model wiped other api_keys" bug:
     # PATCHing model A must never touch model B's api_key, by design.
     it "does not touch other models' api_keys" do

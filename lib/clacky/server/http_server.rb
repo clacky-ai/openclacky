@@ -6145,6 +6145,15 @@ module Clacky
         target = @agent_config.models.find { |m| m["id"] == id }
         return json_response(res, 404, { error: "model not found" }) unless target
 
+        # Validate before any mutation: target is a live reference inside
+        # @agent_config.models, so an early 422 return after partial writes
+        # would leave the in-memory config poisoned until the next save.
+        api_format = nil
+        if body.key?("api_format")
+          api_format = normalize_api_format(body["api_format"])
+          return json_response(res, 422, { error: "invalid api_format" }) if api_format == :invalid
+        end
+
         if body.key?("model")
           v = body["model"].to_s.strip
           target["model"] = v unless v.empty?
@@ -6157,8 +6166,6 @@ module Clacky
           target["anthropic_format"] = !!body["anthropic_format"]
         end
         if body.key?("api_format")
-          api_format = normalize_api_format(body["api_format"])
-          return json_response(res, 422, { error: "invalid api_format" }) if api_format == :invalid
           if api_format.nil?
             target.delete("api_format")
           else
