@@ -1468,6 +1468,7 @@ module Clacky
         # crash output (e.g. config/brand load failures) instead of losing it.
         Clacky::Logger.console = $stderr.isatty
         unless $stderr.isatty
+          Clacky::Logger.ensure_log_dir
           log_io = File.open(Clacky::Logger.current_log_file, "a")
           $stderr.reopen(log_io)
           log_io.close
