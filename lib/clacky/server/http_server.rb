@@ -537,6 +537,11 @@ module Clacky
           120
         elsif path == "/api/store/extension/install"
           10  # now async — just spawns a thread and returns job_id immediately
+        elsif path == "/api/store/extension/import"
+          # The handler reads the whole zip body synchronously (up to 80MB via
+          # parse_multipart_upload) before spawning the worker thread, so this
+          # must cover the network read, not just the cheap job handoff.
+          60
         elsif path == "/api/store/extension/install/status"
           10
         else
@@ -613,6 +618,7 @@ module Clacky
         when ["GET",    "/api/store/extensions/installed"] then api_store_extensions_installed(res)
         when ["GET",    "/api/store/extension"]       then api_store_extension_detail(req, res)
         when ["POST",   "/api/store/extension/install"]  then api_store_extension_install(req, res)
+        when ["POST",   "/api/store/extension/import"]   then api_store_extension_import(req, res)
         when ["GET",    "/api/store/extension/install/status"] then api_store_extension_install_status(req, res)
         when ["POST",   "/api/store/extension/disable"] then api_store_extension_disable(req, res)
         when ["POST",   "/api/store/extension/enable"]  then api_store_extension_enable(req, res)
@@ -2894,10 +2900,39 @@ module Clacky
           return
         end
 
+        job_id = spawn_extension_job("downloading") do |on_progress|
+          Clacky::ExtensionPackager.install(download_url, force: true, on_progress: on_progress)
+          Clacky::Telemetry.extension_install!(name) unless name.empty?
+        end
+
+        json_response(res, 200, { ok: true, job_id: job_id })
+      end
+
+      # POST /api/store/extension/import   multipart/form-data: file=<zip>
+      # Imports a locally uploaded .zip package. Same async job/poll flow as
+      # install; the import work itself lives in ExtensionPackager.install_bytes.
+      def api_store_extension_import(req, res)
+        upload = parse_multipart_upload(req, "file")
+        unless upload
+          json_response(res, 400, { ok: false, error: "No file field found in multipart body" })
+          return
+        end
+
+        job_id = spawn_extension_job("extracting") do |on_progress|
+          Clacky::ExtensionPackager.install_bytes(upload[:data], filename: upload[:filename], force: true, on_progress: on_progress)
+        end
+
+        json_response(res, 200, { ok: true, job_id: job_id })
+      end
+
+      # Registers a job in @install_jobs and runs the given block on a worker
+      # thread with an on_progress callback wired into the job entry. Shared by
+      # install and import; returns the job_id for the status poll endpoint.
+      private def spawn_extension_job(initial_stage, &work)
         job_id = SecureRandom.hex(8)
         @install_jobs_mutex.synchronize do
           sweep_stale_install_jobs!
-          @install_jobs[job_id] = { stage: "downloading", progress: 0, error: nil, done: false, updated_at: Time.now }
+          @install_jobs[job_id] = { stage: initial_stage, progress: 0, error: nil, done: false, updated_at: Time.now }
         end
 
         Thread.new do
@@ -2907,9 +2942,8 @@ module Clacky
                 @install_jobs[job_id] = info.merge(error: nil, done: false, updated_at: Time.now)
               end
             end
-            Clacky::ExtensionPackager.install(download_url, force: true, on_progress: on_progress)
+            work.call(on_progress)
             Clacky::ExtensionLoader.invalidate_cache!
-            Clacky::Telemetry.extension_install!(name) unless name.empty?
             @install_jobs_mutex.synchronize do
               @install_jobs[job_id] = { stage: "done", progress: 100, error: nil, done: true, updated_at: Time.now }
             end
@@ -2920,7 +2954,7 @@ module Clacky
           end
         end
 
-        json_response(res, 200, { ok: true, job_id: job_id })
+        job_id
       end
 
       # GET /api/store/extension/install/status?job_id=xxx

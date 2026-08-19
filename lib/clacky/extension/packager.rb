@@ -101,6 +101,28 @@ module Clacky
         end
       end
 
+      # Install from raw zip bytes (e.g. a multipart upload). Validates the
+      # filename/size, writes the bytes to a temp file inside a mktmpdir, then
+      # delegates to install(). The temp file lives for the whole install
+      # (extract reads it) and is cleaned up on return.
+      def install_bytes(data, filename: nil, **opts)
+        unless data.is_a?(String) && !data.empty?
+          raise Error, "empty upload"
+        end
+        unless filename.to_s.downcase.end_with?(".zip")
+          raise Error, "please upload a .zip file"
+        end
+        if data.bytesize > MAX_ZIP_SIZE
+          raise Error, "upload exceeds #{MAX_ZIP_SIZE / 1024 / 1024}MB limit"
+        end
+
+        Dir.mktmpdir("clacky-ext-import") do |dir|
+          zip_path = File.join(dir, "upload.zip")
+          File.binwrite(zip_path, data)
+          install(zip_path, **opts)
+        end
+      end
+
       # Verify only the target container in isolation: symlink it into a temp
       # root so sibling containers in the real local dir don't pollute the run.
       private def verify_container!(slug, container_dir)
