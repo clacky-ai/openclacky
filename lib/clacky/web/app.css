@@ -4856,6 +4856,16 @@ body {
   gap: 0.5rem;
   flex-shrink: 0;
 }
+.sib-model-price {
+  font-size: 0.625rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: var(--color-text-tertiary);
+}
+.sib-model-option .sib-model-price {
+  min-width: 2.25rem;
+  text-align: right;
+}
 .sib-model-option .sib-model-latency {
   font-size: 0.625rem;
   font-variant-numeric: tabular-nums;

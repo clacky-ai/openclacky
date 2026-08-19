@@ -20,6 +20,7 @@ require_relative "session_registry"
 require_relative "project_manager"
 require_relative "git_panel"
 require_relative "web_ui_controller"
+require_relative "model_prices"
 require_relative "scheduler"
 require_relative "../brand_config"
 require_relative "channel"
@@ -573,6 +574,7 @@ module Clacky
         when ["GET",    "/api/skills"]         then api_list_skills(res)
         when ["GET",    "/api/agents"]         then api_list_agents(res)
         when ["GET",    "/api/config"]        then api_get_config(req, res)
+        when ["GET",    "/api/model_prices"]  then json_response(res, 200, Clacky::Server::ModelPrices.build(req.query["models"]))
         when ["GET",    "/api/config/settings"]  then api_get_settings(res)
         when ["GET",    "/api/exchange-rate"]    then api_exchange_rate(req, res)
         when ["PATCH",  "/api/config/settings"]  then api_update_settings(req, res)
