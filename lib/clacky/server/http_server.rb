@@ -6421,8 +6421,8 @@ module Clacky
         json_response(res, 500, { error: e.message })
       end
 
-      # PATCH /api/projects/:id — update a project
-      # Body: { name:?, description:?, color:?, working_dir:? } — only provided fields are changed
+      # PATCH /api/projects/:id - update a project
+      # Body: { name:?, description:?, color:?, working_dir:?, pinned:? } - only provided fields are changed
       def api_update_project(project_id, req, res)
         body = parse_json_body(req)
         return json_response(res, 404, { error: "Project not found" }) if @project_manager.find(project_id).nil?
@@ -6432,6 +6432,10 @@ module Clacky
         kwargs[:description] = body["description"] if body.key?("description")
         kwargs[:color]       = body["color"]        if body.key?("color")
         kwargs[:icon]        = body["icon"]         if body.key?("icon")
+        if body.key?("pinned")
+          return json_response(res, 400, { error: "pinned must be true or false" }) unless body["pinned"] == true || body["pinned"] == false
+          kwargs[:pinned] = body["pinned"]
+        end
         if body.key?("working_dir")
           raw_wd = body["working_dir"].to_s.strip
           kwargs[:working_dir] = raw_wd.empty? ? nil : File.expand_path(raw_wd)

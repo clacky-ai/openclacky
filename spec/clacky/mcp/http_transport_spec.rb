@@ -72,6 +72,28 @@ RSpec.describe Clacky::Mcp::HttpTransport do
       end
     end
 
+    context "when a CRLF between two data lines is split across chunks" do
+      it "keeps both lines in one event" do
+        # The payload only parses when both data lines land in the same
+        # event: normalizing each chunk in isolation turns "\r" | "\n"
+        # into "\n\n", splitting the event in two and corrupting both halves.
+        line1 = '{"jsonrpc": "2.0",'
+        line2 = ' "id": 1, "result": {"ok": true}}'
+        full  = "data: #{line1}\r\ndata: #{line2}\r\n\r\n"
+        split_at = full.index("\r") + 1
+        chunks = [full[0...split_at], full[split_at..]]
+        expect(consume_chunks(transport, chunks)).to eq([payload])
+      end
+    end
+
+    context "when a \\r\\r separator is split across chunks at end of stream" do
+      it "delivers the message" do
+        full = "data: #{json}\r\r"
+        chunks = [full[0...-1], full[-1..]]
+        expect(consume_chunks(transport, chunks)).to eq([payload])
+      end
+    end
+
     context "when multiple events arrive in one chunk" do
       let(:payload2) { { "jsonrpc" => "2.0", "id" => 2, "result" => { "ok" => false } } }
       let(:json2)    { JSON.generate(payload2) }
