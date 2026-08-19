@@ -14304,7 +14304,7 @@ body.setup-mode[data-theme="dark"] {
 
 /* ── Empty hint ────────────────────────────────────────────────────────────── */
 .project-empty-hint {
-  padding: 0.375rem 0.75rem;
+  padding: 0.375rem 0.65rem;
   font-size: 0.75rem;
   color: var(--color-text-muted);
 }
@@ -14428,7 +14428,7 @@ body.setup-mode[data-theme="dark"] {
 }
 
 .project-sessions-empty {
-  padding: 0.25rem 0.5rem 0.25rem 0.625rem;
+  padding: 0.25rem 0.5rem 0.25rem 2.2rem;
   font-size: 0.75rem;
   color: var(--color-text-muted);
 }
