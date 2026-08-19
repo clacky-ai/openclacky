@@ -14327,6 +14327,16 @@ body.setup-mode[data-theme="dark"] {
   color: var(--color-text-primary);
 }
 
+/* Pin badge next to the name of a pinned project (mirrors .session-pin-icon) */
+.project-pin-badge {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  opacity: 0.6;
+  margin-left: 2px;
+  color: var(--color-text-tertiary);
+}
+
 /* Actions button (⋯) — shown only on hover */
 .project-actions-btn {
   flex-shrink: 0;

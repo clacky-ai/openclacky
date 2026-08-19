@@ -19,6 +19,7 @@ module Clacky
     #     color:       String | null (e.g. "#6366f1"),
     #     icon:        String | null (e.g. "folder", "code"),
     #     working_dir: String | null (absolute path; new sessions inherit this),
+    #     pinned_at:   String | null (ISO8601; set when pinned, nil when not),
     #     created_at:  ISO8601,
     #     updated_at:  ISO8601
     #   }
@@ -71,8 +72,9 @@ module Clacky
 
       # Update an existing project. Only explicitly passed (non-sentinel) keys
       # are changed. Pass description: nil or color: nil or icon: nil or working_dir: nil to clear those fields.
+      # Pass pinned: true to pin (sets pinned_at to now), pinned: false to unpin.
       # Returns updated project hash, or nil if not found.
-      def update(id, name: :__unset, description: :__unset, color: :__unset, icon: :__unset, working_dir: :__unset)
+      def update(id, name: :__unset, description: :__unset, color: :__unset, icon: :__unset, working_dir: :__unset, pinned: :__unset)
         @mutex.synchronize do
           projects = load_projects
           project  = projects.find { |p| p[:id] == id.to_s }
@@ -87,6 +89,7 @@ module Clacky
           project[:color]       = optional_str(color)       unless color == :__unset
           project[:icon]        = optional_str(icon)        unless icon == :__unset
           project[:working_dir] = optional_str(working_dir) unless working_dir == :__unset
+          project[:pinned_at]   = pinned == true ? Time.now.iso8601 : nil unless pinned == :__unset
           project[:updated_at]  = Time.now.iso8601
 
           save_projects(projects)

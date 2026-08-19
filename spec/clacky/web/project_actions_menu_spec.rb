@@ -7,6 +7,12 @@ RSpec.describe "Project actions menu UI" do
 
   it "embeds Lucide Pencil, Brush, and Trash icons for the three actions" do
     expect(projects).to include(
+      'addItem(isPinned ? "projects.menu.unpin" : "projects.menu.pin",'
+    )
+    expect(projects).to include(
+      'isPinned ? "Unpin" : "Pin to top", iconPin, false, pinToggle);'
+    )
+    expect(projects).to include(
       'addItem("projects.menu.edit", "Edit Project", iconEdit, false'
     )
     expect(projects).to include(
@@ -22,8 +28,16 @@ RSpec.describe "Project actions menu UI" do
     )
     expect(projects).to include('M3 6h18')
     expect(projects).to include('const iconEdit = `<svg')
+    expect(projects).to include('const iconPin = `<svg')
     expect(projects).to include('const iconClearSessions = `<svg')
     expect(projects).to include('const iconTrash = `<svg')
+  end
+
+  it "sorts pinned projects first and renders a pin badge" do
+    expect(projects).to include("const pa = a.pinned_at || \"\"")
+    expect(projects).to include("if (pa !== pb) return pb.localeCompare(pa)")
+    expect(projects).to include("if (project.pinned_at)")
+    expect(projects).to include('pin.className = "project-pin-badge"')
   end
 
   it "matches the existing 14px menu icon size and themes only deletion as dangerous" do
