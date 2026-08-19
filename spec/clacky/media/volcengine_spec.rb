@@ -239,7 +239,7 @@ RSpec.describe Clacky::Media::Volcengine do
         result = provider.video_status(task_id: "cgt-123", output_dir: tmp)
         expect(result["success"]).to be true
         expect(result["status"]).to eq("succeeded")
-        expect(result["video"]).to start_with(File.join(tmp, "assets", "generated"))
+        expect(result["video"]).to start_with(tmp)
         expect(File.binread(result["video"])).to eq("VIDEO_BYTES")
         expect(result["task_id"]).to eq("cgt-123")
       end

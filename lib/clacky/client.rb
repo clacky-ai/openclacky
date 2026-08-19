@@ -10,26 +10,41 @@ module Clacky
 
     attr_reader :provider_id
 
-    def initialize(api_key, base_url:, model:, api_protocol: nil, anthropic_format: false, read_timeout: nil)
+    # @param provider_id [String, nil] explicit provider preset id from the
+    #   model card. When it names a known preset it wins over base_url/api_key
+    #   heuristics, so a custom base_url still inherits the preset's capability
+    #   table (e.g. vision support). nil falls back to base_url inference.
+    # @param capabilities [Hash, nil] explicit capability declarations from the
+    #   model card (e.g. { "vision" => false }). These win over both provider_id
+    #   and base_url inference, so a custom gateway can declare "text-only"
+    #   without matching any preset.
+    def initialize(api_key, base_url:, model:, anthropic_format: false, api_format: nil, read_timeout: nil, provider_id: nil, capabilities: nil)
       @api_key = api_key
       @base_url = base_url
       @model = model
+      @capabilities = capabilities.is_a?(Hash) ? capabilities : nil
       # Detect Bedrock: ABSK key prefix (native AWS) or abs- model prefix (Clacky AI proxy)
       @use_bedrock = MessageFormat::Bedrock.bedrock_api_key?(api_key, model)
 
       # Resolve provider once — reused for capability + api-type lookups.
-      provider_id = Providers.resolve_provider(base_url: @base_url, api_key: @api_key)
+      # An explicit provider_id naming a known preset wins over base_url
+      # inference (mirrors AgentConfig#provider_id_for); unknown/blank values
+      # fall through to the historical base_url/api_key heuristics.
+      provider_id = Providers.preset?(provider_id) ? provider_id : Providers.resolve_provider(base_url: @base_url, api_key: @api_key)
 
-      # Resolve the API protocol: explicit user choice > legacy anthropic_format
-      # flag > provider preset default > fallback to openai-completions.
-      # This replaces the old boolean anthropic_format with a 4-way enum:
-      #   "bedrock" | "anthropic-messages" | "openai-completions" | "openai-responses"
-      @api_protocol = resolve_api_protocol(api_protocol, anthropic_format, provider_id, @model)
-
-      # Backward-compat: @use_anthropic_format is still referenced by some
-      # callers via the anthropic_format? method.
+      # Decide the transport format: an explicit user-selected api_format wins
+      # over provider preset resolution; the legacy anthropic_format boolean is
+      # mapped to an explicit "anthropic-messages" when true and to auto (nil)
+      # when false. Auto (nil) resolves via provider presets.
+      # The resolved type is kept as a 4-way enum so the Responses API can be
+      # dispatched: "bedrock" | "anthropic-messages" | "openai-completions" |
+      # "openai-responses" (falling back to "openai-completions" when the
+      # provider is unknown).
+      effective_api_format = api_format
+      effective_api_format ||= "anthropic-messages" if anthropic_format
+      resolved_type = Providers.api_type_for_model(provider_id, @model, user_override: effective_api_format)
+      @api_protocol = resolve_api_protocol(resolved_type)
       @use_anthropic_format = @api_protocol == "anthropic-messages"
-
       # Remember the provider id so we can tune connection headers below
       # (OpenRouter's /v1/messages accepts either Bearer or x-api-key, but
       # some OpenRouter-compatible relays only honour Bearer — send both).
@@ -46,7 +61,7 @@ module Clacky
     end
 
     # Returns true when the client is talking directly to the Anthropic API
-    # (determined at construction time via the api_protocol / anthropic_format flag).
+    # (determined at construction time via the api_format / anthropic_format flags).
     def anthropic_format?(model = nil)
       @use_anthropic_format && !@use_bedrock
     end
@@ -57,27 +72,13 @@ module Clacky
       @api_protocol
     end
 
-    # Resolve the API protocol from multiple sources, in priority order:
-    #   1. Bedrock (always detected by key/model prefix, takes priority)
-    #   2. Explicit user override (non-"auto" api_protocol value)
-    #   3. Legacy anthropic_format: true -> "anthropic-messages"
-    #   4. Provider preset default (via Providers.api_type_for_model)
-    #   5. Fallback: "openai-completions"
-    private def resolve_api_protocol(user_choice, legacy_anthropic_flag, provider_id, model_name)
+    # Normalize the resolved api type into the 4-way protocol enum:
+    # Bedrock detection always wins; unknown providers fall back to
+    # "openai-completions".
+    private def resolve_api_protocol(resolved_type)
       return "bedrock" if @use_bedrock
 
-      if user_choice && user_choice != "auto"
-        return user_choice
-      end
-
-      return "anthropic-messages" if legacy_anthropic_flag
-
-      if provider_id
-        resolved = Providers.api_type_for_model(provider_id, model_name)
-        return resolved if resolved && resolved != "bedrock"
-      end
-
-      "openai-completions"
+      resolved_type || "openai-completions"
     end
 
     # ── Connection test ───────────────────────────────────────────────────────
@@ -400,9 +401,10 @@ module Clacky
       # table can't match — so the caller passes the display name separately
       # via capability_model to keep the vision judgement accurate.
       cap_model = capability_model || model
+      vision_supported = capability_supported?(:vision, cap_model)
       body = MessageFormat::OpenAI.build_request_body(
         messages, model, tools, max_tokens, caching_enabled,
-        vision_supported: Providers.supports?(@provider_id, :vision, model_name: cap_model),
+        vision_supported: vision_supported,
         reasoning_effort: reasoning_effort
       )
       return send_openai_stream_request(body, on_chunk) if on_chunk
@@ -414,6 +416,24 @@ module Clacky
 
       parsed_body = safe_json_parse(response.body, context: "LLM response")
       MessageFormat::OpenAI.parse_response(parsed_body)
+    end
+
+    # Whether the target model supports a capability. Resolution order mirrors
+    # AgentConfig#current_model_supports? so the client and agent agree:
+    #   1. explicit `capabilities` declared on the model card win
+    #      (e.g. { "vision" => false } on a custom text-only gateway)
+    #   2. provider preset capability table (via provider_id / base_url inference)
+    #   3. conservative default true (unknown provider assumed capable)
+    #
+    # @param capability [Symbol] capability name (e.g. :vision)
+    # @param cap_model [String, nil] display model name for preset lookups
+    # @return [Boolean]
+    private def capability_supported?(capability, cap_model)
+      if @capabilities
+        key = capability.to_s
+        return @capabilities[key] != false if @capabilities.key?(key)
+      end
+      Providers.supports?(@provider_id, capability, model_name: cap_model)
     end
 
     # Streaming variant for OpenAI-compatible chat completions (DeepSeek/OpenRouter

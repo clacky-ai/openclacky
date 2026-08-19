@@ -109,7 +109,9 @@ module Clacky
         File.join(LOG_DIR, "clacky-#{time.strftime('%Y-%m-%d')}.log")
       end
 
-      private def ensure_log_dir
+      # Public so callers that open the log file directly (non-tty stderr
+      # redirect) can create the directory before the first write happens.
+      def ensure_log_dir
         FileUtils.mkdir_p(LOG_DIR) unless Dir.exist?(LOG_DIR)
       end
 

@@ -751,10 +751,12 @@ module Clacky
       # Resolve the API type for a specific provider+model pair.
       #
       # Resolution order:
-      #   1. PRESETS[provider_id]["model_api_overrides"] — first key (String or
+      #   1. user_override — an explicit user-selected api_format on the model
+      #      entry (e.g. "anthropic-messages" / "openai-completions").
+      #   2. PRESETS[provider_id]["model_api_overrides"] — first key (String or
       #      Regexp) that matches the model name wins.
-      #   2. PRESETS[provider_id]["api"] — the provider-wide default.
-      #   3. nil — unknown provider.
+      #   3. PRESETS[provider_id]["api"] — the provider-wide default.
+      #   4. nil — unknown provider.
       #
       # Use this instead of api_type when you need the precise transport for a
       # given model (e.g. routing OpenRouter's Claude requests to the native
@@ -762,8 +764,12 @@ module Clacky
       #
       # @param provider_id [String] The provider identifier
       # @param model_name [String, nil] The specific model name
+      # @param user_override [String, nil] Explicit user-selected API format,
+      #   wins over all preset resolution when present
       # @return [String, nil] The API type (e.g. "anthropic-messages")
-      def api_type_for_model(provider_id, model_name)
+      def api_type_for_model(provider_id, model_name, user_override: nil)
+        return user_override unless user_override.nil? || user_override.to_s.strip.empty?
+
         preset = PRESETS[provider_id]
         return nil unless preset
 
@@ -791,29 +797,6 @@ module Clacky
       # @return [Boolean]
       def anthropic_format_for_model?(provider_id, model_name)
         api_type_for_model(provider_id, model_name) == "anthropic-messages"
-      end
-
-      # Resolve the final API protocol: user override > preset default > fallback.
-      # Used by the frontend to show the effective protocol and by the Client
-      # when api_protocol is "auto".
-      # @param provider_id [String, nil]
-      # @param model_name [String, nil]
-      # @param user_override [String, nil] "auto" or explicit protocol name
-      # @return [String] one of the protocol identifiers
-      def resolve_api_protocol(provider_id, model_name, user_override = "auto")
-        return user_override if user_override && user_override != "auto"
-
-        api_type_for_model(provider_id, model_name) || "openai-completions"
-      end
-
-      # Return the list of API protocols a provider supports.
-      # Used by the frontend to populate the protocol selector dropdown.
-      # All providers can theoretically use any OpenAI-compatible protocol;
-      # the preset's declared "api" type is marked as the default.
-      # @param provider_id [String, nil] provider identifier (nil for custom/unknown)
-      # @return [Array<String>] list of protocol identifiers including "auto"
-      def supported_protocols(provider_id)
-        %w[auto anthropic-messages openai-completions openai-responses]
       end
 
       # List all available provider IDs
@@ -1154,6 +1137,13 @@ module Clacky
 
         model_caps = preset.dig("model_capabilities", model_name) || {}
         provider_caps.merge(model_caps)
+      end
+
+      # True when +id+ names a known preset. Callers use this to decide
+      # whether a model entry's `provider_id` can drive capability lookups,
+      # or whether it should fall through to base_url matching instead.
+      def preset?(id)
+        id.is_a?(String) && PRESETS.key?(id)
       end
 
       # Check if a provider+model supports a capability.

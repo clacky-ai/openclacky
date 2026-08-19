@@ -120,11 +120,15 @@ module Clacky
       # field (easy to miss @model / @use_bedrock) and then reused for a
       # later Agent.new, serving stale credentials.
       client_factory = lambda do
+        entry = agent_config.current_model
         Clacky::Client.new(
           agent_config.api_key,
           base_url: agent_config.base_url,
           model: agent_config.model_name,
-          api_protocol: agent_config.api_protocol
+          anthropic_format: agent_config.anthropic_format?,
+          api_format: agent_config.api_format,
+          provider_id: agent_config.provider_id_for(entry),
+          capabilities: entry && entry["capabilities"]
         )
       end
 
@@ -227,7 +231,8 @@ module Clacky
             test_config.api_key,
             base_url: test_config.base_url,
             model: test_config.model_name,
-            api_protocol: test_config.api_protocol
+            anthropic_format: test_config.anthropic_format?,
+            api_format: test_config.api_format
           )
           test_client.test_connection(model: test_config.model_name)
         end
@@ -1413,11 +1418,12 @@ module Clacky
         end
 
         client_factory = lambda do
+          entry = agent_config.current_model
           Clacky::Client.new(
             agent_config.api_key,
             base_url: agent_config.base_url,
             model: agent_config.model_name,
-            anthropic_format: agent_config.anthropic_format?
+            anthropic_format: agent_config.anthropic_format?,
           )
         end
 
@@ -1462,6 +1468,7 @@ module Clacky
         # crash output (e.g. config/brand load failures) instead of losing it.
         Clacky::Logger.console = $stderr.isatty
         unless $stderr.isatty
+          Clacky::Logger.ensure_log_dir
           log_io = File.open(Clacky::Logger.current_log_file, "a")
           $stderr.reopen(log_io)
           log_io.close

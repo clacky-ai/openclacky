@@ -222,11 +222,15 @@ module Clacky
     # Rebuild the underlying Client (and dependent components) to pick up
     # credentials/model name from the currently-selected model in @config.
     private def rebuild_client_for_current_model!
+      entry = @config.current_model
       @client = Clacky::Client.new(
         @config.api_key,
         base_url: @config.effective_base_url,
         model: @config.model_name,
-        api_protocol: @config.api_protocol
+        anthropic_format: @config.anthropic_format?,
+        api_format: @config.api_format,
+        provider_id: @config.provider_id_for(entry),
+        capabilities: entry && entry["capabilities"]
       )
       # Update message compressor with new client and model
       @message_compressor = MessageCompressor.new(@client, model: current_model)
@@ -1393,9 +1397,17 @@ module Clacky
       # the new task's @current_task_id, orphaned from its assistant.
       check_stale!
 
+      # Build a tool_call_id → tool_name lookup so truncate_oversized_tool_content
+      # can apply tool-specific truncation strategies (e.g. terminal head+tail).
+      tool_name_by_id = {}
+      response[:tool_calls]&.each do |tc|
+        tool_name_by_id[tc[:id]] = tc[:name]
+      end
+
       formatted_messages = @client.format_tool_results(response, tool_results, model: current_model)
       formatted_messages.each do |msg|
-        truncated = truncate_oversized_tool_content(msg)
+        tool_name = tool_name_by_id[msg[:tool_call_id]]
+        truncated = truncate_oversized_tool_content(msg, tool_name: tool_name)
         @history.append(truncated.merge(task_id: @current_task_id))
       end
 
@@ -1472,16 +1484,37 @@ module Clacky
     # are handled by the image_inject path above.
     MAX_TOOL_RESULT_CHARS = 80_000
 
-    private def truncate_oversized_tool_content(msg)
+    # For terminal output, keep both head and tail because build/test logs
+    # put the most actionable information (error summaries, exit codes) at
+    # the end. Splitting the budget evenly preserves both the command echo
+    # and the final error summary.
+    TERMINAL_HEAD_CHARS = 40_000
+    TERMINAL_TAIL_CHARS = 40_000
+
+    private def truncate_oversized_tool_content(msg, tool_name: nil)
       content = msg[:content]
       return msg unless content.is_a?(String) && content.length > MAX_TOOL_RESULT_CHARS
 
       original_len = content.length
-      head = content[0, MAX_TOOL_RESULT_CHARS]
-      truncated = head + "\n\n[Tool result truncated: #{original_len} chars total, " \
-        "showing first #{MAX_TOOL_RESULT_CHARS}. Use a more specific query/limit, " \
-        "or read the raw output via file_reader/grep on the underlying source.]"
-      msg.merge(content: truncated)
+
+      if tool_name == "terminal"
+        head = content[0, TERMINAL_HEAD_CHARS]
+        tail_start = content.length - TERMINAL_TAIL_CHARS
+        tail = content[tail_start, TERMINAL_TAIL_CHARS]
+        omitted = original_len - TERMINAL_HEAD_CHARS - TERMINAL_TAIL_CHARS
+        truncated = head + "\n\n" \
+          "[... #{omitted} chars omitted — terminal output truncated: " \
+          "#{original_len} chars total, showing first #{TERMINAL_HEAD_CHARS} + " \
+          "last #{TERMINAL_TAIL_CHARS}. Use a more specific command or redirect " \
+          "to a file and read the relevant section. ...]\n\n" + tail
+        msg.merge(content: truncated)
+      else
+        head = content[0, MAX_TOOL_RESULT_CHARS]
+        truncated = head + "\n\n[Tool result truncated: #{original_len} chars total, " \
+          "showing first #{MAX_TOOL_RESULT_CHARS}. Use a more specific query/limit, " \
+          "or read the raw output via file_reader/grep on the underlying source.]"
+        msg.merge(content: truncated)
+      end
     end
 
     # Enqueue an inline skill injection to be flushed after observe().
@@ -1796,11 +1829,15 @@ module Clacky
       end
 
       # Create new client for subagent
+      subagent_entry = subagent_config.current_model
       subagent_client = Clacky::Client.new(
         subagent_config.api_key,
         base_url: subagent_config.base_url,
         model: subagent_config.model_name,
-        api_protocol: subagent_config.api_protocol
+        anthropic_format: subagent_config.anthropic_format?,
+        api_format: subagent_config.api_format,
+        provider_id: subagent_config.provider_id_for(subagent_entry),
+        capabilities: subagent_entry && subagent_entry["capabilities"]
       )
 
       # Create subagent (reuses all tools from parent, inherits agent profile from parent)

@@ -162,7 +162,12 @@ module Clacky
         # When running under a LaunchAgent there is no terminal, so redirect the
         # worker's stderr to the daily log file to capture crash output (e.g.
         # Ruby load errors that happen before the logger is reachable).
-        stderr_target = $stderr.isatty ? :err : File.open(Clacky::Logger.current_log_file, "a")
+        if $stderr.isatty
+          stderr_target = :err
+        else
+          Clacky::Logger.ensure_log_dir
+          stderr_target = File.open(Clacky::Logger.current_log_file, "a")
+        end
         pid = spawn(env, ruby, script, *worker_argv, pgroup: 0, err: stderr_target)
         stderr_target.close unless stderr_target == :err
         Clacky::Logger.info("[Master PID=#{Process.pid}] Spawned worker PID=#{pid} pgroup=#{pid}")

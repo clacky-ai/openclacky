@@ -219,6 +219,54 @@ RSpec.describe Clacky::AgentConfig do
     end
   end
 
+  describe "#api_format" do
+    it "returns nil when the model entry has no api_format (auto)" do
+      config = described_class.new(models: [{ "model" => "gpt" }])
+      expect(config.api_format).to be_nil
+    end
+
+    it "returns the stored api_format" do
+      config = described_class.new(
+        models: [{ "model" => "gpt", "api_format" => "openai-completions" }]
+      )
+      expect(config.api_format).to eq("openai-completions")
+    end
+
+    it "treats an empty-string api_format as unset" do
+      config = described_class.new(
+        models: [{ "model" => "gpt", "api_format" => "" }]
+      )
+      expect(config.api_format).to be_nil
+    end
+
+    it "returns nil when no models are configured" do
+      config = described_class.new(models: [])
+      expect(config.api_format).to be_nil
+    end
+
+    it "returns the openai-responses format when stored" do
+      config = described_class.new(
+        models: [{ "model" => "gpt", "api_format" => "openai-responses" }]
+      )
+      expect(config.api_format).to eq("openai-responses")
+    end
+  end
+
+  describe "#add_model with api_format" do
+    it "stores api_format on the new model entry" do
+      config = described_class.new(models: [])
+      config.add_model(model: "gpt", api_key: "k", base_url: "https://x",
+                       api_format: "anthropic-messages")
+      expect(config.models.first["api_format"]).to eq("anthropic-messages")
+    end
+
+    it "omits the api_format key when not given" do
+      config = described_class.new(models: [])
+      config.add_model(model: "gpt", api_key: "k", base_url: "https://x")
+      expect(config.models.first.key?("api_format")).to be false
+    end
+  end
+
   describe "#current_model_supports?" do
     it "returns true when no models are configured (conservative default)" do
       config = described_class.new(models: [])
@@ -291,6 +339,50 @@ RSpec.describe Clacky::AgentConfig do
         models: [{ "api_key" => "x", "base_url" => "https://api.minimaxi.com/v1", "model" => "MiniMax-M2.7" }]
       )
       expect(config.current_model_supports?(:some_future_cap)).to be true
+    end
+
+    it "honors an explicit capabilities:false on a custom entry (overrides conservative default)" do
+      config = described_class.new(
+        models: [{ "api_key" => "x", "base_url" => "https://my-proxy.example/v1", "model" => "text-only", "capabilities" => { "vision" => false } }]
+      )
+      expect(config.current_model_supports?(:vision)).to be false
+    end
+
+    it "honors an explicit capabilities:true on a custom entry" do
+      config = described_class.new(
+        models: [{ "api_key" => "x", "base_url" => "https://my-proxy.example/v1", "model" => "vision-model", "capabilities" => { "vision" => true } }]
+      )
+      expect(config.current_model_supports?(:vision)).to be true
+    end
+
+    it "resolves capabilities through provider_id preset (deepseekv4 is text-only)" do
+      config = described_class.new(
+        models: [{ "api_key" => "x", "base_url" => "https://my-proxy.example/v1", "model" => "deepseek-v4-pro", "provider_id" => "deepseekv4" }]
+      )
+      expect(config.current_model_supports?(:vision)).to be false
+    end
+
+    it "resolves capabilities through provider_id preset (kimi is vision-capable)" do
+      config = described_class.new(
+        models: [{ "api_key" => "x", "base_url" => "https://my-proxy.example/v1", "model" => "kimi-k3", "provider_id" => "kimi" }]
+      )
+      expect(config.current_model_supports?(:vision)).to be true
+    end
+
+    it "prefers an explicit capabilities hash over the provider_id preset" do
+      # Scheme B wins over scheme C: a user-declared override on the model
+      # entry must beat whatever the preset table says.
+      config = described_class.new(
+        models: [{ "api_key" => "x", "base_url" => "https://my-proxy.example/v1", "model" => "kimi-k3", "provider_id" => "kimi", "capabilities" => { "vision" => false } }]
+      )
+      expect(config.current_model_supports?(:vision)).to be false
+    end
+
+    it "falls back to base_url matching when provider_id is not a known preset" do
+      config = described_class.new(
+        models: [{ "api_key" => "x", "base_url" => "https://api.minimaxi.com/v1", "model" => "MiniMax-M2.7", "provider_id" => "stale-preset-id" }]
+      )
+      expect(config.current_model_supports?(:vision)).to be false
     end
   end
 
@@ -1178,106 +1270,6 @@ RSpec.describe Clacky::AgentConfig do
         loaded = described_class.load(config_file)
         expect(loaded.message_count_threshold).to eq(75)
       end
-    end
-  end
-
-  describe "#api_protocol" do
-    it "returns 'auto' when no models configured" do
-      config = described_class.new(models: [])
-      expect(config.api_protocol).to eq("auto")
-    end
-
-    it "returns the explicit api_protocol field when set" do
-      config = described_class.new(models: [
-        { "model" => "gpt-4o", "api_protocol" => "openai-responses" }
-      ])
-      expect(config.api_protocol).to eq("openai-responses")
-    end
-
-    it "returns 'anthropic-messages' for legacy anthropic_format: true" do
-      config = described_class.new(models: [
-        { "model" => "claude-3-opus", "anthropic_format" => true }
-      ])
-      expect(config.api_protocol).to eq("anthropic-messages")
-    end
-
-    it "returns 'auto' when neither api_protocol nor anthropic_format is set" do
-      config = described_class.new(models: [
-        { "model" => "gpt-4o" }
-      ])
-      expect(config.api_protocol).to eq("auto")
-    end
-
-    it "returns 'auto' when api_protocol is explicitly 'auto'" do
-      config = described_class.new(models: [
-        { "model" => "gpt-4o", "api_protocol" => "auto" }
-      ])
-      expect(config.api_protocol).to eq("auto")
-    end
-  end
-
-  describe "#anthropic_format?" do
-    it "returns true when api_protocol is 'anthropic-messages'" do
-      config = described_class.new(models: [
-        { "model" => "claude-3-opus", "api_protocol" => "anthropic-messages" }
-      ])
-      expect(config.anthropic_format?).to be true
-    end
-
-    it "returns false when api_protocol is 'openai-completions'" do
-      config = described_class.new(models: [
-        { "model" => "gpt-4o", "api_protocol" => "openai-completions" }
-      ])
-      expect(config.anthropic_format?).to be false
-    end
-
-    it "returns true for legacy anthropic_format: true without api_protocol" do
-      config = described_class.new(models: [
-        { "model" => "claude-3-opus", "anthropic_format" => true }
-      ])
-      expect(config.anthropic_format?).to be true
-    end
-
-    it "returns false for models without anthropic or protocol config" do
-      config = described_class.new(models: [
-        { "model" => "gpt-4o" }
-      ])
-      expect(config.anthropic_format?).to be false
-    end
-  end
-
-  describe "#add_model" do
-    it "stores api_protocol when provided" do
-      config = described_class.new(models: [])
-      config.add_model(
-        model: "gpt-4o",
-        api_key: "sk-test",
-        base_url: "https://api.test.com",
-        api_protocol: "openai-responses"
-      )
-      expect(config.models.last["api_protocol"]).to eq("openai-responses")
-    end
-
-    it "defaults api_protocol to nil (which resolves to 'auto' in api_protocol getter)" do
-      config = described_class.new(models: [])
-      config.add_model(
-        model: "gpt-4o",
-        api_key: "sk-test",
-        base_url: "https://api.test.com"
-      )
-      expect(config.models.last["api_protocol"]).to be_nil
-      expect(config.api_protocol).to eq("auto")
-    end
-
-    it "still stores anthropic_format for backward compatibility" do
-      config = described_class.new(models: [])
-      config.add_model(
-        model: "claude-3-opus",
-        api_key: "sk-test",
-        base_url: "https://api.anthropic.com",
-        anthropic_format: true
-      )
-      expect(config.models.last["anthropic_format"]).to be true
     end
   end
 

@@ -1,6 +1,19 @@
 # frozen_string_literal: true
 
 RSpec.describe Clacky::Providers do
+  describe ".preset?" do
+    it "returns true for a known preset id" do
+      expect(described_class.preset?("minimax")).to be true
+      expect(described_class.preset?("kimi")).to be true
+    end
+
+    it "returns false for an unknown id" do
+      expect(described_class.preset?("nope-provider")).to be false
+      expect(described_class.preset?("")).to be false
+      expect(described_class.preset?(nil)).to be false
+    end
+  end
+
   describe ".capabilities" do
     it "returns {} for an unknown provider" do
       expect(described_class.capabilities("nope-provider")).to eq({})
@@ -655,6 +668,35 @@ RSpec.describe Clacky::Providers do
       expect(described_class.api_type_for_model("openrouter", nil)).to eq("openai-responses")
     end
 
+    context "with a user_override" do
+      it "returns the explicit override regardless of preset resolution" do
+        expect(described_class.api_type_for_model("openrouter", "anthropic/claude-sonnet-4-6",
+                                                  user_override: "openai-completions"))
+          .to eq("openai-completions")
+      end
+
+      it "can force anthropic-messages on a provider that defaults to completions" do
+        expect(described_class.api_type_for_model("openrouter", "deepseek/deepseek-v4-pro",
+                                                  user_override: "anthropic-messages"))
+          .to eq("anthropic-messages")
+      end
+
+      it "treats nil and empty-string overrides as absent (auto)" do
+        expect(described_class.api_type_for_model("openrouter", "anthropic/claude-sonnet-4-6",
+                                                  user_override: nil))
+          .to eq("anthropic-messages")
+        expect(described_class.api_type_for_model("openrouter", "anthropic/claude-sonnet-4-6",
+                                                  user_override: ""))
+          .to eq("anthropic-messages")
+      end
+
+      it "still returns the override for unknown providers" do
+        expect(described_class.api_type_for_model("no-such-provider", "anything",
+                                                  user_override: "anthropic-messages"))
+          .to eq("anthropic-messages")
+      end
+    end
+
     it "routes OrcaRouter anthropic/* models to anthropic-messages" do
       # OrcaRouter also exposes a native Anthropic /v1/messages endpoint, so
       # Claude models route there to preserve cache_control fidelity (same
@@ -741,56 +783,6 @@ RSpec.describe Clacky::Providers do
     it "returns nil for nil or empty model name" do
       expect(described_class.max_output_for(nil)).to be_nil
       expect(described_class.max_output_for("")).to be_nil
-    end
-  end
-
-  describe ".resolve_api_protocol" do
-    it "returns the explicit user override when not 'auto'" do
-      result = described_class.resolve_api_protocol("openrouter", "gpt-4o", "anthropic-messages")
-      expect(result).to eq("anthropic-messages")
-    end
-
-    it "returns the preset default when override is 'auto'" do
-      # openrouter preset declares api: openai-responses
-      result = described_class.resolve_api_protocol("openrouter", "gpt-4o", "auto")
-      expect(result).to eq("openai-responses")
-    end
-
-    it "returns the preset default when override is nil" do
-      result = described_class.resolve_api_protocol("anthropic", "claude-3-opus", nil)
-      expect(result).to eq("anthropic-messages")
-    end
-
-    it "returns 'openai-completions' for unknown provider with auto override" do
-      result = described_class.resolve_api_protocol("unknown-provider", "some-model", "auto")
-      expect(result).to eq("openai-completions")
-    end
-
-    it "respects model-level api overrides when override is auto" do
-      # openrouter has model_api_overrides for claude models -> anthropic-messages
-      result = described_class.resolve_api_protocol("openrouter", "anthropic/claude-3.5-sonnet", "auto")
-      expect(result).to eq("anthropic-messages")
-    end
-
-    it "falls back to 'openai-completions' when no preset and no override" do
-      result = described_class.resolve_api_protocol(nil, nil, "auto")
-      expect(result).to eq("openai-completions")
-    end
-  end
-
-  describe ".supported_protocols" do
-    it "returns an array including all four protocol identifiers" do
-      protocols = described_class.supported_protocols("openrouter")
-      expect(protocols).to include("auto", "anthropic-messages", "openai-completions", "openai-responses")
-    end
-
-    it "returns the same list for nil/unknown provider" do
-      expect(described_class.supported_protocols(nil))
-        .to eq(%w[auto anthropic-messages openai-completions openai-responses])
-    end
-
-    it "returns an array of exactly 4 elements" do
-      expect(described_class.supported_protocols("anthropic").length).to eq(4)
     end
   end
 end

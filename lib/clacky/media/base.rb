@@ -69,10 +69,10 @@ module Clacky
         )
       end
 
-      # Persist a base64-encoded image under <output_dir>/assets/generated/.
-      # Returns the absolute path on disk.
+      # Persist a base64-encoded image under output_dir. Returns the
+      # absolute path on disk.
       private def save_b64_image(b64_data, output_dir:, prefix: "img", extension: "png")
-        target_dir = File.join(output_dir, "assets", "generated")
+        target_dir = media_output_dir(output_dir)
         FileUtils.mkdir_p(target_dir)
         ts    = Time.now.strftime("%Y%m%d_%H%M%S")
         short = SecureRandom.hex(4)
@@ -81,11 +81,11 @@ module Clacky
         path
       end
 
-      # Persist a base64-encoded video under <output_dir>/assets/generated/.
-      # Returns the absolute path on disk. Mirrors #save_b64_image; the only
-      # difference is the default extension (mp4).
+      # Persist a base64-encoded video under output_dir. Returns the
+      # absolute path on disk. Mirrors #save_b64_image; the only difference
+      # is the default extension (mp4).
       private def save_b64_video(b64_data, output_dir:, prefix: "vid", extension: "mp4")
-        target_dir = File.join(output_dir, "assets", "generated")
+        target_dir = media_output_dir(output_dir)
         FileUtils.mkdir_p(target_dir)
         ts    = Time.now.strftime("%Y%m%d_%H%M%S")
         short = SecureRandom.hex(4)
@@ -95,7 +95,7 @@ module Clacky
       end
 
       private def save_b64_audio(b64_data, output_dir:, prefix: "tts", extension: "wav")
-        target_dir = File.join(output_dir, "assets", "generated")
+        target_dir = media_output_dir(output_dir)
         FileUtils.mkdir_p(target_dir)
         ts    = Time.now.strftime("%Y%m%d_%H%M%S")
         short = SecureRandom.hex(4)
@@ -104,16 +104,16 @@ module Clacky
         path
       end
 
-      # Download a remote image URL and persist it under
-      # <output_dir>/assets/generated/, mirroring save_b64_image so providers
-      # that return URLs (e.g. DashScope, whose links expire after 24h) land
-      # local files at the same path shape as base64 providers.
+      # Download a remote image URL and persist it under output_dir,
+      # mirroring save_b64_image so providers that return URLs (e.g.
+      # DashScope, whose links expire after 24h) land local files at the same
+      # path shape as base64 providers.
       # Returns the absolute path on disk, or nil if the download fails.
       private def save_image_from_url(url, output_dir:, prefix: "img", extension: "png")
         body = download_url(url)
         return nil if body.nil? || body.empty?
 
-        target_dir = File.join(output_dir, "assets", "generated")
+        target_dir = media_output_dir(output_dir)
         FileUtils.mkdir_p(target_dir)
         ts    = Time.now.strftime("%Y%m%d_%H%M%S")
         short = SecureRandom.hex(4)
@@ -133,6 +133,15 @@ module Clacky
         resp.success? ? resp.body : nil
       rescue Faraday::Error
         nil
+      end
+
+      # Resolve the directory a generated asset lands in. An explicit
+      # output_dir is the final directory (no subdirectory is appended);
+      # when omitted we keep the legacy <cwd>/assets/generated default so
+      # callers that never passed output_dir keep their old paths.
+      private def media_output_dir(output_dir)
+        return output_dir unless output_dir.nil? || output_dir.to_s.strip.empty?
+        File.join(Dir.pwd, "assets", "generated")
       end
 
       private def success_response(image:, prompt:, aspect_ratio:, provider:, extra: {})
