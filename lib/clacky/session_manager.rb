@@ -38,6 +38,7 @@ module Clacky
       begin
         cleanup_by_count(keep: 200, grouped_keep: 200)
         cleanup_trash(days: 8)
+        cleanup_file_trash(days: 8)
       rescue Exception # rubocop:disable Lint/RescueException
         # Cleanup is non-critical; swallow all errors (including AgentInterrupted)
       end
@@ -382,6 +383,12 @@ module Clacky
     def permanent_delete_trash_session(session_id)
       require_relative "tools/trash_manager"
       Clacky::Tools::TrashManager.permanent_delete_trash_session(session_id, sessions_dir: @sessions_dir)
+    end
+
+    # Keep file-trash on the same rolling window as sessions-trash.
+    def cleanup_file_trash(days: 8)
+      require_relative "tools/trash_manager"
+      Clacky::Tools::TrashManager.cleanup_files_trash(days: days)
     end
 
     # Clean up soft-deleted sessions older than :days (default: 90).
