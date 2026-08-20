@@ -6405,23 +6405,6 @@ body {
   font-weight: 500;
   color: var(--color-text-primary);
 }
-.modal-close {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 2rem;
-  height: 2rem;
-  border: none;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--color-text-secondary);
-  cursor: pointer;
-  transition: background 0.15s, color 0.15s;
-}
-.modal-close:hover {
-  background: var(--color-bg-hover);
-  color: var(--color-text-primary);
-}
 .modal-content .modal-body {
   overflow-y: auto;
   display: flex;
@@ -6948,6 +6931,7 @@ body {
 .btn-primary            { background: var(--color-button-primary); color: #fff; border: none; border-radius: var(--radius-sm); padding: 0.5rem 1.25rem; font-weight: 500; cursor: pointer; box-shadow: var(--shadow-xs); transition: background var(--transition-fast), box-shadow var(--transition-fast), transform var(--transition-fast); }
 .btn-primary:hover      { background: var(--color-button-primary-hover); box-shadow: var(--shadow-md); transform: translateY(-1px); }
 .btn-primary:active     { transform: translateY(0); box-shadow: var(--shadow-xs); }
+.btn-primary:disabled   { opacity: 0.6; cursor: default; transform: none; box-shadow: var(--shadow-xs); }
 .btn-secondary          { background: transparent; color: var(--color-text-secondary); border: 1px solid var(--color-border-primary); border-radius: var(--radius-sm); padding: 0.5rem 1.25rem; font-weight: 500; cursor: pointer; transition: background var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast); }
 .btn-secondary:hover    { background: var(--color-bg-hover); border-color: var(--color-border-strong); color: var(--color-text-primary); }
 [data-theme="dark"] .btn-secondary:hover { background: var(--color-bg-hover); }
@@ -7066,19 +7050,47 @@ body {
 .modal-close-btn {
   background: transparent;
   border: none;
-  font-size: 1.75rem;
-  line-height: 1;
-  color: var(--color-text-secondary);
+  font-size: 0;
+  color: var(--color-text-tertiary);
   cursor: pointer;
   padding: 0;
-  width: 1.5rem;
-  height: 1.5rem;
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 6px;
   display: flex;
   align-items: center;
   justify-content: center;
+  transition: all var(--transition-fast);
+  position: relative;
+}
+.modal-close-btn::before,
+.modal-close-btn::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 0.75rem;
+  height: 1.5px;
+  border-radius: 1px;
+  background: currentColor;
+}
+.modal-close-btn::before {
+  transform: translate(-50%, -50%) rotate(45deg);
+}
+.modal-close-btn::after {
+  transform: translate(-50%, -50%) rotate(-45deg);
 }
 .modal-close-btn:hover {
+  background: var(--color-bg-hover);
   color: var(--color-text-primary);
+}
+.modal-close-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.modal-close-btn:disabled:hover {
+  background: transparent;
+  color: var(--color-text-tertiary);
 }
 .modal-box .modal-body {
   display: flex;
