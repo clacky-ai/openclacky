@@ -2,9 +2,9 @@
 // Mounts a tab in the session aside; talks to its backend at
 // /api/ext/<%= slug %>/. Reload the WebUI page to see edits.
 //
-// Styling: use host classes (btn-primary, btn-secondary, form-input,
-// form-textarea, form-label) so extensions inherit theme + hover
-// states automatically. See docs/extensions/ui-styling.md.
+// Styling: default to host classes - buttons (btn-*), forms (form-*),
+// dialogs (modal-*), colors (var(--color-*) tokens). Anything the host has
+// no class for, build freely with your own prefixed classes.
 (function () {
   Clacky.ext.ui.mount("session.aside", function (ctx) {
     var el = document.createElement("div");

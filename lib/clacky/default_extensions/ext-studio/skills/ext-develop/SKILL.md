@@ -131,11 +131,16 @@ global chrome. You rarely set `agents:` by hand.
 there), `render(container, ctx, runtime)` runs on each show, and `runtime.dispose()` runs
 when the session leaves. State survives tab switches; use this instead of module globals.
 
-**Full-page workspace** — `Clacky.ext.ui.registerWorkspace(id, { title, render })` takes
+**Full-page workspace** - `Clacky.ext.ui.registerWorkspace(id, { title, render })` takes
 over the main area with its own `#ext/<id>` URL; open it with `Clacky.ext.ui.openWorkspace(id)`,
 typically from a `sidebar.nav` item mounted with `opts.workspace: id`.
 
-**Safe mode** — `?pure=true` makes the whole registry a no-op; never rely on side effects
+**Sidebar nav items** - render the host nav-item structure (`div.task-item.task-item-summary >
+div.task-row > svg.task-icon + div.task-info > span.task-name` - copy `navRow()` from the
+`full` scaffold template) with `opts.workspace: id` so the item inherits theme styling
+and the Router's active highlight.
+
+**Safe mode** - `?pure=true` makes the whole registry a no-op; never rely on side effects
 outside these calls.
 
 ### Other host services under `Clacky.*`
@@ -149,7 +154,7 @@ Clacky.Router.go("session");                // top-level view routing
 Clacky.Router.navigate("session", { id }); // navigate with params
 Clacky.I18n.t("some.key");                  // translations
 Clacky.Modal.confirm("Delete?");            // dialogs
-Clacky.Notify.info("Saved");                // toasts
+Clacky.Modal.toast("Saved", "success");     // toasts (not window.alert)
 Clacky.Auth.passed;                          // auth state
 Clacky.Workspace.list(dir);                 // working-directory files
 Clacky.Skills.list();                       // skill catalog
@@ -372,7 +377,7 @@ Clacky.ext.ui.mount("session.aside", function (container, ctx) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ text: input.value }),
     });
-    Clacky.Notify.info("Saved");                  // host toast, not window.alert
+    Clacky.Modal.toast("Saved", "success");       // host toast, not window.alert
   });
   el.append(input, btn);
   return el;
@@ -403,9 +408,11 @@ Rules while reshaping:
   argument, not `ctx`. Writing a shorter `(ctx) => ...` signature shifts every argument, so
   session checks misbehave. Returning `null` is safe (renders nothing); only a **thrown
   exception** shows the red crashed-panel box.
-- Reuse host CSS classes (`btn-primary`, `btn-secondary`, `form-input`, `form-textarea`,
-  `form-label`) and host services (`Clacky.Notify`, `Clacky.Modal`) instead of raw
-  `alert`/`confirm`, so the panel inherits the theme.
+- **UI styling: default to host classes; anything the host has no class for,
+  build freely.** The host covers `btn-*` buttons, `form-*` inputs, `modal-*`
+  dialogs, `Clacky.Modal.toast/confirm` feedback, and `var(--color-*)` colors
+  (raw hex breaks the dark theme). For exact definitions grep the host
+  stylesheet `lib/clacky/web/app.css`; the scaffold templates show real usage.
 - A skill is a `SKILL.md` under `skills/<id>/`; an agent is a `system_prompt.md` that can
   reference `panels: [id]` and `skills: [id]`. Add those blocks to `ext.yml` only if the
   idea needs them.
