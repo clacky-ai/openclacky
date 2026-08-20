@@ -6428,10 +6428,12 @@ body {
   gap: 0.875rem;
   padding: 1.25rem;
 }
-/* model-edit modal: allow absolutely-positioned dropdowns to escape the body.
-   Must come after .modal-content .modal-body to win the cascade. */
+/* model-edit modal: body scrolls on short viewports so the footer stays
+   visible. All three dropdowns are fixed-positioned and appended to <body>
+   (see _positionDropdownFixed), so they escape this scroll container. */
 .modal-content.model-edit-modal-content .modal-body {
-  overflow: visible;
+  overflow-y: auto;
+  min-height: 0;
   padding-bottom: 0;
 }
 .modal-content .modal-footer {
