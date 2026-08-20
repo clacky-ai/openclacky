@@ -250,4 +250,36 @@ RSpec.describe Clacky::ExtensionPackager do
       expect(File).to exist(File.join(installed, "demo", "ext.yml"))
     end
   end
+
+  describe ".install_bytes" do
+    def packed_bytes(id)
+      scaffold(id)
+      File.binread(described_class.pack(id, source_dir: local, out_dir: out).path)
+    end
+
+    it "installs raw zip bytes into the installed layer" do
+      bytes = packed_bytes("demo")
+      res = described_class.install_bytes(bytes, filename: "demo.zip", installed_dir: installed)
+
+      expect(res.ext_id).to eq("demo")
+      expect(File).to exist(File.join(installed, "demo", "ext.yml"))
+    end
+
+    it "rejects empty data" do
+      expect { described_class.install_bytes("", filename: "x.zip", installed_dir: installed) }
+        .to raise_error(described_class::Error, /empty upload/)
+    end
+
+    it "rejects a non-zip filename" do
+      bytes = packed_bytes("demo")
+      expect { described_class.install_bytes(bytes, filename: "demo.tar", installed_dir: installed) }
+        .to raise_error(described_class::Error, /\.zip/)
+    end
+
+    it "rejects data exceeding the size limit" do
+      stub_const("Clacky::ExtensionPackager::MAX_ZIP_SIZE", 1)
+      expect { described_class.install_bytes("xx", filename: "x.zip", installed_dir: installed) }
+        .to raise_error(described_class::Error, /exceeds .* limit/)
+    end
+  end
 end

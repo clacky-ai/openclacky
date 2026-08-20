@@ -2605,8 +2605,7 @@ body {
 }
 .ns-input-bar-card:focus-within {
   border-color: color-mix(in srgb, var(--color-accent-primary) 50%, var(--color-border-primary));
-}
-.ns-ctx-chip {
+}.ns-ctx-chip {
   display: inline-flex;
   align-items: center;
   gap: 0.3125rem;
@@ -4857,6 +4856,16 @@ body {
   gap: 0.5rem;
   flex-shrink: 0;
 }
+.sib-model-price {
+  font-size: 0.625rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: var(--color-text-tertiary);
+}
+.sib-model-option .sib-model-price {
+  min-width: 2.25rem;
+  text-align: right;
+}
 .sib-model-option .sib-model-latency {
   font-size: 0.625rem;
   font-variant-numeric: tabular-nums;
@@ -4902,6 +4911,24 @@ body {
 /* Hide top border when skill autocomplete is visible */
 #input-area:has(#skill-autocomplete:not([style*="display:none"])):not(:has(#skill-autocomplete[style*="display: none"])) {
   border-top: none;
+}
+
+/* Square off the top corners of the input-bar when the skill dropdown sits above it */
+#input-area:has(#skill-autocomplete:not([style*="display:none"])):not(:has(#skill-autocomplete[style*="display: none"])) #input-bar {
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+
+/* New-session composer: same top-corner squaring when its skill dropdown is open */
+.new-session-composer:has(#ns-skill-autocomplete:not([style*="display:none"])):not(:has(#ns-skill-autocomplete[style*="display: none"])) .ns-input-bar-card {
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+
+/* Hide the context bar while the skill dropdown is open so the dropdown
+   sits flush against the input card's top border. */
+.new-session-composer:has(#ns-skill-autocomplete:not([style*="display:none"])):not(:has(#ns-skill-autocomplete[style*="display: none"])) .ns-context-bar {
+  display: none;
 }
 
 /* Drop-target highlight when dragging a file over the input area */
@@ -5032,19 +5059,32 @@ body {
 .skill-autocomplete {
   position: absolute;
   bottom: 100%;
-  left: 0;
-  right: 0;
-  background: var(--color-bg-tertiary);
-  border: none;
-  border-radius: 8px 8px 0 0;
-  overflow: hidden;
-  box-shadow:
-    0 -0.5rem 0.75rem -0.25rem rgba(0, 0, 0, .12),
-    -0.5rem -0.25rem 0.75rem -0.25rem rgba(0, 0, 0, .12),
-    0.5rem -0.25rem 0.75rem -0.25rem rgba(0, 0, 0, .12);
-  max-height: 16.25rem;
+  left: 24px;
+  right: 24px;
+  background: var(--color-bg-primary);
+  border: 1px solid var(--color-border-primary);
+  border-radius: 13px 13px 0 0;
+  box-shadow: var(--shadow-card);
+  margin-bottom: -1px;
+  max-height: 18.75rem;
   overflow-y: auto;
   z-index: 1000;
+}
+
+/* New-session composer adds top padding above the input card, so the dropdown
+   must sit lower to stay flush with the card's top border. */
+#ns-skill-autocomplete {
+  bottom: calc(100% - 0.75rem);
+}
+
+/* Highlight the dropdown's side/top border to match the focused input bar. */
+#input-area:has(#input-bar:focus-within) #skill-autocomplete {
+  border-color: color-mix(in srgb, var(--color-accent-primary) 50%, var(--color-border-primary));
+  border-bottom-color: var(--color-border-primary);
+}
+.new-session-composer:has(.ns-input-bar-card:focus-within) #ns-skill-autocomplete {
+  border-color: color-mix(in srgb, var(--color-accent-primary) 50%, var(--color-border-primary));
+  border-bottom-color: var(--color-border-primary);
 }
 
 #skill-autocomplete-list,
@@ -5062,31 +5102,24 @@ body {
 
 .skill-ac-item {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 0.625rem;
-  padding: 0.4375rem 0.875rem;
+  padding: 0.5rem 0.875rem;
+  margin: 0 0.5rem;
   cursor: pointer;
-  border-radius: 0;
+  border-radius: 0.5rem;
   transition: background 0.1s;
   user-select: none;
   line-height: 1.4;
 }
 
 .skill-ac-item:hover {
-  background: color-mix(in srgb, var(--color-accent-primary) 15%, transparent);
-}
-
-[data-theme="light"] .skill-ac-item:hover {
-  background: color-mix(in srgb, var(--color-accent-primary) 10%, transparent);
+  background: var(--color-bg-hover);
 }
 
 .skill-ac-item.active {
-  background: color-mix(in srgb, var(--color-accent-primary) 20%, transparent);
+  background: color-mix(in srgb, var(--color-text-primary) 8%, transparent);
   outline: none;
-}
-
-[data-theme="light"] .skill-ac-item.active {
-  background: color-mix(in srgb, var(--color-accent-primary) 15%, transparent);
 }
 
 .skill-ac-name {
@@ -5129,6 +5162,7 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
   min-width: 0;
+  flex: 1;
 }
 
 .skill-ac-header {
@@ -5163,6 +5197,16 @@ body {
   letter-spacing: .06em;
   font-weight: 500;
   line-height: 1rem;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.3125rem;
+}
+
+.skill-ac-count {
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-tertiary);
+  text-transform: none;
+  letter-spacing: 0;
 }
 
 .skill-ac-filter-toggle {
@@ -7222,7 +7266,8 @@ body {
 }
 /* Shared base for both buttons */
 .btn-import-skill,
-.btn-create-skill {
+.btn-create-skill,
+.btn-import-extension {
   display: flex;
   align-items: center;
   gap: 0.375rem;
@@ -7234,18 +7279,21 @@ body {
   transition: background-color 0.2s ease, transform 0.15s ease, border-color 0.2s ease;
 }
 /* Import — outlined style */
-.btn-import-skill {
+.btn-import-skill,
+.btn-import-extension {
   background: transparent;
   color: var(--color-text-primary);
   border: 1px solid var(--color-border-primary);
 }
-.btn-import-skill:hover {
+.btn-import-skill:hover,
+.btn-import-extension:hover {
   background: var(--color-bg-tertiary);
   border-color: var(--color-accent-primary);
   color: var(--color-accent-primary);
   transform: translateY(-1px);
 }
-.btn-import-skill:active { transform: translateY(0); }
+.btn-import-skill:active,
+.btn-import-extension:active { transform: translateY(0); }
 /* Create — solid primary style */
 .btn-create-skill {
   background: var(--color-button-primary);
@@ -13876,6 +13924,11 @@ body.setup-mode[data-theme="dark"] {
     padding: 0px 12px 12px;
   }
 
+  #skill-autocomplete {
+    left: 12px;
+    right: 12px;
+  }
+
   /* Input bar: proportional spacing, touch-friendly */
   #input-bar {
     padding: 0.375rem 0.5rem;
@@ -14250,10 +14303,15 @@ body.setup-mode[data-theme="dark"] {
   }
   .new-session-composer {
     flex: none;
-    position: static;
+    position: relative;
     padding: 0.75rem 1rem 1rem;
     border-top: 1px solid var(--color-border-subtle);
     background: var(--color-bg-primary);
+  }
+
+  #ns-skill-autocomplete {
+    left: 16px;
+    right: 16px;
   }
 }
 
@@ -14263,7 +14321,7 @@ body.setup-mode[data-theme="dark"] {
 
 /* ── Empty hint ────────────────────────────────────────────────────────────── */
 .project-empty-hint {
-  padding: 0.375rem 0.75rem;
+  padding: 0.375rem 0.65rem;
   font-size: 0.75rem;
   color: var(--color-text-muted);
 }
@@ -14387,7 +14445,7 @@ body.setup-mode[data-theme="dark"] {
 }
 
 .project-sessions-empty {
-  padding: 0.25rem 0.5rem 0.25rem 0.625rem;
+  padding: 0.25rem 0.5rem 0.25rem 2.2rem;
   font-size: 0.75rem;
   color: var(--color-text-muted);
 }

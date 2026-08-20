@@ -4,6 +4,40 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
+## [1.5.10] - 2026-08-19
+
+### Added
+- Import extensions from a local zip file
+- Per-model API format override (#484 - @kylezhang)
+- Project pinning (pin to top)
+- Copy Session ID action in session menu
+- Price ratio on model switcher panel
+- Model search filter and provider filter dropdown in settings
+- Remark field for model configs
+- Custom vision model config
+- GPT-5.6 Sol/Terra/Luna presets and pricing
+- GLM-5.3 model support
+- Global IM status-messages toggle (default off)
+- Extension-defined tools support; extensions can disable skills
+- Server restart state and HTTP restart flag
+- Actionable web search provider errors
+- Localized display names for broadcast skill commands
+
+### Improved
+- Skill autocomplete dropdown UI with localized source labels
+- Skill auto-creation and evolution reporting refinements
+
+### Fixed
+- MCP: preserve CRLF pairs split across SSE chunk boundaries (#489 - @MohammedAlkindi)
+- Feishu: auto-refresh token and retry when revoked (99991663) (#483 - @chengoak)
+- Preserve head+tail for oversized terminal output (#455 - @shipinliang)
+- openclacky start failed when no TTY
+- Capture master/worker crash logs under LaunchAgent
+- ReferenceError in model modal _syncRemarkField
+- Remark field always visible in model modal
+- api_format field only shown for custom providers and validated before mutating model config
+- Media gen output dir handling
+
 ## [1.5.9] - 2026-08-14
 
 ### Added
