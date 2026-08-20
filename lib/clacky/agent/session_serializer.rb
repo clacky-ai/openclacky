@@ -13,7 +13,68 @@ module Clacky
         @session_id = session_data[:session_id]
         @name = session_data[:name] || ""
         @pinned = session_data[:pinned] || false
-        @history = MessageHistory.new(session_data[:messages] || [])
+        # ── WAL recovery ──
+        # Replay mutations that happened after the last session.json save
+        # but before a crash (SIGKILL / OOM). The WAL file is deleted after
+        # replay; fresh mutations will create a new one.
+        messages = session_data[:messages] || []
+        saved_wal_seq = session_data[:wal_seq] || 0
+        wal_path = File.join(Clacky::SessionManager::SESSIONS_DIR, "#{@session_id}.wal")
+        next_wal_seq = saved_wal_seq
+        if File.exist?(wal_path)
+          if session_data.key?(:wal_seq)
+            # This snapshot was saved with WAL tracking (post-fix): replay
+            # only the events that postdate the saved high-water mark.
+            messages, next_wal_seq = Clacky::WalReplayer.replay(
+              messages, wal_path, skip_seq_below: saved_wal_seq
+            )
+          else
+            # Legacy snapshot (saved before WAL tracking) or a test fixture:
+            # it carries no high-water mark, so a coexisting .wal is almost
+            # certainly stray pollution left by the pre-cleanup bug (save
+            # never deleted WALs). Replaying it would duplicate messages
+            # already in this snapshot — discard it instead.
+            Clacky::Logger&.warn("WAL: discarding unexpected .wal for legacy/untracked session #{@session_id}")
+          end
+          File.delete(wal_path) rescue nil
+        end
+
+        # ── Stream Checkpoint recovery ──────────────────────────
+        # If the process died during LLM streaming (mid-response), the
+        # checkpoint file holds the partial output accumulated so far.
+        # Recover it as an incomplete assistant message so the user can
+        # see what the model had already generated.
+        streamcp_path = File.join(
+          Clacky::SessionManager::SESSIONS_DIR, ".streaming",
+          "#{@session_id}.streamcp.json"
+        )
+        if File.exist?(streamcp_path)
+          recovered = recover_stream_checkpoint(streamcp_path)
+          if recovered
+            # P4 dedup: with the deferred-clear! design, a crash between
+            # WAL append and checkpoint clear! leaves BOTH a WAL entry and
+            # a checkpoint for the same message. If the last message from
+            # WAL/restore is an assistant message with identical content,
+            # the checkpoint is stale — skip it to avoid a duplicate.
+            last = messages.last
+            if last && last[:role].to_s == "assistant" &&
+               last[:content].to_s == recovered[:content].to_s &&
+               !recovered[:content].to_s.empty?
+              recovered = nil
+            end
+          end
+          if recovered
+            messages << recovered
+            Clacky::Logger.warn("stream_checkpoint.recovered",
+              session_id: @session_id,
+              content_len: recovered[:content].to_s.length,
+              has_tool_calls: !recovered[:tool_calls].nil?
+            )
+          end
+          File.delete(streamcp_path) rescue nil
+        end
+
+        @history = MessageHistory.new(messages)
         @todos = session_data[:todos] || []  # Restore todos from session
         @iterations = session_data.dig(:stats, :total_iterations) || 0
         @total_cost = session_data.dig(:stats, :total_cost_usd) || 0.0
@@ -125,6 +186,11 @@ module Clacky
         # (or other configuration changes since the session was saved) are
         # reflected immediately — without requiring the user to create a new session.
         refresh_system_prompt
+
+        # Enable WAL persistence for all future mutations.
+        # Done AFTER restore (including refresh_system_prompt) so restore-time
+        # mutations don't pollute the WAL — they'll be captured by the next save.
+        @history.enable_wal!(wal_path, start_seq: next_wal_seq)
       end
 
       # Reattach persisted goal state after a restore. Builds a fresh
@@ -141,6 +207,43 @@ module Clacky
         )
       rescue => e
         Clacky::Logger.warn("restore_goal_state failed: #{e.message}")
+      end
+
+      # Parse a stream checkpoint file and build an assistant message hash
+      # compatible with MessageHistory's internal format. Only tool_calls
+      # with parseable JSON arguments are kept; incomplete ones are
+      # discarded (they'd cause API errors on replay). Returns nil if the
+      # file is unreadable or not a valid checkpoint.
+      private def recover_stream_checkpoint(path)
+        raw = File.read(path) rescue nil
+        return nil unless raw
+        cp = JSON.parse(raw) rescue nil
+        return nil unless cp && cp["role"] == "assistant"
+
+        tool_calls = (cp["tool_calls"] || []).filter_map do |tc|
+          next nil unless tc["id"] && tc["name"]
+          args_str = tc["arguments"].to_s
+          begin
+            JSON.parse(args_str.empty? ? "{}" : args_str)
+          rescue JSON::ParserError
+            next nil # Discard incomplete tool_calls
+          end
+          {
+            id: tc["id"],
+            type: "function",
+            function: { name: tc["name"], arguments: args_str }
+          }
+        end
+
+        msg = { role: "assistant", content: cp["content"].to_s, incomplete: true }
+        rc = cp["reasoning_content"].to_s
+        msg[:reasoning_content] = rc unless rc.empty?
+        msg[:tool_calls] = tool_calls unless tool_calls.empty?
+        # Don't inject an empty assistant message — content="" with no
+        # tool_calls and no reasoning would be sent to the API on the next
+        # turn, causing errors on some providers (e.g. Bedrock Converse).
+        return nil if msg[:content].to_s.strip.empty? && !msg[:tool_calls] && !msg[:reasoning_content]
+        msg
       end
 
       # Fill missing entries in @task_meta from @history (for sessions saved
@@ -265,7 +368,20 @@ module Clacky
           project_id:   @project_id,
           goal:         @goal_manager&.to_h,
           stats: stats_data,
-          messages: @history.to_a
+          messages: @history.to_a,
+          # WAL crash-recovery metadata.
+          #   wal_seq   — high-water mark of persisted mutations; restore uses
+          #               it as skip_seq_below so already-saved events aren't
+          #               replayed a second time.
+          #   _wal_path — tells SessionManager#save which .wal file to delete
+          #               once this snapshot is safely on disk. It is stripped
+          #               by save() before serialisation, so it never leaks
+          #               into session.json.
+          # Without these two fields save never clears the WAL and restore
+          # replays ALL events (skip_seq_below defaults to 0), duplicating
+          # every message already in the snapshot.
+          wal_seq: @history.wal_seq,
+          _wal_path: @history.wal_path
         }
       end
 

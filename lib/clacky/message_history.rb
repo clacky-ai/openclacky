@@ -26,8 +26,34 @@ module Clacky
     # rewritten in full on every save).
     MAX_EXT_EVENT_BYTES = 8 * 1024
 
-    def initialize(messages = [])
+    def initialize(messages = [], wal_path: nil, wal_seq: 0)
       @messages = messages.dup
+      @wal_path = wal_path
+      @wal_seq  = wal_seq
+    end
+
+    attr_reader :wal_seq, :wal_path
+
+    # ── WAL (Write-Ahead Log) support ──────────────────────────────
+    # Every mutation is appended to a .wal file (JSONL + fsync) before the
+    # in-memory change is considered "safe". On crash recovery, the WAL is
+    # replayed on top of the last session.json snapshot, recovering any
+    # mutations that happened between the last save and the crash.
+    # After a successful save, the WAL is cleared (session.json is the new truth).
+
+    # Enable WAL persistence. Called after restore_session completes
+    # (or at Agent initialization for new sessions).
+    def enable_wal!(path, start_seq:)
+      @wal_path = path
+      @wal_seq  = start_seq
+    end
+
+    # Disable WAL and delete the .wal file. Called after a successful save.
+    def clear_wal!
+      return unless @wal_path && File.exist?(@wal_path)
+      File.delete(@wal_path)
+    rescue => e
+      Clacky::Logger&.warn("WAL clear failed: #{e.message}")
     end
 
     # ─────────────────────────────────────────────
@@ -43,9 +69,13 @@ module Clacky
     # (e.g. subagent crash, interrupt, or error).
     def append(message)
       if message[:role] == "user"
+        dropped = pending_tool_calls?
         drop_dangling_tool_calls!
+        wal_write("pop_last") if dropped
       end
-      @messages << deep_sanitize_utf8(message)
+      sanitized = deep_sanitize_utf8(message)
+      @messages << sanitized
+      wal_write("append", msg: sanitized)
       self
     end
 
@@ -59,18 +89,22 @@ module Clacky
       else
         @messages.unshift(msg)
       end
+      wal_write("replace_system_prompt", msg: msg)
       self
     end
 
     # Replace the entire message list (used by compression rebuild).
     def replace_all(new_messages)
       @messages = new_messages.map { |m| deep_sanitize_utf8(m) }
+      wal_write("replace_all", messages: @messages.map { |m| m.dup })
       self
     end
 
     # Remove and return the last message.
     def pop_last
-      @messages.pop
+      result = @messages.pop
+      wal_write("pop_last")
+      result
     end
 
     # Remove all messages matching the block in-place.
@@ -78,7 +112,10 @@ module Clacky
     # strip transient/system-injected messages out of the persisted
     # history (e.g. compaction, rollback on 400 errors).
     def delete_where(&block)
-      @messages.reject!(&block)
+      indices = []
+      @messages.each_with_index { |m, i| indices << i if block.call(m) }
+      indices.sort.reverse.each { |i| @messages.delete_at(i) }
+      wal_write("delete_where", indices: indices)
       self
     end
 
@@ -92,7 +129,10 @@ module Clacky
           (m[:role] == "user" && m[:content].is_a?(Array) &&
             m[:content].any? { |b| b.is_a?(Hash) && b[:type] == "tool_result" && b[:tool_use_id] == tool_call_id })
       end
-      msg[key] = value if msg
+      if msg
+        msg[key] = value
+        wal_write("attach_to_tool_result", tool_call_id: tool_call_id, key: key, value: value)
+      end
       self
     end
 
@@ -119,14 +159,24 @@ module Clacky
     # Mutate the last message matching the predicate lambda in-place.
     # Used by execute_skill_with_subagent to update instruction messages.
     def mutate_last_matching(predicate, &block)
-      msg = @messages.reverse.find { |m| predicate.call(m) }
-      block.call(msg) if msg
+      idx = nil
+      (@messages.length - 1).downto(0) do |i|
+        if predicate.call(@messages[i])
+          idx = i
+          break
+        end
+      end
+      return self unless idx
+
+      block.call(@messages[idx])
+      wal_write("mutate_last_matching", index: idx, msg: @messages[idx].dup)
       self
     end
 
     # Remove all messages from index onward (used by restore_session on error).
     def truncate_from(index)
       @messages = @messages[0...index]
+      wal_write("truncate_from", index: index)
       self
     end
 
@@ -147,6 +197,7 @@ module Clacky
       return self unless idx
 
       @messages = @messages[0...idx]
+      wal_write("rollback_before", index: idx)
       self
     end
 
@@ -296,6 +347,43 @@ module Clacky
       else
         0
       end
+    end
+
+    # WAL is deleted on every successful save, so this is a safety net for
+    # sessions that run many iterations between saves. 5 MB ≈ thousands of messages.
+    WAL_MAX_BYTES = 5 * 1024 * 1024
+
+    # Append a single WAL event (JSON line + fsync). Called after every
+    # in-memory mutation. Failure is non-fatal — WAL is best-effort protection;
+    # the next session.json save is the ultimate fallback.
+    private def wal_write(op, **data)
+      return unless @wal_path
+
+      # Compute seq first, but only commit it after the write succeeds.
+      # This prevents seq gaps when a write fails (rescue path).
+      seq = @wal_seq + 1
+      entry = { seq: seq, op: op }.merge!(data)
+      line = JSON.generate(entry) + "\n"
+      File.open(@wal_path, "a", encoding: "UTF-8") do |f|
+        f.write(line)
+        f.fsync
+      end
+      @wal_seq = seq
+      check_wal_size!
+    rescue => e
+      Clacky::Logger&.warn("WAL write failed (op=#{op}): #{e.message}")
+    end
+
+    # Warn when the WAL file grows beyond WAL_MAX_BYTES. The WAL is deleted
+    # on every successful save, so this only triggers for sessions that run
+    # many iterations without a save (e.g. long agentic loops).
+    private def check_wal_size!
+      return unless @wal_path && File.exist?(@wal_path)
+      size = File.size(@wal_path)
+      return unless size > WAL_MAX_BYTES
+      Clacky::Logger&.warn("WAL file exceeded #{WAL_MAX_BYTES / 1024 / 1024}MB",
+        session_wal: @wal_path, size_bytes: size,
+        hint: "WAL will be cleared on next session save")
     end
 
     # Drop the trailing assistant message if it has tool_calls with no subsequent

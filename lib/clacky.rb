@@ -136,6 +136,8 @@ require_relative "clacky/media/openai_compat"
 require_relative "clacky/media/generator"
 require_relative "clacky/vision/resolver"
 require_relative "clacky/telemetry"
+require_relative "clacky/wal_replayer"
+require_relative "clacky/stream_checkpoint"
 require_relative "clacky/agent"
 
 require_relative "clacky/server/session_registry"

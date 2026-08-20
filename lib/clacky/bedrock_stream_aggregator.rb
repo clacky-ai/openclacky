@@ -21,8 +21,9 @@ module Clacky
   # concatenate and let the response parser leave it as a string for downstream
   # tool dispatch (which calls JSON.parse with a {} fallback).
   class BedrockStreamAggregator
-    def initialize(on_chunk: nil)
+    def initialize(on_chunk: nil, checkpoint: nil)
       @on_chunk = on_chunk
+      @checkpoint = checkpoint
       @role = "assistant"
       @blocks = {}
       @stop_reason = nil
@@ -73,6 +74,7 @@ module Clacky
           block[:reasoning] << rc["text"].to_s
         end
         emit_estimate_progress
+        @checkpoint&.update(to_checkpoint_snapshot)
       when "contentBlockStop"
         # Nothing to assemble: blocks are kept as-is until messageStop.
       when "messageStop"
@@ -104,6 +106,26 @@ module Clacky
         "stopReason" => @stop_reason,
         "usage"      => @usage
       }
+    end
+
+    # Extract a provider-agnostic snapshot for StreamCheckpoint.
+    def to_checkpoint_snapshot
+      text_parts, reasoning_parts, tool_calls = [], [], []
+      @blocks.keys.sort.each do |idx|
+        b = @blocks[idx]
+        case b[:kind]
+        when :tool_use
+          tool_calls << { id: b[:id], name: b[:name], arguments: b[:input_str].to_s }
+        when :reasoning
+          reasoning_parts << b[:reasoning].to_s
+        else
+          text_parts << b[:text].to_s
+        end
+      end
+      snap = { role: "assistant", content: text_parts.join, incomplete: true, provider: "bedrock" }
+      snap[:reasoning_content] = reasoning_parts.join unless reasoning_parts.empty?
+      snap[:tool_calls] = tool_calls unless tool_calls.empty?
+      snap
     end
 
     private def parse_or_nil(s)

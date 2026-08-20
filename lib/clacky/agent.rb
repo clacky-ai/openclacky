@@ -84,6 +84,13 @@ module Clacky
       @session_id = session_id
       @name = ""
       @pinned = false
+      # NOTE: WAL crash-recovery is enabled in restore_session (restored
+      # sessions have a session.json to replay against). It is NOT enabled
+      # here for brand-new sessions: a fresh session has no on-disk snapshot
+      # yet, so a pre-save crash is recovered by the next save anyway, and
+      # eagerly opening a .wal in the global SESSIONS_DIR here was found to
+      # leak stray files that old restore tests (which reuse a session_id
+      # without stubbing SESSIONS_DIR) then mis-replay, doubling messages.
       @history = MessageHistory.new
       @todos = []  # Store todos in memory
       @iterations = 0

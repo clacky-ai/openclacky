@@ -184,7 +184,7 @@ module Clacky
         # also get a chance to shut down cleanly (triggering interrupt_all_agents).
         begin
           Process.kill("TERM", -old_pid)
-          deadline = Time.now + 5
+          deadline = Time.now + 10
           loop do
             pid, = Process.waitpid2(old_pid, Process::WNOHANG)
             break if pid
@@ -210,8 +210,8 @@ module Clacky
             # TERM the entire worker process group so grandchildren (node MCP, etc.)
             # are also signalled and can clean up before we force-kill.
             Process.kill("TERM", -@worker_pid)
-            # Wait up to 2s for worker graceful exit, then KILL the whole group
-            deadline = Time.now + 3
+            # Wait up to 10s for worker graceful exit (interrupt_all_agents + save), then KILL
+            deadline = Time.now + 10
             loop do
               pid, = Process.waitpid2(@worker_pid, Process::WNOHANG)
               break if pid

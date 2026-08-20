@@ -12,8 +12,9 @@ module Clacky
   #
   # Wire reference: https://docs.anthropic.com/en/api/messages-streaming
   class AnthropicStreamAggregator
-    def initialize(on_chunk: nil)
+    def initialize(on_chunk: nil, checkpoint: nil)
       @on_chunk = on_chunk
+      @checkpoint = checkpoint
       @blocks = {}
       @stop_reason = nil
       @usage = {}
@@ -67,6 +68,7 @@ module Clacky
           block[:thinking] << delta["thinking"].to_s
         end
         emit_estimate_progress
+        @checkpoint&.update(to_checkpoint_snapshot)
       when "content_block_stop"
         # Nothing to do: blocks are finalised in to_h.
       when "message_delta"
@@ -102,6 +104,26 @@ module Clacky
       end
 
       { "content" => content_blocks, "stop_reason" => @stop_reason, "usage" => @usage }
+    end
+
+    # Extract a provider-agnostic snapshot for StreamCheckpoint.
+    def to_checkpoint_snapshot
+      text_parts, reasoning_parts, tool_calls = [], [], []
+      @blocks.keys.sort.each do |idx|
+        b = @blocks[idx]
+        case b[:kind]
+        when :tool_use
+          tool_calls << { id: b[:id], name: b[:name], arguments: b[:input_str].to_s }
+        when :thinking
+          reasoning_parts << b[:thinking].to_s
+        else
+          text_parts << b[:text].to_s
+        end
+      end
+      snap = { role: "assistant", content: text_parts.join, incomplete: true, provider: "anthropic" }
+      snap[:reasoning_content] = reasoning_parts.join unless reasoning_parts.empty?
+      snap[:tool_calls] = tool_calls unless tool_calls.empty?
+      snap
     end
 
     private def parse_or_nil(s)
