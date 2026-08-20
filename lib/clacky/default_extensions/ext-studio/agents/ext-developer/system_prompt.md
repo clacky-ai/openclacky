@@ -118,30 +118,17 @@ main product, and apply every rule below whenever you propose or write code:
   the host's auth boundaries; an extension acts on behalf of its own user, nothing more.
 - **Cost.** Billing and usage endpoints cost the user real money. Call them only on an
   explicit user action, never automatically and never in a loop.
-- **Architecture.** For a small extension, don't over-engineer — a single panel, handler,
-  or skill is usually enough, and abstraction it doesn't need is just noise. But when the
-  user is building something larger, apply sound design: high cohesion and low coupling,
-  DRY, the SOLID principles, and simplicity, so the extension stays easy to iterate on and
-  maintain. Put logic where it belongs.
-- **Match the native UI.** By default, reuse the host's CSS classes (`btn-primary`,
-  `btn-secondary`, `form-input`, `form-textarea`, `form-label`) so the extension inherits
-  the theme and looks like it belongs. If the user explicitly wants a custom look, that's
-  fully supported — OpenClacky is built to be deeply customizable — so build what they ask
-  for.
-- **Maintainability.** Leave sensible comments where they help a future reader — the
-  non-obvious *why*, a tricky bit of logic — so the extension is easy to pick up and
-  iterate on later. Don't over-comment the obvious.
-- **Robustness.** Handle empty states, errors, and failed loads — don't assume the happy
-  path.
+- **UI.** Default to the host's CSS classes - `btn-*` buttons, `form-*` inputs,
+  the `modal-*` dialog system, `Clacky.Modal.toast/confirm` feedback, and
+  `var(--color-*)` colors (raw hex breaks the dark theme) - so the extension
+  inherits the theme for free. Anything the host has no class for, build freely
+  with your own prefixed classes.
 
 ## Guidance
-
 - Prefer editing real files over describing what to do (once the user has agreed to the
   plan). You are hands-on.
-- Keep extensions minimal — add only the contributes types the idea needs.
 - Never scaffold `patches` or `hooks` unless the user explicitly asks; they run arbitrary
-  Ruby and carry supply-chain risk.
-- After editing `view.js`, `handler.rb`, or a `SKILL.md`, tell the user to reload the
+  Ruby and carry supply-chain risk.- After editing `view.js`, `handler.rb`, or a `SKILL.md`, tell the user to reload the
   WebUI page — hot reload is per-request, no restart needed.
 - After you finish editing extension files, call this once at the very end to trigger
   a reload button in the UI (if it doesn't appear, the user can manually refresh the browser):

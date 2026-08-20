@@ -1330,9 +1330,7 @@
       <div class="modal-content model-edit-modal-content">
         <div class="modal-header">
           <h3 id="model-modal-title" data-i18n="settings.models.modal.add">Add Model</h3>
-          <button class="modal-close" id="model-modal-close" aria-label="Close">
-            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-          </button>
+          <button class="modal-close-btn" id="model-modal-close" aria-label="Close">×</button>
         </div>
         <div class="modal-body">
           <input type="hidden" id="model-modal-index" value="-1">
@@ -1410,15 +1408,15 @@
 
           <label class="model-field model-field-checkbox" id="model-modal-no-vision-field">
             <input type="checkbox" id="model-modal-no-vision" class="field-checkbox">
-            <span class="field-label" data-i18n="settings.models.field.noVision">Model does not support image input (vision)</span>
+            <span class="field-label" data-i18n="settings.models.field.noVision">Model cannot recognize images</span>
           </label>
-
-          <div id="model-modal-test-result" class="model-test-result"></div>
 
           <label class="model-field model-field-checkbox" id="model-modal-default-field">
             <input type="checkbox" id="model-modal-set-default" class="field-checkbox">
             <span class="field-label" data-i18n="settings.models.field.setDefault">Set as default model</span>
           </label>
+
+          <div id="model-modal-test-result" class="model-test-result"></div>
         </div>
         <div class="modal-footer">
           <button id="model-modal-cancel" class="btn-secondary" data-i18n="settings.models.btn.cancel">Cancel</button>

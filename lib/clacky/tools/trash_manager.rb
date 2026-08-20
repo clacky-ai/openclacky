@@ -350,6 +350,22 @@ module Clacky
         time_str
       end
 
+      # Permanently delete file-trash entries older than :days across all
+      # projects. Called opportunistically on session save (never blocks it).
+      def self.cleanup_files_trash(days: 8)
+        root = Clacky::TrashDirectory.files_trash_dir
+        return 0 unless Dir.exist?(root)
+
+        tool = new
+        Dir.glob(File.join(root, "*")).sum do |dir|
+          next 0 unless File.directory?(dir)
+
+          tool.empty_trash(dir, days, nil)[:deleted_count].to_i
+        end
+      rescue StandardError
+        0
+      end
+
       def format_call(args)
         action = args[:action] || args['action'] || 'unknown'
         "TrashManager(#{action})"

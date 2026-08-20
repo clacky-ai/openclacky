@@ -21,7 +21,7 @@
       container.innerHTML =
         '<div style="max-width:720px;margin:32px auto;padding:24px;">' +
           '<h2 style="margin:0 0 8px">' + EXT + ' console</h2>' +
-          '<p style="opacity:.7;margin:0 0 16px">' +
+          '<p style="color:var(--color-text-secondary);margin:0 0 16px">' +
             'Full-page workspace registered by the ' + EXT + ' extension. ' +
             'Replace this render() with a real dashboard, form, or embedded iframe.' +
           '</p>' +
@@ -83,8 +83,8 @@
   Clacky.ext.ui.mount("session.banner", function () {
     var bar = document.createElement("div");
     bar.style.cssText =
-      "padding:8px 12px;margin:8px 0;border-radius:var(--radius-sm,6px);" +
-      "background:var(--color-bg-hover,#f4f4f2);color:var(--color-text-primary,#334);" +
+      "padding:8px 12px;margin:8px 0;border-radius:var(--radius-sm);" +
+      "background:var(--color-bg-hover);color:var(--color-text-primary);" +
       "display:flex;align-items:center;gap:8px;font-size:13px;";
     bar.innerHTML = '<strong>' + EXT + '</strong> — banner slot demo. ';
     var dismiss = document.createElement("button");
@@ -149,9 +149,9 @@
   //   Clicking a button injects a slash command into #user-input
   //   and clicks #btn-send — the same code path as typing it.
   //
-  //   These "chips" are pill-shaped so they read differently from
-  //   full btn-primary/btn-secondary buttons. Colors/radii still
-  //   pull from host CSS variables so themes travel with them.
+  //   These "chips" are btn-secondary with a size override so they read
+  //   differently from full-size buttons. Hover/focus/colors all come from
+  //   the host class - never hand-roll them in JS.
   Clacky.ext.ui.mount("session.composer", function () {
     var wrap = document.createElement("div");
     wrap.style.cssText = "display:flex;gap:6px;padding:6px 8px;flex-wrap:wrap;";
@@ -160,22 +160,10 @@
       var b = document.createElement("button");
       b.type = "button";
       b.textContent = label;
-      b.style.cssText =
-        "padding:4px 12px;font-size:12px;border-radius:14px;cursor:pointer;" +
-        "border:1px solid var(--color-border-primary,#e8e8e4);" +
-        "background:var(--color-bg-primary,#fff);" +
-        "color:var(--color-text-secondary,#56585e);" +
-        "transition:background var(--transition-fast,120ms), border-color var(--transition-fast,120ms), color var(--transition-fast,120ms);";
-      b.addEventListener("mouseenter", function () {
-        b.style.background   = "var(--color-bg-hover,#f4f4f2)";
-        b.style.borderColor  = "var(--color-border-strong,#d4d4d0)";
-        b.style.color        = "var(--color-text-primary,#1a1a1a)";
-      });
-      b.addEventListener("mouseleave", function () {
-        b.style.background   = "var(--color-bg-primary,#fff)";
-        b.style.borderColor  = "var(--color-border-primary,#e8e8e4)";
-        b.style.color        = "var(--color-text-secondary,#56585e)";
-      });
+      b.className = "btn-secondary";
+      // Size override only - colors, border and hover states come from the
+      // host class, so the chip follows the theme automatically.
+      b.style.cssText = "padding:4px 12px;font-size:12px;border-radius:14px;";
       b.addEventListener("click", function () {
         var input = document.getElementById("user-input");
         var send  = document.getElementById("btn-send");
