@@ -866,7 +866,7 @@ module Clacky
           end
         end
 
-      result = build_result
+      result = build_result(awaiting_user_feedback: awaiting_user_feedback)
 
         # Run skill evolution hooks after main loop completes
         # Skip if task was interrupted by user (denied tool) or awaiting user feedback
@@ -1586,7 +1586,7 @@ module Clacky
       !@start_time.nil?
     end
 
-    private def build_result(status = :success, error: nil)
+    private def build_result(status = :success, error: nil, awaiting_user_feedback: false)
       task_iterations = @iterations - (@task_start_iterations || 0)
       task_cost = @total_cost - (@task_start_cost || 0)
 
@@ -1601,7 +1601,8 @@ module Clacky
         cost_source: @task_cost_source,
         cache_stats: @task_cache_stats || @cache_stats,
         history: @history,
-        error: error
+        error: error,
+        awaiting_user_feedback: awaiting_user_feedback
       }
     end
 

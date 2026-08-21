@@ -1867,6 +1867,20 @@ body {
 .dot-idle    { background: var(--color-text-secondary); opacity: 0.4; }
 .dot-running { background: var(--live); opacity: 1; animation: pulse 1.6s ease-in-out infinite; }
 .dot-error   { background: var(--color-error); opacity: 1; }
+/* Blocked on the user: amber and static. Only `running` animates, so motion
+   in the sidebar always means the agent is actually doing something. */
+.dot-awaiting_feedback { background: var(--color-warning); opacity: 1; }
+/* Transient "finished while you were away" marker — cleared by a timer in
+   sessions.js, or as soon as the session is opened. Hollow ring in the same
+   green as `running`: same activity, later stage. Shape (not hue) carries the
+   distinction, so it survives color-blindness and dim screens. */
+.dot-done {
+  background: transparent;
+  border: 1.5px solid var(--live);
+  width: 0.5rem;
+  height: 0.5rem;
+  opacity: 1;
+}
 
 @keyframes pulse {
   0%, 100% { opacity: 1; }
@@ -4356,6 +4370,8 @@ body {
   animation: sib-heartbeat 1.6s ease-in-out infinite;
 }
 .sib-status-error   { color: #e05f5f; }
+.sib-status-awaiting_feedback { color: var(--color-warning, #d98e2b); }
+.sib-status-awaiting_feedback .sib-dot { background: currentColor; }
 
 @keyframes sib-heartbeat {
   0%       { box-shadow: 0 0 0 0 color-mix(in srgb, var(--live) 55%, transparent); }

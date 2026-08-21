@@ -7308,14 +7308,19 @@ module Clacky
         thread = Thread.new do
           Thread.current[:lang] = locale
           Thread.current[:task_epoch] = epoch
-          task.call
-          next unless @registry.update_if_epoch(session_id, epoch, status: :idle, error: nil)
+          run_result = task.call
+          awaiting = run_result.is_a?(Hash) && run_result[:awaiting_user_feedback]
+          next unless @registry.update_if_epoch(session_id, epoch,
+                                                status: awaiting ? :awaiting_feedback : :idle,
+                                                error: nil)
           broadcast_session_update(session_id)
           # Transient global signal for the optional task-complete sound. Sent to
           # all clients (broadcast_all) so a browser viewing another session — or
           # with the tab/window in the background — can still chime. Not part of
           # session history: a chime is a live cue, never replayed on refresh.
-          broadcast_all(type: "task_finished", session_id: session_id)
+          # Also fires when awaiting feedback — that is precisely when the user
+          # most needs pulling back; the flag lets the client word it differently.
+          broadcast_all(type: "task_finished", session_id: session_id, awaiting_feedback: !!awaiting)
           @session_manager.save(agent.to_session_data(status: :success, updated_at: Time.now))
           # Start idle compression timer now that the agent is idle
           idle_timer&.start

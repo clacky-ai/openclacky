@@ -20,6 +20,11 @@ module Clacky
     class SessionRegistry
       SESSION_TIMEOUT = 24 * 60 * 60 # 24 hours of inactivity before cleanup
 
+      # Statuses that mean "no agent thread is working" and are therefore
+      # eligible for eviction / stale cleanup. :awaiting_feedback is included
+      # so a question the user never answers cannot pin an agent in memory.
+      RECLAIMABLE_STATUSES = [:idle, :awaiting_feedback].freeze
+
       def initialize(session_manager: nil, session_restorer: nil, agent_config:)
         @sessions         = {}
         @mutex            = Mutex.new
@@ -453,7 +458,7 @@ module Clacky
         cutoff = Time.now - SESSION_TIMEOUT
         @mutex.synchronize do
           @sessions.delete_if do |_id, session|
-            session[:status] == :idle && session[:updated_at] < cutoff
+            RECLAIMABLE_STATUSES.include?(session[:status]) && session[:updated_at] < cutoff
           end
         end
       end
@@ -480,7 +485,7 @@ module Clacky
         to_evict = []
 
         @mutex.synchronize do
-          idle = @sessions.select { |_, s| s[:status] == :idle && s[:agent] }
+          idle = @sessions.select { |_, s| RECLAIMABLE_STATUSES.include?(s[:status]) && s[:agent] }
                    .sort_by { |_, s| s[:updated_at] || Time.at(0) }
 
           while idle.size > max_idle_agents

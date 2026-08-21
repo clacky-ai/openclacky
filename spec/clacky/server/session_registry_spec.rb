@@ -261,6 +261,41 @@ RSpec.describe Clacky::Server::SessionRegistry do
         expect(registry.exist?("s#{i}")).to be true
       end
     end
+
+    it "reclaims awaiting_feedback agents so an unanswered question cannot pin memory" do
+      Dir.mktmpdir("clacky_evict_spec") do |dir|
+        config   = Clacky::AgentConfig.new(max_idle_agents: 1)
+        manager  = Clacky::SessionManager.new(sessions_dir: dir)
+        registry = described_class.new(session_manager: manager, agent_config: config)
+
+        agent_double = double("agent", to_session_data: {
+          session_id: "x", messages: [], created_at: Time.now.iso8601
+        })
+
+        3.times do |i|
+          id = "await_#{i}"
+          registry.create(session_id: id)
+          registry.with_session(id) { |s| s[:agent] = agent_double }
+          registry.update(id, status: :awaiting_feedback, updated_at: Time.now - (3 - i))
+        end
+
+        registry.evict_excess_idle!
+
+        expect(registry.count_by_status(:awaiting_feedback)).to eq(1)
+        expect(registry.exist?("await_0")).to be false
+        expect(registry.exist?("await_2")).to be true
+      end
+    end
+
+    it "does not count awaiting_feedback against the running concurrency limit" do
+      config   = Clacky::AgentConfig.new(max_running_agents: 1)
+      registry = described_class.new(agent_config: config)
+
+      registry.create(session_id: "waiting")
+      registry.update("waiting", status: :awaiting_feedback)
+
+      expect(registry.running_full?).to be false
+    end
   end
 
   describe "#each_live_agent" do
