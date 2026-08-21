@@ -13,7 +13,7 @@ module Clacky
         case @config.permission_mode
         when :auto_approve, :confirm_all
           # Both modes auto-execute all file/shell tools without confirmation.
-          # The difference is only in request_user_feedback handling:
+          # The difference is only in ask_user handling:
           #   auto_approve → no human present, inject auto_reply
           #   confirm_all  → human present, truly wait for user input
           true

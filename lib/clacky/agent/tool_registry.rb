@@ -55,10 +55,12 @@ module Clacky
       # todo_manager aliases
       "todo" => "todo_manager",
       "task_manager" => "todo_manager",
-      # request_user_feedback aliases
-      "ask_user" => "request_user_feedback",
-      "user_feedback" => "request_user_feedback",
-      "ask" => "request_user_feedback",
+      # ask_user aliases
+      "request_user_feedback" => "ask_user",
+      "user_feedback" => "ask_user",
+      "ask" => "ask_user",
+      "ask_question" => "ask_user",
+      "clarify" => "ask_user",
       # trash_manager aliases
       "trash" => "trash_manager",
       "delete" => "trash_manager",

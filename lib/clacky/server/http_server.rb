@@ -102,9 +102,10 @@ module Clacky
         @events << { type: "token_usage", session_id: @session_id }.merge(token_data)
       end
 
-      def show_feedback_request(question, context, options)
+      def show_feedback_request(question, context, options, questions: nil)
         @events << { type: "request_feedback", session_id: @session_id,
-                     question: question, context: context, options: options }
+                     question: question, context: context, options: options,
+                     questions: questions || [] }
       end
 
       def show_subagent_start(skill: nil, iterations: nil, cost_usd: nil)
@@ -7447,7 +7448,7 @@ module Clacky
       # @param name [String] display name for the session
       # @param working_dir [String] working directory for the agent
       # @param permission_mode [Symbol] :confirm_all (default, human present) or
-      #   :auto_approve (unattended — suppresses request_user_feedback waits)
+      #   :auto_approve (unattended — suppresses ask_user waits)
       def build_session(name:, working_dir: nil, permission_mode: :confirm_all, profile: "general", source: :manual, model_id: nil)
         working_dir ||= default_working_dir
         FileUtils.mkdir_p(working_dir) unless Dir.exist?(working_dir)

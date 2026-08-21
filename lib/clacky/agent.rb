@@ -688,7 +688,7 @@ module Clacky
 
       result = nil
       begin
-        # Track if request_user_feedback was called
+        # Track if ask_user was called
         awaiting_user_feedback = false
         # Track if task was interrupted by user (denied tool execution)
         task_interrupted = false
@@ -829,7 +829,7 @@ module Clacky
           # Act: Execute tool calls
           action_result = act(response[:tool_calls])
 
-          # Check if request_user_feedback was called
+          # Check if ask_user was called
           if action_result[:awaiting_feedback]
             awaiting_user_feedback = true
             observe(response, action_result[:tool_results])
@@ -1226,10 +1226,10 @@ module Clacky
           end
         end
 
-        # Special handling for request_user_feedback
+        # Special handling for the ask_user family
         # The interactive countdown (auto_approve) is handled after the tool
         # executes, once the question itself has been rendered to the user.
-        unless call[:name] == "request_user_feedback"
+        unless Tools::AskUser.feedback_tool?(call[:name])
           @ui&.show_tool_call(call[:name], redact_tool_args(call[:arguments]))
         end
 
@@ -1319,10 +1319,13 @@ module Clacky
             @ui&.update_todos(@todos.dup) unless action == "list"
           end
 
-          # Special handling for request_user_feedback: emit as interactive feedback card
-          if call[:name] == "request_user_feedback"
+          # Special handling for ask_user: emit as interactive feedback card.
+          # A rejected call (no usable question) falls through to the normal
+          # result path so the model sees the error and can retry.
+          if Tools::AskUser.feedback_tool?(call[:name]) &&
+             result.is_a?(Hash) && result[:awaiting_feedback]
             # Pass the raw call arguments to show_tool_call so the WebUI controller
-            # can extract question/context/options and emit a "request_feedback" event
+            # can extract the questions and emit a "request_feedback" event
             # (renders as a clickable card in the browser).
             # Fallback UIs (terminal, IM channels) receive the formatted text message.
             @ui&.show_tool_call(call[:name], call[:arguments])
@@ -1641,7 +1644,7 @@ module Clacky
       @tool_registry.register(Tools::WebSearch.new)
       @tool_registry.register(Tools::WebFetch.new)
       @tool_registry.register(Tools::TodoManager.new)
-      @tool_registry.register(Tools::RequestUserFeedback.new)
+      @tool_registry.register(Tools::AskUser.new)
       @tool_registry.register(Tools::InvokeSkill.new)
       @tool_registry.register(Tools::Browser.new)
     end

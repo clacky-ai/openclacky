@@ -109,26 +109,25 @@ module Clacky
         forward_to_subscribers { |sub| sub.show_assistant_message(content, files: files) }
       end
 
-      def show_feedback_request(question, context, options)
-        emit("request_feedback", question: question, context: context, options: options)
+      def show_feedback_request(question, context, options, questions: nil)
+        emit("request_feedback", question: question, context: context,
+                                 options: options, questions: questions || [])
       end
 
       def show_tool_call(name, args)
         args_data = args.is_a?(String) ? (JSON.parse(args) rescue args) : args
 
-        # Special handling for request_user_feedback — emit a dedicated UI event
-        if name.to_s == "request_user_feedback"
-          question = args_data.is_a?(Hash) ? (args_data[:question] || args_data["question"]).to_s : ""
-          context  = args_data.is_a?(Hash) ? (args_data[:context]  || args_data["context"]).to_s  : ""
-          options  = args_data.is_a?(Hash) ? (args_data[:options]  || args_data["options"])        : nil
-
-          # Normalize options to array (guard against malformed data)
-          options = Array(options) if options && !options.is_a?(Array)
+        # Special handling for ask_user — emit a dedicated UI event
+        if Clacky::Tools::AskUser.feedback_tool?(name)
+          questions = Clacky::Tools::AskUser.normalize_questions(args_data)
+          context   = args_data.is_a?(Hash) ? (args_data[:context] || args_data["context"]).to_s : ""
+          first     = questions.first || {}
 
           emit("request_feedback",
-               question: question,
+               question: first[:question].to_s,
                context: context,
-               options: options || [])
+               options: first[:options] || [],
+               questions: questions)
           # Don't forward to IM subscribers — they get the formatted text version already
           return
         end

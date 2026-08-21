@@ -21,7 +21,7 @@ class MeetingExt < Clacky::ApiExtension
   # annotate is a read-only analysis: block every side-effecting tool so the
   # forked subagent can only read/think, never write files, run commands,
   # spawn more work, or prompt the user.
-  WRITE_TOOLS = %w[write edit terminal trash_manager invoke_skill request_user_feedback browser].freeze
+  WRITE_TOOLS = %w[write edit terminal trash_manager invoke_skill ask_user browser].freeze
 
   # ── Vocabulary (STT biasing hints) ────────────────────────────────────────
 

@@ -742,16 +742,17 @@ module Clacky
             args_raw = tc[:arguments] || tc.dig(:function, :arguments) || {}
             args     = args_raw.is_a?(String) ? (JSON.parse(args_raw) rescue args_raw) : args_raw
 
-            # Special handling: request_user_feedback question is shown as an
-            # assistant message (matching real-time behavior), not as a tool call.
-            # Reconstruct the full formatted message including options (mirrors RequestUserFeedback#execute).
-            if name == "request_user_feedback"
-              question = args.is_a?(Hash) ? (args[:question] || args["question"]).to_s : ""
-              context  = args.is_a?(Hash) ? (args[:context]  || args["context"]).to_s  : ""
-              options  = args.is_a?(Hash) ? (args[:options]  || args["options"])        : nil
-              options  = Array(options) if options && !options.is_a?(Array)
+            # Special handling: the ask_user question is shown as an assistant
+            # message (matching real-time behavior), not as a tool call.
+            if Clacky::Tools::AskUser.feedback_tool?(name)
+              questions = Clacky::Tools::AskUser.normalize_questions(args)
+              context   = Clacky::Tools::AskUser.fetch_key(args, :context).to_s
+              first     = questions.first
 
-              ui.show_feedback_request(question, context, options || []) unless question.empty?
+              unless first.nil?
+                ui.show_feedback_request(first[:question], context, first[:options],
+                                         questions: questions)
+              end
             else
               ui.show_tool_call(name, args)
             end

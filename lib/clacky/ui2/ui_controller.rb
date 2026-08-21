@@ -544,25 +544,29 @@ module Clacky
         @stdout_lines = nil
         @stdout_partial_tail = false
 
-        # Special handling for request_user_feedback: render as a readable interactive card
-        # with the full question and options, rather than the truncated format_call summary.
-        if name.to_s == "request_user_feedback"
+        # Special handling for ask_user: render as a readable interactive card
+        # with the full questions and options, rather than the truncated format_call summary.
+        if Clacky::Tools::AskUser.feedback_tool?(name)
           args_data = args.is_a?(String) ? (JSON.parse(args, symbolize_names: true) rescue {}) : args
-          args_data = args_data.transform_keys(&:to_sym) if args_data.is_a?(Hash)
+          questions = Clacky::Tools::AskUser.normalize_questions(args_data)
+          context   = Clacky::Tools::AskUser.fetch_key(args_data, :context).to_s.strip
 
-          question = args_data[:question].to_s.strip
-          context  = args_data[:context].to_s.strip
-          options  = Array(args_data[:options])
-
-          theme = ThemeManager.current_theme
           parts = []
-
           parts << context unless context.empty?
-          parts << question unless question.empty?
 
-          if options.any?
-            parts << ""
-            options.each_with_index { |opt, i| parts << "  #{i + 1}. #{opt}" }
+          multiple = questions.size > 1
+          questions.each_with_index do |q, q_index|
+            parts << "" unless parts.empty?
+            parts << (multiple ? "#{q_index + 1}. #{q[:question]}" : q[:question])
+            parts << q[:description] unless q[:description].empty?
+
+            next if q[:options].empty?
+
+            q[:options].each_with_index do |opt, i|
+              marker = q[:recommended] == i ? "  ← recommended" : ""
+              parts << "  #{i + 1}. #{opt}#{marker}"
+            end
+            parts << "  #{q[:options].size + 1}. Other — type your own answer" if q[:allow_free_text]
           end
 
           card_text = parts.join("\n")
@@ -1360,7 +1364,7 @@ module Clacky
         end
       end
 
-      # Auto-approve countdown for request_user_feedback: show a single live
+      # Auto-approve countdown for ask_user: show a single live
       # countdown line. If the user presses any key before timeout, collect
       # their answer and return it (intervention). Otherwise return :timeout so
       # the agent auto-decides and continues.
