@@ -4344,7 +4344,7 @@ module Clacky
         entries = Dir.entries(working_dir).reject { |e| e.start_with?(".") || FILE_AC_EXCLUDED_DIRS.include?(e) }
         entries.sort.each do |entry|
           kind = File.directory?(File.join(working_dir, entry)) ? "directory" : "file"
-          files << { path: kind == "directory" ? "#{entry}/" : entry, kind: }
+          files << { path: kind == "directory" ? "#{entry}/" : entry, kind: kind }
           break if files.size >= max_results
         end
         files
@@ -4359,7 +4359,7 @@ module Clacky
           next if !name_part.empty? && !entry.downcase.start_with?(name_part.downcase)
 
           kind = File.directory?(File.join(target, entry)) ? "directory" : "file"
-          files << { path: "#{dir_part}#{entry}#{kind == "directory" ? "/" : ""}", kind: }
+          files << { path: "#{dir_part}#{entry}#{kind == "directory" ? "/" : ""}", kind: kind }
           break if files.size >= max_results
         end
         files
