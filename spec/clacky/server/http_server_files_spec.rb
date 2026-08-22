@@ -164,5 +164,45 @@ RSpec.describe Clacky::Server::HttpServer, "@file mention endpoints" do
         expect(resolve(server, content).size).to eq(5)
       end
     end
+
+    # A mention naming a file the user already attached (uploads live outside
+    # the working_dir) must not create a duplicate attachment — it flags the
+    # existing entry as "mentioned" so the agent hints the model about it.
+    it "flags an already-attached file as mentioned instead of duplicating it" do
+      with_files_server do |server|
+        uploaded = [{ "path" => "/tmp/clacky-uploads/ab12_report.pdf", "name" => "report.pdf" }]
+        out = resolve(server, "summarise @report.pdf", uploaded)
+        expect(out).to eq([]) # no new attachment entry
+        expect(uploaded.first["mentioned"]).to be(true)
+      end
+    end
+
+    it "flags an attached image (no path, data-url) by name" do
+      with_files_server do |server|
+        uploaded = [{ "name" => "IMG_001.png", "data_url" => "data:image/png;base64,xx" }]
+        out = resolve(server, "what is in @IMG_001.png", uploaded)
+        expect(out).to eq([])
+        expect(uploaded.first["mentioned"]).to be(true)
+      end
+    end
+
+    it "does not flag an attachment whose name does not match the mention" do
+      with_files_server do |server|
+        uploaded = [{ "path" => "/tmp/clacky-uploads/ab12_other.pdf", "name" => "other.pdf" }]
+        out = resolve(server, "see @report.pdf", uploaded)
+        expect(out).to eq([])
+        expect(uploaded.first).not_to have_key("mentioned")
+      end
+    end
+
+    it "still resolves a working-dir file when an attachment shares the name" do
+      with_files_server do |server|
+        # working_dir wins: README.md exists on disk, so it resolves as a real
+        # attachment even though an upload with the same name is present.
+        uploaded = [{ "path" => "/tmp/clacky-uploads/zz_README.md", "name" => "README.md" }]
+        out = resolve(server, "read @README.md", uploaded)
+        expect(out.map { |f| f["path"] }).to eq([File.join(workdir, "README.md")])
+      end
+    end
   end
 end

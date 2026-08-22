@@ -7298,7 +7298,10 @@ module Clacky
       # the same files: pipeline as uploads: parser/vision processing in
       # Agent#run, then a system_injected prompt that replay_history skips.
       # Mentions that don't resolve to a file inside the working_dir stay as
-      # plain text in the message.
+      # plain text in the message — with one exception: a mention naming a
+      # file already attached to this message (uploads live in the uploads
+      # dir, outside the working_dir) flags that attachment as "mentioned"
+      # so the agent can hint the model about it, without duplicating it.
       #
       # Format: @filename or @"filename with spaces"
       #
@@ -7318,18 +7321,34 @@ module Clacky
           next if file_path.nil? || file_path.empty? || attachments.size >= max_files
 
           full_path = File.expand_path(file_path, working_dir)
-          next unless inside_working_dir?(full_path, working_dir)
-          next unless File.file?(full_path)
-          next if seen_paths.include?(full_path)
 
-          # "mentioned" flags the entry as @mention-sourced so agent.rb can
-          # hint the LLM to Read the exact path (models sometimes copy the
-          # "@name" chip text verbatim, which is not a usable path).
-          entry = { "name" => File.basename(full_path), "path" => full_path, "mentioned" => true }
-          mime  = MENTION_IMAGE_MIME[File.extname(full_path).downcase]
-          entry["mime_type"] = mime if mime
-          attachments << entry
-          seen_paths << full_path
+          if inside_working_dir?(full_path, working_dir) && File.file?(full_path)
+            next if seen_paths.include?(full_path)
+
+            # "mentioned" flags the entry as @mention-sourced so agent.rb can
+            # hint the LLM to Read the exact path (models sometimes copy the
+            # "@name" chip text verbatim, which is not a usable path).
+            entry = { "name" => File.basename(full_path), "path" => full_path, "mentioned" => true }
+            mime  = MENTION_IMAGE_MIME[File.extname(full_path).downcase]
+            entry["mime_type"] = mime if mime
+            attachments << entry
+            seen_paths << full_path
+            next
+          end
+
+          # Not a working-dir file. If it names a file the user already
+          # attached to this very message (the composer offers pending
+          # attachments in the @-mention dropdown), flag that attachment as
+          # mentioned — no new entry, so the file is never attached twice.
+          # Name-only comparison: no path is constructed from user input.
+          existing = Array(existing_files).find do |f|
+            name = f[:name] || f["name"]
+            !name.nil? && name == file_path
+          end
+          next unless existing
+
+          existing[:mentioned]   = true
+          existing["mentioned"]  = true
         end
 
         attachments
