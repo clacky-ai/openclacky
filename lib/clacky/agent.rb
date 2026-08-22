@@ -108,7 +108,8 @@ module Clacky
       @ui = ui  # UIController for direct UI interaction
       @debug_logs = []  # Debug logs for troubleshooting
       @pending_injections = []     # Pending inline skill injections to flush after observe()
-      @pending_subagent_transcripts = {} # tool_call_id => subagent trail, attached by observe()
+      @pending_subagent_transcripts = {} # tool_call_id => [subagent trails], attached by observe()
+      @subagent_transcripts_mutex = Mutex.new # fan-out collects from worker threads
       @pending_script_tmpdirs = [] # Decrypted-script tmpdirs that live for the agent's lifetime
       @pending_error_rollback = false  # Deferred rollback flag set by restore_session on error
       @last_run_interrupted = false    # Set when run() exits via AgentInterrupted; tells the next run() to keep the task-start snapshot (continuation of the same task across a relay, not a brand-new task)
@@ -1254,6 +1255,11 @@ module Clacky
             args[:tool_call_id] = call[:id]
           end
 
+          # Same anchor for extension tools that fan out to their own subagents.
+          if tool && tool.class.respond_to?(:receives_tool_call_id) && tool.class.receives_tool_call_id
+            args[:tool_call_id] = call[:id]
+          end
+
           # Inject working_dir so tools don't rely on Dir.chdir global state
           args[:working_dir] = @working_dir if @working_dir
 
@@ -1459,23 +1465,25 @@ module Clacky
       end
     end
 
-    # Attach captured subagent transcripts (set by execute_skill_with_subagent)
-    # to their own invoke_skill tool result messages just appended by observe().
-    # Each transcript rides on its tool message as :subagent_transcript — an
-    # internal field stripped before the LLM call but persisted to session.json
-    # and replayed to the WebUI. Keyed by tool_call_id so a turn with several
-    # invoke_skill calls attaches each subagent's trail to the call that spawned
-    # it. Consumed entries are deleted so each fires exactly once.
+    # Attach captured subagent transcripts (set by execute_skill_with_subagent
+    # and fan_out_labeled) to the tool result messages just appended by
+    # observe(). Each transcript rides on its tool message as an internal field
+    # stripped before the LLM call but persisted to session.json and replayed to
+    # the WebUI. Keyed by tool_call_id so a turn with several such calls attaches
+    # each trail to the call that spawned it. Consumed entries are deleted so
+    # each fires exactly once.
+    # A single subagent is just a batch of one, so both invoke_skill and
+    # fan-out land in the same buffer and the same message field.
     private def attach_pending_subagent_transcripts(response)
       return if @pending_subagent_transcripts.empty?
 
+      # Not filtered by tool name: any tool may spawn subagents, and the
+      # tool_call_id it recorded under is already the anchor.
       Array(response[:tool_calls]).each do |tc|
-        next unless (tc[:name] || tc.dig(:function, :name)) == "invoke_skill"
+        batch = @subagent_transcripts_mutex.synchronize { @pending_subagent_transcripts.delete(tc[:id]) }
+        next if batch.nil? || batch.empty?
 
-        transcript = @pending_subagent_transcripts.delete(tc[:id])
-        next unless transcript
-
-        @history.attach_to_tool_result(tc[:id], :subagent_transcript, transcript)
+        @history.attach_to_tool_result(tc[:id], :subagent_transcript, batch.sort_by { |t| t[:index] || 0 })
       end
     end
 
@@ -1493,6 +1501,12 @@ module Clacky
     # and the final error summary.
     TERMINAL_HEAD_CHARS = 40_000
     TERMINAL_TAIL_CHARS = 40_000
+
+    # Per-subagent transcript budget. Mirrors the intent of
+    # MessageHistory::MAX_EXT_EVENTS_PER_MESSAGE: milestones are worth keeping,
+    # runaway trails are not. A fan-out stores one of these per job.
+    MAX_TRANSCRIPT_EVENTS = 200
+    MAX_TRANSCRIPT_BYTES  = 64 * 1024
 
     private def truncate_oversized_tool_content(msg, tool_name: nil)
       content = msg[:content]
@@ -1723,11 +1737,16 @@ module Clacky
     # the jobs over — forking deep-copies parent config + history, which must
     # not race. Only the blocking run belongs in the lambda.
     #
-    # @param jobs [Array<Hash>] each { label: String, run: #call }
+    # Pass :subagent alongside :run (and a tool_call_id) to have each job's
+    # message trail persisted onto the tool result, so the WebUI can replay the
+    # whole batch after a reload instead of just the collapsed return values.
+    #
+    # @param jobs [Array<Hash>] each { label: String, run: #call, subagent: Agent (optional) }
     # @param max_concurrency [Integer] jobs allowed to run at once
     # @param timeout [Numeric, nil] wall-clock budget for the whole batch
+    # @param tool_call_id [String, nil] anchors persisted transcripts to this tool call
     # @return [Array<Fanout::Result>] aligned to the input order
-    def fan_out_labeled(jobs, max_concurrency: Fanout::DEFAULT_MAX_CONCURRENCY, timeout: nil)
+    def fan_out_labeled(jobs, max_concurrency: Fanout::DEFAULT_MAX_CONCURRENCY, timeout: nil, tool_call_id: nil)
       return [] if jobs.empty?
 
       # Fanout workers are fresh threads, so the epoch that lets the web
@@ -1738,11 +1757,18 @@ module Clacky
       wrapped = jobs.each_with_index.map do |job, index|
         label = job[:label] || job["label"] || "Subagent #{index + 1}/#{jobs.size}"
         run = job[:run] || job["run"]
+        subagent = job[:subagent] || job["subagent"]
         raise ArgumentError, "job #{index} must provide a callable :run" unless run.respond_to?(:call)
 
         lambda do
           Thread.current[:task_epoch] = epoch
-          within_phase(label, kind: "fanout_subagent", concurrent: true) { run.call }
+          begin
+            within_phase(label, kind: "fanout_subagent", concurrent: true) { run.call }
+          ensure
+            # Runs in ensure so a job that raised still leaves a trail — a failed
+            # subagent is exactly the one worth inspecting afterwards.
+            record_subagent_transcript(tool_call_id, subagent, label, index: index) if subagent
+          end
         end
       end
 
@@ -1753,6 +1779,21 @@ module Clacky
       return yield unless @ui.respond_to?(:with_phase)
 
       @ui.with_phase(kind: kind, label: label, concurrent: concurrent, &block)
+    end
+
+    # Called from fan-out worker threads, hence the mutex. Slots are keyed by
+    # job index so the persisted order matches the caller's job order rather
+    # than completion order.
+    def record_subagent_transcript(tool_call_id, subagent, label, index: 0)
+      return unless tool_call_id
+
+      transcript = extract_subagent_transcript(subagent, label)
+      transcript[:index] = index
+      @subagent_transcripts_mutex.synchronize do
+        (@pending_subagent_transcripts[tool_call_id] ||= []) << transcript
+      end
+    rescue StandardError => e
+      Clacky::Logger.warn("agent.subagent_transcript_failed", error: e.message, label: label)
     end
 
     # The subagent's last non-empty assistant message — its actual answer.
@@ -1990,8 +2031,32 @@ module Clacky
         skill: skill_identifier,
         iterations: subagent.iterations,
         cost_usd: subagent.total_cost.round(4),
-        events: events
+        events: cap_transcript_events(events)
       }
+    end
+
+    # session.json is rewritten in full on every save, so a transcript has to
+    # stay bounded — a fan-out of chatty subagents would otherwise multiply an
+    # unbounded trail by the batch size. Oldest events are dropped first: the
+    # tail is what explains how the subagent ended up where it did.
+    private def cap_transcript_events(events)
+      kept = events.last(MAX_TRANSCRIPT_EVENTS)
+      dropped = events.size - kept.size
+
+      budget = MAX_TRANSCRIPT_BYTES
+      kept = kept.reverse.take_while do |entry|
+        budget -= transcript_entry_bytes(entry)
+        budget.positive?
+      end.reverse
+      dropped = events.size - kept.size
+
+      return kept if dropped.zero?
+
+      [{ role: "system", content: "[#{dropped} earlier event(s) omitted]" }] + kept
+    end
+
+    private def transcript_entry_bytes(entry)
+      entry[:content].to_s.bytesize + Array(entry[:tool_calls]).sum { |tc| tc[:arguments].to_s.bytesize }
     end
 
     # Deep clone helper for messages using Marshal

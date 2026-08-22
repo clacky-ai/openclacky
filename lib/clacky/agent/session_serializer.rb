@@ -797,14 +797,23 @@ module Clacky
         end
       end
 
-      # Replay a subagent transcript stored on a tool result message. Emits a
+      # Replay subagent transcripts stored on a tool result message. Emits a
       # bracketed sequence of UI events the frontend can render as a collapsible
       # sub-process block: subagent_start → (assistant_message / tool_call /
-      # tool_result)* → subagent_end. No-op when the message carries no transcript.
+      # tool_result)* → subagent_end. A fan-out batch renders one block per job,
+      # in the caller's original job order.
+      #
+      # Sessions saved before fan-out support stored a bare Hash here.
       def replay_subagent_transcript(msg, ui)
-        transcript = msg[:subagent_transcript]
-        return unless transcript.is_a?(Hash)
+        stored = msg[:subagent_transcript]
+        Array(stored.is_a?(Hash) ? [stored] : stored).each do |transcript|
+          next unless transcript.is_a?(Hash)
 
+          replay_one_subagent_transcript(transcript, ui)
+        end
+      end
+
+      def replay_one_subagent_transcript(transcript, ui)
         events = transcript[:events] || transcript["events"] || []
         return if events.empty?
 

@@ -7,6 +7,11 @@ module Clacky
     class Base
       class << self
         attr_accessor :tool_name, :tool_description, :tool_parameters, :tool_category
+
+        # Opt in to receive the current call's id as :tool_call_id. Needed by
+        # tools that fan out to subagents so their transcripts can be anchored
+        # to the tool result they belong to.
+        attr_accessor :receives_tool_call_id
       end
 
       # Host agent, injected at registration for extension tools so they can

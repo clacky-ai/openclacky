@@ -13626,6 +13626,20 @@ body.setup-mode[data-theme="dark"] {
 .msg-phase-empty .msg-phase-summary::before { visibility: hidden; }
 .msg-phase-empty .msg-phase-body { display: none; }
 
+/* Phase cards nested under the tool call that spawned them (fan-out). */
+.tool-item-phases {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.25rem 0 0.125rem 0.5rem;
+}
+.tool-item-phases:empty { display: none; }
+.tool-item-phases .msg-phase { margin: 0; }
+.tool-item-phases .msg-phase-body {
+  max-height: 24rem;
+  overflow-y: auto;
+}
+
 /* ── Share modal ──────────────────────────────────────────────────────── */
 .share-overlay {
   position: fixed;
