@@ -584,10 +584,11 @@ module Clacky
         # "too large" note for downgraded images.
         downgrade_reason = f[:downgrade_reason] || f["downgrade_reason"]
         ocr_text         = f[:ocr_text]         || f["ocr_text"]
+        mentioned        = f[:mentioned]        || f["mentioned"]
         ref = Utils::FileProcessor.process_path(path, name: name)
         { name: ref.name, type: ref.type.to_s, path: ref.original_path,
           preview_path: ref.preview_path, parse_error: ref.parse_error, parser_path: ref.parser_path,
-          downgrade_reason: downgrade_reason, ocr_text: ocr_text }
+          downgrade_reason: downgrade_reason, ocr_text: ocr_text, mentioned: mentioned }
       end
 
       # Build display_files for replay: lightweight metadata so the UI can reconstruct
@@ -649,6 +650,14 @@ module Clacky
           lines << "Size: #{format_size(size_bytes)}" if size_bytes
           lines << "Original: #{path}" if path
           lines << "Preview (Markdown): #{preview_path}" if preview_path
+
+          # @mention attachments: the user bubble shows "@name" chip text, which
+          # models sometimes copy verbatim into Read (with the @, no directory).
+          # Point them at the exact path carried by this entry.
+          if f[:mentioned] || f["mentioned"]
+            lines << "Note: the user referenced this file as @#{name}; use the exact path above " \
+                     "with Read — the @-mention text itself is not a usable path."
+          end
 
           # Inline note explaining why an image was *not* sent as vision
           # content. Colocated with the file info (not in system prompt) so
