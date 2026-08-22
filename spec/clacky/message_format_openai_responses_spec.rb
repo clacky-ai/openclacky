@@ -119,6 +119,23 @@ RSpec.describe Clacky::MessageFormat::OpenAIResponses do
       expect(body[:input][1][:arguments]).to eq("{\"city\":\"London\"}")
     end
 
+    it "JSON-encodes Hash tool_call arguments instead of emitting a Ruby literal" do
+      # Regression: Hash arguments used to be stringified with #to_s, which
+      # produces a Ruby literal like {:city=>"Tokyo"} that the tool side
+      # cannot parse as JSON.
+      messages = [
+        { role: "user", content: "What is the weather?" },
+        { role: "assistant", content: nil, tool_calls: [
+          { id: "call_003", type: "function", name: "get_weather",
+            arguments: { city: "Tokyo", units: "celsius" } }
+        ] }
+      ]
+
+      body = described_class.build_request_body(messages, model, tools, max_tokens, false)
+      arguments = body[:input][1][:arguments]
+      expect(JSON.parse(arguments)).to eq("city" => "Tokyo", "units" => "celsius")
+    end
+
     it "converts tool result messages to function_call_output items" do
       messages = [
         { role: "user", content: "What is the weather?" },
@@ -397,14 +414,29 @@ RSpec.describe Clacky::MessageFormat::OpenAIResponses do
     end
   end
 
-  describe ".apply_reasoning_params" do
+  describe "reasoning params delegation" do
+    # apply_reasoning_params is delegated to MessageFormat::OpenAI (single
+    # source of truth). These cases guard against the copy drifting again:
+    # the previous local copy lacked the GLM-5.3 branch, so glm-5.3* fell
+    # into the /^glm-[45]/ branch and emitted thinking.type "disabled" for
+    # "off", which Z.ai rejects with an error.
+
     it "applies thinking params for GLM models" do
-      body = {}
-      described_class.build_request_body(
+      body = described_class.build_request_body(
         [{ role: "user", content: "Hi" }], "glm-4-plus", [], 100, false,
         reasoning_effort: "high"
       )
-      # The method is called internally; verify via build_request_body
+      expect(body[:thinking]).to eq({ type: "enabled" })
+      expect(body[:reasoning_effort]).to eq("high")
+    end
+
+    it "maps GLM-5.3 'off' to the lightest effort with thinking still enabled" do
+      body = described_class.build_request_body(
+        [{ role: "user", content: "Hi" }], "glm-5.3", [], 100, false,
+        reasoning_effort: "off"
+      )
+      expect(body[:thinking]).to eq({ type: "enabled" })
+      expect(body[:reasoning_effort]).to eq("low")
     end
 
     it "applies reasoning_effort for deepseek models" do

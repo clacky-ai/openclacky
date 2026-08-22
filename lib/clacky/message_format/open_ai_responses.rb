@@ -19,20 +19,6 @@ module Clacky
     module OpenAIResponses
       module_function
 
-      # ── Message type identification ───────────────────────────────────────────
-
-      # Returns true if the message is a canonical tool result.
-      def tool_result_message?(msg)
-        msg[:role] == "tool" && !msg[:tool_call_id].nil?
-      end
-
-      # Returns the tool_call_ids referenced in a tool result message.
-      def tool_call_ids(msg)
-        return [] unless tool_result_message?(msg)
-
-        [msg[:tool_call_id]]
-      end
-
       # ── Request building ──────────────────────────────────────────────────────
 
       # Build a Responses API request body from canonical messages.
@@ -62,7 +48,7 @@ module Clacky
           body[:tools] = converted
         end
 
-        apply_reasoning_params(body, model, reasoning_effort)
+        OpenAI.apply_reasoning_params(body, model, reasoning_effort)
 
         body
       end
@@ -122,7 +108,7 @@ module Clacky
               type:      "function_call",
               call_id:   tc[:id],
               name:      func[:name],
-              arguments: func[:arguments].to_s
+              arguments: serialize_arguments(func[:arguments])
             }
           end
         end
@@ -260,6 +246,16 @@ module Clacky
 
       # ── Private helpers ───────────────────────────────────────────────────────
 
+      # The Responses API expects function_call arguments as a JSON *string*.
+      # Canonical tool_calls normally carry a JSON string already, but a Hash
+      # or Array value must be JSON-encoded — #to_s would emit a Ruby literal
+      # (e.g. {:city=>"Tokyo"}) that the tool side cannot parse.
+      private_class_method def self.serialize_arguments(arguments)
+        return JSON.generate(arguments) if arguments.is_a?(Hash) || arguments.is_a?(Array)
+
+        arguments.to_s
+      end
+
       # Extract text content from output items.
       # Looks for message-type items with output_text content blocks.
       #
@@ -376,65 +372,6 @@ module Clacky
         end
       end
 
-      # Apply model-specific reasoning / thinking parameters to the request body.
-      # Same logic as MessageFormat::OpenAI - the reasoning params are identical
-      # across Chat Completions and Responses API for all supported providers.
-      #
-      # @param body [Hash] request body (modified in place)
-      # @param model [String] model name
-      # @param reasoning_effort [String, nil]
-      private_class_method def self.apply_reasoning_params(body, model, reasoning_effort)
-        effort_str = reasoning_effort.to_s
-
-        if model.to_s.match?(/^glm-[45]/i)
-          if %w[off nothink disabled].include?(effort_str)
-            body[:thinking] = { type: "disabled" }
-          elsif !effort_str.empty?
-            glm_effort =
-              case effort_str
-              when "max", "xhigh" then "max"
-              when "high"          then "high"
-              when "medium", "low" then "high"
-              else                      "max"
-              end
-            body[:thinking] = { type: "enabled" }
-            body[:reasoning_effort] = glm_effort
-          end
-        elsif model.to_s.match?(/^kimi-k3/i)
-          if %w[off nothink disabled].include?(effort_str)
-            body[:reasoning_effort] = "low"
-          elsif !effort_str.empty?
-            body[:reasoning_effort] =
-              case effort_str
-              when "max", "xhigh"  then "max"
-              when "high"          then "high"
-              when "medium", "low" then "low"
-              else                      "max"
-              end
-          end
-        elsif model.to_s.match?(/^mimo-v2/i)
-          if %w[off nothink disabled].include?(effort_str)
-            body[:thinking] = { type: "disabled" }
-          elsif !effort_str.empty?
-            body[:thinking] = { type: "enabled" }
-          end
-        elsif model.to_s.match?(/^minimax-m3$/i)
-          if %w[off nothink disabled].include?(effort_str)
-            body[:thinking] = { type: "disabled" }
-          elsif !effort_str.empty?
-            body[:thinking] = { type: "adaptive" }
-          end
-        elsif model.to_s.match?(/deepseek/i)
-          effort = case effort_str
-                   when "xhigh" then "max"
-                   else effort_str
-                   end
-          body[:reasoning_effort] = effort unless effort.empty?
-        elsif reasoning_effort && !effort_str.empty?
-          body[:reasoning_effort] = effort_str
-        end
-      end
-
       # Convert Chat Completions tool definitions to Responses API format.
       # Chat Completions: {type: "function", function: {name:, description:, parameters:}}
       # Responses API:    {type: "function", name:, description:, parameters:}
@@ -449,14 +386,6 @@ module Clacky
             description: func[:description] || func["description"],
             parameters:  func[:parameters] || func["parameters"]
           }
-        end
-      end
-
-      private_class_method def self.deep_clone(obj)
-        case obj
-        when Hash  then obj.each_with_object({}) { |(k, v), h| h[k] = deep_clone(v) }
-        when Array then obj.map { |item| deep_clone(item) }
-        else obj
         end
       end
     end
