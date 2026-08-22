@@ -25,7 +25,12 @@ module Clacky
           CDN_BASE_URL         = "https://novac2c.cdn.weixin.qq.com/c2c"
           API_PATH_PREFIX      = "ilink/bot"
           CHANNEL_VERSION      = "1.0.2"
-          LONG_POLL_TIMEOUT_S  = 40   # slightly above the server's 35s
+          LONG_POLL_TIMEOUT_S  = 40   # server's long-poll window (35s); see LONG_POLL_SLICE_S
+          # Slice the long-poll into a short read timeout so the adapter loop
+          # notices stop/shutdown between cycles. Disconnecting early just
+          # reconnects with the same get_updates_buf cursor — the server keeps
+          # the request open either way.
+          LONG_POLL_SLICE_S    = 8
           API_TIMEOUT_S        = 15
 
           # media_type values for getuploadurl
@@ -58,7 +63,7 @@ module Clacky
           # @param get_updates_buf [String] cursor from last response ("" for first call)
           # @return [Hash] { ret:, msgs: [], get_updates_buf:, longpolling_timeout_ms: }
           def get_updates(get_updates_buf:)
-            post("getupdates", { get_updates_buf: get_updates_buf }, timeout: LONG_POLL_TIMEOUT_S)
+            post("getupdates", { get_updates_buf: get_updates_buf }, timeout: LONG_POLL_SLICE_S)
           end
 
           # Retrieve a typing_ticket for the given user.

@@ -39,8 +39,8 @@ module Clacky
         cleanup_by_count(keep: 200, grouped_keep: 200)
         cleanup_trash(days: 8)
         cleanup_file_trash(days: 8)
-      rescue Exception # rubocop:disable Lint/RescueException
-        # Cleanup is non-critical; swallow all errors (including AgentInterrupted)
+      rescue StandardError
+        # Cleanup is non-critical; swallow file errors but never AgentInterrupted
       end
 
       filepath
@@ -285,8 +285,8 @@ module Clacky
       Open3.popen3(env, *cmd) do |stdin, stdout, stderr, wait_thr|
         stdin.close
         out = +""
-        reader = Thread.new { out << stdout.read }
-        drain  = Thread.new { stderr.read }
+        reader = Clacky::ThreadRegistry.spawn(name: "session-out-reader") { out << stdout.read }
+        drain  = Clacky::ThreadRegistry.spawn(name: "session-err-reader") { stderr.read }
         deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + timeout
         loop do
           remaining = deadline - Process.clock_gettime(Process::CLOCK_MONOTONIC)

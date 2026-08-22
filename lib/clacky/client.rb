@@ -263,6 +263,7 @@ module Clacky
       response = bedrock_connection.post(bedrock_stream_endpoint(model)) do |req|
         req.body = stream_body.to_json
         req.options.on_data = proc do |chunk, _bytes_received, _env|
+          Clacky::Shutdown.checkpoint!
           sse_buf << chunk
           drain_sse_frames(sse_buf) { |event, data| aggregator.handle(event, data) }
         end
@@ -320,6 +321,7 @@ module Clacky
         req.headers["Accept"] = "text/event-stream"
         req.body = stream_body.to_json
         req.options.on_data = proc do |chunk, _bytes_received, _env|
+          Clacky::Shutdown.checkpoint!
           sse_buf << chunk
           drain_sse_frames(sse_buf) { |event, data| aggregator.handle(event, data) }
         end
@@ -417,6 +419,7 @@ module Clacky
       response = openai_connection.post("chat/completions") do |req|
         req.body = stream_body.to_json
         req.options.on_data = proc do |chunk, _bytes_received, _env|
+          Clacky::Shutdown.checkpoint!
           sse_buf << chunk
           drain_sse_frames(sse_buf) { |_event, data| aggregator.handle(data) }
         end

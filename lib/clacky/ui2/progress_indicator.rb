@@ -19,7 +19,7 @@ module Clacky
       print_thinking_status("#{@thinking_verb}… (ctrl+c to interrupt)")
 
       # Start background thread to update elapsed time
-      @update_thread = Thread.new do
+      @update_thread = Clacky::ThreadRegistry.spawn(name: "progress-elapsed") do
         while @running
           sleep 0.1
           update if @running

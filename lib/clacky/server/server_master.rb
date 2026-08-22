@@ -27,6 +27,15 @@ module Clacky
       # Worker exits with this code to request a hot restart (e.g. after gem upgrade).
       RESTART_EXIT_CODE        = 75
       MAX_CONSECUTIVE_FAILURES = 5
+      # Grace period for a worker to finish its shutdown_proc before KILL.
+      # Worker cleanup is tuned to finish in ~2s (parallel agent interrupt,
+      # 1s stopper joins, 1s force_stop grace), so 3s is the target ceiling.
+      #
+      # TEMP for manual debugging: extended to 10s so a slow worker teardown
+      # does not get KILLed mid-cleanup while we measure where time goes.
+      # Override with CLACKY_MASTER_GRACE_SECONDS (e.g. 15) without editing code.
+      # Revert to 3 once the worker side is proven to finish in time.
+      WORKER_GRACE_EXIT_SECONDS = ENV.fetch("CLACKY_MASTER_GRACE_SECONDS", "10").to_i
 
       def initialize(host:, port:, argv: nil, extra_flags: [])
         @host   = host
@@ -184,7 +193,7 @@ module Clacky
         # also get a chance to shut down cleanly (triggering interrupt_all_agents).
         begin
           Process.kill("TERM", -old_pid)
-          deadline = Time.now + 5
+          deadline = Time.now + WORKER_GRACE_EXIT_SECONDS
           loop do
             pid, = Process.waitpid2(old_pid, Process::WNOHANG)
             break if pid
@@ -210,8 +219,11 @@ module Clacky
             # TERM the entire worker process group so grandchildren (node MCP, etc.)
             # are also signalled and can clean up before we force-kill.
             Process.kill("TERM", -@worker_pid)
-            # Wait up to 2s for worker graceful exit, then KILL the whole group
-            deadline = Time.now + 3
+            # Wait for worker graceful exit, then KILL the whole group as a
+            # last resort. Deadline must cover the worker's shutdown_proc
+            # worst case (~5.5s), otherwise every Ctrl+C logs a spurious
+            # "did not exit in time" and kills the worker mid-cleanup.
+            deadline = Time.now + WORKER_GRACE_EXIT_SECONDS
             loop do
               pid, = Process.waitpid2(@worker_pid, Process::WNOHANG)
               break if pid

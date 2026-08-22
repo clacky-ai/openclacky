@@ -41,8 +41,7 @@ module Clacky
           return if @running
 
           @running = true
-          @thread  = Thread.new { run_loop }
-          @thread.name = "clacky-scheduler"
+          @thread  = Clacky::ThreadRegistry.spawn(name: "clacky-scheduler") { run_loop }
         end
       end
 
@@ -200,10 +199,10 @@ module Clacky
             # Sleep until the start of the next minute
             now     = Time.now
             sleep_s = 60 - now.sec
-            sleep(sleep_s)
+            Clacky::Shutdown.sleep(sleep_s)
           rescue => e
             Clacky::Logger.error("scheduler_tick_error", error: e)
-            sleep(5) # back off before retrying next tick
+            Clacky::Shutdown.sleep(5) # back off before retrying next tick
           end
         end
       end

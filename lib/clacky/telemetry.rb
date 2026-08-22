@@ -151,7 +151,7 @@ module Clacky
       # Uses PlatformHttpClient for unified HTTP handling (retry + failover
       # happen in the background thread, so they don't block startup).
       private def fire_and_forget(path, payload)
-        Thread.new do
+        Clacky::ThreadRegistry.spawn(name: "telemetry-post") do
           begin
             platform_client.post(path, payload)
           rescue StandardError

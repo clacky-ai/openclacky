@@ -103,6 +103,7 @@ RSpec.describe "retrying-progress cleanup on successful retry" do
   before do
     # No real sleeping — retry loop runs instantly.
     allow_any_instance_of(Clacky::Agent).to receive(:sleep)
+    allow(Clacky::Shutdown).to receive(:sleep_interruptibly).and_return(false)
   end
 
   def active_retrying_events

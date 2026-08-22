@@ -197,8 +197,8 @@ module Clacky
         stdin.close
         pgid = Process.getpgid(wait_thr.pid)
 
-        out_thr = Thread.new { stdout.read }
-        err_thr = Thread.new { stderr.read }
+        out_thr = Clacky::ThreadRegistry.spawn(name: "parser-out") { stdout.read }
+        err_thr = Clacky::ThreadRegistry.spawn(name: "parser-err") { stderr.read }
 
         if wait_thr.join(timeout)
           [out_thr.value, err_thr.value, wait_thr.value]

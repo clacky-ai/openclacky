@@ -61,7 +61,7 @@ module Clacky
         body = JSON.generate(payload)
         is_request = payload.is_a?(Hash) && payload.key?(:id) || (payload.is_a?(Hash) && payload.key?("id"))
 
-        Thread.new do
+        Clacky::ThreadRegistry.spawn(name: "mcp-http-dispatch") do
           begin
             dispatch_post(body, is_request: is_request)
           rescue StandardError => e

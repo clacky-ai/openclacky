@@ -519,7 +519,7 @@ module Clacky
       return nil if activated?
       return nil if ENV["CLACKY_TEST"] == "1"
 
-      Thread.new do
+      Clacky::ThreadRegistry.spawn(name: "brand-fetch-free-skills") do
         Thread.current.abort_on_exception = false
 
         begin
@@ -922,7 +922,7 @@ module Clacky
       return nil unless activated?
       return nil if ENV["CLACKY_TEST"] == "1"
 
-      Thread.new do
+      Clacky::ThreadRegistry.spawn(name: "brand-fetch-extensions") do
         Thread.current.abort_on_exception = false
 
         begin
@@ -1305,7 +1305,7 @@ module Clacky
       return nil unless activated?
       return nil if ENV["CLACKY_TEST"] == "1"
 
-      Thread.new do
+      Clacky::ThreadRegistry.spawn(name: "brand-fetch-skills") do
         Thread.current.abort_on_exception = false
 
         begin

@@ -205,9 +205,9 @@ module Clacky
       private def start_reaper
         return if @idle_timeout.nil? || @idle_timeout <= 0
 
-        @reaper_thread = Thread.new do
+        @reaper_thread = Clacky::ThreadRegistry.spawn(name: "mcp-reaper") do
           loop do
-            sleep [@idle_timeout / 5, 30].min
+            Clacky::Shutdown.sleep([@idle_timeout / 5, 30].min)
             now = Time.now
             @lock.synchronize do
               @clients.each do |name, client|
@@ -222,7 +222,6 @@ module Clacky
         rescue StandardError
           # Reaper thread must never crash the main agent. Best-effort.
         end
-        @reaper_thread.name = "mcp-reaper" if @reaper_thread.respond_to?(:name=)
       end
     end
   end

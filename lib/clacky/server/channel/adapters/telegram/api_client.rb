@@ -24,9 +24,11 @@ module Clacky
           DEFAULT_BASE_URL  = "https://api.telegram.org"
           LONG_POLL_TIMEOUT = 25  # seconds; server holds the request open up to this long
           OPEN_TIMEOUT      = 10
-          # Read timeout must comfortably exceed the long-poll window so we
-          # don't tear down healthy connections mid-poll.
-          POLL_READ_TIMEOUT = LONG_POLL_TIMEOUT + 10
+          # Read timeout sliced below the long-poll window so the adapter loop
+          # notices stop/shutdown between cycles. Disconnecting early just
+          # reconnects with the same offset — the server keeps the request
+          # open regardless.
+          POLL_READ_TIMEOUT = 10
 
           class ApiError < StandardError
             attr_reader :code, :description

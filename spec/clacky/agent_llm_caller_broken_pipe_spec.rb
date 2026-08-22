@@ -86,6 +86,7 @@ RSpec.describe "Broken pipe (Errno::EPIPE) recovery in LlmCaller" do
   end
 
   before { allow_any_instance_of(Clacky::Agent).to receive(:sleep) }
+  before { allow(Clacky::Shutdown).to receive(:sleep_interruptibly).and_return(false) }
   before { Thread.current[:lang] = "en" }
 
   # ── Streaming path: bare Errno::EPIPE escapes Faraday unwrapped ──────────

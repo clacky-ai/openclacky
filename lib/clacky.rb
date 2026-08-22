@@ -94,6 +94,8 @@ require_relative "clacky/ui2/progress_indicator"
 
 # Utils
 require_relative "clacky/utils/logger"
+require_relative "clacky/shutdown"
+require_relative "clacky/thread_registry"
 require_relative "clacky/proxy_config"
 require_relative "clacky/platform_http_client"
 require_relative "clacky/identity"

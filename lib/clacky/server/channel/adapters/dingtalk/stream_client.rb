@@ -34,8 +34,9 @@ module Clacky
               begin
                 connect_and_listen
               rescue => e
+                break unless @running
                 Clacky::Logger.warn("[dingtalk-ws] Connection error: #{e.class}: #{e.message}")
-                sleep RECONNECT_DELAY if @running
+                Clacky::Shutdown.sleep(RECONNECT_DELAY)
               end
             end
           end

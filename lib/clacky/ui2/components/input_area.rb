@@ -415,7 +415,7 @@ module Clacky
           @tips_type = type
 
           # Auto-clear tips after 2 seconds
-          @tips_timer = Thread.new do
+          @tips_timer = Clacky::ThreadRegistry.spawn(name: "input-tips-timer") do
             sleep 2
             # Clear tips from state and screen
             @tips_message = nil
@@ -451,7 +451,7 @@ module Clacky
           @user_tip = USER_TIPS.sample
           
           # Start rotation timer (will show max_tips total)
-          @user_tip_timer = Thread.new do
+          @user_tip_timer = Clacky::ThreadRegistry.spawn(name: "input-user-tip-timer") do
             while @user_tip_count < max_tips
               sleep rotation_interval
               @user_tip_count += 1

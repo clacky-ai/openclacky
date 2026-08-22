@@ -695,6 +695,7 @@ module Clacky
         task_interrupted = false
 
         loop do
+          Clacky::Shutdown.checkpoint!
           @iterations += 1
           @hooks.trigger(:on_iteration, @iterations)
 

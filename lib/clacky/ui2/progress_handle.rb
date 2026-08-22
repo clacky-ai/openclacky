@@ -276,8 +276,7 @@ module Clacky
       end
 
       private def start_ticker
-        @ticker = Thread.new do
-          Thread.current.name = "progress-ticker-#{object_id}"
+        @ticker = Clacky::ThreadRegistry.spawn(name: "progress-ticker-#{object_id}") do
           begin
             loop do
               # wait, not sleep: finish/discard signals the condition so a

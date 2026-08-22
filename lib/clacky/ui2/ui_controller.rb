@@ -1391,7 +1391,7 @@ module Clacky
         }
         @feedback_countdown = session
 
-        session[:watchdog] = Thread.new do
+        session[:watchdog] = Clacky::ThreadRegistry.spawn(name: "ui-watchdog") do
           remaining = seconds.to_i
           while remaining.positive?
             break if session[:intervened]
@@ -1535,7 +1535,7 @@ module Clacky
         # Use a dedicated stop flag so we can join() the thread cleanly and
         # avoid Thread#kill interrupting the thread while it holds @render_mutex.
         @fullscreen_refresh_stop = false
-        @fullscreen_refresh_thread = Thread.new do
+        @fullscreen_refresh_thread = Clacky::ThreadRegistry.spawn(name: "ui-fullscreen-refresh") do
           until @fullscreen_refresh_stop || !@layout.fullscreen_mode?
             sleep 0.3
             next if @fullscreen_refresh_stop || !@layout.fullscreen_mode?

@@ -297,34 +297,72 @@ module Clacky
           next if shutdown_once
           shutdown_once = true
           @draining = true
-          # Persist in-flight agent sessions BEFORE starting the forced-exit
-          # timer, so any new messages added to @history since the last save
-          # are on disk before the new worker reads them after a hot restart.
-          interrupt_all_agents
+          # Flip the process-wide cooperative shutdown flag FIRST so agent
+          # threads poll it at safe points (stream chunk callbacks, retry
+          # loops, main loop) and exit cleanly instead of spinning.
+          Clacky::Shutdown.request!(:signal)
+          begin
+            # Persist in-flight agent sessions BEFORE starting the forced-exit
+            # timer, so any new messages added to @history since the last save
+            # are on disk before the new worker reads them after a hot restart.
+            interrupt_all_agents
+            Clacky::Logger.info("[shutdown] step=agents_interrupted")
 
-          # Detach the inherited (shared) listen socket BEFORE WEBrick.shutdown
-          # so that cleanup_listener does not call shutdown(SHUT_RDWR)+close on
-          # it — that would propagate to every process sharing the underlying
-          # kernel socket (Master + new worker), breaking subsequent accept()
-          # on Linux. macOS's BSD stack tolerates this; Linux does not.
-          if @inherited_socket && server.listeners.include?(@inherited_socket)
-            server.listeners.delete(@inherited_socket)
-            Clacky::Logger.info("[HttpServer PID=#{Process.pid}] detached inherited socket fd=#{@inherited_socket.fileno} before shutdown")
+            # Close active WebSocket connections so their handler threads exit
+            # promptly. WEBrick's shutdown does not touch established
+            # connections, and a handler parked in IO.select(30) would keep
+            # the process from exiting (Ruby waits for every thread after main
+            # returns), tripping the master's KILL watchdog.
+            @ws_mutex.synchronize do
+              @all_ws_conns.each(&:force_close!)
+            end
+            Clacky::Logger.info("[shutdown] step=ws_closed")
+
+            # Detach the inherited (shared) listen socket BEFORE WEBrick.shutdown
+            # so that cleanup_listener does not call shutdown(SHUT_RDWR)+close on
+            # it — that would propagate to every process sharing the underlying
+            # kernel socket (Master + new worker), breaking subsequent accept()
+            # on Linux. macOS's BSD stack tolerates this; Linux does not.
+            if @inherited_socket && server.listeners.include?(@inherited_socket)
+              server.listeners.delete(@inherited_socket)
+              Clacky::Logger.info("[HttpServer PID=#{Process.pid}] detached inherited socket fd=#{@inherited_socket.fileno} before shutdown")
+            end
+            # Close the loopback listener we created in this worker so the port
+            # is freed before the next worker starts (hot restart path).
+            if @loopback_listener
+              server.listeners.delete(@loopback_listener)
+              @loopback_listener.close rescue nil
+              @loopback_listener = nil
+            end
+            t1 = Clacky::ThreadRegistry.spawn(name: "shutdown-stopper-channel") { @channel_manager.stop rescue nil }
+            t2 = Clacky::ThreadRegistry.spawn(name: "shutdown-stopper-browser") { Clacky::BrowserManager.instance.stop rescue nil }
+            t3 = Clacky::ThreadRegistry.spawn(name: "shutdown-stopper-mcp") { @mcp_registry&.shutdown rescue nil }
+            # Share one 1s budget across all three stoppers (parallel), so a
+            # slow channel teardown no longer delays browser/MCP cleanup.
+            deadline = Time.now + 1.0
+            [t1, t2, t3].each { |t| t.join([deadline - Time.now, 0.01].max) }
+            Clacky::Logger.info("[shutdown] step=stoppers_stopped")
+            # Force-stop any managed thread that refused to exit cooperatively,
+            # then report stragglers so stray Thread.new calls get traced.
+            # Grace is short: agents were already interrupted+joined above, so
+            # anything still alive here is stuck and should be killed promptly.
+            Clacky::ThreadRegistry.force_stop!(grace: 0.5)
+            Clacky::ThreadRegistry.report_leaks!
+            Clacky::Logger.info("[shutdown] step=managed_threads_stopped")
+          rescue => e
+            Clacky::Logger.error("[shutdown] shutdown_proc raised #{e.class}: #{e.message}")
+            Clacky::Logger.error("[shutdown] #{e.backtrace.first(5).join(' | ')}")
+          ensure
+            # WEBrick's start() joins every request thread (th[:WEBrickThread])
+            # with an unbounded join after the accept loop exits. A keep-alive
+            # HTTP or WS handler blocked on socket read would pin the main
+            # thread — and the process — until the master's KILL fires, so kill
+            # those threads right after shutdown to let server.start return.
+            Clacky::Logger.info("[shutdown] calling server.shutdown")
+            server.shutdown rescue nil
+            Thread.list.each { |t| t.kill if t[:WEBrickThread] }
+            Clacky::Logger.info("[shutdown] server.shutdown returned")
           end
-          # Close the loopback listener we created in this worker so the port
-          # is freed before the next worker starts (hot restart path).
-          if @loopback_listener
-            server.listeners.delete(@loopback_listener)
-            @loopback_listener.close rescue nil
-            @loopback_listener = nil
-          end
-          t1 = Thread.new { @channel_manager.stop rescue nil }
-          t2 = Thread.new { Clacky::BrowserManager.instance.stop rescue nil }
-          t3 = Thread.new { @mcp_registry&.shutdown rescue nil }
-          t1.join(1.5)
-          t2.join(1.5)
-          t3.join(1.5)
-          server.shutdown rescue nil
         end
         # Ruby forbids Mutex#synchronize / Thread#join inside a trap handler
         # (ThreadError: can't be called from trap context), and interrupt_all_agents
@@ -449,7 +487,7 @@ module Clacky
 
         # Reclaim orphaned Time Machine snapshots (sessions deleted earlier
         # without snapshot cleanup). Runs off-thread so startup stays fast.
-        Thread.new do
+        Clacky::ThreadRegistry.spawn(name: "snapshot-cleanup") do
           begin
             n = Clacky::SessionManager.cleanup_orphan_snapshots
             puts "   Snapshots: reclaimed #{n} orphan dir(s)" if n.positive?
@@ -2319,7 +2357,7 @@ module Clacky
           @@brand_heartbeat_inflight = true
         end
 
-        Thread.new do
+        Clacky::ThreadRegistry.spawn(name: "brand-heartbeat") do
           Clacky::Logger.info("[Brand] async heartbeat starting...")
           begin
             brand  = Clacky::BrandConfig.load
@@ -2367,7 +2405,7 @@ module Clacky
           @@brand_dist_refresh_inflight = true
         end
 
-        Thread.new do
+        Clacky::ThreadRegistry.spawn(name: "brand-dist-refresh") do
           Clacky::Logger.info("[Brand] async distribution refresh starting...")
           begin
             brand  = Clacky::BrandConfig.load
@@ -2936,7 +2974,7 @@ module Clacky
           @install_jobs[job_id] = { stage: initial_stage, progress: 0, error: nil, done: false, updated_at: Time.now }
         end
 
-        Thread.new do
+        Clacky::ThreadRegistry.spawn(name: "install-job") do
           begin
             on_progress = lambda do |info|
               @install_jobs_mutex.synchronize do
@@ -3325,7 +3363,7 @@ module Clacky
       def api_upgrade_version(req, res)
         json_response(res, 202, { ok: true, message: "Upgrade started" })
 
-        Thread.new do
+        Clacky::ThreadRegistry.spawn(name: "upgrade") do
           begin
             if official_gem_source?
               upgrade_via_gem_update
@@ -3612,7 +3650,7 @@ module Clacky
       end
 
       private def schedule_restart
-        Thread.new do
+        Clacky::ThreadRegistry.spawn(name: "schedule-restart") do
           sleep 0.5  # Let WEBrick flush the HTTP response
 
           if @master_pid
@@ -5874,7 +5912,7 @@ module Clacky
 
         json_response(res, 200, { ok: true })
 
-        Thread.new do
+        Clacky::ThreadRegistry.spawn(name: "exec-restart") do
           sleep 0.5
           if @master_pid
             begin
@@ -6731,7 +6769,7 @@ module Clacky
         # (timeout + small buffer) as a last-resort safety net.
         per_model_timeout = 15
         threads = models.map do |m|
-          Thread.new do
+          Clacky::ThreadRegistry.spawn(name: "benchmark-model") do
             Thread.current.report_on_exception = false
             benchmark_single_model(m, per_model_timeout)
           end
@@ -7251,15 +7289,23 @@ module Clacky
         # never made it into session.json (history vanishes on replay).
         @registry.shutdown_all_idle_timers
 
+        # Interrupt every live agent, then join them in parallel. Agents are
+        # cooperative (stream callbacks, sleep slices), so a single 2s join
+        # covers all of them — serial joins would multiply the shutdown time
+        # by the number of concurrent tasks.
+        live = []
         @registry.each_live_agent do |id, agent, thread|
           next unless thread&.alive?
           begin
             thread.raise(Clacky::AgentInterrupted, "Worker shutting down")
+            live << [id, agent, thread]
             Clacky::Logger.info("[shutdown] interrupted session=#{id}")
           rescue => e
             Clacky::Logger.error("[shutdown] interrupt failed for session=#{id}: #{e.message}")
           end
-          thread.join(AGENT_INTERRUPT_JOIN_SECONDS)
+        end
+        live.each { |_id, _agent, thread| thread.join(AGENT_INTERRUPT_JOIN_SECONDS) }
+        live.each do |id, agent, _thread|
           @session_manager.save(agent.to_session_data(status: :interrupted, updated_at: Time.now))
         end
       end
@@ -7301,12 +7347,12 @@ module Clacky
         # to the first user message. Run it off the request path; eviction
         # is a memory-pressure relief, not a correctness requirement for
         # starting this task.
-        Thread.new { @registry.evict_excess_idle! }
+        Clacky::ThreadRegistry.spawn(name: "evict-excess-idle") { @registry.evict_excess_idle! }
 
         broadcast_session_update(session_id)
 
         locale = Thread.current[:lang]
-        thread = Thread.new do
+        thread = Clacky::ThreadRegistry.spawn(name: "agent-task:#{session_id}") do
           Thread.current[:lang] = locale
           Thread.current[:task_epoch] = epoch
           run_result = task.call

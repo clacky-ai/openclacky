@@ -35,7 +35,7 @@ module Clacky
       deadline = @timeout && (monotonic_now + @timeout)
 
       workers = Array.new([@max_concurrency, jobs.size].min) do
-        Thread.new { drain(pending, results, deadline) }
+        Clacky::ThreadRegistry.spawn(name: "fanout-worker") { drain(pending, results, deadline) }
       end
       join_all(workers, deadline)
 

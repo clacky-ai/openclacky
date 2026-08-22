@@ -904,7 +904,7 @@ module Clacky
 
       # Background thread: drain PTY → log file.
       private def start_reader_thread(reader, log_io)
-        Thread.new do
+        Clacky::ThreadRegistry.spawn(name: "terminal-pty-reader") do
           loop do
             break if reader.closed? || log_io.closed?
             begin
