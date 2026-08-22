@@ -510,6 +510,13 @@
           </div>
           <div id="skill-autocomplete-list"></div>
         </div>
+        <!-- File mention autocomplete dropdown (shown when user types @xxx) -->
+        <div id="file-autocomplete" style="display:none" role="listbox" aria-label="Files">
+          <div class="file-ac-header-row">
+            <div class="file-ac-title"><span data-i18n="files.title">Files</span></div>
+          </div>
+          <div id="file-autocomplete-list"></div>
+        </div>
         <!-- Image preview strip (hidden when empty) -->
         <div id="image-preview-strip" style="display:none"></div>
         <div id="input-bar">
@@ -523,9 +530,12 @@
           <button id="btn-slash" title="Insert skill command (/)">
             <span>/</span>
           </button>
-          <textarea id="user-input" rows="1"
-            data-i18n-placeholder="chat.input.placeholder"
-            placeholder="Message… (Enter to send, Shift-Enter for newline)"></textarea>
+          <div class="mention-input-wrap">
+            <div id="user-input-highlight" aria-hidden="true"></div>
+            <textarea id="user-input" rows="1"
+              data-i18n-placeholder="chat.input.placeholder"
+              placeholder="Message… (@ to mention files, Enter to send, Shift+Enter for newline)"></textarea>
+          </div>
           <button id="btn-send" title="Send message"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"></polyline></svg></button>
           <button id="btn-interrupt" style="display:none" title="Stop"><svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="1.5"/></svg></button>
         </div>

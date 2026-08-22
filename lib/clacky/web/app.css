@@ -43,6 +43,14 @@
   /* 10% tint of accent for soft fills — safe for any hue because it's tiny */
   --color-accent-soft:    color-mix(in srgb, var(--color-accent-primary) 10%, transparent);
 
+  /* @-mention inline tag — fixed palette taken from the UI mockup
+     (#e8f0fe / #1a73e8 / #c5d9f5). Semantic, deliberately NOT brand-driven
+     (same precedent as success/error), so mentions always look like the
+     design regardless of white-label brand hue. */
+  --mention-fg:   #1a73e8;
+  --mention-bg:   #e8f0fe;
+  --mention-ring: #c5d9f5;
+
   /* Semantic (fixed, not brand-driven) */
   --color-success: #10b981;
   --color-success-bg: #ecfdf5;
@@ -126,6 +134,11 @@
   --color-accent-primary: #818cf8;
   --color-accent-hover:   #6366f1;
   --color-accent-soft:    color-mix(in srgb, var(--color-accent-primary) 14%, transparent);
+
+  /* @-mention tag — dark counterpart of the mockup's Google-blue palette */
+  --mention-fg:   #8ab4f8;
+  --mention-bg:   rgba(138, 180, 248, 0.16);
+  --mention-ring: rgba(138, 180, 248, 0.4);
 
   --color-success: #34d399;
   --color-success-bg: #0d2a22;
@@ -5278,6 +5291,119 @@ body {
   cursor: default;
 }
 
+/* ── File Autocomplete (@ mention) ──────────────────────────────────────── */
+#file-autocomplete {
+  position: absolute;
+  bottom: 100%;
+  left: 24px;
+  right: 24px;
+  background: var(--color-bg-primary);
+  border: 1px solid var(--color-border-primary);
+  border-radius: 13px 13px 0 0;
+  box-shadow: var(--shadow-card);
+  margin-bottom: -1px;
+  max-height: 18.75rem;
+  overflow-y: auto;
+  z-index: 1000;
+}
+
+#input-area:has(#input-bar:focus-within) #file-autocomplete {
+  border-color: color-mix(in srgb, var(--color-accent-primary) 50%, var(--color-border-primary));
+  border-bottom-color: var(--color-border-primary);
+}
+
+#file-autocomplete-list {
+  padding: 0.25rem 0;
+}
+
+.file-ac-header-row {
+  display: flex;
+  align-items: center;
+  padding: 0.5rem 0.875rem;
+  border-bottom: 1px solid var(--color-border-secondary);
+}
+
+.file-ac-title {
+  font-size: 0.75rem;
+  color: var(--color-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  font-weight: 500;
+  line-height: 1rem;
+}
+
+.file-ac-item {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  padding: 0.5rem 0.875rem;
+  margin: 0 0.5rem;
+  cursor: pointer;
+  border-radius: 0.5rem;
+  transition: background 0.1s;
+  user-select: none;
+  line-height: 1.4;
+}
+
+.file-ac-item:hover {
+  background: var(--color-bg-hover);
+}
+
+.file-ac-item.active {
+  background: color-mix(in srgb, var(--color-text-primary) 8%, transparent);
+  outline: none;
+}
+
+.file-ac-icon {
+  width: 1.25rem;
+  height: 1.25rem;
+  flex-shrink: 0;
+  color: var(--color-text-secondary);
+}
+
+.file-ac-name {
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--color-text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.file-ac-path {
+  font-size: 0.75rem;
+  color: var(--color-text-tertiary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-left: auto;
+  flex-shrink: 0;
+  max-width: 40%;
+}
+
+.file-ac-empty {
+  padding: 0.875rem 1rem;
+  font-size: 0.8125rem;
+  color: var(--color-text-tertiary, #888);
+  text-align: left;
+  font-style: italic;
+}
+
+/* @ mention inline tag style.
+   CRITICAL: this layer overlays the transparent-text textarea, so the tag
+   MUST NOT change text metrics (no font-family / font-size / padding /
+   border) — any width difference shifts the visible text away from the real
+   caret/selection positions, producing blank gaps before the caret.
+   Decoration is limited to layout-neutral properties: background, color,
+   border-radius and inset box-shadow (paints a ring without taking space). */
+.file-mention-tag {
+  display: inline;
+  background: var(--mention-bg);
+  box-shadow: inset 0 0 0 1px var(--mention-ring);
+  border-radius: 4px;
+  color: var(--mention-fg);
+}
+
 .skill-ac-src {
   font-size: 0.625rem;
   color: var(--color-text-tertiary);
@@ -5356,12 +5482,40 @@ body {
   background: var(--color-accent-soft);
 }
 
+/* Mention highlight layer — renders @file mentions as styled tags under the
+   (transparent-text) textarea, so the input box shows the same tag UI as the
+   design. The textarea keeps its caret and placeholder; only glyphs are
+   delegated to the layer. */
+.mention-input-wrap {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  display: flex;
+}
+#user-input-highlight {
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
+  overflow: hidden;
+  pointer-events: none;
+  white-space: pre-wrap;
+  /* must mirror the textarea's exact wrapping metrics */
+  word-break: normal;
+  overflow-wrap: break-word;
+  color: var(--color-text-primary);
+  padding: 4px 6px;
+  font-size: 0.9375rem;
+  font-family: var(--font-sans);
+  line-height: 1.55;
+  z-index: 0;
+}
 #user-input {
   flex: 1;
   background: transparent !important;
   border: none !important;
   outline: none !important;
-  color: var(--color-text-primary);
+  color: transparent !important;
+  caret-color: var(--color-text-primary);
+  -webkit-text-fill-color: transparent;
   padding: 4px 6px;
   font-size: 0.9375rem;
   resize: none;
@@ -5371,8 +5525,17 @@ body {
   overflow-y: auto;
   scrollbar-width: none;
   margin: 0;
+  position: relative;
+  z-index: 1;
 }
 #user-input::-webkit-scrollbar { display: none; }
+/* The textarea text is transparent (glyphs come from the highlight layer),
+   but -webkit-text-fill-color also erases the placeholder — restore it. */
+#user-input::placeholder {
+  color: var(--color-text-muted);
+  -webkit-text-fill-color: var(--color-text-muted);
+  opacity: 1;
+}
 
 #btn-send, #btn-interrupt {
   border: none;

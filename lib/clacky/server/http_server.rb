@@ -644,6 +644,7 @@ module Clacky
         when ["POST",   "/api/tool/browser"]      then api_tool_browser(req, res)
         when ["POST",   "/api/upload"]            then api_upload_file(req, res)
         when ["POST",   "/api/file-action"]       then api_file_action(req, res)
+        when ["GET",    "/api/files"]             then api_list_files(req, res)
         when ["GET",    "/api/local-image"]       then api_serve_local_image(req, res)
         when ["POST",   "/api/media/image"]       then api_media_image(req, res)
         when ["POST",   "/api/media/video"]       then api_media_video(req, res)
@@ -4202,6 +4203,127 @@ module Clacky
         res.body = File.binread(path)
       end
 
+      # GET /api/files?session_id=xxx&query=yyy
+      #
+      # List files in the session's working directory for @ file mention autocomplete.
+      # Returns up to 20 matching files/directories, ranked by relevance.
+      #
+      # Query params:
+      #   session_id — required, the session whose working_dir to search
+      #   query      — optional, fuzzy match against filenames (default: list top-level)
+      #
+      # Response:
+      #   { files: [{ path: "README.md", kind: "file" }, { path: "src/", kind: "directory" }, ...] }
+      private def api_list_files(req, res)
+        query_params = URI.decode_www_form(req.query_string.to_s).to_h
+        session_id   = query_params["session_id"].to_s.strip
+        query        = query_params["query"].to_s.strip
+
+        return json_response(res, 400, { error: "session_id is required" }) if session_id.empty?
+
+        # Get session's working_dir
+        session = @registry.snapshot(session_id)
+        return json_response(res, 404, { error: "session not found" }) unless session
+
+        working_dir = session[:working_dir]
+        if working_dir.nil? || working_dir.empty?
+          return json_response(res, 400, { error: "session has no working_dir" })
+        end
+        return json_response(res, 400, { error: "working_dir does not exist" }) unless Dir.exist?(working_dir)
+
+        json_response(res, 200, { files: list_working_dir_files(working_dir, query) })
+      rescue => e
+        json_response(res, 500, { ok: false, error: e.message })
+      end
+
+      # Directories never listed or descended into by @mention autocomplete.
+      FILE_AC_EXCLUDED_DIRS = %w[.git node_modules .cache .tmp .temp __pycache__ .venv venv .bundle vendor].freeze
+
+      # Dispatch the three listing modes: top-level, path navigation, fuzzy search.
+      private def list_working_dir_files(working_dir, query, max_results = 20)
+        return list_top_level(working_dir, max_results) if query.empty?
+
+        if query.include?("/")
+          # Path navigation mode: query is a relative directory path such as
+          # "docs/" or "docs/2024" — list entries inside that directory,
+          # optionally filtered by a trailing name prefix.
+          dir_part  = query[0...query.rindex("/") + 1]  # "docs/2024" -> "docs/"
+          name_part = query[dir_part.length..]          # "docs/2024" -> "2024"
+          target    = File.expand_path(File.join(working_dir, dir_part))
+          # Confine navigation to the working_dir (rejects ../ traversal).
+          return [] unless inside_working_dir?(target, working_dir) && Dir.exist?(target)
+
+          list_dir(target, dir_part, name_part, max_results)
+        else
+          results = []
+          search_files_recursive(working_dir, working_dir, query, results, max_results, 0)
+          results
+        end
+      end
+
+      # True when path is working_dir itself or a directory inside it.
+      private def inside_working_dir?(path, working_dir)
+        root = File.expand_path(working_dir)
+        path == root || path.start_with?("#{root}/")
+      end
+
+      private def list_top_level(working_dir, max_results)
+        files = []
+        entries = Dir.entries(working_dir).reject { |e| e.start_with?(".") || FILE_AC_EXCLUDED_DIRS.include?(e) }
+        entries.sort.each do |entry|
+          kind = File.directory?(File.join(working_dir, entry)) ? "directory" : "file"
+          files << { path: kind == "directory" ? "#{entry}/" : entry, kind: }
+          break if files.size >= max_results
+        end
+        files
+      rescue Errno::EACCES, Errno::ENOENT
+        files
+      end
+
+      private def list_dir(target, dir_part, name_part, max_results)
+        files = []
+        entries = Dir.entries(target).reject { |e| e.start_with?(".") || FILE_AC_EXCLUDED_DIRS.include?(e) }
+        entries.sort.each do |entry|
+          next if !name_part.empty? && !entry.downcase.start_with?(name_part.downcase)
+
+          kind = File.directory?(File.join(target, entry)) ? "directory" : "file"
+          files << { path: "#{dir_part}#{entry}#{kind == "directory" ? "/" : ""}", kind: }
+          break if files.size >= max_results
+        end
+        files
+      rescue Errno::EACCES, Errno::ENOENT
+        files
+      end
+
+      # Recursively search for files matching the query.
+      # Symlinked directories are never descended into (avoids symlink-loop
+      # stack overflows) and recursion depth is capped as a safeguard against
+      # pathological trees.
+      private def search_files_recursive(root, current_dir, query, results, max_results, depth)
+        return if results.size >= max_results || depth > 6
+
+        entries = Dir.entries(current_dir).reject { |e| e.start_with?(".") }
+        entries.sort.each do |entry|
+          break if results.size >= max_results
+
+          full_path = File.join(current_dir, entry)
+          next if FILE_AC_EXCLUDED_DIRS.include?(entry)
+
+          relative_path = full_path.sub(%r{^#{Regexp.escape(root)}/?}, "")
+
+          if File.directory?(full_path)
+            results << { path: "#{relative_path}/", kind: "directory" } if entry.downcase.include?(query.downcase)
+            next if File.symlink?(full_path)
+
+            search_files_recursive(root, full_path, query, results, max_results, depth + 1)
+          elsif entry.downcase.include?(query.downcase)
+            results << { path: relative_path, kind: "file" }
+          end
+        end
+      rescue Errno::EACCES, Errno::ENOENT
+        # Skip unreadable directories
+      end
+
       # GET /api/local-image?path=file:///path/to/image.png
       # GET /api/local-image?path=/path/to/image.png
       #
@@ -7140,19 +7262,77 @@ module Clacky
         skill_command_display = if skill_command[:found] && skill_command[:skill]
                                   skill_command[:skill].display_name(Thread.current[:lang])
                                 end
-        # Pass the uploaded files through to the realtime broadcast so images and
-        # attachments render in the bubble immediately. agent.run later appends the
-        # authoritative display_files to history — but only after vision/OCR
-        # processing finishes, which can take seconds. Without the preview here, a
-        # page refresh inside that window shows the message without its image (the
-        # "need to refresh several times before the image appears" bug).
-        web_ui&.show_user_message(content, created_at: msg_created_at, source: :web, files: Array(files),
+        # Resolve @file mentions into synthetic attachments so they flow through
+        # the same files: pipeline as uploads (parser/vision processing + a
+        # system_injected prompt), instead of appending raw contents to the
+        # user message where they would persist in history forever.
+        files = Array(files) + resolve_mention_attachments(content, session[:working_dir], files)
+
+        # Pass the files (uploads + mention attachments) through to the realtime
+        # broadcast so images and attachments render in the bubble immediately.
+        # agent.run later appends the authoritative display_files to history —
+        # but only after vision/OCR processing finishes, which can take seconds.
+        # Without the preview here, a page refresh inside that window shows the
+        # message without its image (the "need to refresh several times before
+        # the image appears" bug).
+        web_ui&.show_user_message(content, created_at: msg_created_at, source: :web, files: files,
                                   skill_command: skill_command[:found] ? skill_command[:skill_name] : nil,
                                   skill_command_display: skill_command_display)
 
-        # File references are now handled inside agent.run — injected as a system_injected
-        # message after the user message, so replay_history skips them automatically.
+        # File references (uploads + @mentions) are handled inside agent.run —
+        # injected as a system_injected message after the user message, so
+        # replay_history skips them automatically.
         run_agent_task(session_id, agent) { agent.run(content, files: files, created_at: msg_created_at) }
+      end
+
+      # MIME types for working-dir images referenced via @mention, so
+      # Agent#partition_files routes them through the vision pipeline exactly
+      # like uploaded images.
+      MENTION_IMAGE_MIME = {
+        ".png" => "image/png", ".jpg" => "image/jpeg", ".jpeg" => "image/jpeg",
+        ".gif" => "image/gif", ".webp" => "image/webp"
+      }.freeze
+
+      # Resolve @file mentions into synthetic attachment entries
+      # ({ "name", "path" } plus "mime_type" for images) so they flow through
+      # the same files: pipeline as uploads: parser/vision processing in
+      # Agent#run, then a system_injected prompt that replay_history skips.
+      # Mentions that don't resolve to a file inside the working_dir stay as
+      # plain text in the message.
+      #
+      # Format: @filename or @"filename with spaces"
+      #
+      # Hardening: paths are confined to the working_dir (expand_path + prefix
+      # check), capped at 5 files, and deduplicated against each other and
+      # against the uploaded files.
+      private def resolve_mention_attachments(content, working_dir, existing_files = [])
+        return [] if content.nil? || content.empty?
+        return [] if working_dir.nil? || working_dir.empty?
+
+        max_files   = 5
+        attachments = []
+        seen_paths  = Array(existing_files).map { |f| f[:path] || f["path"] }.compact.to_set
+
+        content.scan(/@"([^"]+)"|@([^\s@]+)/) do |quoted, bare|
+          file_path = quoted || bare
+          next if file_path.nil? || file_path.empty? || attachments.size >= max_files
+
+          full_path = File.expand_path(file_path, working_dir)
+          next unless inside_working_dir?(full_path, working_dir)
+          next unless File.file?(full_path)
+          next if seen_paths.include?(full_path)
+
+          # "mentioned" flags the entry as @mention-sourced so agent.rb can
+          # hint the LLM to Read the exact path (models sometimes copy the
+          # "@name" chip text verbatim, which is not a usable path).
+          entry = { "name" => File.basename(full_path), "path" => full_path, "mentioned" => true }
+          mime  = MENTION_IMAGE_MIME[File.extname(full_path).downcase]
+          entry["mime_type"] = mime if mime
+          attachments << entry
+          seen_paths << full_path
+        end
+
+        attachments
       end
 
       def deliver_confirmation(session_id, conf_id, result)
