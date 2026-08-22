@@ -5674,6 +5674,15 @@ body {
   -webkit-text-fill-color: var(--color-text-muted);
   opacity: 1;
 }
+/* The selection background is painted by the textarea, which sits ABOVE the
+   highlight layer that draws the visible glyphs. With the platform-default
+   (often opaque) selection color the wash hides the glyphs — selected text
+   turns into a blank colored bar. Use a translucent wash so the glyphs stay
+   readable on every platform. (The selected-text color itself is irrelevant:
+   the textarea's own glyphs are transparent by design.) */
+#user-input::selection {
+  background: color-mix(in srgb, var(--color-accent-primary) 28%, transparent);
+}
 
 #btn-send, #btn-interrupt {
   border: none;
@@ -14283,6 +14292,13 @@ body.setup-mode[data-theme="dark"] {
 
   /* Textarea: prevent iOS auto-zoom (must be ≥1rem) */
   #user-input {
+    font-size: 1rem;
+    padding: 0.1875rem 0.375rem;
+  }
+  /* The highlight layer must mirror the textarea's metrics EXACTLY or the
+     visible glyphs drift away from the real caret/selection positions (and
+     wrap onto different lines). Keep in lockstep with the rule above. */
+  #user-input-highlight {
     font-size: 1rem;
     padding: 0.1875rem 0.375rem;
   }
