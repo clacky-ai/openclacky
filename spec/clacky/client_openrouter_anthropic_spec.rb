@@ -96,6 +96,16 @@ RSpec.describe Clacky::Client, "OpenRouter Anthropic routing" do
       client = build("anthropic/claude-sonnet-4-6", api_format: nil)
       expect(client.anthropic_format?).to be true
     end
+
+    it "auto-routes OpenRouter GPT models to responses_format? when api_format is nil" do
+      # The main path this PR adds: OpenRouter's preset api defaults to
+      # "openai-responses" and only anthropic/* models are overridden to
+      # native /v1/messages — so with api_format left on auto, GPT models
+      # must land on the Responses API.
+      client = build("openai/gpt-5.5", api_format: nil)
+      expect(client.responses_format?).to be true
+      expect(client.anthropic_format?).to be false
+    end
   end
 
   describe "#anthropic_connection headers" do
