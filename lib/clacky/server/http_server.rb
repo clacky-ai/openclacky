@@ -4313,6 +4313,10 @@ module Clacky
 
       # Dispatch the three listing modes: top-level, path navigation, fuzzy search.
       private def list_working_dir_files(working_dir, query, max_results = 20)
+        # Leading slashes are not part of the relative-ref contract ("@/docs"
+        # means "docs"); without stripping, navigation would emit paths like
+        # "/README.md" that resolve_mention_attachments can never resolve.
+        query = query.sub(%r{\A/+}, "")
         return list_top_level(working_dir, max_results) if query.empty?
 
         if query.include?("/")
@@ -4333,10 +4337,18 @@ module Clacky
         end
       end
 
-      # True when path is working_dir itself or a directory inside it.
+      # True when +path+ resolves (symlinks included) to working_dir itself or
+      # something inside it. expand_path alone only normalizes lexical "../" —
+      # a symlink inside working_dir whose target lives outside would still
+      # pass a string-prefix check, so both sides are resolved to their real
+      # paths before comparing. Unresolvable paths (missing target, broken
+      # symlink, permission denied, symlink loop) are treated as outside.
       private def inside_working_dir?(path, working_dir)
-        root = File.expand_path(working_dir)
-        path == root || path.start_with?("#{root}/")
+        root = File.realpath(working_dir)
+        real = File.realpath(path)
+        real == root || real.start_with?("#{root}/")
+      rescue Errno::ENOENT, Errno::EACCES, Errno::ELOOP, Errno::ENOTDIR
+        false
       end
 
       private def list_top_level(working_dir, max_results)
@@ -7393,11 +7405,15 @@ module Clacky
       # dir, outside the working_dir) flags that attachment as "mentioned"
       # so the agent can hint the model about it, without duplicating it.
       #
-      # Format: @filename or @"filename with spaces"
+      # Format: @filename or @"filename with spaces". A mention must start at
+      # the beginning of the message or after a character that cannot end an
+      # email local part — otherwise "foo@bar.com" (or "x@README.md") would
+      # silently attach a file named bar.com / README.md. Mirrors the
+      # boundary rule in the composer highlight layer (sessions.js).
       #
-      # Hardening: paths are confined to the working_dir (expand_path + prefix
-      # check), capped at 5 files, and deduplicated against each other and
-      # against the uploaded files.
+      # Hardening: paths are confined to the working_dir (realpath-based
+      # containment, symlink-safe), capped at 5 files, and deduplicated
+      # against each other and against the uploaded files.
       private def resolve_mention_attachments(content, working_dir, existing_files = [])
         return [] if content.nil? || content.empty?
         return [] if working_dir.nil? || working_dir.empty?
@@ -7406,7 +7422,7 @@ module Clacky
         attachments = []
         seen_paths  = Array(existing_files).map { |f| f[:path] || f["path"] }.compact.to_set
 
-        content.scan(/@"([^"]+)"|@([^\s@]+)/) do |quoted, bare|
+        content.scan(/(?:\A|[^A-Za-z0-9._%+-])@"([^"]+)"|(?:\A|[^A-Za-z0-9._%+-])@([^\s@]+)/) do |quoted, bare|
           file_path = quoted || bare
           next if file_path.nil? || file_path.empty? || attachments.size >= max_files
 

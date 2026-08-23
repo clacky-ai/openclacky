@@ -81,6 +81,28 @@ RSpec.describe Clacky::Server::HttpServer, "@file mention endpoints" do
       end
     end
 
+    it "treats a leading slash as the relative root, not an absolute path" do
+      with_files_server do |server|
+        # "@/" must degrade to the top-level listing with valid relative
+        # refs — never emit "/README.md"-style paths that
+        # resolve_mention_attachments cannot match.
+        paths = get_files(server, "/")[1]["files"].map { |f| f["path"] }
+        expect(paths).to include("README.md")
+        expect(paths).to all(satisfy { |p| !p.start_with?("/") })
+      end
+    end
+
+    it "refuses to list through a symlink whose target is outside the working_dir" do
+      outside = File.join(tmpdir, "outside")
+      FileUtils.mkdir_p(outside)
+      File.write(File.join(outside, "secret.txt"), "top secret")
+      File.symlink(outside, File.join(workdir, "link"))
+
+      with_files_server do |server|
+        expect(get_files(server, "link/")[1]["files"]).to eq([])
+      end
+    end
+
     it "terminates fuzzy search despite symlink loops" do
       with_files_server do |server|
         _status, body = get_files(server, "loop")
@@ -130,6 +152,40 @@ RSpec.describe Clacky::Server::HttpServer, "@file mention endpoints" do
       with_files_server do |server|
         File.write(File.join(tmpdir, "secret.txt"), "top secret")
         expect(resolve(server, "steal @../secret.txt")).to eq([])
+      end
+    end
+
+    it "refuses to resolve through a symlink whose target is outside the working_dir" do
+      outside = File.join(tmpdir, "outside")
+      FileUtils.mkdir_p(outside)
+      File.write(File.join(outside, "secret.txt"), "top secret")
+      File.symlink(outside, File.join(workdir, "link"))
+
+      with_files_server do |server|
+        expect(resolve(server, "look at @link/secret.txt")).to eq([])
+      end
+    end
+
+    # Boundary rule: an @ glued to an email-local-part character is part of
+    # an address / identifier, not a mention. Without this, "foo@bar.com"
+    # silently attaches a file named bar.com.
+    it "does not treat email addresses as mentions" do
+      with_files_server do |server|
+        File.write(File.join(workdir, "bar.com"), "innocent file")
+        expect(resolve(server, "email me at foo@bar.com please")).to eq([])
+      end
+    end
+
+    it "does not resolve a mid-word @ mention" do
+      with_files_server do |server|
+        expect(resolve(server, "x@README.md")).to eq([])
+      end
+    end
+
+    it "resolves a mention directly after CJK text (no space required)" do
+      with_files_server do |server|
+        out = resolve(server, "请看@README.md")
+        expect(out.map { |f| f["name"] }).to eq(["README.md"])
       end
     end
 

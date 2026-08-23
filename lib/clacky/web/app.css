@@ -5508,17 +5508,6 @@ body {
   text-overflow: ellipsis;
 }
 
-.file-ac-path {
-  font-size: 0.75rem;
-  color: var(--color-text-tertiary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  margin-left: auto;
-  flex-shrink: 0;
-  max-width: 40%;
-}
-
 .file-ac-empty {
   padding: 0.875rem 1rem;
   font-size: 0.8125rem;
