@@ -2189,7 +2189,10 @@ module Clacky
       begin
         Clacky::Vision::Resolver.new(ocr_entry).describe(image)
       ensure
-        @ui&.show_progress(phase: "done")
+        # Must pass progress_type: "vision" — the UI's legacy shim pairs
+        # active/done by type, so a bare done would leave the OCR spinner
+        # frozen forever (same trap as the old retrying-slot bug).
+        @ui&.show_progress(progress_type: "vision", phase: "done")
       end
     end
 

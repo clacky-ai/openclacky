@@ -103,7 +103,7 @@ module Clacky
     end
 
     # Send a messages array and return the reply text.
-    def send_messages(messages, model:, max_tokens:)
+    def send_messages(messages, model:, max_tokens:, reasoning_effort: nil)
       api_model = Providers.resolve_api_model(base_url: @base_url, api_key: @api_key, model: model)
       if bedrock?
         body     = MessageFormat::Bedrock.build_request_body(messages, api_model, [], max_tokens)
@@ -114,7 +114,7 @@ module Clacky
         response = anthropic_connection.post(anthropic_messages_path) { |r| r.body = body.to_json }
         parse_simple_anthropic_response(response)
       else
-        body     = { model: api_model, max_tokens: max_tokens, messages: messages }
+        body     = MessageFormat::OpenAI.build_request_body(messages, api_model, [], max_tokens, false, reasoning_effort: reasoning_effort)
         response = openai_connection.post("chat/completions") { |r| r.body = body.to_json }
         parse_simple_openai_response(response)
       end

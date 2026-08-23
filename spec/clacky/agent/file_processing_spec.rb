@@ -198,6 +198,7 @@ RSpec.describe "Agent file processing" do
     it "downgrades openclacky+DeepSeek images via the model-level override" do
       # Same provider host as Claude, but DeepSeek models under it declare
       # vision:false — proves model-level capability override works end-to-end.
+
       Dir.mktmpdir do |dir|
         path = File.join(dir, "chart.png")
         File.binwrite(path, "\x89PNG\r\n\x1a\n")
@@ -216,6 +217,51 @@ RSpec.describe "Agent file processing" do
         injected = a.history.to_a.select { |e| e[:system_injected] }.last
         expect(injected[:content]).to include("[File: chart.png]")
         expect(injected[:content]).to include("does not support vision")
+      end
+    end
+  end
+
+  describe "OCR sidecar progress lifecycle" do
+    it "pairs the vision progress slot so the spinner never freezes after OCR" do
+      Dir.mktmpdir do |dir|
+        path = File.join(dir, "photo.png")
+        File.binwrite(path, "\x89PNG\r\n\x1a\n")
+
+        cfg = Clacky::AgentConfig.new(
+          models: [
+            { "api_key" => "x", "base_url" => "https://api.minimaxi.com/v1", "model" => "MiniMax-M2.7" },
+            { "api_key" => "y", "base_url" => "https://api.openclacky.com", "model" => "abs-claude-opus-4-7",
+              "type" => "ocr", "mode" => "custom" }
+          ],
+          permission_mode: :auto_approve
+        )
+
+        ui = spy("ui")
+        a = Clacky::Agent.new(client, cfg,
+          working_dir: Dir.pwd, ui: ui,
+          profile: "coding",
+          session_id: Clacky::SessionManager.generate_id,
+          source: :manual)
+
+        # Run the advisor's async analysis synchronously so its thread can't
+        # outlive the test and touch already-reset rspec mocks.
+        allow(Clacky::ThreadRegistry).to receive(:spawn) { |**kw, &block| block.call }
+
+        # Never hit the network — stub the sidecar's describe to return ok.
+        result = Clacky::Vision::Resolver::Result.new(status: :ok, text: "a cat")
+        resolver = instance_double(Clacky::Vision::Resolver, describe: result)
+        allow(Clacky::Vision::Resolver).to receive(:new).and_return(resolver)
+
+        stub_llm_reply("Noted")
+        # Advisor's async recommendation thread reuses the same client; keep
+        # it quiet so it doesn't raise on the verifying double after the run.
+        allow(client).to receive(:send_messages).and_return("OK")
+        a.run("analyze", files: [{ name: "photo.png", path: path, mime_type: "image/png" }])
+
+        expect(ui).to have_received(:show_progress)
+          .with("Reading image…", progress_type: "vision", phase: "active")
+        expect(ui).to have_received(:show_progress)
+          .with(progress_type: "vision", phase: "done")
       end
     end
   end

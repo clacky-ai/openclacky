@@ -1,0 +1,35 @@
+id: advisor
+name: Advisor
+display_name: Advisor
+display_name_zh: 工作建议
+description: Recommends next steps after each task, based on your own workflow
+description_zh: 每轮任务结束后，基于你的专属流程推荐下一步工作
+version: "0.1.0"
+author: OpenClacky
+homepage: https://www.openclacky.com
+license: MIT
+contributes:
+  agents:
+    - id: advisor
+      title: Advisor
+      title_zh: 工作建议
+      description: Recommends next steps after each task
+      description_zh: 任务结束后推荐下一步
+      order: 99
+      hidden: true
+      prompt: advisors/general.md
+  hooks:
+    - event: after_tool_use
+      file: hooks/advisor_tool_use.rb
+    - event: on_complete
+      file: hooks/advisor_complete.rb
+  api: api/handler.rb
+  panels:
+    - id: advisor
+      title: Advisor
+      title_zh: 工作建议
+      description: Shows advisor recommendations
+      description_zh: 展示工作建议卡片
+      order: 99
+      attach: ["*"]
+      view: panels/advisor/view.js

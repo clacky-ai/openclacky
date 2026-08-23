@@ -24,6 +24,8 @@ module Clacky
         Clacky::ExtensionHookRegistry.current_event = event
         require unit.spec["file_abs"]
         result.registered << [unit.ext_id, unit.id, event]
+        Clacky::Logger.info("[ExtensionHookLoader] registered",
+                            ext: unit.ext_id, id: unit.id, event: event)
       rescue StandardError, ScriptError => e
         result.skipped << [unit.id, e.message]
         Clacky::Logger.warn("[ExtensionHookLoader] #{unit.ext_id}/#{unit.id}: #{e.message}")

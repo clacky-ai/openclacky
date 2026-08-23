@@ -115,6 +115,19 @@ module Clacky
       puts_line("[ok] #{message}")
     end
 
+    # Surface extension events the plain CLI cares about (e.g. advisor
+    # recommendations). Everything else is dropped, matching UIInterface's
+    # no-op default.
+    def emit(type, **data)
+      return unless type == "ext.advisor.recommendations"
+
+      content = (data[:content] || data["content"]).to_s.strip
+      return if content.empty?
+
+      puts_line("")
+      puts_line("💡 #{content}")
+    end
+
     def log(message, level: :info)
       # Only surface errors/warnings; suppress debug noise in plain mode
       puts_line("[#{level}] #{message}") if %i[error warn].include?(level.to_sym)
