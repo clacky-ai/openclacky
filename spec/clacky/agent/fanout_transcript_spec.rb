@@ -162,4 +162,63 @@ RSpec.describe Clacky::Agent, "fan-out transcript persistence" do
       expect(transcript[:events].map { |e| e[:content] }).to eq(%w[hi ok])
     end
   end
+
+  # An interrupted fan-out never reaches observe(), so the captured trails sit
+  # in @pending_subagent_transcripts (memory only). The interrupt path must
+  # settle the dangling tool_calls turn by appending a synthetic tool result
+  # carrying the trails, so they survive a reload.
+  describe "flushing pending transcripts on interrupt" do
+    it "settles the dangling tool_calls turn with a tool result carrying the trails" do
+      agent.fan_out_labeled(
+        [
+          { label: "slow", run: -> {}, subagent: fake_subagent([{ role: "assistant", content: "A" }]) },
+          { label: "fast", run: -> {}, subagent: fake_subagent([{ role: "assistant", content: "B" }]) }
+        ],
+        tool_call_id: "call_1"
+      )
+      # Simulate the assistant turn that requested the fan-out; its tool result
+      # was never written because the batch was cancelled first.
+      agent.history.append({ role: "assistant", content: nil,
+                             tool_calls: [{ id: "call_1", name: "task" }] })
+
+      agent.send(:flush_pending_subagent_transcripts_on_interrupt)
+
+      last = agent.history.to_a.last
+      expect(last[:role]).to eq("tool")
+      expect(last[:tool_call_id]).to eq("call_1")
+      expect(last[:subagent_transcript].map { |t| t[:skill] }).to eq(%w[slow fast])
+    end
+
+    it "survives the drop_dangling_tool_calls that runs before a follow-up user message" do
+      agent.fan_out_labeled(
+        [{ label: "a", run: -> {}, subagent: fake_subagent([{ role: "assistant", content: "A" }]) }],
+        tool_call_id: "call_1"
+      )
+      agent.history.append({ role: "assistant", content: nil, tool_calls: [{ id: "call_1", name: "task" }] })
+
+      agent.send(:flush_pending_subagent_transcripts_on_interrupt)
+      agent.history.append({ role: "user", content: "follow up" })
+
+      trail = agent.history.to_a.find { |m| m[:subagent_transcript] }
+      expect(trail[:subagent_transcript].map { |t| t[:skill] }).to eq(%w[a])
+    end
+
+    it "drains the buffer so a later attach does not double-anchor" do
+      agent.fan_out_labeled(
+        [{ label: "a", run: -> {}, subagent: fake_subagent([{ role: "assistant", content: "A" }]) }],
+        tool_call_id: "call_1"
+      )
+      agent.history.append({ role: "assistant", content: nil, tool_calls: [{ id: "call_1", name: "task" }] })
+
+      agent.send(:flush_pending_subagent_transcripts_on_interrupt)
+      agent.history.append(tool_result_message("call_2"))
+      agent.send(:attach_pending_subagent_transcripts, { tool_calls: [{ id: "call_2" }] })
+
+      expect(agent.history.to_a.last).not_to have_key(:subagent_transcript)
+    end
+
+    it "is a no-op when there is nothing pending" do
+      expect { agent.send(:flush_pending_subagent_transcripts_on_interrupt) }.not_to raise_error
+    end
+  end
 end

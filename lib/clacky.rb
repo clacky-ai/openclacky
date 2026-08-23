@@ -86,6 +86,7 @@ require_relative "clacky/agent/message_compressor"
 require_relative "clacky/agent/hook_manager"
 require_relative "clacky/shell_hook_loader"
 require_relative "clacky/agent/tool_registry"
+require_relative "clacky/cancel_flag"
 require_relative "clacky/fanout"
 
 # UI modules

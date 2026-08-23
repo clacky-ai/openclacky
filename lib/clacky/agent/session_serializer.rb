@@ -761,6 +761,11 @@ module Clacky
           # Emit token usage stored on this message (for history replay display)
           ui.show_token_usage(msg[:token_usage]) if msg[:token_usage]
 
+          # Interrupted fan-out anchors its captured subagent trails onto the
+          # last message, which is usually this assistant turn (its tool result
+          # never got written). Replay them here so they survive a reload.
+          replay_subagent_transcript(msg, ui)
+
         when "user"
           # Anthropic-format tool results (role: user, content: array of tool_result blocks)
           if msg[:content].is_a?(Array)

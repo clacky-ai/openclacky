@@ -113,6 +113,7 @@ module Clacky
       @pending_script_tmpdirs = [] # Decrypted-script tmpdirs that live for the agent's lifetime
       @pending_error_rollback = false  # Deferred rollback flag set by restore_session on error
       @last_run_interrupted = false    # Set when run() exits via AgentInterrupted; tells the next run() to keep the task-start snapshot (continuation of the same task across a relay, not a brand-new task)
+      @cancel_flag = CancelFlag.new # Cooperative cancel: set by fan_out_labeled when the parent is interrupted; subagents on worker threads observe it via check_stale!
 
       # Compression tracking
       @compression_level = 0  # Tracks how many times we've compressed (for progressive summarization)
@@ -496,6 +497,10 @@ module Clacky
       # subsequent `think` call will re-emit show_progress, which is an
       # idempotent update on the same progress UI element.
       @ui&.show_progress
+
+      # A reused agent may carry a cancel flag set by a previously-interrupted
+      # fan-out batch; a fresh task must start uncancelled.
+      @cancel_flag = CancelFlag.new
 
       # Start new task for Time Machine
       task_id = start_new_task(title: display_text.to_s.empty? ? user_input.to_s : display_text.to_s)
@@ -915,6 +920,10 @@ module Clacky
 
         result
       rescue Clacky::AgentInterrupted
+        # A cancelled fan-out captured its subagents' progress but never reached
+        # observe() to persist it — anchor those trails now so a page reload
+        # after the interrupt still shows what the subagents did.
+        flush_pending_subagent_transcripts_on_interrupt
         # Mark this run as interrupted so the next run() (e.g. user's
         # supplementary message during a running task) keeps the existing
         # task-start snapshot — the completion summary should reflect the
@@ -1145,6 +1154,7 @@ module Clacky
     # to history — guarantees a stale thread cannot corrupt history with
     # tool messages that no longer have a matching assistant tool_calls.
     private def check_stale!
+      raise Clacky::AgentInterrupted, "Fan-out batch cancelled by a newer task" if @cancel_flag&.cancelled?
       return unless @task_thread
       return if Thread.current == @task_thread
       raise Clacky::AgentInterrupted, "Task superseded by a newer task on another thread"
@@ -1488,6 +1498,26 @@ module Clacky
       end
     end
 
+    # Interrupt-path counterpart to attach_pending_subagent_transcripts: a
+    # cancelled fan-out never reaches observe(), so its captured job trails
+    # would otherwise die in @pending_subagent_transcripts (memory only) and
+    # vanish on the next page reload. Anchor whatever was captured onto the
+    # last history message so it persists to session.json and replays.
+    private def flush_pending_subagent_transcripts_on_interrupt
+      pending = @subagent_transcripts_mutex.synchronize do
+        snapshot = @pending_subagent_transcripts.dup
+        @pending_subagent_transcripts.clear
+        snapshot
+      end
+      return if pending.empty?
+
+      by_id = {}
+      pending.each { |id, trails| by_id[id] = Array(trails).sort_by { |t| t[:index] || 0 } }
+      @history.settle_interrupted_tool_calls(by_id)
+    rescue StandardError => e
+      Clacky::Logger.warn("agent.flush_subagent_transcripts_failed", error: e.message)
+    end
+
     # Cap oversized tool result content to keep a single tool message from
     # blowing up the prompt budget (issue #218: a 7350-path glob produced a
     # ~890k-char result that pushed history past the model context window
@@ -1773,7 +1803,8 @@ module Clacky
         end
       end
 
-      Fanout.new(max_concurrency: max_concurrency, timeout: timeout).run(wrapped)
+      Fanout.new(max_concurrency: max_concurrency, timeout: timeout)
+            .run(wrapped, on_cancel: -> { @cancel_flag&.cancel! })
     end
 
     private def within_phase(label, kind:, concurrent:, &block)
@@ -1898,6 +1929,10 @@ module Clacky
         source: @source
       )
       subagent.instance_variable_set(:@is_subagent, true)
+
+      # Share the parent's cancel flag so a fan-out interrupt reaches this
+      # subagent on its worker thread — its own check_stale! polls the same flag.
+      subagent.instance_variable_set(:@cancel_flag, @cancel_flag)
 
       # Inherit previous_total_tokens so the first iteration delta is calculated correctly
       subagent.instance_variable_set(:@previous_total_tokens, @previous_total_tokens)

@@ -27,7 +27,14 @@ module Clacky
 
     # @param jobs [Array<#call>] each job is invoked with no arguments
     # @return [Array<Result>] one entry per job, aligned to the input order
-    def run(jobs)
+    #
+    # If the calling thread is interrupted (e.g. Thread#raise AgentInterrupted
+    # when a newer task supersedes this one) while waiting on the workers, the
+    # interrupt is forwarded to every live worker so their jobs — subagents that
+    # would otherwise keep calling the LLM on detached threads — unwind through
+    # their own ensure blocks (phase_end, transcript capture). The optional
+    # on_cancel callback fires first so callers can flip a shared cancel flag.
+    def run(jobs, on_cancel: nil)
       return [] if jobs.empty?
 
       pending = build_queue(jobs)
@@ -37,7 +44,20 @@ module Clacky
       workers = Array.new([@max_concurrency, jobs.size].min) do
         Clacky::ThreadRegistry.spawn(name: "fanout-worker") { drain(pending, results, deadline) }
       end
-      join_all(workers, deadline)
+
+      begin
+        join_all(workers, deadline)
+      rescue Exception => e # rubocop:disable Lint/RescueException
+        # Includes AgentInterrupted. The cleanup below must not itself be cut
+        # short by a second asynchronous Thread#raise, so defer any further
+        # interrupts on this thread until the workers have been unwound.
+        Thread.handle_interrupt(Object => :never) do
+          on_cancel&.call
+          drain_queue(pending)
+          interrupt_workers(workers)
+        end
+        raise e
+      end
 
       fill_unfinished(results)
     end
@@ -67,6 +87,33 @@ module Clacky
       Result.new(index: index, value: value, error: nil, duration: monotonic_now - started)
     rescue StandardError, ScriptError => e
       Result.new(index: index, value: nil, error: e, duration: monotonic_now - started)
+    end
+
+    private def drain_queue(pending)
+      loop { pending.pop(true) }
+    rescue ThreadError
+      nil
+    end
+
+    # Forward an interrupt to workers still running a job so they unwind through
+    # their own ensure blocks, then give them a bounded window to finish. A
+    # worker that ignores the raise is killed so the caller isn't held hostage.
+    INTERRUPT_GRACE_SECONDS = 5.0
+
+    private def interrupt_workers(workers)
+      live = workers.select(&:alive?)
+      live.each do |worker|
+        begin
+          worker.raise(Clacky::AgentInterrupted, "Fan-out batch cancelled")
+        rescue ThreadError
+          nil
+        end
+      end
+      deadline = monotonic_now + INTERRUPT_GRACE_SECONDS
+      live.each do |worker|
+        remaining = deadline - monotonic_now
+        worker.join(remaining.positive? ? remaining : 0) or worker.kill
+      end
     end
 
     private def join_all(workers, deadline)

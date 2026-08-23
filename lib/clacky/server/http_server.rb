@@ -7392,12 +7392,17 @@ module Clacky
           # Start idle compression timer now that the agent is idle
           idle_timer&.start
         rescue Clacky::AgentInterrupted
+          # Persist the interrupted history snapshot unconditionally: it carries
+          # this agent's own turns (including fan-out subagent trails flushed on
+          # interrupt), and losing them means a page reload shows nothing of what
+          # the subagents did. The epoch fence below still guards status/UI so a
+          # superseding task keeps ownership of those.
+          @session_manager.save(agent.to_session_data(status: :interrupted, updated_at: Time.now))
           # A superseding task already owns the session — do not touch status
           # or push UI events, they belong to the new epoch now.
           next unless @registry.update_if_epoch(session_id, epoch, status: :idle)
           broadcast_session_update(session_id)
           broadcast(session_id, { type: "interrupted", session_id: session_id })
-          @session_manager.save(agent.to_session_data(status: :interrupted, updated_at: Time.now))
         rescue => e
           # Route error through web_ui so channel subscribers (飞书/企微) receive it too.
           web_ui = nil
