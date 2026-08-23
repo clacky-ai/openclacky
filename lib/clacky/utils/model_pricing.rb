@@ -160,7 +160,8 @@ module Clacky
       #   - "cache hit input"  = cache_read rate (DeepSeek has no separate cache-write charge)
       #   - No tiered pricing (single rate regardless of context length)
       # Effective 2026-08-16 16:00 UTC DeepSeek switched to peak/off-peak billing
-      # (off-peak = half of peak; peak = 01:00-04:00 & 06:00-10:00 UTC).
+      # (off-peak = half of peak; peak = 01:00-04:00 & 06:00-10:00 UTC on
+      # weekdays; from 2026-08-22 16:00 UTC whole Beijing weekends are off-peak).
       # Each entry carries legacy/peak/off_peak tiers; calculate_cost resolves
       # the active tier from the request time.
       "deepseek-v4-flash" => {
@@ -757,6 +758,18 @@ module Clacky
     # 2026-08-17 00:00 Beijing time (= 2026-08-16 16:00 UTC).
     DEEPSEEK_PEAK_PRICING_START = Time.utc(2026, 8, 16, 16, 0, 0).freeze
 
+    # From 00:00 Beijing time on 2026-08-23 (= 2026-08-22 16:00 UTC) the whole
+    # of Saturday and Sunday bills off-peak, peak hours included. Weekday
+    # windows are unchanged. Gated like the constant above: requests before
+    # this instant were charged at peak inside the windows, and repricing them
+    # now would be wrong in the same direction for every weekend on record.
+    DEEPSEEK_WEEKEND_OFF_PEAK_START = Time.utc(2026, 8, 22, 16, 0, 0).freeze
+
+    # Beijing time, the zone DeepSeek states the weekend rule in. China has run
+    # a fixed UTC+08:00 with no daylight saving since 1991, so a constant
+    # offset is exact and needs no tzdata on the host.
+    DEEPSEEK_BILLING_UTC_OFFSET = 8 * 60 * 60
+
     class << self
       # Calculate cost for the given model and usage
       #
@@ -1052,17 +1065,38 @@ module Clacky
       def resolve_deepseek_tier(pricing, now)
         if now < DEEPSEEK_PEAK_PRICING_START
           pricing[:legacy]
-        elsif deepseek_peak_hour?(now)
+        elsif deepseek_peak_tier?(now)
           pricing[:peak]
         else
           pricing[:off_peak]
         end
       end
 
+      # Whether the peak tier applies: a weekday window, and not a weekend that
+      # the weekend-wide rule already covers.
+      def deepseek_peak_tier?(time)
+        !deepseek_weekend_off_peak?(time) && deepseek_peak_hour?(time)
+      end
+
       # Peak hours: 01:00-04:00 and 06:00-10:00 UTC (all other hours off-peak).
       def deepseek_peak_hour?(time)
         hour = time.utc.hour
         (hour >= 1 && hour < 4) || (hour >= 6 && hour < 10)
+      end
+
+      # Whether the instant falls on a Beijing-time Saturday or Sunday with the
+      # weekend-wide rule in force.
+      #
+      # The weekend is bounded in Beijing time, so it runs 16:00 UTC Friday to
+      # 16:00 UTC Sunday — a different 48 hours from `time.utc.wday`. Both
+      # spellings agree on today's tiers, because the two peak windows sit
+      # entirely outside the 16 hours they disagree over. This one keeps
+      # agreeing if DeepSeek moves a window past 16:00 UTC.
+      def deepseek_weekend_off_peak?(time)
+        return false if time < DEEPSEEK_WEEKEND_OFF_PEAK_START
+
+        beijing_wday = (time.utc + DEEPSEEK_BILLING_UTC_OFFSET).wday
+        beijing_wday.zero? || beijing_wday == 6
       end
     end
   end
