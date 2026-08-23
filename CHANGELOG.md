@@ -4,6 +4,32 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
+## [1.5.11] - 2026-08-23
+
+### Added
+- Creator Studio: separate Marketplace and Brand sections for published extensions
+- Advisor extension for next-job suggestions
+- ask_user tool with multi-question support (replaces feedback_user)
+- Sidebar states for awaiting-feedback and just-finished sessions
+- Auto-purge file-trash entries older than 8 days
+- DeepSeek V4 flash vision exp model preset
+- IM channel toggle to mute tool-call narration and previews
+
+### Improved
+- Unified internal thread management with graceful shutdown
+
+### Fixed
+- Skill decrypt retry now picks up a renewed license key
+- DeepSeek weekends billed entirely at off-peak rates
+- Skill and extension zip downloads fall back to a secondary CDN host
+- Session status dot aligned with name and channel badge
+- Project session tag top margin
+- Unified modal close button and ext-studio modal semantics
+- Unified checkbox accent and distinct verified badge
+- Edit-model modal overflow on small screens
+- Subagent UI fixes
+- Star History charts migrated to star-history.dera.page (#491 - @CrustyMozarella)
+
 ## [1.5.10] - 2026-08-19
 
 ### Added
