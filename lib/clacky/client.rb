@@ -528,7 +528,7 @@ module Clacky
       hostname = uri.host
       return nil unless hostname && !hostname.match?(/\A\d+\.\d+\.\d+\.\d+\z/)
 
-      Resolv::DNS.new.getaddress(hostname).to_s
+      Resolv::DNS.open { |dns| dns.getaddress(hostname).to_s }
     rescue Resolv::ResolvError, Resolv::ResolvTimeout => e
       if defined?(Clacky::Logger)
         Clacky::Logger.warn("[dns] #{hostname}: #{e.message}, falling back to system resolver")
