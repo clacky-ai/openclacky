@@ -161,6 +161,8 @@ module Clacky
       #   - No tiered pricing (single rate regardless of context length)
       # Effective 2026-08-16 16:00 UTC DeepSeek switched to peak/off-peak billing
       # (off-peak = half of peak; peak = 01:00-04:00 & 06:00-10:00 UTC).
+      # Effective 2026-08-23 00:00 Beijing time, weekends (Sat/Sun, Beijing
+      # time) are billed entirely at off-peak rates regardless of hour.
       # Each entry carries legacy/peak/off_peak tiers; calculate_cost resolves
       # the active tier from the request time.
       "deepseek-v4-flash" => {
@@ -1052,6 +1054,8 @@ module Clacky
       def resolve_deepseek_tier(pricing, now)
         if now < DEEPSEEK_PEAK_PRICING_START
           pricing[:legacy]
+        elsif deepseek_weekend?(now)
+          pricing[:off_peak]
         elsif deepseek_peak_hour?(now)
           pricing[:peak]
         else
@@ -1063,6 +1067,13 @@ module Clacky
       def deepseek_peak_hour?(time)
         hour = time.utc.hour
         (hour >= 1 && hour < 4) || (hour >= 6 && hour < 10)
+      end
+
+      # Weekends (Sat/Sun, Beijing time) are billed entirely at off-peak
+      # rates regardless of hour.
+      def deepseek_weekend?(time)
+        weekday = (time.utc + (8 * 3600)).wday
+        weekday == 0 || weekday == 6
       end
     end
   end
