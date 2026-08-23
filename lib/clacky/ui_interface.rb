@@ -9,7 +9,7 @@ module Clacky
     # === Output display ===
     # @param content [String] text portion of the assistant reply (file:// links stripped)
     # @param files   [Array<Hash>] extracted file refs: [{ name:, path:, inline: }]
-    def show_assistant_message(content, files:, interim: false); end
+    def show_assistant_message(content, files:, interim: false, created_at: nil); end
     def show_feedback_request(question, context, options, questions: nil); end
     def show_subagent_start(skill: nil, iterations: nil, cost_usd: nil); end
     def show_subagent_end; end

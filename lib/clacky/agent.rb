@@ -1107,7 +1107,7 @@ module Clacky
       end
 
       # Add assistant response to history
-      msg = { role: "assistant", task_id: @current_task_id }
+      msg = { role: "assistant", task_id: @current_task_id, created_at: Time.now.to_f }
       # Always include content field (some APIs require it even with tool_calls)
       # Use empty string instead of null for better compatibility
       msg[:content] = response[:content] || ""

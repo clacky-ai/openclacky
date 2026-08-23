@@ -16,7 +16,7 @@ module Clacky
 
     # === Output display ===
 
-    def show_assistant_message(content, files:, interim: false)
+    def show_assistant_message(content, files:, interim: false, created_at: nil)
       puts_line(content) unless content.nil? || content.strip.empty?
       files.each { |f| puts_line("📄 File: #{f[:path]}") }
     end

@@ -94,7 +94,7 @@ module Clacky
         @events << ev
       end
 
-      def show_assistant_message(content, files:, interim: false)
+      def show_assistant_message(content, files:, interim: false, created_at: nil)
         return if content.nil? || content.to_s.strip.empty?
 
         # Rewrite local image paths to /api/local-image proxy URLs for browser rendering

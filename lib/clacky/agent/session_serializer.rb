@@ -733,7 +733,7 @@ module Clacky
             else
               raw_text
             end
-            ui.show_assistant_message(text, files: [])
+            ui.show_assistant_message(text, files: [], created_at: msg[:created_at])
           end
 
           # Tool calls embedded in assistant message
@@ -840,7 +840,7 @@ module Clacky
           case role
           when "assistant"
             text = extract_text_from_content(content).to_s.strip
-            ui.show_assistant_message(text, files: []) unless text.empty?
+            ui.show_assistant_message(text, files: [], created_at: ev[:created_at] || ev["created_at"]) unless text.empty?
             Array(tool_calls).each do |tc|
               name = tc[:name] || tc["name"] || ""
               args_raw = tc[:arguments] || tc["arguments"] || {}

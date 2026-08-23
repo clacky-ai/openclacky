@@ -1695,7 +1695,7 @@ RSpec.describe Clacky::Agent do
       Class.new do
         attr_reader :messages
         def initialize; @messages = []; end
-        def show_assistant_message(content, files:, interim: false)
+        def show_assistant_message(content, files:, interim: false, created_at: nil)
           @messages << { content: content, files: files }
         end
       end.new

@@ -67,7 +67,7 @@ module Clacky
         send_text("[USER] #{content}")
       end
 
-      def show_assistant_message(content, files:, interim: false)
+      def show_assistant_message(content, files:, interim: false, created_at: nil)
         if interim
           # Intermediate narration before a tool call. Suppressed unless
           # tool-process messages are enabled; flush pending previews first
