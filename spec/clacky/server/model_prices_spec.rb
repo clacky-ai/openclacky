@@ -84,6 +84,44 @@ RSpec.describe Clacky::Server::ModelPrices do
 
         expect(result[:prices]["dsk-deepseek-v4-flash"]).to eq(in: 0.22, out: 0.66, ratio: (0.22 + 0.66) / base_total)
       end
+
+      # 2026-08-22 16:00 UTC is 00:00 Beijing on Sunday 2026-08-23, when the
+      # weekend-wide rule starts. Instants below are UTC; the Beijing day is in
+      # the comment.
+      it "still bills a weekend peak hour at peak before the rule starts" do
+        result = described_class.build("dsk-deepseek-v4-flash", now: Time.utc(2026, 8, 22, 6, 0, 0)) # Sat 14:00 Beijing
+
+        expect(result[:prices]["dsk-deepseek-v4-flash"]).to eq(in: 0.44, out: 1.32, ratio: (0.44 + 1.32) / base_total)
+      end
+
+      it "bills a weekend peak hour off-peak once the rule is in force" do
+        result = described_class.build("dsk-deepseek-v4-flash", now: Time.utc(2026, 8, 23, 1, 0, 0)) # Sun 09:00 Beijing
+
+        expect(result[:prices]["dsk-deepseek-v4-flash"]).to eq(in: 0.22, out: 0.66, ratio: (0.22 + 0.66) / base_total)
+      end
+
+      it "leaves the following weekday at peak" do
+        result = described_class.build("dsk-deepseek-v4-flash", now: Time.utc(2026, 8, 24, 1, 0, 0)) # Mon 09:00 Beijing
+
+        expect(result[:prices]["dsk-deepseek-v4-flash"]).to eq(in: 0.44, out: 1.32, ratio: (0.44 + 1.32) / base_total)
+      end
+    end
+  end
+
+  # The weekend is bounded in Beijing time, so it runs 16:00 UTC Friday to
+  # 16:00 UTC Sunday. All four instants below are off-peak by the hour either
+  # way, so the tier tests above cannot tell them apart — pinning the predicate
+  # is what keeps the edges right if DeepSeek moves a window past 16:00 UTC.
+  describe "Clacky::Utils::ModelPricing.deepseek_weekend_off_peak?" do
+    {
+      Time.utc(2026, 8, 28, 15, 0, 0) => false, # Fri 23:00 Beijing
+      Time.utc(2026, 8, 28, 16, 0, 0) => true,  # Sat 00:00 Beijing
+      Time.utc(2026, 8, 30, 15, 0, 0) => true,  # Sun 23:00 Beijing
+      Time.utc(2026, 8, 30, 16, 0, 0) => false, # Mon 00:00 Beijing
+    }.each do |at, weekend|
+      it "returns #{weekend} at #{at.utc.strftime('%Y-%m-%dT%H:%MZ')}" do
+        expect(Clacky::Utils::ModelPricing.deepseek_weekend_off_peak?(at)).to eq(weekend)
+      end
     end
   end
 end
