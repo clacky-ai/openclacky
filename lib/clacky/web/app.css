@@ -8726,7 +8726,6 @@ body {
   border-color: var(--color-error);
 }
 .extension-install-error {
-  margin-top: 0.5rem;
   font-size: 0.8125rem;
   color: var(--color-error);
 }
