@@ -56,9 +56,9 @@ RSpec.describe Clacky::PlatformHttpClient, "#download_file" do
     calls
   end
 
-  describe "primary → fallback failover" do
+  describe "primary → secondary failover" do
     let(:primary_url)  { "#{described_class::PRIMARY_HOST}/rails/active_storage/blobs/redirect/abc/file.zip" }
-    let(:fallback_url) { "#{described_class::FALLBACK_HOST}/rails/active_storage/blobs/redirect/abc/file.zip" }
+    let(:secondary_url) { "#{described_class::SECONDARY_HOST}/rails/active_storage/blobs/redirect/abc/file.zip" }
 
     it "succeeds on the first attempt without touching the fallback" do
       calls = stub_stream([:ok])
@@ -70,7 +70,7 @@ RSpec.describe Clacky::PlatformHttpClient, "#download_file" do
       expect(calls).to eq([primary_url])
     end
 
-    it "retries the primary host once, then swaps to fallback host" do
+    it "retries the primary host once, then swaps to secondary host" do
       err = Clacky::PlatformHttpClient::RetryableNetworkError.new("Timeout")
       calls = stub_stream([err, :ok])
       allow(client).to receive(:sleep) # skip back-off
@@ -79,7 +79,7 @@ RSpec.describe Clacky::PlatformHttpClient, "#download_file" do
 
       expect(result[:success]).to be true
       # 1 attempt on primary + 1 successful on fallback (ATTEMPTS_PER_HOST = 1)
-      expect(calls).to eq([primary_url, fallback_url])
+      expect(calls).to eq([primary_url, secondary_url])
     end
 
     it "reports a structured failure when every host is exhausted" do
@@ -111,7 +111,7 @@ RSpec.describe Clacky::PlatformHttpClient, "#download_file" do
   end
 
   describe "URL host rewriting" do
-    it "preserves path + query when swapping to the fallback host" do
+    it "preserves path + query when swapping to the secondary host" do
       url = "#{described_class::PRIMARY_HOST}/path/a/b?x=1&y=2"
       calls = stub_stream([
         Clacky::PlatformHttpClient::RetryableNetworkError.new("Timeout"),
@@ -121,7 +121,7 @@ RSpec.describe Clacky::PlatformHttpClient, "#download_file" do
 
       client.download_file(url, dest)
 
-      expect(calls.last).to eq("#{described_class::FALLBACK_HOST}/path/a/b?x=1&y=2")
+      expect(calls.last).to eq("#{described_class::SECONDARY_HOST}/path/a/b?x=1&y=2")
     end
   end
 end

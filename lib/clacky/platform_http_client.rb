@@ -114,7 +114,7 @@ module Clacky
                             read_timeout_override: read_timeout)
     end
 
-    # Stream a remote URL to a local file path, with automatic primary → fallback
+    # Stream a remote URL to a local file path, with automatic primary → secondary
     # host failover.
     #
     # This is the unified entry point for all large-file downloads (brand skill
@@ -124,7 +124,7 @@ module Clacky
     # Host failover policy:
     #   - If +url+'s host matches PRIMARY_HOST and the request fails with a
     #     retryable error (timeout, connection reset, SSL, 5xx), the URL is
-    #     rewritten to FALLBACK_HOST (same path/query) and retried.
+    #     rewritten to SECONDARY_HOST (same path/query) and retried.
     #   - Both hosts serve the same Rails backend and share +secret_key_base+,
     #     so ActiveStorage signed_ids resolve identically on either.
     #   - Third-party hosts (e.g. S3 presigned URLs reached via redirect) are
@@ -141,10 +141,10 @@ module Clacky
     # @return [Hash] { success: Boolean, bytes: Integer, error: String }
     def download_file(url, dest, read_timeout: DOWNLOAD_READ_TIMEOUT)
       candidate_urls = [url]
-      # Only auto-add a fallback candidate when the URL is on our primary host.
+      # Only auto-add a secondary candidate when the URL is on our primary host.
       # External hosts (S3, CDNs, user-provided URLs) are fetched as-is.
       if primary_host_url?(url)
-        candidate_urls << swap_to_fallback_host(url)
+        candidate_urls << swap_to_secondary_host(url)
       end
 
       last_error = nil
@@ -170,7 +170,7 @@ module Clacky
 
         if host_index + 1 < candidate_urls.size
           Clacky::Logger.debug(
-            "[PlatformHTTP] Primary host exhausted for download, switching to fallback: " \
+            "[PlatformHTTP] Primary host exhausted for download, switching to secondary: " \
             "#{candidate_urls[host_index + 1]}"
           )
         end
@@ -181,7 +181,7 @@ module Clacky
     end
 
     # True when +url+ targets the primary platform host.
-    # Used by #download_file to decide whether fallback-host rewriting is safe.
+    # Used by #download_file to decide whether secondary-host rewriting is safe.
     private def primary_host_url?(url)
       return false if url.nil? || url.empty?
 
@@ -192,16 +192,16 @@ module Clacky
       false
     end
 
-    # Rewrite +url+ so its host is the fallback domain (same path + query).
+    # Rewrite +url+ so its host is the secondary host (same path + query).
     # Callers must have already confirmed the URL's host is PRIMARY_HOST via
     # #primary_host_url? — this method does not validate that precondition.
-    private def swap_to_fallback_host(url)
-      uri      = URI.parse(url)
-      fallback = URI.parse(FALLBACK_HOST)
-      uri.scheme = fallback.scheme
-      uri.host   = fallback.host
-      # Only apply an explicit port when fallback declares a non-default one
-      uri.port = fallback.port if fallback.port && fallback.port != fallback.default_port
+    private def swap_to_secondary_host(url)
+      uri       = URI.parse(url)
+      secondary = URI.parse(SECONDARY_HOST)
+      uri.scheme = secondary.scheme
+      uri.host   = secondary.host
+      # Only apply an explicit port when secondary declares a non-default one
+      uri.port = secondary.port if secondary.port && secondary.port != secondary.default_port
       uri.to_s
     end
 
