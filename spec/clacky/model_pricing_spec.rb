@@ -384,6 +384,26 @@ RSpec.describe Clacky::ModelPricing do
         expect(result[:cost]).to be_within(0.0001).of(0.110)
         expect(result[:source]).to eq(:price)
       end
+
+      it "bills deepseek-v4-flash-vision-exp at v4-flash rates" do
+        usage = {
+          prompt_tokens: 100_000,
+          completion_tokens: 50_000
+        }
+
+        # Same rates as v4-flash (peak):
+        # Input: (100,000 / 1,000,000) * $0.44 = $0.044
+        # Output: (50,000 / 1,000,000) * $1.32 = $0.066
+        # Total: $0.110
+        result = described_class.calculate_cost(model: "deepseek-v4-flash-vision-exp", usage: usage, now: peak_time)
+        expect(result[:cost]).to be_within(0.0001).of(0.110)
+        expect(result[:source]).to eq(:price)
+      end
+
+      it "normalizes deepseek-v4-flash-vision-exp to its own row (not v4-flash)" do
+        expect(described_class.normalize_model_name("deepseek-v4-flash-vision-exp")).to eq("deepseek-v4-flash-vision-exp")
+        expect(described_class.normalize_model_name("deepseek-v4-flash")).to eq("deepseek-v4-flash")
+      end
     end
 
     context "with Kimi K2 multimodal models" do

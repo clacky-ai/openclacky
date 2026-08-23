@@ -83,6 +83,18 @@ RSpec.describe Clacky::Providers do
                                          model_name: "dsk-deepseek-v4-pro")).to be false
         expect(described_class.supports?("openclacky", :vision,
                                          model_name: "dsk-deepseek-v4-flash")).to be false
+        # The flash-vision-exp variant is vision-capable despite its
+        # text-only DeepSeek siblings.
+        expect(described_class.supports?("openclacky", :vision,
+                                         model_name: "dsk-deepseek-v4-flash-vision-exp")).to be true
+      end
+
+      it "returns true for deepseekv4 + flash-vision-exp override" do
+        expect(described_class.supports?("deepseekv4", :vision)).to be false
+        expect(described_class.supports?("deepseekv4", :vision,
+                                         model_name: "deepseek-v4-flash-vision-exp")).to be true
+        expect(described_class.supports?("deepseekv4", :vision,
+                                         model_name: "deepseek-v4-pro")).to be false
       end
 
       it "returns true for openclacky + unknown model (falls back to provider default)" do

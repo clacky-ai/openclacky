@@ -184,6 +184,27 @@ module Clacky
         }
       },
 
+      # Vision variant of v4-flash; identical token rates (images are billed
+      # as tokens per DeepSeek's image tokenization rules).
+      "deepseek-v4-flash-vision-exp" => {
+        deepseek: true,
+        legacy: {
+          input:  { default: 0.14,   over_200k: 0.14 },
+          output: { default: 0.28,   over_200k: 0.28 },
+          cache:  { write: 0.14,     read: 0.0028 }
+        },
+        peak: {
+          input:  { default: 0.44,   over_200k: 0.44 },
+          output: { default: 1.32,   over_200k: 1.32 },
+          cache:  { write: 0.44,     read: 0.014 }
+        },
+        off_peak: {
+          input:  { default: 0.22,   over_200k: 0.22 },
+          output: { default: 0.66,   over_200k: 0.66 },
+          cache:  { write: 0.22,     read: 0.007 }
+        }
+      },
+
       "deepseek-v4-pro" => {
         deepseek: true,
         legacy: {
@@ -892,6 +913,11 @@ module Clacky
           "claude-3-5-haiku-20241022"
         when /deepseek-v4-pro/i, /deepseek.*v4.*pro/i
           "deepseek-v4-pro"
+        # Vision variant must be matched BEFORE the v4-flash rule below —
+        # "deepseek-v4-flash-vision-exp" would otherwise be substring-matched
+        # to v4-flash and billed at the wrong model's rate.
+        when /deepseek-v4-flash-vision-exp/i, /deepseek.*flash.*vision/i
+          "deepseek-v4-flash-vision-exp"
         when /deepseek-v4-flash/i, /deepseek.*v4.*flash/i
           "deepseek-v4-flash"
         # Legacy aliases: deepseek-chat and deepseek-reasoner are being
