@@ -14737,6 +14737,7 @@ body.setup-mode[data-theme="dark"] {
 
 /* ── Flat mode ─────────────────────────────────────────────────────────────── */
 .project-session-tag {
+  margin-top: 0.35rem;
   padding: 0 0.625rem 0.1rem;
   font-size: 0.6875rem;
   font-weight: 500;
