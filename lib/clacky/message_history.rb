@@ -45,6 +45,13 @@ module Clacky
       if message[:role] == "user"
         drop_dangling_tool_calls!
       end
+      # Assistant timestamps are part of the persisted message metadata used
+      # by history consumers.  User messages are stamped by Agent#run at
+      # ingress; assistant messages are stamped here at the single write
+      # boundary so synthetic/error paths cannot accidentally omit the field.
+      if message[:role] == "assistant" && !message.key?(:created_at)
+        message = message.merge(created_at: Time.now.to_f)
+      end
       @messages << deep_sanitize_utf8(message)
       self
     end

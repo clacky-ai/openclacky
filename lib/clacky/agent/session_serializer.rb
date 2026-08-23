@@ -287,8 +287,9 @@ module Clacky
       # @param limit [Integer] Maximum number of rounds (user turns) to replay
       # @param before [Float, nil] Unix timestamp cursor — only replay rounds where the user message
       #   created_at < before. Pass nil to get the most recent rounds.
+      # @param include_message_metadata [Boolean] Include persisted message metadata in UI callbacks
       # @return [Hash] { has_more: Boolean } — whether older rounds exist beyond this page
-      def replay_history(ui, limit: 20, before: nil)
+      def replay_history(ui, limit: 20, before: nil, include_message_metadata: false)
         # Split @history into rounds, each starting at a real user message
         rounds = []
         current_round = nil
@@ -371,7 +372,9 @@ module Clacky
         # still see the last visible state of the chat (e.g. compressed summary + recent work).
         if rounds.empty?
           visible = @history.to_a.reject { |m| m[:role].to_s == "system" || m[:system_injected] }
-          visible.each { |msg| _replay_single_message(msg, ui) }
+          visible.each do |msg|
+            _replay_single_message(msg, ui, include_message_metadata: include_message_metadata)
+          end
           return { has_more: false }
         end
 
@@ -402,7 +405,7 @@ module Clacky
             # — they are internal scaffolding and must not be shown to the user.
             next if ev[:system_injected]
 
-            _replay_single_message(ev, ui)
+            _replay_single_message(ev, ui, include_message_metadata: include_message_metadata)
           end
         end
 
@@ -712,7 +715,7 @@ module Clacky
 
       # Render a single non-user message into the UI.
       # Used by both the normal round-based replay and the compressed-session fallback.
-      def _replay_single_message(msg, ui)
+      def _replay_single_message(msg, ui, include_message_metadata: false)
         return if msg[:system_injected]
 
         case msg[:role].to_s
@@ -733,7 +736,11 @@ module Clacky
             else
               raw_text
             end
-            ui.show_assistant_message(text, files: [])
+            if include_message_metadata
+              ui.show_assistant_message(text, files: [], created_at: msg[:created_at])
+            else
+              ui.show_assistant_message(text, files: [])
+            end
           end
 
           # Tool calls embedded in assistant message

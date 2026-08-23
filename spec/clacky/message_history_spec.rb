@@ -43,6 +43,20 @@ RSpec.describe Clacky::MessageHistory do
       expect(history.to_a.first).to include(system_injected: true, task_id: 42)
     end
 
+    it "timestamps assistant messages when the caller omits created_at" do
+      before = Time.now.to_f
+      history.append({ role: "assistant", content: "done" })
+      after = Time.now.to_f
+
+      expect(history.to_a.first[:created_at]).to be_between(before, after)
+    end
+
+    it "preserves an explicit assistant created_at" do
+      history.append({ role: "assistant", content: "done", created_at: 1_700_000_000.25 })
+
+      expect(history.to_a.first[:created_at]).to eq(1_700_000_000.25)
+    end
+
     context "when appending a user message after a dangling assistant+tool_calls" do
       it "drops the dangling assistant message automatically" do
         history.append(user_msg)

@@ -67,12 +67,14 @@ module Clacky
         @events << ev
       end
 
-      def show_assistant_message(content, files:)
+      def show_assistant_message(content, files:, created_at: nil)
         return if content.nil? || content.to_s.strip.empty?
 
         # Rewrite local image paths to /api/local-image proxy URLs for browser rendering
         rewritten = Utils::FileProcessor.rewrite_local_image_urls(content.to_s)
-        @events << { type: "assistant_message", session_id: @session_id, content: rewritten }
+        event = { type: "assistant_message", session_id: @session_id, content: rewritten }
+        event[:created_at] = created_at if created_at
+        @events << event
       end
 
       def show_tool_call(name, args)
@@ -6464,7 +6466,8 @@ module Clacky
         # Collect events emitted by replay_history via a lightweight collector UI
         collected = []
         collector = HistoryCollector.new(session_id, collected)
-        result    = agent.replay_history(collector, limit: limit, before: before)
+        result    = agent.replay_history(collector, limit: limit, before: before,
+                                         include_message_metadata: true)
 
         json_response(res, 200, { events: collected, has_more: result[:has_more] })
       end
