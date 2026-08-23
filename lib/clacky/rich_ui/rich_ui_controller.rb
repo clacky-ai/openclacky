@@ -201,7 +201,7 @@ module Clacky
       end
     end
 
-    def show_assistant_message(content, files:)
+    def show_assistant_message(content, files:, interim: false)
       thinking_text, clean_text = extract_thinking_and_content(content)
       unless thinking_text.to_s.strip.empty?
         # Show live thinking with spinner + timer in fixed area

@@ -821,7 +821,7 @@ module Clacky
 
           # Show assistant message if there's content before tool calls
           if response[:content] && !response[:content].empty?
-            emit_assistant_message(response[:content], reasoning_content: response[:reasoning_content])
+            emit_assistant_message(response[:content], reasoning_content: response[:reasoning_content], interim: true)
           end
 
           # Show token usage after assistant message (or immediately if no message).
@@ -2400,7 +2400,7 @@ module Clacky
     # and cannot load file:// directly) and must stay scoped to the Web UI
     # controller. IM channel subscribers need the original file:// markdown so
     # parse_file_links can extract paths and deliver images as native attachments.
-    private def emit_assistant_message(content, reasoning_content: nil)
+    private def emit_assistant_message(content, reasoning_content: nil, interim: false)
       # Prepend reasoning/thinking content (from thinking-mode providers like
       # DeepSeek V4, Kimi K2) wrapped in <think> tags so the Web UI renders it
       # as a collapsible thinking block (see sessions.js _renderMarkdown).
@@ -2413,7 +2413,7 @@ module Clacky
       return if full_content.nil? || full_content.to_s.strip.empty?
 
       parsed = parse_file_links(content)
-      @ui&.show_assistant_message(full_content, files: parsed[:files])
+      @ui&.show_assistant_message(full_content, files: parsed[:files], interim: interim)
     end
 
     # Record BEFORE-change snapshots for any file a tool is about to mutate,

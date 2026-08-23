@@ -96,7 +96,7 @@ module Clacky
         forward_to_subscribers { |sub| sub.show_user_message(content) if sub.respond_to?(:show_user_message) }
       end
 
-      def show_assistant_message(content, files:)
+      def show_assistant_message(content, files:, interim: false)
         return if (content.nil? || content.to_s.strip.empty?) && files.empty?
 
         # Rewrite local image paths (file:// and bare absolute) to /api/local-image
@@ -106,7 +106,7 @@ module Clacky
         # local images as native attachments via send_file().
         web_content = Clacky::Utils::FileProcessor.rewrite_local_image_urls(content.to_s)
         emit("assistant_message", content: web_content, files: files)
-        forward_to_subscribers { |sub| sub.show_assistant_message(content, files: files) }
+        forward_to_subscribers { |sub| sub.show_assistant_message(content, files: files, interim: interim) }
       end
 
       def show_feedback_request(question, context, options, questions: nil)

@@ -10573,15 +10573,23 @@ body.setup-mode[data-theme="dark"] {
   gap: 0.875rem;
 }
 
-.channel-status-messages {
+.channel-settings-card {
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border-primary);
+  border-radius: 12px;
+  padding: 0 1rem;
+}
+
+.channel-settings-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 0.75rem;
-  padding: 0.75rem 1rem;
-  background: var(--color-bg-secondary);
-  border: 1px solid var(--color-border-primary);
-  border-radius: 8px;
+  padding: 0.75rem 0;
+}
+
+.channel-settings-divider {
+  border-top: 1px solid var(--color-border-primary);
 }
 
 .channel-status-messages-text {

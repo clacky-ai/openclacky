@@ -67,7 +67,7 @@ module Clacky
         @events << ev
       end
 
-      def show_assistant_message(content, files:)
+      def show_assistant_message(content, files:, interim: false)
         return if content.nil? || content.to_s.strip.empty?
 
         # Rewrite local image paths to /api/local-image proxy URLs for browser rendering
@@ -718,6 +718,8 @@ module Clacky
             api_test_channel(platform, req, res)
           elsif method == "PATCH" && path == "/api/channels/status_messages"
             api_channel_status_messages(req, res)
+          elsif method == "PATCH" && path == "/api/channels/process_messages"
+            api_channel_process_messages(req, res)
           elsif method == "PATCH" && path.match?(%r{^/api/channels/[^/]+/enabled$})
             platform = path.sub("/api/channels/", "").sub("/enabled", "")
             api_toggle_channel(platform, req, res)
@@ -3806,7 +3808,7 @@ module Clacky
           }.merge(platform_safe_fields(platform, config))
         end
 
-        json_response(res, 200, { channels: platforms, status_messages: config.status_messages_enabled? })
+        json_response(res, 200, { channels: platforms, status_messages: config.status_messages_enabled?, process_messages: config.process_messages_enabled? })
       end
 
       # GET /api/mcp
@@ -4361,7 +4363,7 @@ module Clacky
       # PATCH /api/channels/status_messages
       # Body: { status_messages: true|false }
       # Global toggle for process-status messages ("Thinking...", "Done"
-      # summary, file/shell previews) across all IM channels.
+      # summary) across all IM channels.
       # Hot-applies without restarting adapters.
       def api_channel_status_messages(req, res)
         enabled = parse_json_body(req)["status_messages"] == true
@@ -4372,6 +4374,24 @@ module Clacky
         @channel_manager.update_config(config)
 
         json_response(res, 200, { ok: true, status_messages: config.status_messages_enabled? })
+      rescue StandardError => e
+        json_response(res, 422, { ok: false, error: e.message })
+      end
+
+      # PATCH /api/channels/process_messages
+      # Body: { process_messages: true|false }
+      # Global toggle for tool-call process messages (interim narration and
+      # file/shell previews) across all IM channels.
+      # Hot-applies without restarting adapters.
+      def api_channel_process_messages(req, res)
+        enabled = parse_json_body(req)["process_messages"] == true
+        config  = Clacky::ChannelConfig.load
+
+        config.set_process_messages(enabled)
+        config.save
+        @channel_manager.update_config(config)
+
+        json_response(res, 200, { ok: true, process_messages: config.process_messages_enabled? })
       rescue StandardError => e
         json_response(res, 422, { ok: false, error: e.message })
       end

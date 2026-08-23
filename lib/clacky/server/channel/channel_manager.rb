@@ -408,7 +408,7 @@ module Clacky
               end
             end
           else
-            channel_ui = ChannelUIController.new(event, -> { adapter_for(event[:platform]) }, -> { @channel_config.status_messages_enabled? })
+            channel_ui = ChannelUIController.new(event, -> { adapter_for(event[:platform]) }, -> { @channel_config.status_messages_enabled? }, -> { @channel_config.process_messages_enabled? })
           end
 
           bind_key_to_session(key, session_id)
@@ -702,7 +702,7 @@ module Clacky
         # Create a long-lived ChannelUIController for this session and subscribe it
         # to the session's WebUIController. It stays for the session's full lifetime
         # so all events (agent output, errors, status) flow through web_ui → channel_ui.
-        channel_ui = ChannelUIController.new(event, -> { adapter_for(event[:platform]) }, -> { @channel_config.status_messages_enabled? })
+        channel_ui = ChannelUIController.new(event, -> { adapter_for(event[:platform]) }, -> { @channel_config.status_messages_enabled? }, -> { @channel_config.process_messages_enabled? })
         @registry.with_session(session_id) do |s|
           s[:ui]&.subscribe_channel(channel_ui)
           s[:channel_ui] = channel_ui
@@ -729,7 +729,7 @@ module Clacky
         end
         return unless needs_attach
 
-        channel_ui = ChannelUIController.new(event, -> { adapter_for(event[:platform]) }, -> { @channel_config.status_messages_enabled? })
+        channel_ui = ChannelUIController.new(event, -> { adapter_for(event[:platform]) }, -> { @channel_config.status_messages_enabled? }, -> { @channel_config.process_messages_enabled? })
         @registry.with_session(session_id) do |s|
           next unless s[:ui] && s[:channel_ui].nil?
           s[:ui].subscribe_channel(channel_ui)
