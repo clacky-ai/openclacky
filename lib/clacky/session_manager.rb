@@ -34,16 +34,30 @@ module Clacky
 
       @last_saved_path = filepath
 
-      # Keep only the most recent 200 sessions (best-effort, never block save)
-      begin
-        cleanup_by_count(keep: 200, grouped_keep: 200)
-        cleanup_trash(days: 8)
-        cleanup_file_trash(days: 8)
-      rescue StandardError
-        # Cleanup is non-critical; swallow file errors but never AgentInterrupted
-      end
+      run_cleanup_async
 
       filepath
+    end
+
+    # Run the best-effort maintenance chores off the save path. File-trash pruning
+    # walks every project's trash dir and can take hundreds of ms once trash grows
+    # large; there is no reason to make a session save wait for it. A single flag
+    # prevents overlapping sweeps from piling up when saves happen back-to-back.
+    private def run_cleanup_async
+      return if @cleanup_running
+      @cleanup_running = true
+
+      Clacky::ThreadRegistry.spawn(name: "session-cleanup", daemon: true) do
+        begin
+          cleanup_by_count(keep: 200, grouped_keep: 200)
+          cleanup_trash(days: 8)
+          cleanup_file_trash(days: 8)
+        rescue StandardError
+          # Cleanup is non-critical; swallow file errors but never AgentInterrupted
+        ensure
+          @cleanup_running = false
+        end
+      end
     end
 
     # Path of the last saved session file.
@@ -337,17 +351,20 @@ module Clacky
     # Returns count of soft-deleted sessions.
     def cleanup_by_count(keep:, grouped_keep: 200)
       # Fast path: if total session files can't exceed any single group's cap,
-      # skip the expensive all_sessions() full-scan (read + JSON.parse every file).
-      # min() is correct because groups are mutually exclusive — any single
-      # group's count ≤ non_pinned ≤ file_count ≤ min(keep, grouped_keep).
-      file_count = Dir.glob(File.join(@sessions_dir, "*.json")).size
-      return 0 if file_count <= [keep, grouped_keep].min
+      # skip the scan entirely. min() is correct because groups are mutually
+      # exclusive — any single group's count ≤ non_pinned ≤ file_count.
+      files = Dir.glob(File.join(@sessions_dir, "*.json"))
+      return 0 if files.size <= [keep, grouped_keep].min
 
-      non_pinned = all_sessions.reject { |s| s[:pinned] }
+      # Read only the header of each file (cheap) instead of parsing the whole
+      # multi-MB payload. The header carries everything we need to rank and
+      # group sessions except project_id, which is resolved lazily below.
+      metas = files.filter_map { |f| m = load_session_metadata(f); m && m.merge(_path: f) }
+                   .sort_by { |s| s[:updated_at] || s[:created_at] || "" }.reverse
 
-      groups = non_pinned.group_by do |s|
-        (s[:project_id] || !GROUPED_SOURCES.include?(s[:source].to_s)) ? "regular" : s[:source].to_s
-      end
+      non_pinned = metas.reject { |s| s[:pinned] }
+
+      groups = non_pinned.group_by { |s| group_key_for(s) }
 
       victims = groups.flat_map do |source, sessions|
         sessions[(source == "regular" ? keep : grouped_keep)..] || []
@@ -355,6 +372,18 @@ module Clacky
 
       victims.each { |session| soft_delete(session[:session_id]) }
       victims.size
+    end
+
+    # A session belongs to the "regular" pool unless it is a folded grouped
+    # source (cron/ext) with no project. project_id only matters for cron/ext
+    # sessions, and it lives deep in the file, so we pay for a full parse only
+    # for those — everything else is decided from the cheap header alone.
+    private def group_key_for(meta)
+      source = meta[:source].to_s
+      return "regular" unless GROUPED_SOURCES.include?(source)
+
+      full = load_session_file(meta[:_path])
+      (full && full[:project_id]) ? "regular" : source
     end
 
     # ── Session trash (delegates to Tools::TrashManager) ──────────────
@@ -461,6 +490,34 @@ module Clacky
     def load_session_file(filepath)
       JSON.parse(File.read(filepath), symbolize_names: true)
     rescue JSON::ParserError, Errno::ENOENT
+      nil
+    end
+
+    # Read only the small scalar header of a session file without parsing the
+    # (potentially multi-MB) messages / time_machine payload. Session JSON is
+    # written with a stable field order, so the fields we care about here
+    # (session_id, pinned, created_at, updated_at, source) always sit in the
+    # first few hundred bytes, before any large array/object. `project_id`
+    # lives much later and is intentionally NOT read — callers that need it
+    # fall back to load_session_file for the rare candidate that requires it.
+    #
+    # Returns a Hash with symbol keys, or nil if the header can't be read.
+    METADATA_HEADER_BYTES = 16 * 1024
+    def load_session_metadata(filepath)
+      head = File.open(filepath, "r") { |f| f.read(METADATA_HEADER_BYTES) }
+      return nil unless head
+
+      sid = head[/"session_id"\s*:\s*"([^"]*)"/, 1]
+      return nil unless sid
+
+      {
+        session_id: sid,
+        pinned:     head[/"pinned"\s*:\s*(true|false)/, 1] == "true",
+        created_at: head[/"created_at"\s*:\s*"([^"]*)"/, 1],
+        updated_at: head[/"updated_at"\s*:\s*"([^"]*)"/, 1],
+        source:     head[/"source"\s*:\s*"([^"]*)"/, 1]
+      }
+    rescue Errno::ENOENT
       nil
     end
 

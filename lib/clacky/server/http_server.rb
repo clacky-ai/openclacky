@@ -1014,7 +1014,8 @@ module Clacky
         end
 
         broadcast_session_update(session_id)
-        json_response(res, 201, { session: @registry.session_summary(session_id) })
+        summary = @registry.session_summary(session_id)
+        json_response(res, 201, { session: summary })
       end
 
       # Auto-restore persisted sessions (or create a fresh default) when the server starts.
