@@ -36,6 +36,33 @@ module Clacky
       def initialize(session_id, events)
         @session_id = session_id
         @events     = events
+        @replay_phase_id = nil
+      end
+
+      # Group replayed subagent events into a foldable phase card, mirroring the
+      # real-time WebUIController#phase_start/phase_end so the frontend nests
+      # them instead of dropping them into the outer stream. Replay is a single
+      # sequential pass, so an instance variable stands in for the thread-local
+      # phase id the live path uses.
+      def phase_start(kind:, label: nil, concurrent: false)
+        pid = SecureRandom.uuid
+        @replay_phase_id = pid
+        ev = { type: "phase_start", session_id: @session_id, phase_id: pid, kind: kind.to_s }
+        ev[:label] = label if label
+        @events << ev
+        pid
+      end
+
+      def phase_end(phase_id, summary: nil)
+        @replay_phase_id = nil if @replay_phase_id == phase_id
+        ev = { type: "phase_end", session_id: @session_id, phase_id: phase_id }
+        ev[:summary] = summary if summary
+        @events << ev
+      end
+
+      private def stamp(event)
+        event[:phase_id] = @replay_phase_id if @replay_phase_id && !event.key?(:phase_id)
+        event
       end
 
       def show_user_message(content, created_at: nil, files: [], editable: true, skill_command: nil, skill_command_display: nil)
@@ -72,13 +99,13 @@ module Clacky
 
         # Rewrite local image paths to /api/local-image proxy URLs for browser rendering
         rewritten = Utils::FileProcessor.rewrite_local_image_urls(content.to_s)
-        @events << { type: "assistant_message", session_id: @session_id, content: rewritten }
+        @events << stamp({ type: "assistant_message", session_id: @session_id, content: rewritten })
       end
 
       def show_tool_call(name, args)
         args_data = args.is_a?(String) ? (JSON.parse(args) rescue args) : args
         summary   = tool_call_summary(name, args_data)
-        @events << { type: "tool_call", session_id: @session_id, name: name, args: args_data, summary: summary }
+        @events << stamp({ type: "tool_call", session_id: @session_id, name: name, args: args_data, summary: summary })
       end
 
       private def tool_call_summary(name, args)
@@ -93,7 +120,7 @@ module Clacky
       end
 
       def show_tool_result(result)
-        @events << { type: "tool_result", session_id: @session_id, result: result }
+        @events << stamp({ type: "tool_result", session_id: @session_id, result: result })
       end
 
       def show_token_usage(token_data)
@@ -109,12 +136,12 @@ module Clacky
       end
 
       def show_subagent_start(skill: nil, iterations: nil, cost_usd: nil)
-        @events << { type: "subagent_start", session_id: @session_id,
-                     skill: skill, iterations: iterations, cost_usd: cost_usd }
+        @events << stamp({ type: "subagent_start", session_id: @session_id,
+                           skill: skill, iterations: iterations, cost_usd: cost_usd })
       end
 
       def show_subagent_end
-        @events << { type: "subagent_end", session_id: @session_id }
+        @events << stamp({ type: "subagent_end", session_id: @session_id })
       end
 
       # Custom extension events recorded on messages (Agent#emit_event). Must be

@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "spec_helper"
+require "clacky/server/http_server"
 
 RSpec.describe Clacky::Agent, "fan-out transcript persistence" do
   let(:client) { instance_double(Clacky::Client) }
@@ -219,6 +220,55 @@ RSpec.describe Clacky::Agent, "fan-out transcript persistence" do
 
     it "is a no-op when there is nothing pending" do
       expect { agent.send(:flush_pending_subagent_transcripts_on_interrupt) }.not_to raise_error
+    end
+  end
+
+  describe "#replay_one_subagent_transcript phase wrapping" do
+    def collect(transcript)
+      events = []
+      ui = Clacky::Server::HistoryCollector.new("sess-1", events)
+      agent.send(:replay_one_subagent_transcript, transcript, ui)
+      events
+    end
+
+    let(:transcript) do
+      {
+        skill: "Design 1/2",
+        iterations: 3,
+        cost_usd: 0.02,
+        events: [
+          { role: "assistant", content: "looking", tool_calls: [{ name: "glob", arguments: { "pattern" => "**/*.rb" } }] },
+          { role: "tool", content: "match.rb" }
+        ]
+      }
+    end
+
+    it "brackets the transcript with phase_start / phase_end" do
+      events = collect(transcript)
+      expect(events.first[:type]).to eq("phase_start")
+      expect(events.last[:type]).to eq("phase_end")
+      expect(events.first[:kind]).to eq("fanout_subagent")
+      expect(events.first[:label]).to eq("Design 1/2")
+    end
+
+    it "stamps the same phase_id onto every subagent event in between" do
+      events = collect(transcript)
+      pid = events.first[:phase_id]
+      expect(pid).not_to be_nil
+
+      inner = events[1..-2]
+      expect(inner.map { |e| e[:type] }).to eq(%w[subagent_start assistant_message tool_call tool_result subagent_end])
+      expect(inner.map { |e| e[:phase_id] }.uniq).to eq([pid])
+      expect(events.last[:phase_id]).to eq(pid)
+    end
+
+    it "clears the phase id so later events are not stamped" do
+      events = []
+      ui = Clacky::Server::HistoryCollector.new("sess-1", events)
+      agent.send(:replay_one_subagent_transcript, transcript, ui)
+      ui.show_assistant_message("outer", files: [])
+      expect(events.last[:type]).to eq("assistant_message")
+      expect(events.last).not_to have_key(:phase_id)
     end
   end
 end

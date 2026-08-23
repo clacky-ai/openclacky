@@ -822,8 +822,12 @@ module Clacky
         events = transcript[:events] || transcript["events"] || []
         return if events.empty?
 
+        skill = transcript[:skill] || transcript["skill"]
+        supports_phase = ui.respond_to?(:phase_start) && ui.respond_to?(:phase_end)
+        pid = ui.phase_start(kind: "fanout_subagent", label: skill) if supports_phase
+
         ui.show_subagent_start(
-          skill:      transcript[:skill]      || transcript["skill"],
+          skill:      skill,
           iterations: transcript[:iterations] || transcript["iterations"],
           cost_usd:   transcript[:cost_usd]   || transcript["cost_usd"]
         )
@@ -849,6 +853,7 @@ module Clacky
         end
 
         ui.show_subagent_end
+        ui.phase_end(pid) if supports_phase && pid
       end
 
       # Replace the system message in @messages with a freshly built system prompt.
