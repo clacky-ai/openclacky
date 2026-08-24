@@ -77,3 +77,18 @@ RSpec.describe Clacky::Server::WebUIController, "#show_user_message" do
     expect(ev.key?(:skill_command_display)).to be(false)
   end
 end
+
+RSpec.describe Clacky::Server::WebUIController, "#show_complete" do
+  let(:events) { [] }
+  let(:controller) do
+    described_class.new("test-session", ->(_sid, event) { events << event })
+  end
+
+  it "emits an optional completed task id" do
+    controller.show_complete(iterations: 3, cost: 0.12, task_id: 6)
+    expect(events.last).to include(type: "complete", session_id: "test-session", task_id: 6)
+
+    controller.show_complete(iterations: 1, cost: 0.01)
+    expect(events.last).not_to have_key(:task_id)
+  end
+end

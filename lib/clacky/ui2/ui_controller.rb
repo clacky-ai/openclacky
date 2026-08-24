@@ -629,7 +629,7 @@ module Clacky
       # @param duration [Float] Duration in seconds
       # @param cache_stats [Hash] Cache statistics
       # @param awaiting_user_feedback [Boolean] Whether agent is waiting for user feedback
-      def show_complete(iterations:, cost:, duration: nil, cache_stats: nil, awaiting_user_feedback: false, cost_source: nil)
+      def show_complete(iterations:, cost:, duration: nil, cache_stats: nil, awaiting_user_feedback: false, cost_source: nil, task_id: nil)
         # Update status back to 'idle' when task is complete
         update_sessionbar(status: 'idle')
 

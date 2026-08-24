@@ -897,6 +897,7 @@ module Clacky
           # Parent agent (skill_manager) prints the completion summary; skip here.
         else
           @ui&.show_complete(
+            task_id: result[:task_id],
             iterations: result[:iterations],
             cost: result[:total_cost_usd],
             cost_source: result[:cost_source],
@@ -1645,6 +1646,7 @@ module Clacky
       {
         status: status,
         session_id: @session_id,
+        task_id: @current_task_id,
         model: current_model,
         provider: current_provider,
         iterations: task_iterations,
