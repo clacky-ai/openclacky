@@ -6,6 +6,7 @@ module Clacky
       self.tool_name = "ask_user"
       self.tool_description = <<~DESC
         Ask the user to choose when you cannot infer the answer and guessing would waste work.
+        Keep every question concise: one sentence, no more than 80 characters.
 
         Every question must have `options` — this tool is for choices, not open prompts.
         Need freeform input (a path, a name)? Just ask in your reply instead.
@@ -27,7 +28,7 @@ module Clacky
               properties: {
                 question: {
                   type: "string",
-                  description: "The question text."
+                  description: "A concise question in one sentence, no more than 80 characters."
                 },
                 description: {
                   type: "string",
@@ -56,7 +57,7 @@ module Clacky
           },
           question: {
             type: "string",
-            description: "Single-question shorthand."
+            description: "Single-question shorthand: one sentence, no more than 80 characters."
           },
           context: {
             type: "string",
