@@ -108,12 +108,12 @@ RSpec.describe "Compression chunk MD archiving" do
     end
 
     it "includes user and assistant messages in readable MD format" do
-      original_messages = [system_msg, user_msg.merge(task_id: 6), assistant_msg]
+      original_messages = [system_msg, user_msg, assistant_msg]
       path = agent.send(:save_compressed_chunk, original_messages, [],
                         chunk_index: 1, compression_level: 1)
 
       content = File.read(path)
-      expect(content).to include("## User [Task 6]")
+      expect(content).to include("## User")
       expect(content).to include("## Assistant")
       expect(content).to include("Tell me about compression")
       expect(content).to include("Compression reduces token usage.")

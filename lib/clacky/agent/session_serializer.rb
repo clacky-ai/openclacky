@@ -491,34 +491,30 @@ module Clacky
         current_role       = nil
         current_lines      = []
         current_nested_chunk = nil  # chunk reference from a Compressed Summary heading
-        current_task_id    = nil
 
         raw.each_line do |line|
           stripped = line.chomp
           if (m = stripped.match(/\A## Assistant \[Compressed Summary — original conversation at: (.+)\]/))
             # Nested chunk reference — record it, treat as assistant section
-            sections << { role: current_role, lines: current_lines.dup, nested_chunk: current_nested_chunk, task_id: current_task_id } if current_role
+            sections << { role: current_role, lines: current_lines.dup, nested_chunk: current_nested_chunk } if current_role
             current_role         = "assistant"
             current_lines        = []
             current_nested_chunk = File.join(chunk_dir, m[1])
-            current_task_id      = nil
-          elsif (m = stripped.match(/\A## (User|Assistant)(?: \[Task (\d+)\])?/))
-            sections << { role: current_role, lines: current_lines.dup, nested_chunk: current_nested_chunk, task_id: current_task_id } if current_role
-            current_role         = m[1].downcase
+          elsif stripped.match?(/\A## (User|Assistant)/)
+            sections << { role: current_role, lines: current_lines.dup, nested_chunk: current_nested_chunk } if current_role
+            current_role         = stripped.match(/\A## (User|Assistant)/)[1].downcase
             current_lines        = []
             current_nested_chunk = nil
-            current_task_id      = m[2]&.to_i
           elsif stripped.match?(/\A### Tool Result:/)
-            sections << { role: current_role, lines: current_lines.dup, nested_chunk: current_nested_chunk, task_id: current_task_id } if current_role
+            sections << { role: current_role, lines: current_lines.dup, nested_chunk: current_nested_chunk } if current_role
             current_role         = "tool"
             current_lines        = []
             current_nested_chunk = nil
-            current_task_id      = nil
           else
             current_lines << line
           end
         end
-        sections << { role: current_role, lines: current_lines.dup, nested_chunk: current_nested_chunk, task_id: current_task_id } if current_role
+        sections << { role: current_role, lines: current_lines.dup, nested_chunk: current_nested_chunk } if current_role
 
         # Remove front-matter / header noise sections (nil role or non-user/assistant/tool)
         sections.select! { |s| %w[user assistant tool].include?(s[:role]) }
@@ -549,16 +545,14 @@ module Clacky
             round_index += 1
             # Synthetic timestamp: spread rounds backwards from archived_at
             synthetic_ts = base_time - (sections.size - round_index) * 1.0
-            user_msg = {
-              role: "user",
-              content: text,
-              created_at: synthetic_ts,
-              ext_events: sec_ext_events,
-              _from_chunk: true
-            }
-            user_msg[:task_id] = sec[:task_id] if sec[:task_id]
             current_round = {
-              user_msg: user_msg,
+              user_msg: {
+                role: "user",
+                content: text,
+                created_at: synthetic_ts,
+                ext_events: sec_ext_events,
+                _from_chunk: true
+              },
               events: [],
               # editable: false — this message was archived into a chunk MD and no
               # longer exists in the active in-memory @history, so it cannot be

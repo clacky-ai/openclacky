@@ -94,19 +94,8 @@ RSpec.describe "replay_history chunk MD expansion" do
 
       expect(rounds.size).to eq(1)
       expect(rounds.first[:user_msg][:content]).to include("Hello from chunk")
-      expect(rounds.first[:user_msg]).not_to have_key(:task_id)
       expect(rounds.first[:events].first[:content]).to include("Hi there")
       expect(rounds.first[:events].first[:role]).to eq("assistant")
-    end
-
-    it "restores task_id from a task-annotated user heading" do
-      path = File.join(sessions_dir, "chunk-1.md")
-      content = chunk_md(user_content: "Mapped question", assistant_content: "Mapped answer")
-      File.write(path, content.sub("## User", "## User [Task 6]"))
-
-      rounds = build_agent([]).send(:parse_chunk_md_to_rounds, path)
-
-      expect(rounds.first[:user_msg][:task_id]).to eq(6)
     end
 
     it "assigns synthetic created_at timestamps based on archived_at" do
