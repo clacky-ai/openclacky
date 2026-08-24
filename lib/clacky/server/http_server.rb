@@ -99,7 +99,9 @@ module Clacky
 
         # Rewrite local image paths to /api/local-image proxy URLs for browser rendering
         rewritten = Utils::FileProcessor.rewrite_local_image_urls(content.to_s)
-        @events << stamp({ type: "assistant_message", session_id: @session_id, content: rewritten })
+        ev = { type: "assistant_message", session_id: @session_id, content: rewritten }
+        ev[:created_at] = created_at if created_at
+        @events << stamp(ev)
       end
 
       def show_tool_call(name, args)
