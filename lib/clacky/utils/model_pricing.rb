@@ -1027,6 +1027,8 @@ module Clacky
           "gemini-3-flash"
         when /^or-gemini-3-6-flash$/i, /^gemini-3\.6-flash$/i
           "gemini-3.6-flash"
+        when /^or-gemini-3-7-flash$/i, /^gemini-3\.7-flash$/i
+          "gemini-3.7-flash"
 
         # OpenAI GPT-5.x models - match various dashed/dotted/compact forms
         # (e.g. "gpt-5.5", "gpt-5-5", "gpt5.5", "gpt55")
