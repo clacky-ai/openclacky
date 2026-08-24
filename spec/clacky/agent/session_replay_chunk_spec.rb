@@ -38,8 +38,8 @@ RSpec.describe "replay_history chunk MD expansion" do
       @events = []
     end
 
-    def show_user_message(content, created_at: nil, files: [], editable: true, skill_command: nil, skill_command_display: nil)
-      @events << { type: :user, content: content, created_at: created_at, editable: editable }
+    def show_user_message(content, task_id: nil, created_at: nil, files: [], editable: true, skill_command: nil, skill_command_display: nil)
+      @events << { type: :user, content: content, task_id: task_id, created_at: created_at, editable: editable }
     end
 
     def show_assistant_message(content, files:, interim: false, created_at: nil)
@@ -338,7 +338,7 @@ RSpec.describe "replay_history chunk MD expansion" do
       messages = [
         { role: "system", content: "You are helpful." },
         { role: "assistant", content: "Summary...", compressed_summary: true, chunk_path: chunk_path },
-        { role: "user", content: "Current question", created_at: Time.now.to_f }
+        { role: "user", content: "Current question", task_id: 6, created_at: Time.now.to_f }
       ]
 
       agent = build_agent(messages)
@@ -350,6 +350,7 @@ RSpec.describe "replay_history chunk MD expansion" do
 
       expect(contents).to include(a_string_including("Compressed question"))
       expect(contents).to include(a_string_including("Current question"))
+      expect(user_events.find { |event| event[:content] == "Current question" }[:task_id]).to eq(6)
       expect(result[:has_more]).to be false
     end
 

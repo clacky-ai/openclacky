@@ -87,7 +87,7 @@ module Clacky
       puts_line("[shell] #{command}")
     end
 
-    def show_complete(iterations:, cost:, duration: nil, cache_stats: nil, awaiting_user_feedback: false, cost_source: nil)
+    def show_complete(iterations:, cost:, duration: nil, cache_stats: nil, awaiting_user_feedback: false, cost_source: nil, task_id: nil)
       parts = ["[done] iterations=#{iterations}", "cost=$#{cost.round(4)}"]
       parts << "duration=#{duration.round(1)}s" if duration
       puts_line(parts.join(" "))

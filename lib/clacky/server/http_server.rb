@@ -65,8 +65,9 @@ module Clacky
         event
       end
 
-      def show_user_message(content, created_at: nil, files: [], editable: true, skill_command: nil, skill_command_display: nil)
+      def show_user_message(content, task_id: nil, created_at: nil, files: [], editable: true, skill_command: nil, skill_command_display: nil)
         ev = { type: "history_user_message", session_id: @session_id, content: content }
+        ev[:task_id] = task_id if task_id
         ev[:created_at] = created_at if created_at
         ev[:skill_command] = skill_command if skill_command
         ev[:skill_command_display] = skill_command_display if skill_command_display

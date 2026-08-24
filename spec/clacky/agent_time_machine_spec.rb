@@ -308,6 +308,7 @@ RSpec.describe "Clacky::Agent TimeMachine" do
       expect(history[0][:task_id]).to eq(1)
       expect(history[2][:task_id]).to eq(3)
       expect(history[2][:status]).to eq(:current)
+      expect(history.map { |task| task[:parent_task_id] }).to eq([0, 1, 2])
     end
 
     it "marks undone (off-chain) tasks correctly after undo" do
@@ -329,8 +330,10 @@ RSpec.describe "Clacky::Agent TimeMachine" do
       
       history = agent.get_task_history(limit: 10)
       task_2 = history.find { |t| t[:task_id] == 2 }
+      task_5 = history.find { |t| t[:task_id] == 5 }
       
       expect(task_2[:has_branches]).to be true
+      expect(task_5[:parent_task_id]).to eq(2)
     end
 
     it "respects limit parameter" do

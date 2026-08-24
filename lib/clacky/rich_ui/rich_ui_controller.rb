@@ -312,7 +312,7 @@ module Clacky
       @shell.sidebar.update_context(token_data) if @shell.sidebar
     end
 
-    def show_complete(iterations:, cost:, duration: nil, cache_stats: nil, awaiting_user_feedback: false, cost_source: nil)
+    def show_complete(iterations:, cost:, duration: nil, cache_stats: nil, awaiting_user_feedback: false, cost_source: nil, task_id: nil)
       set_idle_status
       return if awaiting_user_feedback || iterations <= 5
 

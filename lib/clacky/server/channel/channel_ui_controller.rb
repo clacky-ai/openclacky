@@ -136,7 +136,7 @@ module Clacky
         # Suppress
       end
 
-      def show_complete(iterations:, cost:, duration: nil, cache_stats: nil, awaiting_user_feedback: false, cost_source: nil)
+      def show_complete(iterations:, cost:, duration: nil, cache_stats: nil, awaiting_user_feedback: false, cost_source: nil, task_id: nil)
         flush_buffer
         return unless status_messages?
 
