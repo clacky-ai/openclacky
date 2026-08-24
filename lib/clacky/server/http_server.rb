@@ -7422,9 +7422,17 @@ module Clacky
         attachments = []
         seen_paths  = Array(existing_files).map { |f| f[:path] || f["path"] }.compact.to_set
 
-        content.scan(/(?:\A|[^A-Za-z0-9._%+-])@"([^"]+)"|(?:\A|[^A-Za-z0-9._%+-])@([^\s@]+)/) do |quoted, bare|
+        content.scan(
+          /(?:\A|[^A-Za-z0-9._%+-])@"((?:[^"\\]|\\.)+)"|(?:\A|[^A-Za-z0-9._%+-])@([^\s@]+)/
+        ) do |quoted, bare|
           file_path = quoted || bare
           next if file_path.nil? || file_path.empty? || attachments.size >= max_files
+
+          # Undo \" and \\ escapes from the composer's quoted form (mirrors
+          # the (?:[^"\\]|\\.)* pattern shared by every mention regex in the
+          # web UI). Unescaping happens BEFORE the containment check, which
+          # still confines the result to the working_dir.
+          file_path = file_path.gsub(/\\(.)/, "\\1") if quoted
 
           full_path = File.expand_path(file_path, working_dir)
 

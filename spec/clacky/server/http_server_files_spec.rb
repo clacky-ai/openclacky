@@ -260,5 +260,81 @@ RSpec.describe Clacky::Server::HttpServer, "@file mention endpoints" do
         expect(out.map { |f| f["path"] }).to eq([File.join(workdir, "README.md")])
       end
     end
+
+    it "refuses tilde expansion escaping to the home directory" do
+      fake_home = File.join(tmpdir, "home")
+      FileUtils.mkdir_p(fake_home)
+      File.write(File.join(fake_home, "probe_secret.txt"), "home secret")
+      old_home = ENV["HOME"]
+      ENV["HOME"] = fake_home
+      begin
+        with_files_server do |server|
+          expect(resolve(server, "steal @~/probe_secret.txt")).to eq([])
+          expect(resolve(server, 'steal @"~/probe_secret.txt"')).to eq([])
+        end
+      ensure
+        ENV["HOME"] = old_home
+      end
+    end
+
+    it "refuses bare @.. and quoted traversal forms" do
+      File.write(File.join(tmpdir, "secret.txt"), "top secret")
+      with_files_server do |server|
+        expect(resolve(server, "a @.. b")).to eq([])
+        expect(resolve(server, 'a @"../secret.txt" b')).to eq([])
+      end
+    end
+
+    it "ignores an empty quoted mention without error" do
+      with_files_server do |server|
+        expect(resolve(server, 'a @"" b')).to eq([])
+      end
+    end
+
+    it "resolves a quoted mention whose escaped quotes round-trip (frontend parity)" do
+      File.write(File.join(workdir, 'bad"name.txt'), "quote file")
+      with_files_server do |server|
+        out = resolve(server, 'see @"bad\"name.txt" here')
+        expect(out.map { |f| f["name"] }).to eq(['bad"name.txt'])
+      end
+    end
+
+    it "resolves an unquoted mention of a quote-containing filename" do
+      File.write(File.join(workdir, 'bad"name.txt'), "quote file")
+      with_files_server do |server|
+        out = resolve(server, "see @bad\"name.txt here")
+        expect(out.map { |f| f["name"] }).to eq(['bad"name.txt'])
+      end
+    end
+
+    it "treats a dash-glued @ as part of an identifier, not a mention" do
+      with_files_server do |server|
+        expect(resolve(server, "foo-@README.md")).to eq([])
+      end
+    end
+
+    it "resolves a mention right after a newline" do
+      with_files_server do |server|
+        out = resolve(server, "line one\n@README.md")
+        expect(out.map { |f| f["name"] }).to eq(["README.md"])
+      end
+    end
+
+    it "resolves interior ../ segments that stay inside the working_dir" do
+      FileUtils.mkdir_p(File.join(workdir, "sub"))
+      with_files_server do |server|
+        out = resolve(server, "see @sub/../README.md")
+        expect(out.map { |f| f["name"] }).to eq(["README.md"])
+      end
+    end
+
+    it "flags an existing attachment via its quoted name" do
+      with_files_server do |server|
+        uploaded = [{ name: "my file.txt", path: "/tmp/clacky-uploads/x_my file.txt" }]
+        out = resolve(server, 'look @"my file.txt"', uploaded)
+        expect(out).to eq([])
+        expect(uploaded.first[:mentioned]).to be(true)
+      end
+    end
   end
 end
