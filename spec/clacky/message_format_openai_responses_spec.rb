@@ -54,6 +54,18 @@ RSpec.describe Clacky::MessageFormat::OpenAIResponses do
       expect(content[0][:text]).to eq("Hello")
     end
 
+    it "does not propagate cache_control markers into input items" do
+      messages = [
+        { role: "user",
+          content: [{ type: "text", text: "Hello", cache_control: { type: "ephemeral" } }] }
+      ]
+
+      body = described_class.build_request_body(messages, model, tools, max_tokens, true)
+      content = body[:input][0][:content]
+      expect(content[0]).to eq({ type: "input_text", text: "Hello" })
+      expect(content[0]).not_to have_key(:cache_control)
+    end
+
     it "converts image_url blocks to input_image when vision is supported" do
       messages = [
         { role: "user", content: [
@@ -171,24 +183,25 @@ RSpec.describe Clacky::MessageFormat::OpenAIResponses do
       expect(body[:tools][0]).not_to have_key(:function)
     end
 
-    it "adds cache_control to last tool when caching is enabled" do
+    it "does not add cache_control to tools (Responses API has no such field)" do
       tools = [
         { type: "function", function: { name: "tool_a", parameters: {} } },
         { type: "function", function: { name: "tool_b", parameters: {} } }
       ]
 
       body = described_class.build_request_body([{ role: "user", content: "Hi" }], model, tools, max_tokens, true)
-      expect(body[:tools].last[:cache_control]).to eq({ type: "ephemeral" })
+      expect(body[:tools].last).not_to have_key(:cache_control)
       expect(body[:tools].first).not_to have_key(:cache_control)
     end
 
-    it "does not mutate the original tools array when caching" do
+    it "does not mutate the original tools array" do
       tools = [
         { type: "function", function: { name: "tool_a", parameters: {} } }
       ]
+      original = tools.first.dup
 
       described_class.build_request_body([{ role: "user", content: "Hi" }], model, tools, max_tokens, true)
-      expect(tools.first).not_to have_key(:cache_control)
+      expect(tools.first).to eq(original)
     end
 
     it "passes through tools already in flat Responses API format" do
@@ -363,7 +376,7 @@ RSpec.describe Clacky::MessageFormat::OpenAIResponses do
       expect(result[:usage][:reasoning_tokens]).to eq(30)
     end
 
-    it "returns 'length' finish_reason for incomplete status" do
+    it "returns 'length' finish_reason for incomplete status without details" do
       data = {
         "status" => "incomplete",
         "output" => [{ "type" => "message", "content" => [{ "type" => "output_text", "text" => "partial" }] }],
@@ -372,6 +385,30 @@ RSpec.describe Clacky::MessageFormat::OpenAIResponses do
 
       result = described_class.parse_response(data)
       expect(result[:finish_reason]).to eq("length")
+    end
+
+    it "returns 'length' for incomplete with max_output_tokens reason" do
+      data = {
+        "status" => "incomplete",
+        "incomplete_details" => { "reason" => "max_output_tokens" },
+        "output" => [{ "type" => "message", "content" => [{ "type" => "output_text", "text" => "partial" }] }],
+        "usage" => {}
+      }
+
+      result = described_class.parse_response(data)
+      expect(result[:finish_reason]).to eq("length")
+    end
+
+    it "returns 'content_filter' for incomplete with content_filter reason" do
+      data = {
+        "status" => "incomplete",
+        "incomplete_details" => { "reason" => "content_filter" },
+        "output" => [],
+        "usage" => {}
+      }
+
+      result = described_class.parse_response(data)
+      expect(result[:finish_reason]).to eq("content_filter")
     end
 
     it "preserves raw_api_usage" do

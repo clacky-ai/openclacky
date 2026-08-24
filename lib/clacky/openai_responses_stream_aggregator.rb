@@ -32,6 +32,7 @@ module Clacky
       @call_id_by_item_id = {} # item_id -> call_id (for delta routing)
       @usage = nil
       @status = nil
+      @incomplete_details = nil
       @last_input_tokens = 0
       @last_output_tokens = 0
       @parse_failures = 0
@@ -81,6 +82,11 @@ module Clacky
         emit_usage_progress(@usage) if @usage
       when "response.incomplete"
         @status = "incomplete"
+        # Preserve incomplete_details (e.g. reason: "max_output_tokens" vs
+        # "content_filter") so finish_reason mapping can distinguish a token
+        # limit from a safety-filtered response.
+        response = data["response"]
+        @incomplete_details = response["incomplete_details"] if response.is_a?(Hash) && response["incomplete_details"]
       when "response.created", "response.in_progress"
         # Informational events, no action needed
       end
@@ -110,11 +116,13 @@ module Clacky
         }
       end
 
-      {
+      result = {
         "output" => output,
         "status" => @status || "completed",
         "usage"  => @usage || {}
       }
+      result["incomplete_details"] = @incomplete_details if @incomplete_details
+      result
     end
 
     private def handle_item_added(data)

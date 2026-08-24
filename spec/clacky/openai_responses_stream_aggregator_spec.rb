@@ -41,6 +41,24 @@ RSpec.describe Clacky::OpenAIResponsesStreamAggregator do
       expect(agg.to_h["status"]).to eq("incomplete")
     end
 
+    it "captures incomplete_details from response.incomplete" do
+      event = {
+        "type" => "response.incomplete",
+        "response" => {
+          "status" => "incomplete",
+          "incomplete_details" => { "reason" => "content_filter" }
+        }
+      }
+      agg.handle(JSON.generate(event))
+      expect(agg.to_h["status"]).to eq("incomplete")
+      expect(agg.to_h["incomplete_details"]).to eq({ "reason" => "content_filter" })
+    end
+
+    it "omits incomplete_details key when provider sends none" do
+      agg.handle(JSON.generate({ "type" => "response.incomplete" }))
+      expect(agg.to_h).not_to have_key("incomplete_details")
+    end
+
     it "sets status to completed on response.done (OpenAI official terminal event)" do
       agg.handle(JSON.generate({
         "type" => "response.done",

@@ -27,11 +27,13 @@ module Clacky
       # @param model    [String]
       # @param tools    [Array<Hash>] OpenAI-style tool definitions
       # @param max_tokens [Integer]
-      # @param caching_enabled [Boolean] (cache_control markers on messages)
+      # @param caching_enabled [Boolean] kept for signature compatibility; the
+      #   Responses API has no content-level cache_control field, so Clacky's
+      #   cache markers are intentionally not applied on this path
       # @param vision_supported [Boolean] whether the target model accepts images
       # @param reasoning_effort [String, nil] reasoning effort level
       # @return [Hash] Responses API request body
-      def build_request_body(messages, model, tools, max_tokens, caching_enabled, vision_supported: true, reasoning_effort: nil)
+      def build_request_body(messages, model, tools, max_tokens, _caching_enabled, vision_supported: true, reasoning_effort: nil)
         input_items = messages.flat_map { |msg| convert_message_to_input_items(msg, vision_supported: vision_supported) }
 
         body = {
@@ -41,11 +43,14 @@ module Clacky
         }
 
         if tools&.any?
-          converted = convert_tools_to_responses_format(tools)
-          if caching_enabled
-            converted[-1][:cache_control] = { type: "ephemeral" }
-          end
-          body[:tools] = converted
+          # No cache_control markers here: the Responses API has no
+          # content-level cache_control field (that is Anthropic syntax).
+          # OpenAI's Responses prompt caching is automatic server-side;
+          # the request-level prompt_cache_key is a routing hint that does
+          # not map to Clacky's breakpoint convention. caching_enabled is
+          # kept in the signature for compatibility but intentionally
+          # unused on this path.
+          body[:tools] = convert_tools_to_responses_format(tools)
         end
 
         OpenAI.apply_reasoning_params(body, model, reasoning_effort)
@@ -146,9 +151,9 @@ module Clacky
           text = block[:text]
           return nil if text.nil? || text.empty?
 
-          result = { type: "input_text", text: text }
-          result[:cache_control] = block[:cache_control] if block[:cache_control]
-          result
+          # Any cache_control marker (Anthropic syntax) is dropped here:
+          # the Responses API does not recognize content-level cache_control.
+          { type: "input_text", text: text }
         when "image_url"
           if vision_supported
             # Responses API uses input_image with image_url sub-field
@@ -367,11 +372,22 @@ module Clacky
         status = data["status"]
         case status
         when "completed"  then "stop"
-        when "incomplete" then "length"
+        when "incomplete" then incomplete_finish_reason(data)
         else "stop"
         end
       end
 
+      # Map an "incomplete" response to a canonical finish_reason via
+      # incomplete_details.reason: "content_filter" means the response was
+      # blocked by safety filtering (typically empty) and must not be
+      # mislabelled as a mere token limit ("length").
+      #
+      # @param data [Hash] full response body
+      # @return [String]
+      private_class_method def self.incomplete_finish_reason(data)
+        reason = data.dig("incomplete_details", "reason")
+        reason == "content_filter" ? "content_filter" : "length"
+      end
       # Convert Chat Completions tool definitions to Responses API format.
       # Chat Completions: {type: "function", function: {name:, description:, parameters:}}
       # Responses API:    {type: "function", name:, description:, parameters:}

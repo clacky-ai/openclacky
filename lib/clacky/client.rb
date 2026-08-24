@@ -483,14 +483,17 @@ module Clacky
 
     # ── OpenAI Responses API request / response ───────────────────────────────
 
-    def send_openai_responses_request(messages, model, tools, max_tokens, caching_enabled, reasoning_effort: nil, on_chunk: nil, capability_model: nil)
+    def send_openai_responses_request(messages, model, tools, max_tokens, _caching_enabled, reasoning_effort: nil, on_chunk: nil, capability_model: nil)
       # Override max_tokens when the model declares a higher output ceiling
       model_for_limit = capability_model || model
       model_limit = Providers.max_output_for(model_for_limit)
       max_tokens = model_limit if model_limit
 
-      # Apply cache_control markers to messages when caching is enabled.
-      messages = apply_message_caching(messages) if caching_enabled
+      # Deliberately no apply_message_caching here: the Responses API does
+      # not recognize Anthropic-style cache_control markers, and OpenAI's
+      # Responses prompt caching is automatic server-side. Injecting
+      # cache_control would be silently ignored (or rejected by stricter
+      # endpoints).
 
       cap_model = capability_model || model
       body = MessageFormat::OpenAIResponses.build_request_body(
