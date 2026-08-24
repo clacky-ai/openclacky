@@ -57,6 +57,7 @@ RSpec.describe Clacky::Agent, "read-timeout hint injection" do
   before do
     # Suppress sleep in retry loops so tests run fast
     allow_any_instance_of(described_class).to receive(:sleep)
+    allow(Clacky::Shutdown).to receive(:sleep_interruptibly).and_return(false)
     Thread.current[:lang] = "en"
   end
 

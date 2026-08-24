@@ -228,14 +228,14 @@ module Clacky
       Open3.popen3(command, pgroup: true) do |stdin, out, err, wait_thr|
         pgid = wait_thr.pid
 
-        out_reader = Thread.new { drain_stream(out, stdout) }
-        err_reader = Thread.new { drain_stream(err, stderr) }
+        out_reader = Clacky::ThreadRegistry.spawn(name: "hook-out-reader") { drain_stream(out, stdout) }
+        err_reader = Clacky::ThreadRegistry.spawn(name: "hook-err-reader") { drain_stream(err, stderr) }
 
         # Write stdin on its own thread: a child that doesn't read stdin (or a
         # payload larger than the ~64KB pipe buffer) would otherwise block the
         # main thread before it reaches wait_thr.join(timeout) — the only thing
         # enforcing the timeout — and wedge capture_streams forever.
-        writer = Thread.new do
+        writer = Clacky::ThreadRegistry.spawn(name: "hook-stdin-writer") do
           begin
             stdin.write(payload)
           rescue Errno::EPIPE

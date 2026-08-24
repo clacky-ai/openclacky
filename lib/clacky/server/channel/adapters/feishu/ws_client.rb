@@ -38,8 +38,9 @@ module Clacky
               begin
                 connect_and_listen
               rescue => e
+                break unless @running
                 Clacky::Logger.warn("[feishu-ws] Connection error: #{e.message}")
-                sleep RECONNECT_DELAY if @running
+                Clacky::Shutdown.sleep(RECONNECT_DELAY)
               end
             end
           end
@@ -271,9 +272,9 @@ module Clacky
 
           def start_ping_thread
             @ping_thread&.kill
-            @ping_thread = Thread.new do
+            @ping_thread = Clacky::ThreadRegistry.spawn(name: "feishu-ws-ping") do
               loop do
-                sleep @ping_interval
+                Clacky::Shutdown.sleep(@ping_interval)
                 break unless @running
                 begin
                   @seq_id += 1

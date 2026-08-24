@@ -813,6 +813,9 @@ module Clacky
         spawn_env = {
           "TERM" => "xterm-256color",
           "PS1"  => " ",
+          # PTY makes git/less page interactively; force cat, scoped to our shell only.
+          "GIT_PAGER" => "cat",
+          "PAGER" => "cat",
           # Prevent our sub-shell from polluting the user's ~/.zsh_history
           # (or ~/.bash_history). We fork a full interactive login shell to
           # get rbenv/nvm/brew-shellenv/mise loaded, but every command we
@@ -904,7 +907,7 @@ module Clacky
 
       # Background thread: drain PTY → log file.
       private def start_reader_thread(reader, log_io)
-        Thread.new do
+        Clacky::ThreadRegistry.spawn(name: "terminal-pty-reader") do
           loop do
             break if reader.closed? || log_io.closed?
             begin

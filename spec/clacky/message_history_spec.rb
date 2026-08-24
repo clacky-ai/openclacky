@@ -625,6 +625,75 @@ RSpec.describe Clacky::MessageHistory do
   end
 
   # ─────────────────────────────────────────────
+  # settle_interrupted_tool_calls (interrupt path)
+  # ─────────────────────────────────────────────
+  describe "#settle_interrupted_tool_calls" do
+    let(:transcripts) { [{ skill: "a", index: 0, events: [] }, { skill: "b", index: 1, events: [] }] }
+
+    it "appends a synthetic tool result for the dangling tool_call" do
+      history.append(assistant_with_tool_calls)
+
+      history.settle_interrupted_tool_calls
+
+      last = history.to_a.last
+      expect(last[:role]).to eq("tool")
+      expect(last[:tool_call_id]).to eq("tc_1")
+      expect(last[:content]).to include("interrupted")
+    end
+
+    it "keeps the assistant turn from being dropped as dangling" do
+      history.append(assistant_with_tool_calls)
+      history.settle_interrupted_tool_calls
+
+      history.append(user_msg)
+
+      roles = history.to_a.map { |m| m[:role] }
+      expect(roles).to eq(%w[assistant tool user])
+    end
+
+    it "rides transcripts on the matching tool result" do
+      history.append(assistant_with_tool_calls)
+
+      history.settle_interrupted_tool_calls("tc_1" => transcripts)
+
+      expect(history.to_a.last[:subagent_transcript]).to eq(transcripts)
+    end
+
+    it "does not set subagent_transcript when no trails are given for the id" do
+      history.append(assistant_with_tool_calls)
+
+      history.settle_interrupted_tool_calls
+
+      expect(history.to_a.last).not_to have_key(:subagent_transcript)
+    end
+
+    it "does not send subagent_transcript to the LLM" do
+      history.append(assistant_with_tool_calls)
+      history.settle_interrupted_tool_calls("tc_1" => transcripts)
+
+      expect(history.to_api).to all(satisfy { |m| !m.key?(:subagent_transcript) })
+    end
+
+    it "skips ids that already have a tool result" do
+      history.append(assistant_with_tool_calls)
+      history.append(tool_result_msg("tc_1"))
+
+      expect { history.settle_interrupted_tool_calls }.not_to(change { history.size })
+    end
+
+    it "is a no-op when the last message is not a dangling tool_calls turn" do
+      history.append(user_msg)
+
+      expect { history.settle_interrupted_tool_calls(transcripts) }.not_to(change { history.size })
+    end
+
+    it "returns self for chaining" do
+      history.append(assistant_with_tool_calls)
+      expect(history.settle_interrupted_tool_calls).to eq(history)
+    end
+  end
+
+  # ─────────────────────────────────────────────
   # subagent_transcript persistence vs LLM payload
   # ─────────────────────────────────────────────
   describe "subagent_transcript internal field" do

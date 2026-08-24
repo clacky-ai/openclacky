@@ -63,8 +63,7 @@ module Clacky
 
       @config = cfg
       Clacky::Logger.info("[BrowserManager] Browser enabled, pre-warming MCP daemon...")
-      Thread.new do
-        Thread.current.name = "browser-manager-start"
+      Clacky::ThreadRegistry.spawn(name: "browser-preheat") do
         @mutex.synchronize { ensure_process! }
       rescue Clacky::BrowserNotReachableError => e
         # Expected: Chrome not running yet — will start lazily on first use
@@ -93,8 +92,7 @@ module Clacky
 
       if cfg["enabled"] == true
         Clacky::Logger.info("[BrowserManager] Browser enabled, restarting daemon")
-        Thread.new do
-          Thread.current.name = "browser-manager-reload"
+        Clacky::ThreadRegistry.spawn(name: "browser-reload") do
           @mutex.synchronize { ensure_process! }
         rescue Clacky::BrowserNotReachableError => e
           # Expected: Chrome not running yet — will start lazily on first use
@@ -259,7 +257,7 @@ module Clacky
       # The MCP daemon is an independent external process and should not hold server fds.
       stdin, stdout, stderr_io, wait_thr = Open3.popen3(*wrapped, close_others: true)
       stderr_buf = String.new
-      stderr_thr = Thread.new do
+      stderr_thr = Clacky::ThreadRegistry.spawn(name: "browser-stderr") do
         stderr_io.each_line { |line| stderr_buf << line }
       rescue IOError
       end
@@ -364,8 +362,7 @@ module Clacky
       Process.kill("TERM", ps[:pid]) rescue nil
 
       # Reap the child process asynchronously to avoid zombies
-      Thread.new do
-        Thread.current.name = "browser-manager-reap"
+      Clacky::ThreadRegistry.spawn(name: "browser-reap") do
         unless ps[:wait_thr].join(1)
           Process.kill("KILL", ps[:pid]) rescue nil
         end

@@ -80,10 +80,37 @@ module Clacky
         # Step 4: Complete unclosed strings
         result += '"' if result.count('"').odd?
 
-        # Step 5: Complete unclosed braces
-        depth = 0
-        result.each_char { |c| depth += 1 if c == '{'; depth -= 1 if c == '}' }
-        result += '}' * depth if depth > 0
+        # Step 5: Close unclosed braces/brackets in the order they were opened.
+        # Tracks a delimiter stack so truncated nested arrays (e.g. a cut-off
+        # `questions` list) are closed as `}]}` rather than `}}}`.
+        stack = []
+        in_string = false
+        escaped = false
+        result.each_char do |c|
+          if escaped
+            escaped = false
+            next
+          end
+
+          if c == '\\'
+            escaped = true if in_string
+            next
+          end
+
+          if c == '"'
+            in_string = !in_string
+            next
+          end
+
+          next if in_string
+
+          case c
+          when '{' then stack.push('}')
+          when '[' then stack.push(']')
+          when '}', ']' then stack.pop if stack.last == c
+          end
+        end
+        result += stack.reverse.join
 
         result
       end

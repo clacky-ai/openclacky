@@ -1859,14 +1859,25 @@ body {
   height: 0.375rem;
   border-radius: 50%;
   margin-right: 0.25rem;
-  vertical-align: middle;
-  position: relative;
-  top: -0.0625rem;
 }
 /* Idle state no longer renders a dot at all — rule kept for safety / future use */
 .dot-idle    { background: var(--color-text-secondary); opacity: 0.4; }
 .dot-running { background: var(--live); opacity: 1; animation: pulse 1.6s ease-in-out infinite; }
 .dot-error   { background: var(--color-error); opacity: 1; }
+/* Blocked on the user: amber and static. Only `running` animates, so motion
+   in the sidebar always means the agent is actually doing something. */
+.dot-awaiting_feedback { background: var(--color-warning); opacity: 1; }
+/* Transient "finished while you were away" marker — cleared by a timer in
+   sessions.js, or as soon as the session is opened. Hollow ring in the same
+   green as `running`: same activity, later stage. Shape (not hue) carries the
+   distinction, so it survives color-blindness and dim screens. */
+.dot-done {
+  background: transparent;
+  border: 1.5px solid var(--live);
+  width: 0.5rem;
+  height: 0.5rem;
+  opacity: 1;
+}
 
 @keyframes pulse {
   0%, 100% { opacity: 1; }
@@ -3631,6 +3642,63 @@ body {
   margin-bottom: 0.75rem;
   line-height: 1.5;
 }
+.feedback-q + .feedback-q {
+  margin-top: 1rem;
+  padding-top: 0.875rem;
+  border-top: 1px solid var(--color-border-primary);
+}
+/* Stepper: one question visible at a time, so no separator between them. */
+.feedback-q--step {
+  display: none;
+}
+.feedback-q--step.is-active {
+  display: block;
+}
+.feedback-q--step + .feedback-q--step {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: none;
+}
+.feedback-steps {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+.feedback-step-label {
+  font-size: 0.6875rem;
+  color: var(--color-text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+.feedback-dots {
+  display: flex;
+  gap: 0.3125rem;
+}
+.feedback-dot {
+  width: 7px;
+  height: 7px;
+  padding: 0;
+  border-radius: 50%;
+  border: none;
+  background: var(--color-border-primary);
+  cursor: pointer;
+  transition: background 0.15s, transform 0.15s;
+}
+.feedback-dot.is-done {
+  background: var(--color-text-secondary);
+}
+.feedback-dot.is-active {
+  background: var(--color-accent-primary);
+  transform: scale(1.25);
+}
+.feedback-desc {
+  font-size: 0.75rem;
+  color: var(--color-text-secondary);
+  margin-top: -0.5rem;
+  margin-bottom: 0.625rem;
+  line-height: 1.45;
+}
 .feedback-options {
   display: flex;
   flex-direction: column;
@@ -3654,6 +3722,65 @@ body {
 }
 .feedback-option-btn:active {
   opacity: 0.8;
+}
+.feedback-option-btn.is-selected {
+  border-color: var(--color-accent-primary);
+  box-shadow: inset 0 0 0 1px var(--color-accent-primary);
+}
+.feedback-rec {
+  font-size: 0.6875rem;
+  color: var(--color-text-secondary);
+  margin-left: 0.5rem;
+}
+.feedback-free-text {
+  width: 100%;
+  background: var(--color-bg-primary);
+  border: 1px solid var(--color-border-primary);
+  border-radius: 6px;
+  padding: 0.4375rem 0.75rem;
+  color: var(--color-text-primary);
+  font-size: 0.8125rem;
+  font-family: inherit;
+}
+.feedback-free-text:focus {
+  outline: none;
+  border-color: var(--color-accent-primary);
+}
+.feedback-actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+.feedback-actions .feedback-submit-btn {
+  padding: 0.375rem 1rem;
+  font-size: 0.8125rem;
+}
+.feedback-nav-btn {
+  background: transparent;
+  border: 1px solid var(--color-border-primary);
+  border-radius: 6px;
+  padding: 0.375rem 0.75rem;
+  color: var(--color-text-primary);
+  font-size: 0.8125rem;
+  font-family: inherit;
+  cursor: pointer;
+  transition: border-color 0.15s, opacity 0.15s;
+}
+.feedback-nav-btn:hover:not(:disabled) {
+  border-color: var(--color-accent-primary);
+}
+.feedback-nav-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.feedback-actions .feedback-back-btn {
+  margin-right: auto;
+}
+/* [hidden] alone loses to the flex display above. */
+.feedback-actions [hidden] {
+  display: none;
 }
 .feedback-hint {
   font-size: 0.6875rem;
@@ -4356,6 +4483,8 @@ body {
   animation: sib-heartbeat 1.6s ease-in-out infinite;
 }
 .sib-status-error   { color: #e05f5f; }
+.sib-status-awaiting_feedback { color: var(--color-warning, #d98e2b); }
+.sib-status-awaiting_feedback .sib-dot { background: currentColor; }
 
 @keyframes sib-heartbeat {
   0%       { box-shadow: 0 0 0 0 color-mix(in srgb, var(--live) 55%, transparent); }
@@ -8597,7 +8726,6 @@ body {
   border-color: var(--color-error);
 }
 .extension-install-error {
-  margin-top: 0.5rem;
   font-size: 0.8125rem;
   color: var(--color-error);
 }
@@ -10445,15 +10573,23 @@ body.setup-mode[data-theme="dark"] {
   gap: 0.875rem;
 }
 
-.channel-status-messages {
+.channel-settings-card {
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border-primary);
+  border-radius: 12px;
+  padding: 0 1rem;
+}
+
+.channel-settings-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 0.75rem;
-  padding: 0.75rem 1rem;
-  background: var(--color-bg-secondary);
-  border: 1px solid var(--color-border-primary);
-  border-radius: 8px;
+  padding: 0.75rem 0;
+}
+
+.channel-settings-divider {
+  border-top: 1px solid var(--color-border-primary);
 }
 
 .channel-status-messages-text {
@@ -13497,6 +13633,20 @@ body.setup-mode[data-theme="dark"] {
 .msg-phase-empty .msg-phase-summary::before { visibility: hidden; }
 .msg-phase-empty .msg-phase-body { display: none; }
 
+/* Phase cards nested under the tool call that spawned them (fan-out). */
+.tool-item-phases {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.25rem 0 0.125rem 0.5rem;
+}
+.tool-item-phases:empty { display: none; }
+.tool-item-phases .msg-phase { margin: 0; }
+.tool-item-phases .msg-phase-body {
+  max-height: 24rem;
+  overflow-y: auto;
+}
+
 /* ── Share modal ──────────────────────────────────────────────────────── */
 .share-overlay {
   position: fixed;
@@ -14590,6 +14740,7 @@ body.setup-mode[data-theme="dark"] {
 
 /* ── Flat mode ─────────────────────────────────────────────────────────────── */
 .project-session-tag {
+  margin-top: 0.35rem;
   padding: 0 0.625rem 0.1rem;
   font-size: 0.6875rem;
   font-weight: 500;

@@ -519,7 +519,7 @@ module Clacky
       return nil if activated?
       return nil if ENV["CLACKY_TEST"] == "1"
 
-      Thread.new do
+      Clacky::ThreadRegistry.spawn(name: "brand-fetch-free-skills") do
         Thread.current.abort_on_exception = false
 
         begin
@@ -922,7 +922,7 @@ module Clacky
       return nil unless activated?
       return nil if ENV["CLACKY_TEST"] == "1"
 
-      Thread.new do
+      Clacky::ThreadRegistry.spawn(name: "brand-fetch-extensions") do
         Thread.current.abort_on_exception = false
 
         begin
@@ -1305,7 +1305,7 @@ module Clacky
       return nil unless activated?
       return nil if ENV["CLACKY_TEST"] == "1"
 
-      Thread.new do
+      Clacky::ThreadRegistry.spawn(name: "brand-fetch-skills") do
         Thread.current.abort_on_exception = false
 
         begin
@@ -1890,26 +1890,24 @@ module Clacky
         return cached[:key] if key_valid && within_grace
       end
 
-      # Guard: @device_id must match the value recorded in activated_devices on the
-      # server.  If it is nil (e.g. loaded from a brand.yml that predates the
-      # device_id field), reload from disk as a last-chance recovery — the file
-      # may have been written by a concurrent process or a newer gem version.
-      # If still nil after reload, raise an actionable error rather than sending
-      # an empty device_id that will always be rejected by the server.
-      if @device_id.nil? || @device_id.strip.empty?
-        reloaded = BrandConfig.load
-        @device_id = reloaded.device_id if reloaded.device_id && !reloaded.device_id.strip.empty?
-      end
+      # Single disk read so device_id and license_key share one snapshot.
+      # Reading license_key live (not the instance snapshot) is what lets a
+      # license renewed mid-session be picked up on retry — a live agent still
+      # holds the expired key and the server would otherwise reject the
+      # signature as "license expired".
+      reloaded   = BrandConfig.load
+      @device_id = reloaded.device_id if @device_id.nil? || @device_id.strip.empty?
       raise "Device ID is missing. Please re-activate your license with `clacky license activate`." \
         if @device_id.nil? || @device_id.strip.empty?
 
-      # Build signed request payload
-      user_id   = parse_user_id_from_key(@license_key)
-      key_hash  = Digest::SHA256.hexdigest(@license_key)
+      license_key = reloaded.license_key
+      license_key = @license_key if license_key.nil? || license_key.strip.empty?
+      user_id   = parse_user_id_from_key(license_key)
+      key_hash  = Digest::SHA256.hexdigest(license_key)
       ts        = Time.now.utc.to_i.to_s
       nonce     = SecureRandom.hex(16)
       message   = "#{user_id}:#{@device_id}:#{ts}:#{nonce}"
-      signature = OpenSSL::HMAC.hexdigest("SHA256", @license_key, message)
+      signature = OpenSSL::HMAC.hexdigest("SHA256", license_key, message)
 
       payload = {
         key_hash:         key_hash,

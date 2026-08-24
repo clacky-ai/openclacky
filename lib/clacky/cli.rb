@@ -419,7 +419,7 @@ module Clacky
 
         if brand.heartbeat_due?
           Clacky::Logger.info("[Brand] check_brand_license_cli: heartbeat due, dispatching async...")
-          Thread.new do
+          Clacky::ThreadRegistry.spawn(name: "cli-brand-heartbeat") do
             begin
               result = brand.heartbeat!
               if result[:success]
@@ -1053,7 +1053,7 @@ module Clacky
           auto_name_session(agent, input)
 
           # Run agent in background thread
-          current_task_thread = Thread.new do
+          current_task_thread = Clacky::ThreadRegistry.spawn(name: "cli-agent-task") do
             begin
               # Set status to working when agent starts
               ui_controller.set_working_status

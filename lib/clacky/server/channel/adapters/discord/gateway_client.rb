@@ -54,7 +54,8 @@ module Clacky
                 raise
               rescue => e
                 Clacky::Logger.error("[DiscordGW] error: #{e.message}")
-                sleep RECONNECT_DELAY if @running
+                break unless @running
+                Clacky::Shutdown.sleep(RECONNECT_DELAY)
               end
             end
           end
@@ -158,7 +159,7 @@ module Clacky
                 @resume_gateway_url = nil
                 @last_seq = nil
               end
-              sleep(rand(1..5))
+              Clacky::Shutdown.sleep(rand(1..5))
               @ws_socket&.close rescue nil
             when 11
               @heartbeat_acked = true
@@ -236,10 +237,11 @@ module Clacky
             @heartbeat_thread&.kill
             interval_s = @heartbeat_interval.to_f / 1000.0
             jitter     = rand
-            @heartbeat_thread = Thread.new do
-              sleep(interval_s * jitter)
+            @heartbeat_thread = Clacky::ThreadRegistry.spawn(name: "discord-gw-heartbeat") do
+              Clacky::Shutdown.sleep(interval_s * jitter)
               loop do
                 break unless @running && @ws_open
+                Clacky::Shutdown.checkpoint!
                 begin
                   send_heartbeat
                 rescue => e
@@ -247,7 +249,7 @@ module Clacky
                   @ws_socket&.close rescue nil
                   break
                 end
-                sleep interval_s
+                Clacky::Shutdown.sleep(interval_s)
               end
             end
           end

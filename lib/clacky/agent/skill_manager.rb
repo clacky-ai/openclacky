@@ -651,8 +651,7 @@ module Clacky
         # observe() attaches each trail to its own tool result message.
         # Kept out of the LLM payload via INTERNAL_FIELDS.
         if tool_call_id
-          @pending_subagent_transcripts[tool_call_id] =
-            extract_subagent_transcript(subagent, skill.identifier)
+          record_subagent_transcript(tool_call_id, subagent, skill.identifier)
         end
 
         # Mutate the subagent_instructions message in-place to become the result summary

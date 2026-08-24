@@ -47,7 +47,7 @@ RSpec.describe "replay_history image-only user message" do
       @user_messages << { content: content, files: files }
     end
 
-    def show_assistant_message(*); end
+    def show_assistant_message(*, **); end
     def show_tool_call(*); end
     def show_tool_result(*); end
     def show_token_usage(*); end

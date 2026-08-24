@@ -38,6 +38,18 @@ RSpec.describe Clacky::ChannelConfig do
     end
   end
 
+  describe "#process_messages_enabled?" do
+    it "defaults to false" do
+      config = described_class.new(channels: {})
+      expect(config.process_messages_enabled?).to be false
+    end
+
+    it "returns true when explicitly enabled" do
+      config = described_class.new(channels: {}, process_messages: true)
+      expect(config.process_messages_enabled?).to be true
+    end
+  end
+
   describe "#set_status_messages" do
     it "persists the flag as a boolean" do
       config = described_class.new(channels: { "feishu" => { "app_id" => "cli_x" } })
@@ -90,13 +102,34 @@ RSpec.describe Clacky::ChannelConfig do
     end
   end
 
+  describe "#set_process_messages" do
+    it "round-trips through save/load" do
+      with_temp_channels_file do |file|
+        config = described_class.new(channels: { "feishu" => { "enabled" => true } })
+        config.set_process_messages(true)
+        config.save(file)
+
+        reloaded = described_class.load(file)
+        expect(reloaded.process_messages_enabled?).to be true
+      end
+    end
+  end
+
   describe "#deep_copy" do
-    it "copies the global flag independently of the original" do
+    it "copies the status flag independently of the original" do
       config = described_class.new(channels: {}, status_messages: false)
       copy   = config.deep_copy
       copy.set_status_messages(true)
       expect(config.status_messages_enabled?).to be false
       expect(copy.status_messages_enabled?).to be true
+    end
+
+    it "copies the process flag independently of the original" do
+      config = described_class.new(channels: {}, process_messages: false)
+      copy   = config.deep_copy
+      copy.set_process_messages(true)
+      expect(config.process_messages_enabled?).to be false
+      expect(copy.process_messages_enabled?).to be true
     end
   end
 end

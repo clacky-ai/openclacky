@@ -43,9 +43,8 @@ module Clacky
       @mutex.synchronize do
         return false if @shutdown
 
-        @timer_thread = Thread.new do
-          Thread.current.name = "idle-compression-timer"
-          sleep IDLE_DELAY
+        @timer_thread = Clacky::ThreadRegistry.spawn(name: "idle-compression-timer") do
+          Clacky::Shutdown.sleep(IDLE_DELAY)
           next if shutdown?
 
           # Register @compress_thread inside the mutex BEFORE the thread starts running,
@@ -53,8 +52,7 @@ module Clacky
           compress_thread = nil
           @mutex.synchronize do
             unless @shutdown
-              compress_thread = Thread.new do
-                Thread.current.name = "idle-compression-work"
+              compress_thread = Clacky::ThreadRegistry.spawn(name: "idle-compression-work") do
                 run_compression
               end
               @compress_thread = compress_thread

@@ -96,6 +96,43 @@ module Clacky
       self
     end
 
+    # Settle an interrupted fan-out whose assistant.tool_calls turn is dangling
+    # because the batch was cancelled before any tool result was written. Mirrors
+    # repair_tool_call_pairing (same helpers, same scan) but PERSISTS the result:
+    # for each unanswered tool_call_id it appends a real tool result into
+    # @messages marking it interrupted, riding any captured subagent trails on
+    # the matching one — the same anchor the normal completion path uses. This
+    # keeps the turn protocol-valid so drop_dangling_tool_calls! leaves it alone,
+    # and lets replay render the transcripts. transcripts_by_id maps
+    # tool_call_id => [trail, ...]. No-op unless the last message is a dangling
+    # assistant.tool_calls turn.
+    def settle_interrupted_tool_calls(transcripts_by_id = {})
+      return self unless pending_tool_calls?
+
+      assistant = @messages.last
+      expected_ids = Array(assistant[:tool_calls]).map { |tc| tc[:id] }.compact
+      answered = []
+      @messages.reverse_each do |m|
+        break if m.equal?(assistant)
+
+        answered.concat(tool_result_ids(m)) if tool_result_message?(m)
+      end
+
+      (expected_ids - answered).each do |id|
+        result = {
+          role: "tool",
+          tool_call_id: id,
+          content: '{"interrupted":true,"message":"Interrupted by user before completion"}',
+          task_id: assistant[:task_id],
+          created_at: Time.now.to_f
+        }
+        trails = transcripts_by_id[id]
+        result[:subagent_transcript] = Array(trails) if trails && !trails.empty?
+        @messages << deep_sanitize_utf8(result)
+      end
+      self
+    end
+
     # Append a custom extension event onto the most recent message so it is
     # persisted with the session and can be replayed after a reload.
     # Events are anchored to the last message: on replay they are re-emitted

@@ -110,15 +110,16 @@ module Clacky
                 end
               rescue ApiClient::TimeoutError
                 # Long-poll cycle ended with no updates — just loop.
+                Clacky::Shutdown.checkpoint!
               rescue ApiClient::ApiError => e
                 consecutive_errors += 1
                 Clacky::Logger.warn("[TelegramAdapter] API #{e.code}: #{e.description}")
-                sleep(consecutive_errors > 3 ? 30 : 5)
+                Clacky::Shutdown.sleep(consecutive_errors > 3 ? 30 : 5)
               rescue => e
                 consecutive_errors += 1
                 Clacky::Logger.error("[TelegramAdapter] poll error: #{e.message}")
                 break unless @running
-                sleep(consecutive_errors > 3 ? 30 : 5)
+                Clacky::Shutdown.sleep(consecutive_errors > 3 ? 30 : 5)
               end
             end
           end

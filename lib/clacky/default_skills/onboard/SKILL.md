@@ -60,7 +60,7 @@ Example (Chinese):
 
 ### A.3. Ask the user to name the AI (card)
 
-Call `request_user_feedback` to let the user pick or type a name for their AI assistant.
+Call `ask_user` to let the user pick or type a name for their AI assistant.
 
 zh:
 ```json
@@ -229,7 +229,7 @@ Check if OpenClaw is installed:
 If any check returns `yes`:
 1. `ruby "SKILL_DIR/scripts/import_external_skills.rb" --source openclaw --dry-run`
 2. Parse the skill count N.
-3. Ask via `request_user_feedback`:
+3. Ask via `ask_user`:
    - zh: `{ "question": "检测到你安装过 OpenClaw，找到 N 个 Skills。现在建议跳过，后续使用 /skill-add 按需安装。", "options": ["全部导入", "跳过"] }`
    - en: `{ "question": "OpenClaw detected. Found N skills. We recommend skipping for now and installing only what you need later with /skill-add.", "options": ["Import all", "Skip"] }`
 4. If confirmed: `ruby "SKILL_DIR/scripts/import_external_skills.rb" --source openclaw --yes`

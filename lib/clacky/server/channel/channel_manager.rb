@@ -70,7 +70,11 @@ module Clacky
           @adapters.each { |adapter| safe_stop_adapter(adapter) }
           @adapters.clear
         end
-        @adapter_threads.each { |t| t.join(1) }
+        # Join adapter threads under one shared budget instead of 1s each: a
+        # long-polling adapter (weixin/telegram) can be mid-request and take
+        # seconds to notice @running flipped — serial joins would pile up.
+        deadline = Time.now + 0.5
+        @adapter_threads.each { |t| t.join([deadline - Time.now, 0.01].max) }
         @adapter_threads.clear
       end
 
@@ -208,8 +212,7 @@ module Clacky
         @mutex.synchronize { @adapters << adapter }
         Clacky::Logger.info("[ChannelManager] :#{platform} adapter ready, starting thread")
 
-        thread = Thread.new do
-          Thread.current.name = "channel-#{platform}"
+        thread = Clacky::ThreadRegistry.spawn(name: "channel-#{platform}") do
           adapter_loop(adapter)
         end
 
@@ -228,11 +231,15 @@ module Clacky
           adapter.send_text(event[:chat_id], "Error: #{e.message}")
         end
       rescue StandardError => e
-        Clacky::Logger.warn("[ChannelManager] :#{adapter.platform_id} adapter crashed: #{e.message}\n#{e.backtrace.first(3).join("\n")}")
-        if @running
+        if @running && !Clacky::Shutdown.requested?
+          Clacky::Logger.warn("[ChannelManager] :#{adapter.platform_id} adapter crashed: #{e.message}\n#{e.backtrace.first(3).join("\n")}")
           Clacky::Logger.info("[ChannelManager] :#{adapter.platform_id} restarting in 5s...")
-          sleep 5
+          Clacky::Shutdown.sleep(5)
           retry
+        else
+          # Shutting down — the adapter was stopped, not crashed (e.g. a ws
+          # socket closed mid-read raises EBADF). Keep the log quiet.
+          Clacky::Logger.debug("[ChannelManager] :#{adapter.platform_id} adapter stopped: #{e.message}")
         end
       end
 
@@ -401,7 +408,7 @@ module Clacky
               end
             end
           else
-            channel_ui = ChannelUIController.new(event, -> { adapter_for(event[:platform]) }, -> { @channel_config.status_messages_enabled? })
+            channel_ui = ChannelUIController.new(event, -> { adapter_for(event[:platform]) }, -> { @channel_config.status_messages_enabled? }, -> { @channel_config.process_messages_enabled? })
           end
 
           bind_key_to_session(key, session_id)
@@ -695,7 +702,7 @@ module Clacky
         # Create a long-lived ChannelUIController for this session and subscribe it
         # to the session's WebUIController. It stays for the session's full lifetime
         # so all events (agent output, errors, status) flow through web_ui → channel_ui.
-        channel_ui = ChannelUIController.new(event, -> { adapter_for(event[:platform]) }, -> { @channel_config.status_messages_enabled? })
+        channel_ui = ChannelUIController.new(event, -> { adapter_for(event[:platform]) }, -> { @channel_config.status_messages_enabled? }, -> { @channel_config.process_messages_enabled? })
         @registry.with_session(session_id) do |s|
           s[:ui]&.subscribe_channel(channel_ui)
           s[:channel_ui] = channel_ui
@@ -722,7 +729,7 @@ module Clacky
         end
         return unless needs_attach
 
-        channel_ui = ChannelUIController.new(event, -> { adapter_for(event[:platform]) }, -> { @channel_config.status_messages_enabled? })
+        channel_ui = ChannelUIController.new(event, -> { adapter_for(event[:platform]) }, -> { @channel_config.status_messages_enabled? }, -> { @channel_config.process_messages_enabled? })
         @registry.with_session(session_id) do |s|
           next unless s[:ui] && s[:channel_ui].nil?
           s[:ui].subscribe_channel(channel_ui)

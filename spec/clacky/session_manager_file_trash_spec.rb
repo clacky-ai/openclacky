@@ -94,6 +94,10 @@ RSpec.describe "file-trash rolling cleanup" do
         name: "cleanup trigger"
       )
 
+      # save schedules the trash sweep on a background thread; wait for it.
+      deadline = Time.now + 5
+      sleep(0.02) until !File.exist?(old_file) || Time.now > deadline
+
       expect(File.exist?(old_file)).to be(false)
       expect(surviving_originals(project_a)).to eq([File.join(project_a, "recent.log")])
     end

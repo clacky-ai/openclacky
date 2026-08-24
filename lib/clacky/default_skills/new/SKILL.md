@@ -17,7 +17,7 @@ When user wants to create a new Rails project:
 ## Process Steps
 
 ### 0. Ask Project Type and Requirement
-Before doing anything, call `request_user_feedback` with a structured prompt. Use the following as a guide:
+Before doing anything, call `ask_user` with a structured prompt. Use the following as a guide:
 
 zh:
 ```json

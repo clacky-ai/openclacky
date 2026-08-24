@@ -125,5 +125,56 @@ RSpec.describe Clacky::Fanout do
 
       expect(calls.sort).to eq((0..9).to_a)
     end
+
+    it "forwards an interrupt on the caller thread to running workers" do
+      unwound = Queue.new
+      started = Queue.new
+      jobs = Array.new(2) do
+        lambda do
+          started << :go
+          begin
+            sleep 5
+          rescue Clacky::AgentInterrupted
+            unwound << :ensure
+            raise
+          end
+        end
+      end
+
+      raised = nil
+      caller_thread = Thread.new do
+        described_class.new(max_concurrency: 2).run(jobs)
+      rescue Clacky::AgentInterrupted => e
+        raised = e
+      end
+
+      2.times { started.pop } # both workers are inside their sleep
+      caller_thread.raise(Clacky::AgentInterrupted, "stop")
+      caller_thread.join(3)
+
+      expect(caller_thread.alive?).to be(false)
+      # The interrupt propagates out of #run so the caller can unwind too.
+      expect(raised).to be_a(Clacky::AgentInterrupted)
+      # Each worker unwound through its own rescue rather than being abandoned.
+      expect([unwound.pop, unwound.pop]).to eq(%i[ensure ensure])
+    end
+
+    it "invokes on_cancel before unwinding when interrupted" do
+      cancelled = Queue.new
+      started = Queue.new
+      jobs = [-> { started << :go; sleep 5 }]
+
+      caller_thread = Thread.new do
+        described_class.new.run(jobs, on_cancel: -> { cancelled << :flag })
+      rescue Clacky::AgentInterrupted
+        nil
+      end
+
+      started.pop
+      caller_thread.raise(Clacky::AgentInterrupted, "stop")
+      caller_thread.join(3)
+
+      expect(cancelled.pop).to eq(:flag)
+    end
   end
 end

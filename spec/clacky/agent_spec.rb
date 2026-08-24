@@ -1695,7 +1695,7 @@ RSpec.describe Clacky::Agent do
       Class.new do
         attr_reader :messages
         def initialize; @messages = []; end
-        def show_assistant_message(content, files:)
+        def show_assistant_message(content, files:, interim: false, created_at: nil)
           @messages << { content: content, files: files }
         end
       end.new
@@ -1733,6 +1733,55 @@ RSpec.describe Clacky::Agent do
       msg = ui_collector.messages.first
       expect(msg[:files]).not_to be_empty
       expect(msg[:files].first[:name]).to eq("photo.png")
+    end
+  end
+
+  describe "awaiting_user_feedback in run result" do
+    def build_agent(tmpdir, permission_mode)
+      cfg = Clacky::AgentConfig.new(permission_mode: permission_mode)
+      cfg.add_model(model: "claude-sonnet-4.5", api_key: "test-api-key",
+                    base_url: "https://api.anthropic.com")
+      agent = Clacky::Agent.new(
+        client, cfg,
+        working_dir: tmpdir, ui: nil, profile: "general",
+        session_id: Clacky::SessionManager.generate_id, source: :manual
+      )
+      allow(agent).to receive(:inject_memory_prompt!).and_return(false)
+      agent
+    end
+
+    it "is true after the model calls request_user_feedback" do
+      Dir.mktmpdir do |tmpdir|
+        agent = build_agent(tmpdir, :confirm_all)
+
+        allow(client).to receive(:send_messages_with_tools).and_return(
+          mock_api_response(
+            content: "I need to know something.",
+            tool_calls: [mock_tool_call(
+              name: "request_user_feedback",
+              args: JSON.generate(question: "Which one?")
+            )]
+          )
+        )
+        allow(client).to receive(:format_tool_results).and_return([])
+
+        result = agent.run("do something ambiguous")
+
+        expect(result[:awaiting_user_feedback]).to be true
+      end
+    end
+
+    it "is false for a plain completed turn" do
+      Dir.mktmpdir do |tmpdir|
+        agent = build_agent(tmpdir, :confirm_all)
+
+        allow(client).to receive(:send_messages_with_tools)
+          .and_return(mock_api_response(content: "All done."))
+
+        result = agent.run("do something simple")
+
+        expect(result[:awaiting_user_feedback]).to be false
+      end
     end
   end
 end

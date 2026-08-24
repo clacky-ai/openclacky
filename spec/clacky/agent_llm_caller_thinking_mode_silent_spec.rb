@@ -53,6 +53,7 @@ RSpec.describe Clacky::Agent, "thinking-mode silent response recovery" do
 
   before do
     allow_any_instance_of(described_class).to receive(:sleep)
+    allow(Clacky::Shutdown).to receive(:sleep_interruptibly).and_return(false)
     Thread.current[:lang] = "en"
   end
 

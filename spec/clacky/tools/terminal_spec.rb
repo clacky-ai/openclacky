@@ -180,6 +180,11 @@ RSpec.describe Clacky::Tools::Terminal do
       result = tool.execute(command: "echo $MY_VAR", env: { "MY_VAR" => "hi-from-env" })
       expect(result[:output]).to include("hi-from-env")
     end
+
+    it "forces non-interactive pagers in the agent shell" do
+      result = tool.execute(command: %q{printf '%s %s' "$GIT_PAGER" "$PAGER"})
+      expect(result[:output]).to include("cat")
+    end
   end
 
   # ---------------------------------------------------------------------------

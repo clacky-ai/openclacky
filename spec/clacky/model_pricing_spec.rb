@@ -250,6 +250,7 @@ RSpec.describe Clacky::ModelPricing do
       let(:peak_time)     { Time.utc(2026, 8, 17, 2, 0, 0) }  # 02:00 UTC -> peak
       let(:off_peak_time) { Time.utc(2026, 8, 17, 5, 0, 0) }  # 05:00 UTC -> off-peak
       let(:cutover_time)  { Time.utc(2026, 8, 16, 16, 0, 0) } # exact cutover -> off-peak (hour 16)
+      let(:weekend_peak_time) { Time.utc(2026, 8, 29, 2, 0, 0) } # Beijing Sat 10:00 (UTC peak window) -> off-peak
 
       it "bills deepseek-v4-flash at legacy flat rate before cutover" do
         usage = {
@@ -290,6 +291,39 @@ RSpec.describe Clacky::ModelPricing do
         # Total: $0.055
         result = described_class.calculate_cost(model: "deepseek-v4-flash", usage: usage, now: off_peak_time)
         expect(result[:cost]).to be_within(0.0001).of(0.055)
+        expect(result[:source]).to eq(:price)
+      end
+
+      it "bills deepseek-v4-flash at off-peak rate on a weekend during peak hours" do
+        usage = {
+          prompt_tokens: 100_000,         # 100K tokens
+          completion_tokens: 50_000        # 50K tokens
+        }
+
+        # Beijing Sat 10:00 (02:00 UTC) falls inside the peak window, but
+        # weekends are billed entirely at off-peak rates.
+        # Input: (100,000 / 1,000,000) * $0.22 = $0.022
+        # Output: (50,000 / 1,000,000) * $0.66 = $0.033
+        # Total: $0.055
+        result = described_class.calculate_cost(model: "deepseek-v4-flash", usage: usage, now: weekend_peak_time)
+        expect(result[:cost]).to be_within(0.0001).of(0.055)
+        expect(result[:source]).to eq(:price)
+      end
+
+      it "bills deepseek-v4-pro with cache at off-peak rate on a weekend" do
+        usage = {
+          prompt_tokens: 100_000,
+          completion_tokens: 50_000,
+          cache_read_input_tokens: 30_000
+        }
+
+        # Beijing Sat 10:00 (UTC peak window) -> off-peak rates.
+        # Regular input: ((100_000 - 30_000) / 1_000_000) * $0.66  = $0.0462
+        # Output:        (50_000 / 1_000_000)             * $1.98  = $0.099
+        # Cache read:    (30_000 / 1_000_000)             * $0.022 = $0.00066
+        # Total: $0.14586
+        result = described_class.calculate_cost(model: "deepseek-v4-pro", usage: usage, now: weekend_peak_time)
+        expect(result[:cost]).to be_within(0.0001).of(0.14586)
         expect(result[:source]).to eq(:price)
       end
 
@@ -349,6 +383,26 @@ RSpec.describe Clacky::ModelPricing do
         result = described_class.calculate_cost(model: "deepseek-reasoner", usage: usage, now: peak_time)
         expect(result[:cost]).to be_within(0.0001).of(0.110)
         expect(result[:source]).to eq(:price)
+      end
+
+      it "bills deepseek-v4-flash-vision-exp at v4-flash rates" do
+        usage = {
+          prompt_tokens: 100_000,
+          completion_tokens: 50_000
+        }
+
+        # Same rates as v4-flash (peak):
+        # Input: (100,000 / 1,000,000) * $0.44 = $0.044
+        # Output: (50,000 / 1,000,000) * $1.32 = $0.066
+        # Total: $0.110
+        result = described_class.calculate_cost(model: "deepseek-v4-flash-vision-exp", usage: usage, now: peak_time)
+        expect(result[:cost]).to be_within(0.0001).of(0.110)
+        expect(result[:source]).to eq(:price)
+      end
+
+      it "normalizes deepseek-v4-flash-vision-exp to its own row (not v4-flash)" do
+        expect(described_class.normalize_model_name("deepseek-v4-flash-vision-exp")).to eq("deepseek-v4-flash-vision-exp")
+        expect(described_class.normalize_model_name("deepseek-v4-flash")).to eq("deepseek-v4-flash")
       end
     end
 

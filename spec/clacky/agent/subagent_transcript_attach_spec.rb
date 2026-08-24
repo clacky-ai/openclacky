@@ -26,8 +26,13 @@ RSpec.describe "Subagent transcript attachment (per tool_call_id)" do
     { role: "tool", tool_call_id: tool_call_id, content: "done" }
   end
 
+  # Stored as a batch: a lone subagent is just a batch of one.
   def transcript(skill)
-    { skill: skill, iterations: 1, cost_usd: 0.0, events: [{ role: "assistant", content: "hi" }] }
+    [{ skill: skill, iterations: 1, cost_usd: 0.0, index: 0, events: [{ role: "assistant", content: "hi" }] }]
+  end
+
+  def attached_skills(msg)
+    Array(msg[:subagent_transcript]).map { |t| t[:skill] }
   end
 
   describe "with several invoke_skill calls in one turn" do
@@ -55,8 +60,8 @@ RSpec.describe "Subagent transcript attachment (per tool_call_id)" do
       msg_a = messages.find { |m| m[:tool_call_id] == "call_a" }
       msg_b = messages.find { |m| m[:tool_call_id] == "call_b" }
 
-      expect(msg_a[:subagent_transcript][:skill]).to eq("explorer")
-      expect(msg_b[:subagent_transcript][:skill]).to eq("pptx")
+      expect(attached_skills(msg_a)).to eq(["explorer"])
+      expect(attached_skills(msg_b)).to eq(["pptx"])
     end
 
     it "leaves the other call untouched when only one skill forked a subagent" do
@@ -66,7 +71,7 @@ RSpec.describe "Subagent transcript attachment (per tool_call_id)" do
 
       messages = agent.history.to_a
       expect(messages.find { |m| m[:tool_call_id] == "call_a" }).not_to have_key(:subagent_transcript)
-      expect(messages.find { |m| m[:tool_call_id] == "call_b" }[:subagent_transcript][:skill]).to eq("pptx")
+      expect(attached_skills(messages.find { |m| m[:tool_call_id] == "call_b" })).to eq(["pptx"])
     end
 
     it "consumes each transcript exactly once" do
@@ -85,7 +90,7 @@ RSpec.describe "Subagent transcript attachment (per tool_call_id)" do
 
     attach({ tool_calls: [{ id: "call_solo", name: "invoke_skill" }] })
 
-    expect(agent.history.to_a.last[:subagent_transcript][:skill]).to eq("explorer")
+    expect(attached_skills(agent.history.to_a.last)).to eq(["explorer"])
   end
 
   it "ignores non-invoke_skill calls sharing the turn" do
@@ -102,7 +107,7 @@ RSpec.describe "Subagent transcript attachment (per tool_call_id)" do
 
     messages = agent.history.to_a
     expect(messages.find { |m| m[:tool_call_id] == "call_read" }).not_to have_key(:subagent_transcript)
-    expect(messages.find { |m| m[:tool_call_id] == "call_skill" }[:subagent_transcript][:skill]).to eq("explorer")
+    expect(attached_skills(messages.find { |m| m[:tool_call_id] == "call_skill" })).to eq(["explorer"])
   end
 
   it "resolves the tool name from OpenAI-style nested function hashes" do
@@ -111,7 +116,7 @@ RSpec.describe "Subagent transcript attachment (per tool_call_id)" do
 
     attach({ tool_calls: [{ id: "call_nested", function: { name: "invoke_skill" } }] })
 
-    expect(agent.history.to_a.last[:subagent_transcript][:skill]).to eq("explorer")
+    expect(attached_skills(agent.history.to_a.last)).to eq(["explorer"])
   end
 
   it "is a no-op when nothing is pending" do

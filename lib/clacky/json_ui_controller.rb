@@ -28,7 +28,7 @@ module Clacky
 
     # === Output display ===
 
-    def show_assistant_message(content, files:)
+    def show_assistant_message(content, files:, interim: false, created_at: nil)
       return if (content.nil? || content.strip.empty?) && files.empty?
 
       data = { content: content.to_s }

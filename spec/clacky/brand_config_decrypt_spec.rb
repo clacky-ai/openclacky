@@ -6,6 +6,7 @@ require "openssl"
 require "base64"
 require "digest"
 require "json"
+require "yaml"
 require "clacky/aes_gcm"
 
 # Tests for BrandConfig#decrypt_skill_content AES-256-GCM path,
@@ -243,6 +244,35 @@ RSpec.describe Clacky::BrandConfig, "#decrypt_skill_content (AES-256-GCM)" do
 
         result = config.decrypt_skill_content(File.join(info[:skill_dir], "SKILL.md.enc"))
         expect(result).to eq("skill body")
+      end
+    end
+
+    it "signs with the license key currently on disk (renewal picked up mid-session)" do
+      Dir.mktmpdir do |tmp|
+        config = activated_config(tmp)
+        info   = build_encrypted_skill(tmp, test_key)
+
+        # Renewal rewrites brand.yml with a new license key while the live
+        # instance still holds the old one in @license_key.
+        renewed_key = "11111111-22222222-33333333-44444444-55555555"
+        File.write(
+          File.join(tmp, "brand.yml"),
+          YAML.dump("license_key" => renewed_key, "device_id" => "testdevice")
+        )
+
+        expect(config).to receive(:api_post) do |_path, payload|
+          expect(payload[:key_hash]).to eq(Digest::SHA256.hexdigest(renewed_key))
+          {
+            success: true,
+            data: {
+              "decryption_key" => test_key_hex,
+              "algorithm"      => "aes-256-gcm",
+              "expires_at"     => (Time.now.utc + 86_400).iso8601
+            }
+          }
+        end
+
+        config.decrypt_skill_content(File.join(info[:skill_dir], "SKILL.md.enc"))
       end
     end
 

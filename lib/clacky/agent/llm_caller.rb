@@ -95,6 +95,7 @@ module Clacky
 
         begin
           begin
+          Clacky::Shutdown.checkpoint!
           # Use active_messages (Time Machine) when undone, otherwise send full history.
           # to_api strips internal fields and handles orphaned tool_calls.
           messages_to_send = if respond_to?(:active_messages)
@@ -167,6 +168,7 @@ module Clacky
           end
 
         rescue Faraday::TimeoutError => e
+          Clacky::Shutdown.checkpoint!
           # Faraday::TimeoutError on our non-streaming POST almost always means
           # the *response* took longer than the 300s read-timeout to come back —
           # i.e. the model is trying to produce a huge output in one shot
@@ -198,7 +200,7 @@ module Clacky
               metadata: { attempt: retries, total: max_retries }
             )
             retrying_progress_opened = true
-            sleep retry_delay
+            Clacky::Shutdown.sleep(retry_delay)
             retry
           else
             # All retries exhausted for a timeout. Try the secondary gateway URL if available.
@@ -219,6 +221,7 @@ module Clacky
           end
 
         rescue Faraday::ConnectionFailed, Faraday::SSLError, Errno::ECONNREFUSED, Errno::ETIMEDOUT, Errno::EPIPE => e
+          Clacky::Shutdown.checkpoint!
           retries += 1
 
           # Errno::EPIPE means the underlying TCP socket is dead (server closed the
@@ -245,7 +248,7 @@ module Clacky
               metadata: { attempt: retries, total: max_retries }
             )
             retrying_progress_opened = true
-            sleep retry_delay
+            Clacky::Shutdown.sleep(retry_delay)
             retry
           else
             # All retries on the primary endpoint exhausted for a network-level
@@ -269,6 +272,7 @@ module Clacky
           end
 
         rescue RetryableError => e
+          Clacky::Shutdown.checkpoint!
           retries += 1
 
           # Probing failure: primary still down — renew cooling-off and retry with fallback.
@@ -298,7 +302,7 @@ module Clacky
             metadata: { attempt: retries, total: current_max }
           )
           retrying_progress_opened = true
-          sleep retry_delay
+          Clacky::Shutdown.sleep(retry_delay)
           retry
         else
           # All retries on the current endpoint exhausted.

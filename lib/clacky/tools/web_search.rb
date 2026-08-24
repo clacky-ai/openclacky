@@ -185,7 +185,7 @@ module Clacky
       private def search_bing(query, max_results)
         queue = Queue.new
         threads = BING_ENDPOINTS.map do |host, lang|
-          Thread.new do
+          Clacky::ThreadRegistry.spawn(name: "web-search-bing") do
             results = bing_fetch(host, lang, query, max_results)
             queue.push([host, results])
           rescue StandardError

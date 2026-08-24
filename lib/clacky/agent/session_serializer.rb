@@ -733,7 +733,7 @@ module Clacky
             else
               raw_text
             end
-            ui.show_assistant_message(text, files: [])
+            ui.show_assistant_message(text, files: [], created_at: msg[:created_at])
           end
 
           # Tool calls embedded in assistant message
@@ -742,16 +742,17 @@ module Clacky
             args_raw = tc[:arguments] || tc.dig(:function, :arguments) || {}
             args     = args_raw.is_a?(String) ? (JSON.parse(args_raw) rescue args_raw) : args_raw
 
-            # Special handling: request_user_feedback question is shown as an
-            # assistant message (matching real-time behavior), not as a tool call.
-            # Reconstruct the full formatted message including options (mirrors RequestUserFeedback#execute).
-            if name == "request_user_feedback"
-              question = args.is_a?(Hash) ? (args[:question] || args["question"]).to_s : ""
-              context  = args.is_a?(Hash) ? (args[:context]  || args["context"]).to_s  : ""
-              options  = args.is_a?(Hash) ? (args[:options]  || args["options"])        : nil
-              options  = Array(options) if options && !options.is_a?(Array)
+            # Special handling: the ask_user question is shown as an assistant
+            # message (matching real-time behavior), not as a tool call.
+            if Clacky::Tools::AskUser.feedback_tool?(name)
+              questions = Clacky::Tools::AskUser.normalize_questions(args)
+              context   = Clacky::Tools::AskUser.fetch_key(args, :context).to_s
+              first     = questions.first
 
-              ui.show_feedback_request(question, context, options || []) unless question.empty?
+              unless first.nil?
+                ui.show_feedback_request(first[:question], context, first[:options],
+                                         questions: questions)
+              end
             else
               ui.show_tool_call(name, args)
             end
@@ -759,6 +760,11 @@ module Clacky
 
           # Emit token usage stored on this message (for history replay display)
           ui.show_token_usage(msg[:token_usage]) if msg[:token_usage]
+
+          # Interrupted fan-out anchors its captured subagent trails onto the
+          # last message, which is usually this assistant turn (its tool result
+          # never got written). Replay them here so they survive a reload.
+          replay_subagent_transcript(msg, ui)
 
         when "user"
           # Anthropic-format tool results (role: user, content: array of tool_result blocks)
@@ -796,19 +802,32 @@ module Clacky
         end
       end
 
-      # Replay a subagent transcript stored on a tool result message. Emits a
+      # Replay subagent transcripts stored on a tool result message. Emits a
       # bracketed sequence of UI events the frontend can render as a collapsible
       # sub-process block: subagent_start → (assistant_message / tool_call /
-      # tool_result)* → subagent_end. No-op when the message carries no transcript.
+      # tool_result)* → subagent_end. A fan-out batch renders one block per job,
+      # in the caller's original job order.
+      #
+      # Sessions saved before fan-out support stored a bare Hash here.
       def replay_subagent_transcript(msg, ui)
-        transcript = msg[:subagent_transcript]
-        return unless transcript.is_a?(Hash)
+        stored = msg[:subagent_transcript]
+        Array(stored.is_a?(Hash) ? [stored] : stored).each do |transcript|
+          next unless transcript.is_a?(Hash)
 
+          replay_one_subagent_transcript(transcript, ui)
+        end
+      end
+
+      def replay_one_subagent_transcript(transcript, ui)
         events = transcript[:events] || transcript["events"] || []
         return if events.empty?
 
+        skill = transcript[:skill] || transcript["skill"]
+        supports_phase = ui.respond_to?(:phase_start) && ui.respond_to?(:phase_end)
+        pid = ui.phase_start(kind: "fanout_subagent", label: skill) if supports_phase
+
         ui.show_subagent_start(
-          skill:      transcript[:skill]      || transcript["skill"],
+          skill:      skill,
           iterations: transcript[:iterations] || transcript["iterations"],
           cost_usd:   transcript[:cost_usd]   || transcript["cost_usd"]
         )
@@ -821,7 +840,7 @@ module Clacky
           case role
           when "assistant"
             text = extract_text_from_content(content).to_s.strip
-            ui.show_assistant_message(text, files: []) unless text.empty?
+            ui.show_assistant_message(text, files: [], created_at: ev[:created_at] || ev["created_at"]) unless text.empty?
             Array(tool_calls).each do |tc|
               name = tc[:name] || tc["name"] || ""
               args_raw = tc[:arguments] || tc["arguments"] || {}
@@ -834,6 +853,7 @@ module Clacky
         end
 
         ui.show_subagent_end
+        ui.phase_end(pid) if supports_phase && pid
       end
 
       # Replace the system message in @messages with a freshly built system prompt.

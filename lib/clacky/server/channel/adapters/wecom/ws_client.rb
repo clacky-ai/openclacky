@@ -50,7 +50,8 @@ module Clacky
                 raise
               rescue => e
                 Clacky::Logger.error("[WecomWSClient] WebSocket error: #{e.message}")
-                sleep RECONNECT_DELAY if @running
+                break unless @running
+                Clacky::Shutdown.sleep(RECONNECT_DELAY)
               end
             end
           end
@@ -219,7 +220,7 @@ module Clacky
             when "aibot_msg_callback"
               Clacky::Logger.info("[WecomWSClient] inbound message req_id=#{req_id}")
               cb_body = body.merge("_req_id" => req_id)
-              Thread.new { @on_message&.call(cb_body) }
+              Clacky::ThreadRegistry.spawn(name: "wecom-msg-callback") { @on_message&.call(cb_body) }
             when "aibot_event_callback"
               Clacky::Logger.info("[WecomWSClient] event_callback (ignored)")
             when nil
@@ -270,9 +271,9 @@ module Clacky
 
           def start_ping_thread
             @ping_thread&.kill
-            @ping_thread = Thread.new do
+            @ping_thread = Clacky::ThreadRegistry.spawn(name: "wecom-ws-ping") do
               loop do
-                sleep HEARTBEAT_INTERVAL
+                Clacky::Shutdown.sleep(HEARTBEAT_INTERVAL)
                 break unless @running
                 begin
                   send_frame(cmd: "ping", req_id: generate_req_id("ping"))
@@ -361,7 +362,7 @@ module Clacky
 
             send_frame(cmd: cmd, req_id: req_id, body: body)
 
-            timeout_thread = Thread.new { sleep 30; queue.push(nil) }
+            timeout_thread = Clacky::ThreadRegistry.spawn(name: "wecom-ack-timeout") { sleep 30; queue.push(nil) }
             result = queue.pop
             timeout_thread.kill
             raise "Timeout waiting for ack (req_id=#{req_id}, cmd=#{cmd})" if result.nil?

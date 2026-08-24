@@ -79,6 +79,9 @@ RSpec.describe Clacky::Agent, "Bedrock truncated tool call recovery" do
 
   before do
     allow_any_instance_of(described_class).to receive(:sleep)
+    # llm_caller sleeps via Clacky::Shutdown.sleep_interruptibly (0.2s slices);
+    # stub it so retry backoff doesn't actually block the spec (5s per retry)
+    allow(Clacky::Shutdown).to receive(:sleep_interruptibly).and_return(false)
   end
 
   # ── Scenario 1: truncated args trigger retry, broken args never reach history ──

@@ -145,7 +145,7 @@ en: "✅ Feishu channel configured! You can now chat with the assistant via Feis
 
 Reach here after the channel is configured (Step 2 succeeded). Read `app_id` and `app_secret` from `~/.clacky/channels.yml` (under `channels.feishu`) for the install commands below.
 
-Call `request_user_feedback`:
+Call `ask_user`:
 
 zh:
 ```json
@@ -301,7 +301,7 @@ Open it: `browser(action="navigate", url="<PORTAL_URL>")`. If the browser tool i
 
 #### Step 2 — Guide the user through the portal (one round-trip)
 
-Tell the user **all** of the following in a single message, then call `request_user_feedback` to collect the values in one reply:
+Tell the user **all** of the following in a single message, then call `ask_user` to collect the values in one reply:
 
 > In the Discord Developer Portal I just opened:
 >
@@ -317,7 +317,7 @@ Tell the user **all** of the following in a single message, then call `request_u
 
 If the user is chatting in a non-English language, append the localized label in parens after each bolded English button name (e.g. `**Bot**（机器人）`). The English label stays primary — it's what they physically click in the portal.
 
-Use `request_user_feedback` to collect the reply. Parse with tolerant regex (`token=\S+`, `app_id=\d+`).
+Use `ask_user` to collect the reply. Parse with tolerant regex (`token=\S+`, `app_id=\d+`).
 
 If the reply is malformed (missing either field), apologise briefly and ask again with the exact same format reminder. Up to 3 retries; after that, surface the original message and stop.
 
@@ -429,7 +429,7 @@ Parse the last line starting with `{` to get `qr_url` and `device_code`. On non-
 
 #### Step 2 — Show QR and wait
 
-Show `qr_url` to the user, ask them to scan with the DingTalk mobile app and tap "Create New Robot", then call `request_user_feedback`.
+Show `qr_url` to the user, ask them to scan with the DingTalk mobile app and tap "Create New Robot", then call `ask_user`.
 
 #### Step 3 — Poll for authorization
 

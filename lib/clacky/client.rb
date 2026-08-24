@@ -122,7 +122,7 @@ module Clacky
     end
 
     # Send a messages array and return the reply text.
-    def send_messages(messages, model:, max_tokens:)
+    def send_messages(messages, model:, max_tokens:, reasoning_effort: nil)
       api_model = Providers.resolve_api_model(base_url: @base_url, api_key: @api_key, model: model)
       case @api_protocol
       when "bedrock"
@@ -138,7 +138,7 @@ module Clacky
         response = openai_connection.post("responses") { |r| r.body = body.to_json }
         parse_simple_openai_responses_response(response)
       else
-        body     = { model: api_model, max_tokens: max_tokens, messages: messages }
+        body     = MessageFormat::OpenAI.build_request_body(messages, api_model, [], max_tokens, false, reasoning_effort: reasoning_effort)
         response = openai_connection.post("chat/completions") { |r| r.body = body.to_json }
         parse_simple_openai_response(response)
       end
@@ -294,6 +294,7 @@ module Clacky
       response = bedrock_connection.post(bedrock_stream_endpoint(model)) do |req|
         req.body = stream_body.to_json
         req.options.on_data = proc do |chunk, _bytes_received, _env|
+          Clacky::Shutdown.checkpoint!
           sse_buf << chunk
           drain_sse_frames(sse_buf) { |event, data| aggregator.handle(event, data) }
         end
@@ -351,6 +352,7 @@ module Clacky
         req.headers["Accept"] = "text/event-stream"
         req.body = stream_body.to_json
         req.options.on_data = proc do |chunk, _bytes_received, _env|
+          Clacky::Shutdown.checkpoint!
           sse_buf << chunk
           drain_sse_frames(sse_buf) { |event, data| aggregator.handle(event, data) }
         end
@@ -448,6 +450,7 @@ module Clacky
       response = openai_connection.post("chat/completions") do |req|
         req.body = stream_body.to_json
         req.options.on_data = proc do |chunk, _bytes_received, _env|
+          Clacky::Shutdown.checkpoint!
           sse_buf << chunk
           drain_sse_frames(sse_buf) { |_event, data| aggregator.handle(data) }
         end

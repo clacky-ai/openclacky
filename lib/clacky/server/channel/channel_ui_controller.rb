@@ -28,15 +28,18 @@ module Clacky
       #   reload_platform replaces an adapter, in-flight sessions automatically pick up the
       #   new one — no swap/patch needed.
       # @param status_messages_resolver [Proc] callable returning true/false — whether
-      #   process-status messages ("Thinking...", "Done", file/shell previews)
-      #   should be sent. Resolved per call so config changes apply without
-      #   rebuilding this controller.
-      def initialize(event, adapter_resolver, status_messages_resolver = nil)
+      #   process-status messages ("Thinking...", "Done") should be sent. Resolved
+      #   per call so config changes apply without rebuilding this controller.
+      # @param process_messages_resolver [Proc] callable returning true/false — whether
+      #   tool-process messages (interim narration, file/shell previews) should be
+      #   sent. Resolved per call so config changes apply without rebuilding.
+      def initialize(event, adapter_resolver, status_messages_resolver = nil, process_messages_resolver = nil)
         @platform                 = event[:platform]
         @chat_id                  = event[:chat_id]
         @message_id               = event[:message_id]  # original message to reply under
         @adapter_resolver         = adapter_resolver
         @status_messages_resolver = status_messages_resolver
+        @process_messages_resolver = process_messages_resolver
         @buffer                   = []
         @mutex                    = Mutex.new
       end
@@ -64,7 +67,19 @@ module Clacky
         send_text("[USER] #{content}")
       end
 
-      def show_assistant_message(content, files:)
+      def show_assistant_message(content, files:, interim: false, created_at: nil)
+        if interim
+          # Intermediate narration before a tool call. Suppressed unless
+          # tool-process messages are enabled; flush pending previews first
+          # so narration and its preceding previews stay in order.
+          return unless process_messages?
+
+          flush_buffer
+          text = content.to_s.strip
+          send_text(text) unless text.empty?
+          return
+        end
+
         flush_buffer
         Clacky::Logger.info("[ChannelUI] show_assistant_message files=#{files.size} content_len=#{content.to_s.length}")
         # Strip file:// markdown links from the text sent to IM channels —
@@ -231,8 +246,12 @@ module Clacky
         @status_messages_resolver ? @status_messages_resolver.call : false
       end
 
+      private def process_messages?
+        @process_messages_resolver ? @process_messages_resolver.call : false
+      end
+
       def buffer_line(line)
-        return unless status_messages?
+        return unless process_messages?
 
         @mutex.synchronize do
           @buffer << line

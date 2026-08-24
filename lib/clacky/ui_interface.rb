@@ -9,8 +9,8 @@ module Clacky
     # === Output display ===
     # @param content [String] text portion of the assistant reply (file:// links stripped)
     # @param files   [Array<Hash>] extracted file refs: [{ name:, path:, inline: }]
-    def show_assistant_message(content, files:); end
-    def show_feedback_request(question, context, options); end
+    def show_assistant_message(content, files:, interim: false, created_at: nil); end
+    def show_feedback_request(question, context, options, questions: nil); end
     def show_subagent_start(skill: nil, iterations: nil, cost_usd: nil); end
     def show_subagent_end; end
     def show_tool_call(name, args); end
@@ -142,7 +142,7 @@ module Clacky
     # === Blocking interaction ===
     def request_confirmation(message, default: true); end
 
-    # Auto-approve countdown for request_user_feedback. Shows a live countdown
+    # Auto-approve countdown for ask_user. Shows a live countdown
     # and lets the user press a key to take over and answer. Returns :timeout
     # when no one intervenes (agent should auto-decide and continue), or a
     # feedback string / "" when the user steps in. Non-interactive UIs (web,

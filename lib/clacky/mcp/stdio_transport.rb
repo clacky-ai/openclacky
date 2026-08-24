@@ -37,14 +37,16 @@ module Clacky
         @stdin, @stdout, @stderr, @wait_thr = Open3.popen3(full_env, *wrapped, opts)
         @stdin.sync = true
 
-        Thread.new do
-          @stderr.each_line do |line|
-            @lock.synchronize do
-              @stderr_buf << line
-              @stderr_buf.replace(@stderr_buf[-32_768, 32_768] || @stderr_buf) if @stderr_buf.bytesize > 65_536
+        Clacky::ThreadRegistry.spawn(name: "mcp-stderr:#{@name}") do
+          begin
+            @stderr.each_line do |line|
+              @lock.synchronize do
+                @stderr_buf << line
+                @stderr_buf.replace(@stderr_buf[-32_768, 32_768] || @stderr_buf) if @stderr_buf.bytesize > 65_536
+              end
             end
+          rescue IOError
           end
-        rescue IOError
         end
 
         start_reader
@@ -97,19 +99,21 @@ module Clacky
       end
 
       private def start_reader
-        @reader_thr = Thread.new do
-          @stdout.each_line do |line|
-            line = line.strip
-            next if line.empty?
-            begin
-              msg = JSON.parse(line)
-            rescue JSON::ParserError
-              next
+        @reader_thr = Clacky::ThreadRegistry.spawn(name: "mcp-reader:#{@name}") do
+          begin
+            @stdout.each_line do |line|
+              line = line.strip
+              next if line.empty?
+              begin
+                msg = JSON.parse(line)
+              rescue JSON::ParserError
+                next
+              end
+              @on_message&.call(msg)
             end
-            @on_message&.call(msg)
+          rescue IOError
+            @on_message&.call({ "__transport_closed__" => true })
           end
-        rescue IOError
-          @on_message&.call({ "__transport_closed__" => true })
         end
       end
     end

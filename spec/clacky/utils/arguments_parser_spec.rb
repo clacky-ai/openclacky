@@ -314,11 +314,39 @@ RSpec.describe Clacky::Utils::ArgumentsParser do
     end
   end
 
-  describe ".repair_json (private method)" do
-    it "is tested indirectly through parse_and_validate" do
-      # The repair_json method is private, so we test it through the public interface
-      # All the XML contamination tests above exercise this method
-      expect(true).to be true
+  describe ".repair_json" do
+    it "closes a truncated object" do
+      repaired = described_class.repair_json('{"question":"Which one?"')
+      expect(JSON.parse(repaired)).to eq("question" => "Which one?")
+    end
+
+    it "closes a truncated nested array in opening order" do
+      repaired = described_class.repair_json('{"questions":[{"question":"Pick","options":["a","b"')
+      parsed = JSON.parse(repaired)
+
+      expect(parsed["questions"].first["options"]).to eq(%w[a b])
+    end
+
+    it "closes a truncation that cuts mid-string" do
+      repaired = described_class.repair_json('{"questions":[{"question":"Pick","options":["a","b')
+      parsed = JSON.parse(repaired)
+
+      expect(parsed["questions"].first["options"]).to eq(%w[a b])
+    end
+
+    it "ignores brackets inside string values" do
+      repaired = described_class.repair_json('{"question":"use [] or {} ?"')
+      expect(JSON.parse(repaired)).to eq("question" => "use [] or {} ?")
+    end
+
+    it "tracks escaped backslashes inside a string value" do
+      repaired = described_class.repair_json('{"path":"C:\\\\tmp"')
+      expect(JSON.parse(repaired)).to eq("path" => 'C:\tmp')
+    end
+
+    it "leaves balanced JSON unchanged" do
+      source = '{"questions":[{"question":"Pick"}]}'
+      expect(described_class.repair_json(source)).to eq(source)
     end
   end
 end

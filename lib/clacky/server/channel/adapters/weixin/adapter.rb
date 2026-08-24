@@ -32,7 +32,7 @@ module Clacky
             @last_sent_at = {}
             @last_mutex   = Mutex.new
             @running      = true
-            @flusher      = Thread.new { flush_loop }
+            @flusher      = Clacky::ThreadRegistry.spawn(name: "weixin-flusher") { flush_loop }
           end
 
           # Enqueue text for a chat_id. Non-blocking.
@@ -53,13 +53,14 @@ module Clacky
           def stop
             @running = false
             @flusher.join(30)
-            # Force-flush any remaining entries regardless of threshold.
-            drain_all_buffers
+            # On process shutdown don't attempt network sends — the worker is
+            # exiting and the master force-kills the group after ~3s anyway.
+            drain_all_buffers unless Clacky::Shutdown.requested?
           end
 
           private def flush_loop
             while @running
-              sleep 0.2
+              Clacky::Shutdown.sleep(0.2)
               begin
                 drain_buffers
               rescue => e
@@ -124,7 +125,7 @@ module Clacky
             @last_mutex.synchronize do
               last = @last_sent_at[:global] || Time.at(0)
               wait = MIN_SEND_INTERVAL - (Time.now - last)
-              sleep(wait) if wait > 0
+              Clacky::Shutdown.sleep(wait) if wait > 0
               @last_sent_at[:global] = Time.now
             end
           end
@@ -137,7 +138,7 @@ module Clacky
               rescue ApiClient::ApiError => e
                 if e.code == -2 && idx < RETRY_BACKOFFS.length - 1
                   @logger.warn("[WeixinSendQueue] ret=-2 for #{chat_id}, retry in #{delay}s (#{idx + 1}/#{RETRY_BACKOFFS.length})")
-                  sleep delay
+                  Clacky::Shutdown.sleep(delay)
                   next
                 end
                 raise
@@ -267,20 +268,21 @@ module Clacky
 
               rescue ApiClient::TimeoutError
                 # Long-poll server-side timeout is expected — just retry
+                Clacky::Shutdown.checkpoint!
               rescue ApiClient::ApiError => e
                 if e.code == ApiClient::SESSION_EXPIRED_ERRCODE
                   Clacky::Logger.warn("[WeixinAdapter] Session expired (token may need refresh), backing off 60s")
-                  sleep 60
+                  Clacky::Shutdown.sleep(60)
                 else
                   consecutive_errors += 1
                   Clacky::Logger.warn("[WeixinAdapter] API error #{e.code}: #{e.message}")
-                  sleep(consecutive_errors > 3 ? 30 : RECONNECT_DELAY)
+                  Clacky::Shutdown.sleep(consecutive_errors > 3 ? 30 : RECONNECT_DELAY)
                 end
               rescue => e
                 consecutive_errors += 1
                 Clacky::Logger.error("[WeixinAdapter] poll error: #{e.message}")
                 break unless @running
-                sleep(consecutive_errors > 3 ? 30 : RECONNECT_DELAY)
+                Clacky::Shutdown.sleep(consecutive_errors > 3 ? 30 : RECONNECT_DELAY)
               end
             end
           end
@@ -630,7 +632,7 @@ module Clacky
               return
             end
 
-            thread = Thread.new do
+            thread = Clacky::ThreadRegistry.spawn(name: "weixin-typing:#{user_id}") do
               loop do
                 begin
                   @api_client.send_typing(
@@ -642,7 +644,7 @@ module Clacky
                 rescue => e
                   Clacky::Logger.debug("[WeixinAdapter] typing keepalive error: #{e.message}")
                 end
-                sleep TYPING_KEEPALIVE_INTERVAL
+                Clacky::Shutdown.sleep(TYPING_KEEPALIVE_INTERVAL)
               end
             end
 

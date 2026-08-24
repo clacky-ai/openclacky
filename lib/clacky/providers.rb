@@ -42,6 +42,7 @@ module Clacky
           "abs-claude-haiku-4-5",
           "dsk-deepseek-v4-pro",
           "dsk-deepseek-v4-flash",
+          "dsk-deepseek-v4-flash-vision-exp",
           "or-gemini-3-1-pro",
           "or-gemini-3-6-flash",
           "or-gemini-3-5-flash"
@@ -126,12 +127,14 @@ module Clacky
         # Provider-level default: the Claude family served here is vision-capable.
         "capabilities" => { "vision" => true }.freeze,
         # Model-level overrides: DeepSeek models routed through this provider
-        # are text-only; images uploaded for them must be downgraded to disk refs.
-        # Gemini 3.1 Pro keeps the provider-default vision=true (it accepts
-        # image/audio/video input natively via OpenRouter).
+        # are text-only, except the flash-vision-exp variant which accepts
+        # image input; images uploaded for text-only models must be downgraded
+        # to disk refs. Gemini 3.1 Pro keeps the provider-default vision=true
+        # (it accepts image/audio/video input natively via OpenRouter).
         "model_capabilities" => {
-          "dsk-deepseek-v4-pro"   => { "vision" => false }.freeze,
-          "dsk-deepseek-v4-flash" => { "vision" => false }.freeze
+          "dsk-deepseek-v4-pro"              => { "vision" => false }.freeze,
+          "dsk-deepseek-v4-flash"            => { "vision" => false }.freeze,
+          "dsk-deepseek-v4-flash-vision-exp" => { "vision" => true }.freeze
         }.freeze,
         # Per-primary lite pairing: keys are "strong" primary models, values
         # are the lite sidekick to auto-inject when that primary is the
@@ -250,11 +253,16 @@ module Clacky
         # deprecated on 2026-07-24; they map to deepseek-v4-flash's non-thinking
         # and thinking modes respectively. Prefer deepseek-v4-flash / deepseek-v4-pro.
         "models" => [
-          "deepseek-v4-flash",
           "deepseek-v4-pro",
+          "deepseek-v4-flash",
+          "deepseek-v4-flash-vision-exp",
         ],
-        # DeepSeek V4 API does not accept image inputs — text-only across all models.
+        # DeepSeek V4 API is text-only across all models, except the
+        # flash-vision-exp variant which accepts image input.
         "capabilities" => { "vision" => false }.freeze,
+        "model_capabilities" => {
+          "deepseek-v4-flash-vision-exp" => { "vision" => true }.freeze
+        }.freeze,
         "website_url" => "https://platform.deepseek.com/api_keys"
       }.freeze,
 

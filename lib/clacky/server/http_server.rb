@@ -36,6 +36,33 @@ module Clacky
       def initialize(session_id, events)
         @session_id = session_id
         @events     = events
+        @replay_phase_id = nil
+      end
+
+      # Group replayed subagent events into a foldable phase card, mirroring the
+      # real-time WebUIController#phase_start/phase_end so the frontend nests
+      # them instead of dropping them into the outer stream. Replay is a single
+      # sequential pass, so an instance variable stands in for the thread-local
+      # phase id the live path uses.
+      def phase_start(kind:, label: nil, concurrent: false)
+        pid = SecureRandom.uuid
+        @replay_phase_id = pid
+        ev = { type: "phase_start", session_id: @session_id, phase_id: pid, kind: kind.to_s }
+        ev[:label] = label if label
+        @events << ev
+        pid
+      end
+
+      def phase_end(phase_id, summary: nil)
+        @replay_phase_id = nil if @replay_phase_id == phase_id
+        ev = { type: "phase_end", session_id: @session_id, phase_id: phase_id }
+        ev[:summary] = summary if summary
+        @events << ev
+      end
+
+      private def stamp(event)
+        event[:phase_id] = @replay_phase_id if @replay_phase_id && !event.key?(:phase_id)
+        event
       end
 
       def show_user_message(content, created_at: nil, files: [], editable: true, skill_command: nil, skill_command_display: nil)
@@ -67,18 +94,18 @@ module Clacky
         @events << ev
       end
 
-      def show_assistant_message(content, files:)
+      def show_assistant_message(content, files:, interim: false, created_at: nil)
         return if content.nil? || content.to_s.strip.empty?
 
         # Rewrite local image paths to /api/local-image proxy URLs for browser rendering
         rewritten = Utils::FileProcessor.rewrite_local_image_urls(content.to_s)
-        @events << { type: "assistant_message", session_id: @session_id, content: rewritten }
+        @events << stamp({ type: "assistant_message", session_id: @session_id, content: rewritten })
       end
 
       def show_tool_call(name, args)
         args_data = args.is_a?(String) ? (JSON.parse(args) rescue args) : args
         summary   = tool_call_summary(name, args_data)
-        @events << { type: "tool_call", session_id: @session_id, name: name, args: args_data, summary: summary }
+        @events << stamp({ type: "tool_call", session_id: @session_id, name: name, args: args_data, summary: summary })
       end
 
       private def tool_call_summary(name, args)
@@ -93,7 +120,7 @@ module Clacky
       end
 
       def show_tool_result(result)
-        @events << { type: "tool_result", session_id: @session_id, result: result }
+        @events << stamp({ type: "tool_result", session_id: @session_id, result: result })
       end
 
       def show_token_usage(token_data)
@@ -102,18 +129,19 @@ module Clacky
         @events << { type: "token_usage", session_id: @session_id }.merge(token_data)
       end
 
-      def show_feedback_request(question, context, options)
+      def show_feedback_request(question, context, options, questions: nil)
         @events << { type: "request_feedback", session_id: @session_id,
-                     question: question, context: context, options: options }
+                     question: question, context: context, options: options,
+                     questions: questions || [] }
       end
 
       def show_subagent_start(skill: nil, iterations: nil, cost_usd: nil)
-        @events << { type: "subagent_start", session_id: @session_id,
-                     skill: skill, iterations: iterations, cost_usd: cost_usd }
+        @events << stamp({ type: "subagent_start", session_id: @session_id,
+                           skill: skill, iterations: iterations, cost_usd: cost_usd })
       end
 
       def show_subagent_end
-        @events << { type: "subagent_end", session_id: @session_id }
+        @events << stamp({ type: "subagent_end", session_id: @session_id })
       end
 
       # Custom extension events recorded on messages (Agent#emit_event). Must be
@@ -296,34 +324,72 @@ module Clacky
           next if shutdown_once
           shutdown_once = true
           @draining = true
-          # Persist in-flight agent sessions BEFORE starting the forced-exit
-          # timer, so any new messages added to @history since the last save
-          # are on disk before the new worker reads them after a hot restart.
-          interrupt_all_agents
+          # Flip the process-wide cooperative shutdown flag FIRST so agent
+          # threads poll it at safe points (stream chunk callbacks, retry
+          # loops, main loop) and exit cleanly instead of spinning.
+          Clacky::Shutdown.request!(:signal)
+          begin
+            # Persist in-flight agent sessions BEFORE starting the forced-exit
+            # timer, so any new messages added to @history since the last save
+            # are on disk before the new worker reads them after a hot restart.
+            interrupt_all_agents
+            Clacky::Logger.info("[shutdown] step=agents_interrupted")
 
-          # Detach the inherited (shared) listen socket BEFORE WEBrick.shutdown
-          # so that cleanup_listener does not call shutdown(SHUT_RDWR)+close on
-          # it — that would propagate to every process sharing the underlying
-          # kernel socket (Master + new worker), breaking subsequent accept()
-          # on Linux. macOS's BSD stack tolerates this; Linux does not.
-          if @inherited_socket && server.listeners.include?(@inherited_socket)
-            server.listeners.delete(@inherited_socket)
-            Clacky::Logger.info("[HttpServer PID=#{Process.pid}] detached inherited socket fd=#{@inherited_socket.fileno} before shutdown")
+            # Close active WebSocket connections so their handler threads exit
+            # promptly. WEBrick's shutdown does not touch established
+            # connections, and a handler parked in IO.select(30) would keep
+            # the process from exiting (Ruby waits for every thread after main
+            # returns), tripping the master's KILL watchdog.
+            @ws_mutex.synchronize do
+              @all_ws_conns.each(&:force_close!)
+            end
+            Clacky::Logger.info("[shutdown] step=ws_closed")
+
+            # Detach the inherited (shared) listen socket BEFORE WEBrick.shutdown
+            # so that cleanup_listener does not call shutdown(SHUT_RDWR)+close on
+            # it — that would propagate to every process sharing the underlying
+            # kernel socket (Master + new worker), breaking subsequent accept()
+            # on Linux. macOS's BSD stack tolerates this; Linux does not.
+            if @inherited_socket && server.listeners.include?(@inherited_socket)
+              server.listeners.delete(@inherited_socket)
+              Clacky::Logger.info("[HttpServer PID=#{Process.pid}] detached inherited socket fd=#{@inherited_socket.fileno} before shutdown")
+            end
+            # Close the loopback listener we created in this worker so the port
+            # is freed before the next worker starts (hot restart path).
+            if @loopback_listener
+              server.listeners.delete(@loopback_listener)
+              @loopback_listener.close rescue nil
+              @loopback_listener = nil
+            end
+            t1 = Clacky::ThreadRegistry.spawn(name: "shutdown-stopper-channel") { @channel_manager.stop rescue nil }
+            t2 = Clacky::ThreadRegistry.spawn(name: "shutdown-stopper-browser") { Clacky::BrowserManager.instance.stop rescue nil }
+            t3 = Clacky::ThreadRegistry.spawn(name: "shutdown-stopper-mcp") { @mcp_registry&.shutdown rescue nil }
+            # Share one 1s budget across all three stoppers (parallel), so a
+            # slow channel teardown no longer delays browser/MCP cleanup.
+            deadline = Time.now + 1.0
+            [t1, t2, t3].each { |t| t.join([deadline - Time.now, 0.01].max) }
+            Clacky::Logger.info("[shutdown] step=stoppers_stopped")
+            # Force-stop any managed thread that refused to exit cooperatively,
+            # then report stragglers so stray Thread.new calls get traced.
+            # Grace is short: agents were already interrupted+joined above, so
+            # anything still alive here is stuck and should be killed promptly.
+            Clacky::ThreadRegistry.force_stop!(grace: 0.5)
+            Clacky::ThreadRegistry.report_leaks!
+            Clacky::Logger.info("[shutdown] step=managed_threads_stopped")
+          rescue => e
+            Clacky::Logger.error("[shutdown] shutdown_proc raised #{e.class}: #{e.message}")
+            Clacky::Logger.error("[shutdown] #{e.backtrace.first(5).join(' | ')}")
+          ensure
+            # WEBrick's start() joins every request thread (th[:WEBrickThread])
+            # with an unbounded join after the accept loop exits. A keep-alive
+            # HTTP or WS handler blocked on socket read would pin the main
+            # thread — and the process — until the master's KILL fires, so kill
+            # those threads right after shutdown to let server.start return.
+            Clacky::Logger.info("[shutdown] calling server.shutdown")
+            server.shutdown rescue nil
+            Thread.list.each { |t| t.kill if t[:WEBrickThread] }
+            Clacky::Logger.info("[shutdown] server.shutdown returned")
           end
-          # Close the loopback listener we created in this worker so the port
-          # is freed before the next worker starts (hot restart path).
-          if @loopback_listener
-            server.listeners.delete(@loopback_listener)
-            @loopback_listener.close rescue nil
-            @loopback_listener = nil
-          end
-          t1 = Thread.new { @channel_manager.stop rescue nil }
-          t2 = Thread.new { Clacky::BrowserManager.instance.stop rescue nil }
-          t3 = Thread.new { @mcp_registry&.shutdown rescue nil }
-          t1.join(1.5)
-          t2.join(1.5)
-          t3.join(1.5)
-          server.shutdown rescue nil
         end
         # Ruby forbids Mutex#synchronize / Thread#join inside a trap handler
         # (ThreadError: can't be called from trap context), and interrupt_all_agents
@@ -448,7 +514,7 @@ module Clacky
 
         # Reclaim orphaned Time Machine snapshots (sessions deleted earlier
         # without snapshot cleanup). Runs off-thread so startup stays fast.
-        Thread.new do
+        Clacky::ThreadRegistry.spawn(name: "snapshot-cleanup") do
           begin
             n = Clacky::SessionManager.cleanup_orphan_snapshots
             puts "   Snapshots: reclaimed #{n} orphan dir(s)" if n.positive?
@@ -679,6 +745,8 @@ module Clacky
             api_test_channel(platform, req, res)
           elsif method == "PATCH" && path == "/api/channels/status_messages"
             api_channel_status_messages(req, res)
+          elsif method == "PATCH" && path == "/api/channels/process_messages"
+            api_channel_process_messages(req, res)
           elsif method == "PATCH" && path.match?(%r{^/api/channels/[^/]+/enabled$})
             platform = path.sub("/api/channels/", "").sub("/enabled", "")
             api_toggle_channel(platform, req, res)
@@ -946,7 +1014,8 @@ module Clacky
         end
 
         broadcast_session_update(session_id)
-        json_response(res, 201, { session: @registry.session_summary(session_id) })
+        summary = @registry.session_summary(session_id)
+        json_response(res, 201, { session: summary })
       end
 
       # Auto-restore persisted sessions (or create a fresh default) when the server starts.
@@ -2318,7 +2387,7 @@ module Clacky
           @@brand_heartbeat_inflight = true
         end
 
-        Thread.new do
+        Clacky::ThreadRegistry.spawn(name: "brand-heartbeat") do
           Clacky::Logger.info("[Brand] async heartbeat starting...")
           begin
             brand  = Clacky::BrandConfig.load
@@ -2366,7 +2435,7 @@ module Clacky
           @@brand_dist_refresh_inflight = true
         end
 
-        Thread.new do
+        Clacky::ThreadRegistry.spawn(name: "brand-dist-refresh") do
           Clacky::Logger.info("[Brand] async distribution refresh starting...")
           begin
             brand  = Clacky::BrandConfig.load
@@ -2935,7 +3004,7 @@ module Clacky
           @install_jobs[job_id] = { stage: initial_stage, progress: 0, error: nil, done: false, updated_at: Time.now }
         end
 
-        Thread.new do
+        Clacky::ThreadRegistry.spawn(name: "install-job") do
           begin
             on_progress = lambda do |info|
               @install_jobs_mutex.synchronize do
@@ -3324,7 +3393,7 @@ module Clacky
       def api_upgrade_version(req, res)
         json_response(res, 202, { ok: true, message: "Upgrade started" })
 
-        Thread.new do
+        Clacky::ThreadRegistry.spawn(name: "upgrade") do
           begin
             if official_gem_source?
               upgrade_via_gem_update
@@ -3611,7 +3680,7 @@ module Clacky
       end
 
       private def schedule_restart
-        Thread.new do
+        Clacky::ThreadRegistry.spawn(name: "schedule-restart") do
           sleep 0.5  # Let WEBrick flush the HTTP response
 
           if @master_pid
@@ -3767,7 +3836,7 @@ module Clacky
           }.merge(platform_safe_fields(platform, config))
         end
 
-        json_response(res, 200, { channels: platforms, status_messages: config.status_messages_enabled? })
+        json_response(res, 200, { channels: platforms, status_messages: config.status_messages_enabled?, process_messages: config.process_messages_enabled? })
       end
 
       # GET /api/mcp
@@ -4322,7 +4391,7 @@ module Clacky
       # PATCH /api/channels/status_messages
       # Body: { status_messages: true|false }
       # Global toggle for process-status messages ("Thinking...", "Done"
-      # summary, file/shell previews) across all IM channels.
+      # summary) across all IM channels.
       # Hot-applies without restarting adapters.
       def api_channel_status_messages(req, res)
         enabled = parse_json_body(req)["status_messages"] == true
@@ -4333,6 +4402,24 @@ module Clacky
         @channel_manager.update_config(config)
 
         json_response(res, 200, { ok: true, status_messages: config.status_messages_enabled? })
+      rescue StandardError => e
+        json_response(res, 422, { ok: false, error: e.message })
+      end
+
+      # PATCH /api/channels/process_messages
+      # Body: { process_messages: true|false }
+      # Global toggle for tool-call process messages (interim narration and
+      # file/shell previews) across all IM channels.
+      # Hot-applies without restarting adapters.
+      def api_channel_process_messages(req, res)
+        enabled = parse_json_body(req)["process_messages"] == true
+        config  = Clacky::ChannelConfig.load
+
+        config.set_process_messages(enabled)
+        config.save
+        @channel_manager.update_config(config)
+
+        json_response(res, 200, { ok: true, process_messages: config.process_messages_enabled? })
       rescue StandardError => e
         json_response(res, 422, { ok: false, error: e.message })
       end
@@ -5873,7 +5960,7 @@ module Clacky
 
         json_response(res, 200, { ok: true })
 
-        Thread.new do
+        Clacky::ThreadRegistry.spawn(name: "exec-restart") do
           sleep 0.5
           if @master_pid
             begin
@@ -6730,7 +6817,7 @@ module Clacky
         # (timeout + small buffer) as a last-resort safety net.
         per_model_timeout = 15
         threads = models.map do |m|
-          Thread.new do
+          Clacky::ThreadRegistry.spawn(name: "benchmark-model") do
             Thread.current.report_on_exception = false
             benchmark_single_model(m, per_model_timeout)
           end
@@ -7250,15 +7337,23 @@ module Clacky
         # never made it into session.json (history vanishes on replay).
         @registry.shutdown_all_idle_timers
 
+        # Interrupt every live agent, then join them in parallel. Agents are
+        # cooperative (stream callbacks, sleep slices), so a single 2s join
+        # covers all of them — serial joins would multiply the shutdown time
+        # by the number of concurrent tasks.
+        live = []
         @registry.each_live_agent do |id, agent, thread|
           next unless thread&.alive?
           begin
             thread.raise(Clacky::AgentInterrupted, "Worker shutting down")
+            live << [id, agent, thread]
             Clacky::Logger.info("[shutdown] interrupted session=#{id}")
           rescue => e
             Clacky::Logger.error("[shutdown] interrupt failed for session=#{id}: #{e.message}")
           end
-          thread.join(AGENT_INTERRUPT_JOIN_SECONDS)
+        end
+        live.each { |_id, _agent, thread| thread.join(AGENT_INTERRUPT_JOIN_SECONDS) }
+        live.each do |id, agent, _thread|
           @session_manager.save(agent.to_session_data(status: :interrupted, updated_at: Time.now))
         end
       end
@@ -7300,32 +7395,42 @@ module Clacky
         # to the first user message. Run it off the request path; eviction
         # is a memory-pressure relief, not a correctness requirement for
         # starting this task.
-        Thread.new { @registry.evict_excess_idle! }
+        Clacky::ThreadRegistry.spawn(name: "evict-excess-idle") { @registry.evict_excess_idle! }
 
         broadcast_session_update(session_id)
 
         locale = Thread.current[:lang]
-        thread = Thread.new do
+        thread = Clacky::ThreadRegistry.spawn(name: "agent-task:#{session_id}") do
           Thread.current[:lang] = locale
           Thread.current[:task_epoch] = epoch
-          task.call
-          next unless @registry.update_if_epoch(session_id, epoch, status: :idle, error: nil)
+          run_result = task.call
+          awaiting = run_result.is_a?(Hash) && run_result[:awaiting_user_feedback]
+          next unless @registry.update_if_epoch(session_id, epoch,
+                                                status: awaiting ? :awaiting_feedback : :idle,
+                                                error: nil)
           broadcast_session_update(session_id)
           # Transient global signal for the optional task-complete sound. Sent to
           # all clients (broadcast_all) so a browser viewing another session — or
           # with the tab/window in the background — can still chime. Not part of
           # session history: a chime is a live cue, never replayed on refresh.
-          broadcast_all(type: "task_finished", session_id: session_id)
+          # Also fires when awaiting feedback — that is precisely when the user
+          # most needs pulling back; the flag lets the client word it differently.
+          broadcast_all(type: "task_finished", session_id: session_id, awaiting_feedback: !!awaiting)
           @session_manager.save(agent.to_session_data(status: :success, updated_at: Time.now))
           # Start idle compression timer now that the agent is idle
           idle_timer&.start
         rescue Clacky::AgentInterrupted
+          # Persist the interrupted history snapshot unconditionally: it carries
+          # this agent's own turns (including fan-out subagent trails flushed on
+          # interrupt), and losing them means a page reload shows nothing of what
+          # the subagents did. The epoch fence below still guards status/UI so a
+          # superseding task keeps ownership of those.
+          @session_manager.save(agent.to_session_data(status: :interrupted, updated_at: Time.now))
           # A superseding task already owns the session — do not touch status
           # or push UI events, they belong to the new epoch now.
           next unless @registry.update_if_epoch(session_id, epoch, status: :idle)
           broadcast_session_update(session_id)
           broadcast(session_id, { type: "interrupted", session_id: session_id })
-          @session_manager.save(agent.to_session_data(status: :interrupted, updated_at: Time.now))
         rescue => e
           # Route error through web_ui so channel subscribers (飞书/企微) receive it too.
           web_ui = nil
@@ -7442,7 +7547,7 @@ module Clacky
       # @param name [String] display name for the session
       # @param working_dir [String] working directory for the agent
       # @param permission_mode [Symbol] :confirm_all (default, human present) or
-      #   :auto_approve (unattended — suppresses request_user_feedback waits)
+      #   :auto_approve (unattended — suppresses ask_user waits)
       def build_session(name:, working_dir: nil, permission_mode: :confirm_all, profile: "general", source: :manual, model_id: nil)
         working_dir ||= default_working_dir
         FileUtils.mkdir_p(working_dir) unless Dir.exist?(working_dir)
