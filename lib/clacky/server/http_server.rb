@@ -4304,7 +4304,7 @@ module Clacky
         return json_response(res, 400, { error: "working_dir does not exist" }) unless Dir.exist?(working_dir)
 
         json_response(res, 200, { files: list_working_dir_files(working_dir, query) })
-      rescue => e
+      rescue StandardError => e
         json_response(res, 500, { ok: false, error: e.message })
       end
 
