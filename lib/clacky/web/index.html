@@ -19,6 +19,20 @@
   </script>
 </head>
 <body>
+<script>
+  // Detect whether scrollbars float over content (macOS overlay) or occupy
+  // layout width (Windows/classic). The latter keeps the sidebar scrollbar
+  // always visible.
+  (function () {
+    var probe = document.createElement("div");
+    probe.style.cssText = "position:absolute;top:-9999px;left:0;width:100px;height:100px;overflow:scroll;";
+    document.body.appendChild(probe);
+    if (probe.offsetWidth !== probe.clientWidth) {
+      document.documentElement.classList.add("no-overlay-scrollbar");
+    }
+    document.body.removeChild(probe);
+  })();
+</script>
 <div id="offline-banner" style="display:none" data-i18n="offline.banner"></div>
 <div id="app" style="visibility:hidden">
 
