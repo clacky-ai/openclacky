@@ -5,12 +5,34 @@ require "fileutils"
 require "securerandom"
 require_relative "billing_record"
 require_relative "../session_manager"
+require_relative "../providers"
 module Clacky
   module Billing
     # Persistent storage for billing records using JSONL files
     # Records are stored in monthly files: ~/.clacky/billing/YYYY-MM.jsonl
     class BillingStore
       BILLING_DIR = File.join(Dir.home, ".clacky", "billing")
+
+      # Preset keys that hold the openclacky model lineup (chat + media sidecars).
+      OPENCLACKY_MODEL_KINDS = %w[models image_models video_models audio_models stt_models video_understanding_models].freeze
+
+      # All openclacky model aliases, collected from the provider preset so the
+      # list never drifts from providers.rb as models are added or removed.
+      def openclacky_models
+        @openclacky_models ||= begin
+          preset = Clacky::Providers.get("openclacky")
+          return [] unless preset
+          OPENCLACKY_MODEL_KINDS.flat_map { |kind| preset[kind] || [] }.uniq
+        end
+      end
+
+      # True when a record belongs to the openclacky provider. New records
+      # carry an explicit provider id; legacy records (written before the
+      # field existed) are detected by matching the full openclacky model list.
+      def openclacky_record?(record)
+        return true if record.provider == "openclacky"
+        openclacky_models.include?(record.model.to_s)
+      end
 
       def initialize(billing_dir: nil)
         @billing_dir = billing_dir || ENV["CLACKY_BILLING_DIR"] || BILLING_DIR
@@ -38,9 +60,10 @@ module Clacky
       # @param to [Time, nil] End time (inclusive)
       # @param model [String, nil] Filter by model name
       # @param session_id [String, nil] Filter by session ID
+      # @param exclude_openclacky [Boolean] Skip openclacky-provider records
       # @param limit [Integer, nil] Maximum number of records to return
       # @return [Array<BillingRecord>] Matching records, newest first
-      def query(from: nil, to: nil, model: nil, session_id: nil, limit: nil)
+      def query(from: nil, to: nil, model: nil, session_id: nil, exclude_openclacky: false, limit: nil)
         records = []
 
         billing_files.each do |file|
@@ -56,6 +79,7 @@ module Clacky
               next if to && record.timestamp > to
               next if model && record.model != model
               next if session_id && record.session_id != session_id
+              next if exclude_openclacky && openclacky_record?(record)
 
               records << record
             rescue JSON::ParserError
@@ -75,10 +99,11 @@ module Clacky
       # Get summary statistics for a time period
       # @param period [Symbol] :day, :week, :month, :year, or :all
       # @param model [String, nil] Filter by model name
+      # @param exclude_openclacky [Boolean] Skip openclacky-provider records
       # @return [Hash] Summary with total_cost, total_tokens, by_model, etc.
-      def summary(period: :month, model: nil)
+      def summary(period: :month, model: nil, exclude_openclacky: false)
         from_time = period_start(period)
-        records = query(from: from_time, model: model)
+        records = query(from: from_time, model: model, exclude_openclacky: exclude_openclacky)
 
         total_cost = records.sum { |r| r.cost_usd || 0 }
         total_prompt = records.sum { |r| r.prompt_tokens || 0 }
@@ -222,10 +247,11 @@ module Clacky
 
       # Get daily cost breakdown for the last N days      # @param days [Integer] Number of days to include
       # @param model [String, nil] Filter by model name
+      # @param exclude_openclacky [Boolean] Skip openclacky-provider records
       # @return [Array<Hash>] Daily summaries with date and cost
-      def daily_breakdown(days: 30, model: nil)
+      def daily_breakdown(days: 30, model: nil, exclude_openclacky: false)
         from_time = Time.now - (days * 24 * 60 * 60)
-        records = query(from: from_time, model: model)
+        records = query(from: from_time, model: model, exclude_openclacky: exclude_openclacky)
 
         by_day = records.group_by { |r| r.timestamp.strftime("%Y-%m-%d") }
 

@@ -9,6 +9,7 @@ module Clacky
       :session_id,            # Associated session ID
       :timestamp,             # Time of the API call
       :model,                 # Model used (e.g., "claude-sonnet-4.5")
+      :provider,              # Provider id (e.g., "openclacky", "anthropic")
       :prompt_tokens,         # Input tokens
       :completion_tokens,     # Output tokens
       :cache_read_tokens,     # Tokens read from cache
@@ -24,6 +25,7 @@ module Clacky
           session_id: session_id,
           timestamp: timestamp.is_a?(Time) ? timestamp.iso8601 : timestamp,
           model: model,
+          provider: provider,
           prompt_tokens: prompt_tokens || 0,
           completion_tokens: completion_tokens || 0,
           cache_read_tokens: cache_read_tokens || 0,
@@ -40,6 +42,7 @@ module Clacky
           session_id: hash[:session_id] || hash["session_id"],
           timestamp: parse_timestamp(hash[:timestamp] || hash["timestamp"]),
           model: hash[:model] || hash["model"],
+          provider: hash[:provider] || hash["provider"],
           prompt_tokens: hash[:prompt_tokens] || hash["prompt_tokens"] || 0,
           completion_tokens: hash[:completion_tokens] || hash["completion_tokens"] || 0,
           cache_read_tokens: hash[:cache_read_tokens] || hash["cache_read_tokens"] || 0,

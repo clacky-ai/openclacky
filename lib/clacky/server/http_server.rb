@@ -1895,6 +1895,7 @@ module Clacky
         record = Clacky::Billing::BillingRecord.new(
           session_id:        session_id,
           model:             result["model"].to_s,
+          provider:          result["provider"].to_s,
           prompt_tokens:     usage.is_a?(Hash) ? usage["prompt_tokens"].to_i : 0,
           completion_tokens: usage.is_a?(Hash) ? usage["completion_tokens"].to_i : 0,
           cache_read_tokens: usage.is_a?(Hash) ? usage["cache_read_tokens"].to_i : 0,
@@ -3262,7 +3263,7 @@ module Clacky
         model  = query["model"]
 
         store   = Clacky::Billing::BillingStore.new
-        summary = store.summary(period: period, model: model)
+        summary = merged_billing_summary(store, period: period, model: model)
 
         json_response(res, 200, summary)
       end
@@ -3278,7 +3279,7 @@ module Clacky
         model = query["model"]
 
         store = Clacky::Billing::BillingStore.new
-        daily = store.daily_breakdown(days: days, model: model)
+        daily = merged_billing_daily(store, days: days, model: model)
 
         json_response(res, 200, { days: daily })
       end
@@ -3337,6 +3338,118 @@ module Clacky
         json_response(res, 200, { ok: true, deleted: deleted, scope: scope })
       rescue => e
         json_response(res, 500, { error: e.message })
+      end
+
+      # Openclacky platform usage is authoritative; other providers are
+      # estimated locally. Merge the two by summing, after stripping the
+      # local openclacky records (they would otherwise be counted twice).
+      private def merged_billing_summary(store, period:, model:)
+        platform = platform_usage_summary(period: period, model: model)
+
+        local = store.summary(period: period, model: model, exclude_openclacky: !platform.nil?)
+
+        return local unless platform
+
+        {
+          period: local[:period],
+          from: local[:from] || platform[:from],
+          to: local[:to] || platform[:to],
+          total_cost: (platform[:total_cost].to_f + local[:total_cost].to_f).round(6),
+          total_tokens: platform[:total_tokens].to_i + local[:total_tokens].to_i,
+          prompt_tokens: platform[:prompt_tokens].to_i + local[:prompt_tokens].to_i,
+          completion_tokens: platform[:completion_tokens].to_i + local[:completion_tokens].to_i,
+          cache_read_tokens: platform[:cache_read_tokens].to_i + local[:cache_read_tokens].to_i,
+          cache_write_tokens: platform[:cache_write_tokens].to_i + local[:cache_write_tokens].to_i,
+          by_model: merge_billing_models(platform[:by_model], local[:by_model]),
+          by_day: merge_billing_days(platform[:by_day], local[:by_day]),
+          record_count: platform[:record_count].to_i + local[:record_count].to_i
+        }
+      end
+
+      private def merged_billing_daily(store, days:, model:)
+        platform = platform_usage_daily(days: days, model: model)
+
+        local = store.daily_breakdown(days: days, model: model, exclude_openclacky: !platform.nil?)
+
+        return local unless platform
+
+        by_date = {}
+        local.each { |d| by_date[d[:date]] = d.dup }
+        (platform[:days] || []).each do |d|
+          existing = by_date[d[:date]]
+          if existing
+            existing[:cost] = (existing[:cost].to_f + d[:cost].to_f).round(6)
+            existing[:tokens] = existing[:tokens].to_i + d[:tokens].to_i
+            existing[:prompt_tokens] = existing[:prompt_tokens].to_i + d[:prompt_tokens].to_i
+            existing[:completion_tokens] = existing[:completion_tokens].to_i + d[:completion_tokens].to_i
+            existing[:cache_read_tokens] = existing[:cache_read_tokens].to_i + d[:cache_read_tokens].to_i
+            existing[:cache_write_tokens] = existing[:cache_write_tokens].to_i + d[:cache_write_tokens].to_i
+            existing[:requests] = existing[:requests].to_i + d[:requests].to_i
+          else
+            by_date[d[:date]] = d.dup
+          end
+        end
+        by_date.values.sort_by { |d| d[:date] }
+      end
+
+      private def platform_usage_summary(period:, model:)
+        require_relative "../billing/platform_billing"
+
+        api_key = platform_api_key
+        return nil if api_key.nil? || api_key.empty?
+
+        real = Clacky::Billing::PlatformBilling.real_model(model) || model
+        Clacky::Billing::PlatformBilling.fetch_summary(api_key, period: period, model: real)
+      end
+
+      private def platform_usage_daily(days:, model:)
+        require_relative "../billing/platform_billing"
+
+        api_key = platform_api_key
+        return nil if api_key.nil? || api_key.empty?
+
+        real = Clacky::Billing::PlatformBilling.real_model(model) || model
+        Clacky::Billing::PlatformBilling.fetch_daily(api_key, days: days, model: real)
+      end
+
+      private def merge_billing_models(platform_models, local_models)
+        merged = {}
+        (platform_models || {}).each do |real_id, entry|
+          alias_name = Clacky::Billing::PlatformBilling.display_model(real_id)
+          merged[alias_name] = merge_billing_model_entry(merged[alias_name], entry)
+        end
+        (local_models || {}).each do |model, entry|
+          merged[model] = merge_billing_model_entry(merged[model], entry)
+        end
+        merged
+      end
+
+      private def merge_billing_model_entry(a, b)
+        a = a || { cost: 0.0, prompt_tokens: 0, completion_tokens: 0, requests: 0 }
+        b = b || { cost: 0.0, prompt_tokens: 0, completion_tokens: 0, requests: 0 }
+        {
+          cost: (a[:cost].to_f + b[:cost].to_f).round(6),
+          prompt_tokens: a[:prompt_tokens].to_i + b[:prompt_tokens].to_i,
+          completion_tokens: a[:completion_tokens].to_i + b[:completion_tokens].to_i,
+          requests: a[:requests].to_i + b[:requests].to_i
+        }
+      end
+
+      private def merge_billing_days(platform_days, local_days)
+        merged = {}
+        (platform_days || {}).each { |date, cost| merged[date] = (merged[date] || 0.0) + cost.to_f }
+        (local_days || {}).each { |date, cost| merged[date] = (merged[date] || 0.0) + cost.to_f }
+        merged.transform_values { |v| v.round(6) }
+      end
+
+      private def platform_api_key
+        @agent_config.models.each do |m|
+          next unless m.is_a?(Hash)
+          next unless @agent_config.provider_id_for(m) == "openclacky"
+          key = m["api_key"].to_s.strip
+          return key unless key.empty?
+        end
+        nil
       end
 
       # POST /api/ui/open_aside
