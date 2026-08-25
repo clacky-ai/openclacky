@@ -866,6 +866,10 @@ RSpec.describe Clacky::Agent do
         m[:role] == "user" && m[:content]&.include?("[SYSTEM] Your previous response was truncated")
       }
       expect(system_messages.size).to eq(1)
+      # Regression: the truncation hint must be tagged system_injected so UI
+      # replay filters it like other [SYSTEM] scaffolding (compression summary,
+      # timeout hint) instead of rendering it as a visible user message.
+      expect(system_messages.first[:system_injected]).to be true
 
       # Should have retried and gotten a valid response
       expect(client).to have_received(:send_messages_with_tools).twice

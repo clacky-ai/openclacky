@@ -1125,7 +1125,8 @@ module Clacky
                    "- Break down large tasks into multiple smaller tool calls\n" \
                    "- Keep each tool call argument under 2000 characters\n" \
                    "- Use multiple tool calls instead of one large call",
-          truncated: true
+          truncated: true,
+          system_injected: true
         })
 
         # Close the current spinner so the warning appears cleanly;
