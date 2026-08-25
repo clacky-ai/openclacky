@@ -119,6 +119,14 @@ RSpec.describe "Compression chunk MD archiving" do
       expect(content).to include("Compression reduces token usage.")
     end
 
+    it "preserves the user message task_id in the section heading" do
+      original_messages = [system_msg, user_msg.merge(task_id: 6), assistant_msg]
+      path = agent.send(:save_compressed_chunk, original_messages, [],
+                        chunk_index: 1, compression_level: 1)
+
+      expect(File.read(path)).to include("## User [Task 6]")
+    end
+
     it "includes front matter with session metadata" do
       original_messages = [system_msg, user_msg, assistant_msg]
       path = agent.send(:save_compressed_chunk, original_messages, [],
