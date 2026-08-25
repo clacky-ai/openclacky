@@ -56,6 +56,10 @@ RSpec.describe "Advisor default extension" do
   end
 
   describe Clacky::Advisor do
+    before do
+      allow(described_class).to receive(:user_config).and_return({})
+    end
+
     describe ".enabled_for?" do
       it "returns false for subagents" do
         agent = double("subagent")

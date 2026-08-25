@@ -167,9 +167,8 @@
       b.addEventListener("click", function () {
         var input = document.getElementById("user-input");
         var send  = document.getElementById("btn-send");
-        if (!input || !send) return;
-        input.value = command;
-        input.dispatchEvent(new Event("input", { bubbles: true }));
+        if (!input || !send || !Clacky.Composer) return;
+        Clacky.Composer.setText(input, command);
         send.click();
       });
       return b;
