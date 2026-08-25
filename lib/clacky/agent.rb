@@ -474,7 +474,7 @@ module Clacky
       @name = new_name.to_s.strip
     end
 
-    def run(user_input, files: [], display_text: nil, created_at: nil)
+    def run(user_input, files: nil, reference_contexts: nil, display_text: nil, created_at: nil, references_display: nil)
       # Intercept /goal ... commands before any task/LLM work. Control-plane
       # commands (status/pause/resume/clear) return immediately without a turn;
       # `/goal <text>` sets the goal, then falls through to run the first turn.
@@ -584,10 +584,19 @@ module Clacky
         # "too large" note for downgraded images.
         downgrade_reason = f[:downgrade_reason] || f["downgrade_reason"]
         ocr_text         = f[:ocr_text]         || f["ocr_text"]
+        reference        = f[:reference]        || f["reference"]
+
+        # Directory references: capture only the path so the LLM can explore
+        # on demand with the read/shell tools.
+        if File.directory?(path.to_s)
+          next { name: name || File.basename(path.to_s), type: "directory", path: path.to_s,
+                 reference: reference }
+        end
+
         ref = Utils::FileProcessor.process_path(path, name: name)
         { name: ref.name, type: ref.type.to_s, path: ref.original_path,
           preview_path: ref.preview_path, parse_error: ref.parse_error, parser_path: ref.parser_path,
-          downgrade_reason: downgrade_reason, ocr_text: ocr_text }
+          downgrade_reason: downgrade_reason, ocr_text: ocr_text, reference: reference }
       end
 
       # Build display_files for replay: lightweight metadata so the UI can reconstruct
@@ -596,6 +605,10 @@ module Clacky
       # images (provider has no vision / too large / OCR'd) DO need path here so the
       # UI can re-render them from the on-disk copy across session switches.
       display_files = all_disk_files.filter_map do |f|
+        # @mention file/directory references are replayed from display_references
+        # (with mention badges), so skip them here to avoid double-rendering as
+        # plain attachment badges.
+        next if f[:reference] || f["reference"]
         name = f[:name] || f["name"]
         next unless name
         { name: name, type: f[:type] || f["type"] || "file",
@@ -619,7 +632,8 @@ module Clacky
                         display_text: display_text,
                         skill_command: skill_command[:found] ? skill_command[:skill_name] : nil,
                         skill_command_display: skill_command_display,
-                        display_files: display_files.empty? ? nil : display_files })
+                        display_files: display_files.empty? ? nil : display_files,
+                        display_references: Array(references_display).empty? ? nil : references_display })
       @total_tasks += 1
 
       # Inject disk file references as a system_injected message so:
@@ -644,6 +658,12 @@ module Clacky
           ocr_text         = f[:ocr_text]         || f["ocr_text"]
 
           next unless name
+
+          # Directory reference: emit only the path so the LLM can explore on
+          # demand with the read/shell tools.
+          if type == "directory"
+            next ["[Directory: #{name}]", "Path: #{path}"].join("\n")
+          end
 
           lines = ["[File: #{name}]", "Type: #{type || "file"}"]
           lines << "Size: #{format_size(size_bytes)}" if size_bytes
@@ -683,6 +703,14 @@ module Clacky
         unless file_prompt.empty?
           @history.append({ role: "user", content: file_prompt, system_injected: true, task_id: task_id })
         end
+      end
+
+      # Inject referenced past chats (the @mention "send as reference" behavior)
+      # as a system_injected message — same mechanism as file references: the LLM
+      # sees the context, but replay_history skips it and no user bubble renders.
+      Array(reference_contexts).each do |ctx|
+        next if ctx.to_s.strip.empty?
+        @history.append({ role: "user", content: ctx, system_injected: true, task_id: task_id })
       end
 
       # If the user typed a slash command targeting a skill with disable-model-invocation: true,

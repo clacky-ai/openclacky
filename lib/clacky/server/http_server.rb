@@ -65,13 +65,14 @@ module Clacky
         event
       end
 
-      def show_user_message(content, task_id: nil, created_at: nil, files: [], editable: true, skill_command: nil, skill_command_display: nil)
+      def show_user_message(content, task_id: nil, created_at: nil, files: [], editable: true, skill_command: nil, skill_command_display: nil, references: [])
         ev = { type: "history_user_message", session_id: @session_id, content: content }
         ev[:task_id] = task_id if task_id
         ev[:created_at] = created_at if created_at
         ev[:skill_command] = skill_command if skill_command
         ev[:skill_command_display] = skill_command_display if skill_command_display
         ev[:editable] = false unless editable
+        ev[:references] = references unless Array(references).empty?
         rendered = Array(files).filter_map do |f|
           url  = f[:data_url] || f["data_url"]
           name = f[:name]     || f["name"]
@@ -5012,11 +5013,13 @@ module Clacky
       # GET /api/dirs?path=<absolute-or-~-path>
       # Session-independent directory browser used by the New Session modal,
       # where no session (and thus no working_dir) exists yet. Always operates
-      # in absolute mode and lists directories only.
+      # in absolute mode. Lists directories only by default; pass files=true to
+      # include files (used by the @ mention file picker on the new-session page).
       def api_browse_dirs(req, res)
         query = URI.decode_www_form(req.query_string.to_s).to_h
         rel   = query["path"].to_s.strip
         show_hidden = query["show_hidden"] == "true"
+        include_files = query["files"] == "true"
         rel   = Dir.home if rel.empty?
         target = File.expand_path(rel.start_with?("~") ? rel.sub(/\A~/, Dir.home) : rel)
 
@@ -5035,12 +5038,15 @@ module Clacky
         end
         items = entries.filter_map do |name|
           full = File.join(target, name)
-          next unless File.directory?(full) && File.exist?(full)
-          { name: name, path: full, type: "dir" }
+          next unless File.exist?(full)
+          is_dir = File.directory?(full)
+          next if !include_files && !is_dir
+          { name: name, path: full, type: is_dir ? "dir" : "file",
+            size: is_dir ? nil : (File.size(full) rescue nil) }
         rescue StandardError
           nil
         end
-        items.sort_by! { |it| it[:name].downcase }
+        items.sort_by! { |it| [it[:type] == "dir" ? 0 : 1, it[:name].downcase] }
 
         json_response(res, 200, { root: target, path: target, parent: File.dirname(target), home: Dir.home, default: default_working_dir, entries: items })
       rescue StandardError => e
@@ -7113,7 +7119,7 @@ module Clacky
           raw_images = (msg["images"] || []).map do |data_url|
             { "data_url" => data_url, "name" => "image.jpg", "mime_type" => "image/jpeg" }
           end
-          handle_user_message(session_id, msg["content"].to_s, (msg["files"] || []) + raw_images)
+          handle_user_message(session_id, msg["content"].to_s, (msg["files"] || []) + raw_images, references: msg["references"] || [])
 
         when "confirmation"
           session_id = msg["session_id"] || conn.session_id
@@ -7182,7 +7188,7 @@ module Clacky
         handle_user_message(session_id, content)
       end
 
-      def handle_user_message(session_id, content, files = [])
+      def handle_user_message(session_id, content, files = [], references: [])
         return unless @registry.exist?(session_id)
 
         session = @registry.get(session_id)
@@ -7242,7 +7248,36 @@ module Clacky
 
         # File references are now handled inside agent.run — injected as a system_injected
         # message after the user message, so replay_history skips them automatically.
-        run_agent_task(session_id, agent) { agent.run(content, files: files, created_at: msg_created_at) }
+        reference_contexts = build_reference_contexts(references)
+        run_agent_task(session_id, agent) { agent.run(content, files: files, reference_contexts: reference_contexts, created_at: msg_created_at, references_display: references) }
+      end
+
+      # Build context blocks for non-file @mention references. Each reference is
+      # { "type" => ..., ...payload } — dispatch on type so new reference kinds
+      # (e.g. branch diff, browser snapshot) only add a `when` branch here.
+      private def build_reference_contexts(references)
+        Array(references).filter_map do |ref|
+          next unless ref.is_a?(Hash)
+          case ref["type"].to_s
+          when "session" then build_session_reference_context(ref)
+          end
+        end
+      end
+
+      # Resolve a past-chat reference into a lightweight pointer for the LLM:
+      # the session name + ID + on-disk file path, no transcript inlined.
+      private def build_session_reference_context(ref)
+        session_id = ref["session_id"].to_s
+        return nil if session_id.empty?
+
+        name = ref["name"].to_s
+        name = session_id if name.empty?
+
+        lines = ["[Referenced conversation: #{name}]", "Session ID: #{session_id}"]
+        files = @session_manager.files_for(session_id)
+        lines << "Session file: #{files[:json_path]}" if files && files[:json_path]
+
+        lines.join("\n")
       end
 
       def deliver_confirmation(session_id, conf_id, result)

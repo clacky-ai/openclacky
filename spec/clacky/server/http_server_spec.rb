@@ -1555,4 +1555,87 @@ RSpec.describe Clacky::Server::HttpServer do
       end
     end
   end
+
+  describe "#handle_user_message reference contexts" do
+    def seed_reference_agent(server, session_id)
+      sid = server.instance_variable_get(:@registry).create(session_id: session_id)
+      agent = double("agent", parse_skill_command: { found: false }, history: [], name: "My Chat")
+      ui = double("ui")
+      allow(ui).to receive(:show_user_message)
+      server.instance_variable_get(:@registry).with_session(sid) do |s|
+        s[:agent] = agent
+        s[:ui] = ui
+      end
+      agent
+    end
+
+    # Drive the full message path (not build_reference_contexts directly) and
+    # record the keyword args handed to agent.run so we can assert on the
+    # reference_contexts that end up in the LLM request.
+    def send_reference_message(server, session_id, content, references)
+      agent = seed_reference_agent(server, session_id)
+      captured = {}
+      allow(server).to receive(:run_agent_task) { |_sid, _a, &blk| blk.call }
+      allow(agent).to receive(:run) { |*_args, **kwargs| captured[:kwargs] = kwargs }
+      server.send(:handle_user_message, session_id, content, [], references: references)
+      captured
+    end
+
+    it "builds a session reference context with name, id and file path" do
+      with_server(agent_config: agent_config) do |server|
+        sm = server.instance_variable_get(:@session_manager)
+        allow(sm).to receive(:files_for).with("past-123").and_return(json_path: "/tmp/s/past-123.json")
+
+        refs = [{ "type" => "session", "session_id" => "past-123", "name" => "Past Chat" }]
+        captured = send_reference_message(server, "sid-ref-1", "hello", refs)
+
+        expect(captured[:kwargs][:reference_contexts]).to eq([
+          "[Referenced conversation: Past Chat]\nSession ID: past-123\nSession file: /tmp/s/past-123.json"
+        ])
+        expect(captured[:kwargs][:references_display]).to eq(refs)
+      end
+    end
+
+    it "falls back to the session_id when name is missing and omits the file line when files_for is nil" do
+      with_server(agent_config: agent_config) do |server|
+        sm = server.instance_variable_get(:@session_manager)
+        allow(sm).to receive(:files_for).with("past-456").and_return(nil)
+
+        captured = send_reference_message(server, "sid-ref-2", "hi",
+          [{ "type" => "session", "session_id" => "past-456" }])
+
+        expect(captured[:kwargs][:reference_contexts]).to eq([
+          "[Referenced conversation: past-456]\nSession ID: past-456"
+        ])
+      end
+    end
+
+    it "skips references with an empty session_id" do
+      with_server(agent_config: agent_config) do |server|
+        captured = send_reference_message(server, "sid-ref-3", "hi",
+          [{ "type" => "session", "session_id" => "", "name" => "Empty" }])
+
+        expect(captured[:kwargs][:reference_contexts]).to eq([])
+      end
+    end
+
+    it "ignores unknown types and non-hash entries" do
+      with_server(agent_config: agent_config) do |server|
+        sm = server.instance_variable_get(:@session_manager)
+        allow(sm).to receive(:files_for).with("past-789").and_return(json_path: "/tmp/s/past-789.json")
+
+        refs = [
+          { "type" => "session", "session_id" => "past-789", "name" => "Kept" },
+          { "type" => "file", "path" => "/tmp/x" },
+          "not-a-hash",
+          nil
+        ]
+        captured = send_reference_message(server, "sid-ref-4", "hi", refs)
+
+        expect(captured[:kwargs][:reference_contexts]).to eq([
+          "[Referenced conversation: Kept]\nSession ID: past-789\nSession file: /tmp/s/past-789.json"
+        ])
+      end
+    end
+  end
 end

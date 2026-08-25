@@ -391,8 +391,11 @@ module Clacky
               preview_path: f[:preview_path] || f["preview_path"] }
           }
           all_files = image_files + disk_files
+          references = Array(msg[:display_references])
+          ref_options = references.empty? ? {} : { references: references }
           task_options = msg[:task_id] ? { task_id: msg[:task_id] } : {}
           ui.show_user_message(raw_text, **task_options, created_at: msg[:created_at], files: all_files,
+                               **ref_options,
                                editable: round[:editable] != false,
                                skill_command: msg[:skill_command],
                                skill_command_display: msg[:skill_command_display])

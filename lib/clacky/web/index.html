@@ -412,17 +412,21 @@
             <button id="ns-btn-slash" type="button" class="new-session-composer-btn" title="Insert skill command (/)">
               <span>/</span>
             </button>
-            <textarea id="new-session-input"
-                      class="new-session-textarea"
-                      rows="1"
-                      data-i18n-placeholder="chat.input.placeholder"
-                      placeholder="Message… (Enter to send, Shift+Enter for newline)"></textarea>
+            <div id="new-session-input"
+                 class="new-session-textarea"
+                 contenteditable="true"
+                 role="textbox"
+                 aria-multiline="true"
+                 data-i18n-placeholder="chat.input.placeholder"
+                 data-placeholder="Message… (Enter to send, Shift+Enter for newline)"></div>
             <button id="new-session-send" class="new-session-send" type="button" title="Send message" disabled>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"></polyline></svg>
             </button>
           </div><!-- /.new-session-input-bar -->
             </div><!-- /.ns-input-bar-card -->
           </div><!-- /.ns-composer-frame -->
+          <!-- @ mention menu (Files & Folders / Past Chats) -->
+          <div id="ns-mention-autocomplete" class="mention-autocomplete" style="display:none" role="listbox" aria-label="Mention"></div>
         </div><!-- /.new-session-composer -->
       </div>
     </div>
@@ -526,6 +530,8 @@
         </div>
         <!-- Image preview strip (hidden when empty) -->
         <div id="image-preview-strip" style="display:none"></div>
+        <!-- @ mention menu (Files & Folders / Past Chats) -->
+        <div id="mention-autocomplete" class="mention-autocomplete" style="display:none" role="listbox" aria-label="Mention"></div>
         <div id="input-bar">
           <!-- Hidden file picker -->
           <input type="file" id="image-file-input" accept="*/*" multiple style="display:none">
@@ -537,9 +543,12 @@
           <button id="btn-slash" title="Insert skill command (/)">
             <span>/</span>
           </button>
-          <textarea id="user-input" rows="1"
-            data-i18n-placeholder="chat.input.placeholder"
-            placeholder="Message… (Enter to send, Shift-Enter for newline)"></textarea>
+          <div id="user-input"
+               contenteditable="true"
+               role="textbox"
+               aria-multiline="true"
+               data-i18n-placeholder="chat.input.placeholder"
+               data-placeholder="Message… (Enter to send, Shift-Enter for newline)"></div>
           <button id="btn-send" title="Send message"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"></polyline></svg></button>
           <button id="btn-interrupt" style="display:none" title="Stop"><svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="1.5"/></svg></button>
         </div>
@@ -1670,6 +1679,8 @@
 <script src="/utils.js"></script>
 <script src="/core/ext.js"></script>
 <script src="/core/aside.js"></script>
+<script src="/components/composer.js"></script>
+<script src="/components/mentions.js"></script>
 <script src="/i18n.js"></script>
 <script src="/auth.js"></script>
 <script src="/theme.js"></script>

@@ -2526,8 +2526,17 @@ body {
   max-height: 12.5rem;
   overflow-y: auto;
   scrollbar-width: none;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  word-break: break-word;
+  min-height: calc(1.55em + 8px);
 }
 .new-session-textarea::-webkit-scrollbar { display: none; }
+.new-session-textarea:empty::before {
+  content: attr(data-placeholder);
+  color: var(--color-text-tertiary);
+  pointer-events: none;
+}
 .new-session-advanced-wrap {
   display: flex;
   flex-direction: column;
@@ -5494,6 +5503,193 @@ body {
   background: var(--color-accent-soft);
 }
 
+/* ── @ mention menu (Files & Folders / Past Chats) ────────────────────── */
+.mention-autocomplete {
+  position: absolute;
+  bottom: 100%;
+  left: 24px;
+  right: 24px;
+  background: var(--color-bg-primary);
+  border: 1px solid var(--color-border-primary);
+  border-radius: 13px;
+  box-shadow: var(--shadow-card);
+  margin-bottom: 8px;
+  max-height: 18.75rem;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  padding: 0.375rem;
+}
+#ns-mention-autocomplete {
+  bottom: calc(100% - 3rem);
+}
+.mention-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  overflow-y: auto;
+  flex: 1 1 auto;
+  min-height: 0;
+  position: relative;
+  margin-right: -0.375rem;
+  padding-right: 0.375rem;
+}
+.mention-header {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.25rem 0.375rem 0.5rem;
+  margin-bottom: 0.125rem;
+  border-bottom: 1px solid var(--color-border-secondary);
+}
+.mention-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  border: none;
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: 0.75rem;
+  cursor: pointer;
+  padding: 0.175rem 0.375rem;
+  border-radius: 0.375rem;
+}
+.mention-back:hover {
+  color: var(--color-text-primary);
+  background: var(--color-bg-hover);
+}
+.mention-title {
+  font-size: 0.6875rem;
+  color: var(--color-text-tertiary);
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mention-item {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  padding: 0.5rem 0.625rem;
+  cursor: pointer;
+  border-radius: 0.5rem;
+  transition: background 0.1s;
+  user-select: none;
+}
+.mention-item.active {
+  background: color-mix(in srgb, var(--color-text-primary) 8%, transparent);
+}
+.mention-item-main {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  flex: 1;
+  min-width: 0;
+}
+.mention-ico {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  color: var(--color-text-secondary);
+}
+.mention-name {
+  font-size: 0.8125rem;
+  color: var(--color-text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+.mention-size {
+  font-size: 0.6875rem;
+  color: var(--color-text-tertiary);
+  flex-shrink: 0;
+}
+.mention-chevron {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-text-tertiary);
+  margin-left: 0.375rem;
+  padding: 0.25rem;
+  border-radius: 0.375rem;
+  transition: background 0.1s, color 0.1s;
+}
+.mention-chevron:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+.mention-empty {
+  padding: 0.875rem 0.625rem;
+  font-size: 0.8125rem;
+  color: var(--color-text-tertiary);
+}
+.mention-load-more {
+  flex-shrink: 0;
+  border: none;
+  background: transparent;
+  color: var(--color-text-tertiary);
+  font-size: 0.8125rem;
+  cursor: pointer;
+  padding: 0.5rem 0.625rem;
+  border-radius: 0.5rem;
+  text-align: center;
+  transition: background 0.1s, color 0.1s;
+}
+.mention-load-more:hover {
+  color: var(--color-text-primary);
+  background: var(--color-bg-hover);
+}
+.mention-load-more.active {
+  color: var(--color-text-primary);
+  background: color-mix(in srgb, var(--color-text-primary) 8%, transparent);
+}
+.mention-load-more:disabled {
+  color: var(--color-text-tertiary);
+  cursor: default;
+}
+
+/* ── Mention chips inside the contenteditable composer ─────────────────── */
+.mention-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0 0.375rem;
+  margin: 0 0.125rem;
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+  border-radius: 0.375rem;
+  font-size: 0.8125rem;
+  vertical-align: baseline;
+  user-select: none;
+  cursor: default;
+}
+.mention-chip-icon {
+  display: inline-flex;
+  align-items: center;
+  color: var(--color-text-secondary);
+}
+
+/* ── Mention badge inside user message bubbles ─────────────────────────── */
+.msg-mention-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3125rem;
+  padding: 0.1875rem 0.5rem;
+  border-radius: 0.375rem;
+  background: color-mix(in srgb, var(--color-accent-primary) 8%, transparent);
+  font-size: 0.75rem;
+  margin: 0 0.25rem 0.25rem 0;
+}
+.msg-mention-badge-icon {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
 #user-input {
   flex: 1;
   background: transparent !important;
@@ -5509,8 +5705,17 @@ body {
   overflow-y: auto;
   scrollbar-width: none;
   margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  word-break: break-word;
+  min-height: calc(1.55em + 8px);
 }
 #user-input::-webkit-scrollbar { display: none; }
+#user-input:empty::before {
+  content: attr(data-placeholder);
+  color: var(--color-text-tertiary);
+  pointer-events: none;
+}
 
 #btn-send, #btn-interrupt {
   border: none;
