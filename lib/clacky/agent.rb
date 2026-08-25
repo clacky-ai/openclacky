@@ -713,15 +713,17 @@ module Clacky
         @history.append({ role: "user", content: ctx, system_injected: true, task_id: task_id })
       end
 
-      # If the user typed a slash command targeting a skill with disable-model-invocation: true,
-      # inject the skill content as a synthetic assistant message so the LLM can act on it.
-      # Skills already in the system prompt (model_invocation_allowed?) are skipped.
-      inject_skill_command_as_assistant_message(skill_command, task_id)
-
-      @hooks.trigger(:on_start, user_input)
-
       result = nil
       begin
+        # If the user typed a slash command targeting a skill with disable-model-invocation: true,
+        # inject the skill content as a synthetic assistant message so the LLM can act on it.
+        # Skills already in the system prompt (model_invocation_allowed?) are skipped.
+        # Inside the begin block so a fork_subagent failure (e.g. skill-declared model
+        # not found) still reaches the ensure block that stops the progress spinner.
+        inject_skill_command_as_assistant_message(skill_command, task_id)
+
+        @hooks.trigger(:on_start, user_input)
+
         # Track if ask_user was called
         awaiting_user_feedback = false
         # Track if task was interrupted by user (denied tool execution)
@@ -1123,7 +1125,8 @@ module Clacky
                    "- Break down large tasks into multiple smaller tool calls\n" \
                    "- Keep each tool call argument under 2000 characters\n" \
                    "- Use multiple tool calls instead of one large call",
-          truncated: true
+          truncated: true,
+          system_injected: true
         })
 
         # Close the current spinner so the warning appears cleanly;
