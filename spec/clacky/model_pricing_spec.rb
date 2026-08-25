@@ -1001,6 +1001,16 @@ RSpec.describe Clacky::ModelPricing do
     end
   end
 
+  describe "Gemini 3.7 Flash pricing" do
+    it "normalizes platform alias or-gemini-3-7-flash" do
+      expect(described_class.normalize_model_name("or-gemini-3-7-flash")).to eq("gemini-3.7-flash")
+    end
+
+    it "normalizes bare upstream id gemini-3.7-flash" do
+      expect(described_class.normalize_model_name("gemini-3.7-flash")).to eq("gemini-3.7-flash")
+    end
+  end
+
   # Guards against accidentally billing unrelated model names at a
   # neighbouring model's rate — the anchored ^...$ regex in normalize_model_name
   # should reject fuzzy matches and fall through to nil (cost=N/A).

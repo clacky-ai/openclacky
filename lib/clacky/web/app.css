@@ -802,7 +802,17 @@ body {
 #sidebar-list.is-scrolling::-webkit-scrollbar-thumb {
   background: var(--color-border-secondary);
 }
-#session-list { padding: 4px 0 0; min-height: 6.75rem; }
+
+/* Windows/classic scrollbars occupy 4px of layout width. Keep them always
+   visible there instead of the show-on-scroll behaviour, so the occupied
+   gutter reads as an intentional scrollbar rather than empty space. */
+.no-overlay-scrollbar #sidebar-list {
+  scrollbar-color: var(--color-border-secondary) transparent;
+}
+.no-overlay-scrollbar #sidebar-list::-webkit-scrollbar-thumb {
+  background: var(--color-border-secondary);
+}
+#session-list { padding: 4px 0 0; }
 
 /* ── Extension nav slots (top / mid / bottom) ───────────────────────────── */
 [id^="ext-slot-sidebar-nav"] { display: block; }
@@ -1494,10 +1504,9 @@ body {
 /* ── Session empty placeholder ───────────────────────────────────────────── */
 .session-empty {
   margin: 0;
-  padding: 2rem 0.75rem;
+  padding: 0.375rem 0.65rem;
   font-size: 0.75rem;
   color: var(--color-text-muted);
-  text-align: center;
 }
 
 /* ── Session List ────────────────────────────────────────────────────────── */
@@ -6392,20 +6401,23 @@ body {
 .model-card-grid-link {
   display: inline-flex;
   align-items: center;
-  gap: 0.25rem;
-  font-size: 0.6875rem;
-  color: var(--color-text-tertiary);
+  gap: 0.375rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--color-text-secondary);
   text-decoration: none;
-  padding: 0.125rem 0.25rem;
-  border-radius: 4px;
-  transition: color 0.15s;
+  padding: 0.375rem 0.625rem;
+  border: 1px solid var(--color-border-primary);
+  border-radius: 6px;
+  background: var(--color-bg-tertiary);
+  transition: all 0.15s;
 }
 .model-card-grid-link:hover {
+  border-color: var(--color-accent-primary);
   color: var(--color-accent-primary);
-  text-decoration: underline;
+  background: color-mix(in srgb, var(--color-accent-primary) 8%, transparent);
 }
 .model-card-grid-link svg {
-  opacity: 0.7;
   flex-shrink: 0;
 }
 

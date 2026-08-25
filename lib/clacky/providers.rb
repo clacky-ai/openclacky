@@ -44,6 +44,7 @@ module Clacky
           "dsk-deepseek-v4-flash",
           "dsk-deepseek-v4-flash-vision-exp",
           "or-gemini-3-1-pro",
+          "or-gemini-3-7-flash",
           "or-gemini-3-6-flash",
           "or-gemini-3-5-flash"
         ],

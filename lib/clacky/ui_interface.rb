@@ -33,7 +33,7 @@ module Clacky
     # (e.g. /goal auto-switches to auto_approve). UIs that render the mode
     # in a status bar override this.
     def update_permission_mode(mode); end
-    def show_complete(iterations:, cost:, duration: nil, cache_stats: nil, awaiting_user_feedback: false, cost_source: nil); end
+    def show_complete(iterations:, cost:, duration: nil, cache_stats: nil, awaiting_user_feedback: false, cost_source: nil, task_id: nil); end
     def append_output(content); end
 
     # === Status messages ===

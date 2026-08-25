@@ -589,6 +589,7 @@ module Clacky
 
           tasks << {
             task_id: task_id,
+            parent_task_id: @task_parents[task_id].to_i,
             summary: summary,
             started_at: meta[:started_at],
             ended_at: meta[:ended_at],
