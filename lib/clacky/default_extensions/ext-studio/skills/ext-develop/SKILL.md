@@ -104,9 +104,9 @@ Clacky.ext.api.register(name, fn)         // expose a named data source; api.res
 - gets a host-owned `container` DOM element — append into it, **or** return a Node / HTML
   string and the host appends for you;
 - returning a **function** registers it as a teardown callback;
-- returning **`null`/`undefined` renders nothing** — but returning `null` from a wrong
-  signature (e.g. `(ctx) => …` instead of `(container, ctx) => …`) is the #1 cause of a
-  red "crashed" placeholder. Match the signature exactly.
+- returning **`null`/`undefined` renders nothing** (safe) — a red "crashed" placeholder
+  means the render **threw**; the #1 cause is a wrong signature shifting every argument
+  (e.g. `(ctx) => …` instead of `(container, ctx) => …`). Match the signature exactly.
 
 `ctx` carries `{ sessionId, agentProfile }`. `opts`: `order` (lower renders first,
 default 100), `tab: { id, label, badge? }` (**required** for tabbed slots — `session.aside`
@@ -289,7 +289,7 @@ Rules:
 
 ## Scaffold
 
-Turn a plain-language idea into a working skeleton, then read the generated files.
+Turn a plain-language idea into a working skeleton.
 
 ### 1 — Understand the idea
 
@@ -333,20 +333,10 @@ This creates `~/.clacky/ext/local/<id>/` with a working hello panel + handler:
 Use `--full` only when the user needs the kitchen-sink reference exercising all eight
 contributes types — it's a lot to read, so prefer the plain scaffold otherwise.
 
-### 3 — Read what was generated
+### 3 — Reshape to the idea
 
-Always read the generated `ext.yml`, `view.js`, `handler.rb`, and `test/handler_test.rb`
-before editing. This is your starting point; you'll reshape it to match the idea.
-
-### 4 — Reshape to the idea
-
-Before editing, re-read the contract for whatever the idea needs (panel / API / patch /
-hook) in **Reference: the contracts** above — don't guess field names, slot names, hook
-events, or the `Clacky.ext` surface.
-
-The scaffold ships a working "hello" panel that pings its backend. Turn it into the real
-feature by editing those three files. Below is a concrete before → after for a tiny
-"add a note" panel — use it as the shape to copy, not the literal content.
+Below is a concrete before → after for a tiny "add a note" panel — use it as
+the shape to copy, not the literal content.
 
 **`ext.yml`** — rename the panel id/view to the feature; add `skills:`/`agents:` only if needed:
 
@@ -385,8 +375,7 @@ Clacky.ext.ui.mount("session.aside", function (container, ctx) {
 ```
 
 **`api/handler.rb`** — stay a `Clacky::ApiExtension` subclass; add the route the panel
-calls. Persist user data with `data_path` (lands in `~/.clacky/ext-data/<id>/`, survives
-reloads, `gem update`, and uninstall/reinstall), never into the code dir:
+calls. Persist user data with `data_path`, never into the code dir:
 
 ```ruby
 class <Prefix>Ext < Clacky::ApiExtension
@@ -403,21 +392,11 @@ Rules while reshaping:
   are the #1 cause of a `loader.error`.
 - Routes in `handler.rb` are **relative** to `/api/ext/<id>/`; the `view.js` `fetch` must
   match. A mismatch is a silent 404, not a verify error.
-- Persist state with `data_path(...)`, never by writing into the extension's code dir.
-- The `ui.mount` render signature is `(container, ctx, runtime)` — `container` is the first
-  argument, not `ctx`. Writing a shorter `(ctx) => ...` signature shifts every argument, so
-  session checks misbehave. Returning `null` is safe (renders nothing); only a **thrown
-  exception** shows the red crashed-panel box.
-- **UI styling: default to host classes; anything the host has no class for,
-  build freely.** The host covers `btn-*` buttons, `form-*` inputs, `modal-*`
-  dialogs, `Clacky.Modal.toast/confirm` feedback, and `var(--color-*)` colors
-  (raw hex breaks the dark theme). For exact definitions grep the host
-  stylesheet `lib/clacky/web/app.css`; the scaffold templates show real usage.
-- A skill is a `SKILL.md` under `skills/<id>/`; an agent is a `system_prompt.md` that can
-  reference `panels: [id]` and `skills: [id]`. Add those blocks to `ext.yml` only if the
-  idea needs them.
+- **UI styling: default to host classes; anything the host has no class for, build
+  freely.** Colors: only `var(--color-*)` — raw hex breaks the dark theme. For the
+  full class/variable list grep the host stylesheet `lib/clacky/web/app.css`.
 
-### 5 — Write tests
+### 4 — Write tests
 
 Test the backend before you call it done. Rewrite the scaffolded `test/handler_test.rb`
 to exercise your real routes (parse the JSON response, assert its fields), then run it
@@ -432,7 +411,7 @@ ruby test/handler_test.rb
 - A handler that only returns a static string may keep the scaffold's hello test;
   anything that fetches, transforms, caches, or computes MUST have a real test.
 
-### 6 — Confirm it loads
+### 5 — Confirm it loads
 
 Run `clacky ext verify` and confirm the new units resolve with no errors, then have the
 user reload the WebUI page. If verify reports problems, go to **Debug & verify**.
@@ -459,7 +438,7 @@ is structured with a `code`, `message`, the offending `file`, and a `hint`.
 
 | Symptom | Almost always | Fix |
 |---|---|---|
-| Red error box where the panel should be | `ui.mount` render signature is wrong / returned `null` | signature is `(container, ctx, runtime)` — not `(ctx)` |
+| Red error box where the panel should be | `ui.mount` render threw — usually a wrong signature | signature is `(container, ctx, runtime)` — not `(ctx)` |
 | Panel doesn't appear at all | `slot` name typo (silent) or no `attach:` | use a valid slot; set `attach: ["*"]` or an agent id |
 | Frontend `fetch` gets 404 | route in `handler.rb` ≠ path in `view.js` fetch | routes are relative to `/api/ext/<id>/` |
 | `loader.error` on verify | `ext.yml` `view:` path ≠ the on-disk `view.js` path | make the two match exactly |
@@ -530,7 +509,7 @@ If verify is clean but a change isn't visible:
   console for a "unknown slot" warning); (2) check the panel's `attach:` (or the agent
   that references it via `panels: [id]`) — a panel with no `attach` and no referencing
   agent has nothing to mount onto; (3) a red error box means the render function threw
-  or returned `null` from a wrong signature — open the console for the stack.
+  (usually a wrong signature) — open the console for the stack.
 - **API 404?** Routes are relative to `/api/ext/<ext_id>/`. Confirm the handler subclasses
   `Clacky::ApiExtension` and the route pattern matches what `view.js` fetches.
 - **Skill not triggering?** The AI selects skills by their `description`. Make the
