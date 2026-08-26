@@ -33,14 +33,10 @@ module Clacky
     ACTION_LIMIT = 500
     REASON_LIMIT = 200
 
-    # Separators observed in real model output when it ignores the JSON format
-    # and falls back to one option per line. Ordered: explicit reason markers
-    # first, then " · " (which models copy from the panel's own rendering).
-    FALLBACK_REASON_SEPARATORS = [
-      /\s*(?:理由|原因)\s*[:：]\s*/,
-      /\s+Reason\s*[:：]\s*/i,
-      /\s+·\s+/
-    ].freeze
+    # Models copy the panel's own " · " separator when they drop the JSON
+    # format. Deliberately structural: a localized "Reason:" label would need
+    # one pattern per language, so those lines keep the label inside the action.
+    FALLBACK_REASON_SEPARATOR = /\s+·\s+/.freeze
 
     # Some providers keep thinking inline in `content` (e.g. MiniMax), and the
     # closing tag is missing whenever the reply gets cut short.
@@ -48,8 +44,8 @@ module Clacky
     UNCLOSED_THINK = /<think>[\s\S]*\z/.freeze
 
     # A degraded line only counts as an option when the model marked it up as
-    # one: a list bullet, a [action] wrapper, or an explicit reason marker.
-    # Without this, reasoning prose turns into three bogus suggestions.
+    # one: a list bullet or a [action] wrapper. Without this, reasoning prose
+    # turns into three bogus suggestions.
     FALLBACK_LIST_MARKER = /\A(?:[-*•]|\d+[.)])\s+/.freeze
     FALLBACK_BRACKETED = /\A\[([^\]]+)\]\s*(.*)\z/m.freeze
     class << self
@@ -314,10 +310,9 @@ module Clacky
         bracketed = body.match(FALLBACK_BRACKETED)
         return [bracketed[1].strip, bracketed[2].strip] if bracketed
 
-        separator = FALLBACK_REASON_SEPARATORS.find { |re| re.match(body) }
-        return listed ? [body, ""] : ["", ""] unless separator
+        return listed ? [body, ""] : ["", ""] unless FALLBACK_REASON_SEPARATOR.match(body)
 
-        action, reason = body.split(separator, 2)
+        action, reason = body.split(FALLBACK_REASON_SEPARATOR, 2)
         [action.to_s.strip, reason.to_s.strip]
       end
 

@@ -358,22 +358,14 @@ RSpec.describe "Advisor default extension" do
             .to eq([{ action: "Run rspec", reason: "Verify the changes" }])
         end
 
-        it "splits a Chinese 理由: marker" do
-          raw = "- 继续测试其他终端命令。理由: 从最近对话看你在测试终端工具。"
-          expect(options_for(raw))
-            .to eq([{ action: "继续测试其他终端命令。", reason: "从最近对话看你在测试终端工具。" }])
-        end
-
-        it "splits a Chinese 原因： marker" do
-          raw = "- 若临时文件仍存在，请再次删除它。原因：需要排除删除失败的可能。"
-          expect(options_for(raw))
-            .to eq([{ action: "若临时文件仍存在，请再次删除它。", reason: "需要排除删除失败的可能。" }])
-        end
-
-        it "splits an English Reason: marker" do
+        # Splitting on a written-out label would mean one pattern per language,
+        # so the label stays in the action rather than half the languages
+        # working and the rest silently falling through.
+        it "keeps a written-out reason label inside the action" do
           raw = "- Run `ls /tmp/x` and report the result. Reason: Verify the delete succeeded."
           expect(options_for(raw))
-            .to eq([{ action: "Run `ls /tmp/x` and report the result.", reason: "Verify the delete succeeded." }])
+            .to eq([{ action: "Run `ls /tmp/x` and report the result. Reason: Verify the delete succeeded.",
+                     reason: "" }])
         end
 
         it "splits the panel's own ' · ' separator" do
