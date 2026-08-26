@@ -2085,7 +2085,12 @@ module Clacky
           if existing
             existing.delete("disabled")
             existing["mode"] = "auto"
-            existing["model"] = override unless override.empty?
+            if override.empty?
+              # empty model on "auto" means "revert to the provider default"
+              existing.delete("model")
+            else
+              existing["model"] = override
+            end
           else
             unless override.empty?
               @agent_config.models << {
