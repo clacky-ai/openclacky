@@ -48,6 +48,7 @@ module Clacky
         "or-tts-gemini-2-5-flash" => "gemini-2.5-flash-tts",
         "or-tts-gemini-2-5-pro"   => "gemini-2.5-pro-tts",
         # speech-to-text (or-)
+        "or-stt-gemini-3-7-flash" => "gemini-3.7-flash",
         "or-stt-gemini-3-6-flash" => "gemini-3.6-flash",
         "or-stt-gemini-3-5-flash" => "gemini-3.5-flash",
         "or-stt-gemini-1-5-pro"   => "gemini-1.5-pro-002"
@@ -61,6 +62,7 @@ module Clacky
         "google/gemini-3-pro-image-preview"  => "or-gemini-3-pro-image",
         # STT aliases reuse the chat real id; Hash#invert keeps the later STT
         # key, so pin these back to the chat alias for display.
+        "gemini-3.7-flash" => "or-gemini-3-7-flash",
         "gemini-3.6-flash" => "or-gemini-3-6-flash",
         "gemini-3.5-flash" => "or-gemini-3-5-flash"
       ).freeze
