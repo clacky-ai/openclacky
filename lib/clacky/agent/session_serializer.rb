@@ -391,8 +391,11 @@ module Clacky
               preview_path: f[:preview_path] || f["preview_path"] }
           }
           all_files = image_files + disk_files
+          references = Array(msg[:display_references])
+          ref_options = references.empty? ? {} : { references: references }
           task_options = msg[:task_id] ? { task_id: msg[:task_id] } : {}
           ui.show_user_message(raw_text, **task_options, created_at: msg[:created_at], files: all_files,
+                               **ref_options,
                                editable: round[:editable] != false,
                                skill_command: msg[:skill_command],
                                skill_command_display: msg[:skill_command_display])
@@ -491,30 +494,34 @@ module Clacky
         current_role       = nil
         current_lines      = []
         current_nested_chunk = nil  # chunk reference from a Compressed Summary heading
+        current_task_id    = nil
 
         raw.each_line do |line|
           stripped = line.chomp
           if (m = stripped.match(/\A## Assistant \[Compressed Summary — original conversation at: (.+)\]/))
             # Nested chunk reference — record it, treat as assistant section
-            sections << { role: current_role, lines: current_lines.dup, nested_chunk: current_nested_chunk } if current_role
+            sections << { role: current_role, lines: current_lines.dup, nested_chunk: current_nested_chunk, task_id: current_task_id } if current_role
             current_role         = "assistant"
             current_lines        = []
             current_nested_chunk = File.join(chunk_dir, m[1])
-          elsif stripped.match?(/\A## (User|Assistant)/)
-            sections << { role: current_role, lines: current_lines.dup, nested_chunk: current_nested_chunk } if current_role
-            current_role         = stripped.match(/\A## (User|Assistant)/)[1].downcase
+            current_task_id      = nil
+          elsif (m = stripped.match(/\A## (User|Assistant)(?: \[Task ([1-9]\d*)\])?\z/))
+            sections << { role: current_role, lines: current_lines.dup, nested_chunk: current_nested_chunk, task_id: current_task_id } if current_role
+            current_role         = m[1].downcase
             current_lines        = []
             current_nested_chunk = nil
+            current_task_id      = m[2]&.to_i
           elsif stripped.match?(/\A### Tool Result:/)
-            sections << { role: current_role, lines: current_lines.dup, nested_chunk: current_nested_chunk } if current_role
+            sections << { role: current_role, lines: current_lines.dup, nested_chunk: current_nested_chunk, task_id: current_task_id } if current_role
             current_role         = "tool"
             current_lines        = []
             current_nested_chunk = nil
+            current_task_id      = nil
           else
             current_lines << line
           end
         end
-        sections << { role: current_role, lines: current_lines.dup, nested_chunk: current_nested_chunk } if current_role
+        sections << { role: current_role, lines: current_lines.dup, nested_chunk: current_nested_chunk, task_id: current_task_id } if current_role
 
         # Remove front-matter / header noise sections (nil role or non-user/assistant/tool)
         sections.select! { |s| %w[user assistant tool].include?(s[:role]) }
@@ -545,14 +552,16 @@ module Clacky
             round_index += 1
             # Synthetic timestamp: spread rounds backwards from archived_at
             synthetic_ts = base_time - (sections.size - round_index) * 1.0
+            user_msg = {
+              role: "user",
+              content: text,
+              created_at: synthetic_ts,
+              ext_events: sec_ext_events,
+              _from_chunk: true
+            }
+            user_msg[:task_id] = sec[:task_id] if sec[:task_id]
             current_round = {
-              user_msg: {
-                role: "user",
-                content: text,
-                created_at: synthetic_ts,
-                ext_events: sec_ext_events,
-                _from_chunk: true
-              },
+              user_msg: user_msg,
               events: [],
               # editable: false — this message was archived into a chunk MD and no
               # longer exists in the active in-memory @history, so it cannot be

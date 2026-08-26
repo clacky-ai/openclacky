@@ -624,7 +624,7 @@ module Clacky
 
           case role
           when "user"
-            lines << "## User"
+            lines << (msg[:task_id] ? "## User [Task #{msg[:task_id]}]" : "## User")
             lines << ""
             lines << format_message_content(content)
             lines << ""

@@ -136,11 +136,13 @@ module Clacky
         # This ensures all API calls are recorded for statistics purposes.
         billing_model = model || current_model
         effective_cost = cost || 0.0  # Use 0 if pricing is unknown
+        provider = @config.provider_id_for(@config.current_model)
 
         record = Billing::BillingRecord.new(
           session_id: @session_id,
           timestamp: Time.now,
           model: billing_model,
+          provider: provider,
           prompt_tokens: usage[:prompt_tokens] || 0,
           completion_tokens: usage[:completion_tokens] || 0,
           cache_read_tokens: usage[:cache_read_input_tokens] || 0,

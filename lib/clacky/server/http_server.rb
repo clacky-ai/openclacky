@@ -65,13 +65,14 @@ module Clacky
         event
       end
 
-      def show_user_message(content, task_id: nil, created_at: nil, files: [], editable: true, skill_command: nil, skill_command_display: nil)
+      def show_user_message(content, task_id: nil, created_at: nil, files: [], editable: true, skill_command: nil, skill_command_display: nil, references: [])
         ev = { type: "history_user_message", session_id: @session_id, content: content }
         ev[:task_id] = task_id if task_id
         ev[:created_at] = created_at if created_at
         ev[:skill_command] = skill_command if skill_command
         ev[:skill_command_display] = skill_command_display if skill_command_display
         ev[:editable] = false unless editable
+        ev[:references] = references unless Array(references).empty?
         rendered = Array(files).filter_map do |f|
           url  = f[:data_url] || f["data_url"]
           name = f[:name]     || f["name"]
@@ -1894,6 +1895,7 @@ module Clacky
         record = Clacky::Billing::BillingRecord.new(
           session_id:        session_id,
           model:             result["model"].to_s,
+          provider:          result["provider"].to_s,
           prompt_tokens:     usage.is_a?(Hash) ? usage["prompt_tokens"].to_i : 0,
           completion_tokens: usage.is_a?(Hash) ? usage["completion_tokens"].to_i : 0,
           cache_read_tokens: usage.is_a?(Hash) ? usage["cache_read_tokens"].to_i : 0,
@@ -2083,7 +2085,12 @@ module Clacky
           if existing
             existing.delete("disabled")
             existing["mode"] = "auto"
-            existing["model"] = override unless override.empty?
+            if override.empty?
+              # empty model on "auto" means "revert to the provider default"
+              existing.delete("model")
+            else
+              existing["model"] = override
+            end
           else
             unless override.empty?
               @agent_config.models << {
@@ -3261,7 +3268,7 @@ module Clacky
         model  = query["model"]
 
         store   = Clacky::Billing::BillingStore.new
-        summary = store.summary(period: period, model: model)
+        summary = merged_billing_summary(store, period: period, model: model)
 
         json_response(res, 200, summary)
       end
@@ -3277,7 +3284,7 @@ module Clacky
         model = query["model"]
 
         store = Clacky::Billing::BillingStore.new
-        daily = store.daily_breakdown(days: days, model: model)
+        daily = merged_billing_daily(store, days: days, model: model)
 
         json_response(res, 200, { days: daily })
       end
@@ -3336,6 +3343,118 @@ module Clacky
         json_response(res, 200, { ok: true, deleted: deleted, scope: scope })
       rescue => e
         json_response(res, 500, { error: e.message })
+      end
+
+      # Openclacky platform usage is authoritative; other providers are
+      # estimated locally. Merge the two by summing, after stripping the
+      # local openclacky records (they would otherwise be counted twice).
+      private def merged_billing_summary(store, period:, model:)
+        platform = platform_usage_summary(period: period, model: model)
+
+        local = store.summary(period: period, model: model, exclude_openclacky: !platform.nil?)
+
+        return local unless platform
+
+        {
+          period: local[:period],
+          from: local[:from] || platform[:from],
+          to: local[:to] || platform[:to],
+          total_cost: (platform[:total_cost].to_f + local[:total_cost].to_f).round(6),
+          total_tokens: platform[:total_tokens].to_i + local[:total_tokens].to_i,
+          prompt_tokens: platform[:prompt_tokens].to_i + local[:prompt_tokens].to_i,
+          completion_tokens: platform[:completion_tokens].to_i + local[:completion_tokens].to_i,
+          cache_read_tokens: platform[:cache_read_tokens].to_i + local[:cache_read_tokens].to_i,
+          cache_write_tokens: platform[:cache_write_tokens].to_i + local[:cache_write_tokens].to_i,
+          by_model: merge_billing_models(platform[:by_model], local[:by_model]),
+          by_day: merge_billing_days(platform[:by_day], local[:by_day]),
+          record_count: platform[:record_count].to_i + local[:record_count].to_i
+        }
+      end
+
+      private def merged_billing_daily(store, days:, model:)
+        platform = platform_usage_daily(days: days, model: model)
+
+        local = store.daily_breakdown(days: days, model: model, exclude_openclacky: !platform.nil?)
+
+        return local unless platform
+
+        by_date = {}
+        local.each { |d| by_date[d[:date]] = d.dup }
+        (platform[:days] || []).each do |d|
+          existing = by_date[d[:date]]
+          if existing
+            existing[:cost] = (existing[:cost].to_f + d[:cost].to_f).round(6)
+            existing[:tokens] = existing[:tokens].to_i + d[:tokens].to_i
+            existing[:prompt_tokens] = existing[:prompt_tokens].to_i + d[:prompt_tokens].to_i
+            existing[:completion_tokens] = existing[:completion_tokens].to_i + d[:completion_tokens].to_i
+            existing[:cache_read_tokens] = existing[:cache_read_tokens].to_i + d[:cache_read_tokens].to_i
+            existing[:cache_write_tokens] = existing[:cache_write_tokens].to_i + d[:cache_write_tokens].to_i
+            existing[:requests] = existing[:requests].to_i + d[:requests].to_i
+          else
+            by_date[d[:date]] = d.dup
+          end
+        end
+        by_date.values.sort_by { |d| d[:date] }
+      end
+
+      private def platform_usage_summary(period:, model:)
+        require_relative "../billing/platform_billing"
+
+        api_key = platform_api_key
+        return nil if api_key.nil? || api_key.empty?
+
+        real = Clacky::Billing::PlatformBilling.real_model(model) || model
+        Clacky::Billing::PlatformBilling.fetch_summary(api_key, period: period, model: real)
+      end
+
+      private def platform_usage_daily(days:, model:)
+        require_relative "../billing/platform_billing"
+
+        api_key = platform_api_key
+        return nil if api_key.nil? || api_key.empty?
+
+        real = Clacky::Billing::PlatformBilling.real_model(model) || model
+        Clacky::Billing::PlatformBilling.fetch_daily(api_key, days: days, model: real)
+      end
+
+      private def merge_billing_models(platform_models, local_models)
+        merged = {}
+        (platform_models || {}).each do |real_id, entry|
+          alias_name = Clacky::Billing::PlatformBilling.display_model(real_id)
+          merged[alias_name] = merge_billing_model_entry(merged[alias_name], entry)
+        end
+        (local_models || {}).each do |model, entry|
+          merged[model] = merge_billing_model_entry(merged[model], entry)
+        end
+        merged
+      end
+
+      private def merge_billing_model_entry(a, b)
+        a = a || { cost: 0.0, prompt_tokens: 0, completion_tokens: 0, requests: 0 }
+        b = b || { cost: 0.0, prompt_tokens: 0, completion_tokens: 0, requests: 0 }
+        {
+          cost: (a[:cost].to_f + b[:cost].to_f).round(6),
+          prompt_tokens: a[:prompt_tokens].to_i + b[:prompt_tokens].to_i,
+          completion_tokens: a[:completion_tokens].to_i + b[:completion_tokens].to_i,
+          requests: a[:requests].to_i + b[:requests].to_i
+        }
+      end
+
+      private def merge_billing_days(platform_days, local_days)
+        merged = {}
+        (platform_days || {}).each { |date, cost| merged[date] = (merged[date] || 0.0) + cost.to_f }
+        (local_days || {}).each { |date, cost| merged[date] = (merged[date] || 0.0) + cost.to_f }
+        merged.transform_values { |v| v.round(6) }
+      end
+
+      private def platform_api_key
+        @agent_config.models.each do |m|
+          next unless m.is_a?(Hash)
+          next unless @agent_config.provider_id_for(m) == "openclacky"
+          key = m["api_key"].to_s.strip
+          return key unless key.empty?
+        end
+        nil
       end
 
       # POST /api/ui/open_aside
@@ -5012,11 +5131,13 @@ module Clacky
       # GET /api/dirs?path=<absolute-or-~-path>
       # Session-independent directory browser used by the New Session modal,
       # where no session (and thus no working_dir) exists yet. Always operates
-      # in absolute mode and lists directories only.
+      # in absolute mode. Lists directories only by default; pass files=true to
+      # include files (used by the @ mention file picker on the new-session page).
       def api_browse_dirs(req, res)
         query = URI.decode_www_form(req.query_string.to_s).to_h
         rel   = query["path"].to_s.strip
         show_hidden = query["show_hidden"] == "true"
+        include_files = query["files"] == "true"
         rel   = Dir.home if rel.empty?
         target = File.expand_path(rel.start_with?("~") ? rel.sub(/\A~/, Dir.home) : rel)
 
@@ -5035,12 +5156,15 @@ module Clacky
         end
         items = entries.filter_map do |name|
           full = File.join(target, name)
-          next unless File.directory?(full) && File.exist?(full)
-          { name: name, path: full, type: "dir" }
+          next unless File.exist?(full)
+          is_dir = File.directory?(full)
+          next if !include_files && !is_dir
+          { name: name, path: full, type: is_dir ? "dir" : "file",
+            size: is_dir ? nil : (File.size(full) rescue nil) }
         rescue StandardError
           nil
         end
-        items.sort_by! { |it| it[:name].downcase }
+        items.sort_by! { |it| [it[:type] == "dir" ? 0 : 1, it[:name].downcase] }
 
         json_response(res, 200, { root: target, path: target, parent: File.dirname(target), home: Dir.home, default: default_working_dir, entries: items })
       rescue StandardError => e
@@ -7113,7 +7237,7 @@ module Clacky
           raw_images = (msg["images"] || []).map do |data_url|
             { "data_url" => data_url, "name" => "image.jpg", "mime_type" => "image/jpeg" }
           end
-          handle_user_message(session_id, msg["content"].to_s, (msg["files"] || []) + raw_images)
+          handle_user_message(session_id, msg["content"].to_s, (msg["files"] || []) + raw_images, references: msg["references"] || [])
 
         when "confirmation"
           session_id = msg["session_id"] || conn.session_id
@@ -7182,7 +7306,7 @@ module Clacky
         handle_user_message(session_id, content)
       end
 
-      def handle_user_message(session_id, content, files = [])
+      def handle_user_message(session_id, content, files = [], references: [])
         return unless @registry.exist?(session_id)
 
         session = @registry.get(session_id)
@@ -7242,7 +7366,36 @@ module Clacky
 
         # File references are now handled inside agent.run — injected as a system_injected
         # message after the user message, so replay_history skips them automatically.
-        run_agent_task(session_id, agent) { agent.run(content, files: files, created_at: msg_created_at) }
+        reference_contexts = build_reference_contexts(references)
+        run_agent_task(session_id, agent) { agent.run(content, files: files, reference_contexts: reference_contexts, created_at: msg_created_at, references_display: references) }
+      end
+
+      # Build context blocks for non-file @mention references. Each reference is
+      # { "type" => ..., ...payload } — dispatch on type so new reference kinds
+      # (e.g. branch diff, browser snapshot) only add a `when` branch here.
+      private def build_reference_contexts(references)
+        Array(references).filter_map do |ref|
+          next unless ref.is_a?(Hash)
+          case ref["type"].to_s
+          when "session" then build_session_reference_context(ref)
+          end
+        end
+      end
+
+      # Resolve a past-chat reference into a lightweight pointer for the LLM:
+      # the session name + ID + on-disk file path, no transcript inlined.
+      private def build_session_reference_context(ref)
+        session_id = ref["session_id"].to_s
+        return nil if session_id.empty?
+
+        name = ref["name"].to_s
+        name = session_id if name.empty?
+
+        lines = ["[Referenced conversation: #{name}]", "Session ID: #{session_id}"]
+        files = @session_manager.files_for(session_id)
+        lines << "Session file: #{files[:json_path]}" if files && files[:json_path]
+
+        lines.join("\n")
       end
 
       def deliver_confirmation(session_id, conf_id, result)
