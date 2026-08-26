@@ -254,6 +254,9 @@ module Clacky
           session_builder:   method(:build_session),
           run_agent_task:    method(:run_agent_task),
           interrupt_session: method(:interrupt_session),
+          # No updated_at: clearing a stale channel_info must not bump the session's
+          # position in the newest-first list.
+          persist_session:   ->(agent) { @session_manager.save(agent.to_session_data) },
           channel_config:    Clacky::ChannelConfig.load
         )
         @browser_manager = Clacky::BrowserManager.instance
