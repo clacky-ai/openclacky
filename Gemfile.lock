@@ -6,7 +6,7 @@ PATH
       base64 (>= 0.1.0)
       chunky_png (~> 1.4)
       diffy (~> 3.4)
-      faraday (>= 2.0, < 2.9)
+      faraday (>= 2.14.3)
       faraday-multipart (~> 1.0)
       logger (>= 1.4)
       pastel (~> 0.8)
@@ -37,7 +37,7 @@ GEM
     diffy (3.4.4)
     docile (1.4.1)
     erb (6.0.4)
-    faraday (2.8.1)
+    faraday (2.14.3)
       base64
       faraday-net_http (>= 2.0, < 3.1)
       ruby2_keywords (>= 0.0.4)
