@@ -225,7 +225,7 @@ RSpec.describe Clacky::Server::HttpServer do
       # Helper: drop a fully-formed session JSON directly on disk so we
       # control created_at precisely (POST /api/sessions always uses Time.now,
       # which can't reliably produce "old" sessions for this test).
-      def write_session_file(dir, session_id:, name:, created_at:, pinned: false, source: "manual")
+      def write_session_file(dir, session_id:, name:, created_at:, pinned: false, source: "manual", project_id: nil)
         data = {
           session_id:    session_id,
           name:          name,
@@ -238,6 +238,7 @@ RSpec.describe Clacky::Server::HttpServer do
           messages:      [],
           stats:         { total_tasks: 0, total_cost_usd: 0.0 },
         }
+        data[:project_id] = project_id if project_id
         datetime = Time.parse(created_at).strftime("%Y-%m-%d-%H-%M-%S")
         short_id = session_id[0..7]
         File.write(File.join(dir, "#{datetime}-#{short_id}.json"),
@@ -337,6 +338,112 @@ RSpec.describe Clacky::Server::HttpServer do
             expect(names).to eq(["plain-2"])   # only the older non-pinned
             expect(names).not_to include("pin-a")
           end
+        end
+      end
+
+      it "excludes project sessions from load-more pages (before cursor set)" do
+        Dir.mktmpdir("clacky_pin_spec") do |dir|
+          # The project row is OLDER than the cursor, so only the
+          # exclude_project filter can keep it out — without the fix it would
+          # be returned, wasting a page slot and polluting the next cursor.
+          write_session_file(dir, session_id: "proj_1_1111111", name: "project-task",
+                             created_at: "2026-04-07T00:00:00+00:00", pinned: false,
+                             project_id: "90d258d8")
+          write_session_file(dir, session_id: "plain_1_2222222", name: "plain-1",
+                             created_at: "2026-04-09T00:00:00+00:00", pinned: false)
+          write_session_file(dir, session_id: "plain_2_3333333", name: "plain-2",
+                             created_at: "2026-04-08T00:00:00+00:00", pinned: false)
+
+          with_server(agent_config: agent_config, sessions_dir: dir) do |server|
+            req = fake_req(method: "GET", path: "/api/sessions",
+                           query_string: "limit=10&before=2026-04-09T00:00:00%2B00:00")
+            res = fake_res
+            dispatch(server, req, res)
+
+            body = parsed_body(res)
+            names = body["sessions"].map { |s| s["name"] }
+            expect(names).to eq(["plain-2"])
+            expect(names).not_to include("project-task")
+          end
+        end
+      end
+    end
+  end
+
+  # ── WS list_sessions (initial sidebar list) ─────────────────────────────
+  #
+  # The sidebar's first page is capped at 10 rows total: pinned sessions first,
+  # non-pinned fill the remainder. Pinned sessions must never be truncated;
+  # the old `page.first(10)` silently dropped the oldest pins once more than 10
+  # sessions were pinned.
+  describe "WS list_sessions" do
+    def write_session_file(dir, session_id:, name:, created_at:, pinned: false, source: "manual")
+      data = {
+        session_id:    session_id,
+        name:          name,
+        created_at:    created_at,
+        updated_at:    created_at,
+        working_dir:   "/tmp",
+        source:        source,
+        agent_profile: "general",
+        pinned:        pinned,
+        messages:      [],
+        stats:         { total_tasks: 0, total_cost_usd: 0.0 },
+      }
+      datetime = Time.parse(created_at).strftime("%Y-%m-%d-%H-%M-%S")
+      short_id = session_id[0..7]
+      File.write(File.join(dir, "#{datetime}-#{short_id}.json"), JSON.pretty_generate(data))
+    end
+
+    def ws_list_sessions(server)
+      sent = nil
+      conn = double("ws_conn")
+      allow(conn).to receive(:send_json) { |data| sent = data }
+      server.on_ws_message(conn, JSON.generate(type: "list_sessions"))
+      sent
+    end
+
+    it "keeps every pinned session even when pins outnumber the page size" do
+      Dir.mktmpdir("clacky_ws_list_spec") do |dir|
+        11.times do |i|
+          write_session_file(dir, session_id: "pin_#{i}_aaaaaaaa", name: "pin-#{i}",
+                             created_at: "2026-04-01T00:00:#{format('%02d', i)}+00:00",
+                             pinned: true)
+        end
+        write_session_file(dir, session_id: "plain_x_xxxxxxx", name: "plain",
+                           created_at: "2026-05-01T00:00:00+00:00", pinned: false)
+
+        with_server(agent_config: agent_config, sessions_dir: dir) do |server|
+          sent = ws_list_sessions(server)
+          sessions = sent[:sessions]
+          names = sessions.map { |s| s[:name] }
+          expect(names).to include("pin-0"), "oldest pinned must survive (got #{names.inspect})"
+          expect(sessions.count { |s| s[:pinned] }).to eq(11)
+          expect(sent[:has_more]).to eq(true)
+        end
+      end
+    end
+
+    it "caps the first page at 10 rows: pinned first, non-pinned fill the rest" do
+      Dir.mktmpdir("clacky_ws_list_spec") do |dir|
+        8.times do |i|
+          write_session_file(dir, session_id: "pin_#{i}_aaaaaaaa", name: "pin-#{i}",
+                             created_at: "2026-04-01T00:00:#{format('%02d', i)}+00:00",
+                             pinned: true)
+        end
+        5.times do |i|
+          write_session_file(dir, session_id: "plain#{i}_aaaaaaaa", name: "plain-#{i}",
+                             created_at: "2026-05-01T00:00:#{format('%02d', i)}+00:00",
+                             pinned: false)
+        end
+
+        with_server(agent_config: agent_config, sessions_dir: dir) do |server|
+          sent = ws_list_sessions(server)
+          sessions = sent[:sessions]
+          expect(sessions.size).to eq(10)
+          expect(sessions.count { |s| s[:pinned] }).to eq(8)
+          expect(sessions.last(2).map { |s| s[:name] }).to eq(["plain-4", "plain-3"])
+          expect(sent[:has_more]).to eq(true)
         end
       end
     end

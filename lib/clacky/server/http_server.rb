@@ -937,7 +937,13 @@ module Clacky
         type ||= query["profile"].to_s.strip.then { |v| v.empty? ? nil : v }
         type ||= query["source"].to_s.strip.then  { |v| v.empty? ? nil : v }
 
-        sessions = @registry.list(limit: limit + 1, before: before, q: q, q_scope: q_scope, date: date, type: type, exclude_type: exclude_type, exclude_project: !!type)
+        # Paginated "load more" (before set) only fills the regular session list;
+        # project sessions already arrive via the first-page WS payload and render
+        # in the project section, so they must not eat into this page's quota.
+        # Search (no before) keeps the original semantics: without a type filter
+        # it may still match project sessions.
+        exclude_project = before ? true : !!type
+        sessions = @registry.list(limit: limit + 1, before: before, q: q, q_scope: q_scope, date: date, type: type, exclude_type: exclude_type, exclude_project: exclude_project)
 
         pinned_part, non_pinned_part = sessions.partition { |s| s[:pinned] }
         has_more = non_pinned_part.size > limit
@@ -7253,8 +7259,14 @@ module Clacky
         when "list_sessions"
           groups   = @registry.group_stats_all
           page     = @registry.list(limit: 11, exclude_type: SessionManager::GROUPED_SOURCES, exclude_project: true)
-          has_more = page.size > 10
-          all_sessions = page.first(10)
+          # The sidebar's first page is capped at 10 rows total: pinned first,
+          # non-pinned fill the remainder. Pinned sessions must never be
+          # truncated — `page.first(10)` dropped the oldest pins once more than
+          # 10 sessions were pinned.
+          pinned_part, non_pinned_part = page.partition { |s| s[:pinned] }
+          non_pinned_limit = [10 - pinned_part.size, 0].max
+          has_more = non_pinned_part.size > non_pinned_limit
+          all_sessions = pinned_part + non_pinned_part.first(non_pinned_limit)
           projects = @project_manager.all
           if projects.any?
             project_ids = projects.map { |p| p[:id] }
