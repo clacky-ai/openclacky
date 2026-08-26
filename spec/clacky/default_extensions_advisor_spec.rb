@@ -78,7 +78,16 @@ RSpec.describe "Advisor default extension" do
   end
 
   describe Clacky::Advisor::Worker do
-    let(:advice) { "- [Run bundle exec rspec and fix any failures] Verify the changes\n- [Commit the changes] Wrap up" }
+    let(:advice) do
+      '[{"action": "Run bundle exec rspec and fix any failures", "reason": "Verify the changes"},' \
+        '{"action": "Commit the changes", "reason": "Wrap up"}]'
+    end
+    let(:advice_options) do
+      [
+        { action: "Run bundle exec rspec and fix any failures", reason: "Verify the changes" },
+        { action: "Commit the changes", reason: "Wrap up" }
+      ]
+    end
     let(:client) { double("client", send_messages: advice) }
     let(:config) { double("config", lite_model_config_for_current: nil, model_name: "test-model") }
     let(:history) { double("history", to_a: [{ role: "user", content: "Fix the build" }]) }
@@ -120,7 +129,7 @@ RSpec.describe "Advisor default extension" do
 
       expect(Clacky::ThreadRegistry).to have_received(:spawn).once
       expect(events.map(&:first)).to eq(["ext.advisor.pending", "ext.advisor.recommendations"])
-      expect(events[1][1][:content]).to eq(advice)
+      expect(events[1][1][:options]).to eq(advice_options)
     end
 
     it "emits a pending event before the async analysis starts" do
@@ -135,7 +144,7 @@ RSpec.describe "Advisor default extension" do
 
     it "emits the advice once per completed round" do
       events = []
-      allow(agent).to receive(:emit_event).with("ext.advisor.recommendations", content: advice) { |_, content:| events << content }
+      allow(agent).to receive(:emit_event).with("ext.advisor.recommendations", options: advice_options) { |_, options:| events << options }
 
       observe_tool("write", "wrote lib/a.rb")
       observe_tool("grep")
@@ -282,8 +291,8 @@ RSpec.describe "Advisor default extension" do
       expect(calls[1]).not_to include("wrote lib/a.rb")
     end
 
-    it "emits done instead of advice when the model returns 'none'" do
-      allow(client).to receive(:send_messages).and_return("none")
+    it "emits done instead of advice when the model returns an empty array" do
+      allow(client).to receive(:send_messages).and_return("[]")
       events = []
       allow(agent).to receive(:emit_event) { |type, **data| events << [type, data] }
 
@@ -291,6 +300,121 @@ RSpec.describe "Advisor default extension" do
 
       expect(events.map(&:first)).to eq(["ext.advisor.pending", "ext.advisor.done"])
       expect(events[1][1]).to eq(reason: "empty")
+    end
+
+    describe "recommendation parsing" do
+      def options_for(raw)
+        allow(client).to receive(:send_messages).and_return(raw)
+        captured = nil
+        allow(agent).to receive(:emit_event) do |type, **data|
+          captured = data[:options] if type == "ext.advisor.recommendations"
+        end
+        worker.finish_run
+        captured
+      end
+
+      it "parses a plain JSON array" do
+        expect(options_for('[{"action": "Run rspec", "reason": "Verify"}]'))
+          .to eq([{ action: "Run rspec", reason: "Verify" }])
+      end
+
+      it "parses JSON wrapped in a markdown code fence" do
+        raw = "```json\n[{\"action\": \"Run rspec\", \"reason\": \"Verify\"}]\n```"
+        expect(options_for(raw)).to eq([{ action: "Run rspec", reason: "Verify" }])
+      end
+
+      it "parses JSON preceded by reasoning prose" do
+        raw = "<think>The task looks done.</think>\n\n[{\"action\": \"Run rspec\", \"reason\": \"Verify\"}]"
+        expect(options_for(raw)).to eq([{ action: "Run rspec", reason: "Verify" }])
+      end
+
+      it "keeps at most three options" do
+        raw = (1..5).map { |i| %({"action": "a#{i}", "reason": "r#{i}"}) }.join(",")
+        expect(options_for("[#{raw}]").size).to eq(3)
+      end
+
+      it "skips entries without an action" do
+        raw = '[{"reason": "no action"}, {"action": "  ", "reason": "blank"}, {"action": "Run rspec"}]'
+        expect(options_for(raw)).to eq([{ action: "Run rspec", reason: "" }])
+      end
+
+      it "emits done when the reply is not usable at all" do
+        allow(client).to receive(:send_messages).and_return("")
+        events = []
+        allow(agent).to receive(:emit_event) { |type, **data| events << [type, data] }
+
+        worker.finish_run
+
+        expect(events.map(&:first)).to eq(["ext.advisor.pending", "ext.advisor.done"])
+        expect(events[1][1]).to eq(reason: "empty")
+      end
+
+      # Weak models drift out of JSON. A rough clickable option beats showing
+      # nothing, but the reason must never end up inside `action` — that string
+      # is sent verbatim to the agent.
+      describe "line fallback keeps the reason out of the action" do
+        it "splits the legacy [action] reason form" do
+          expect(options_for("- [Run rspec] Verify the changes"))
+            .to eq([{ action: "Run rspec", reason: "Verify the changes" }])
+        end
+
+        # Splitting on a written-out label would mean one pattern per language,
+        # so the label stays in the action rather than half the languages
+        # working and the rest silently falling through.
+        it "keeps a written-out reason label inside the action" do
+          raw = "- Run `ls /tmp/x` and report the result. Reason: Verify the delete succeeded."
+          expect(options_for(raw))
+            .to eq([{ action: "Run `ls /tmp/x` and report the result. Reason: Verify the delete succeeded.",
+                     reason: "" }])
+        end
+
+        it "splits the panel's own ' · ' separator" do
+          raw = "再次执行 `rm -f /tmp/x`，确保彻底删除 · 兜底再删一次，排除残留可能。"
+          expect(options_for(raw))
+            .to eq([{ action: "再次执行 `rm -f /tmp/x`，确保彻底删除", reason: "兜底再删一次，排除残留可能。" }])
+        end
+
+        it "keeps the whole line as the action when no reason marker is present" do
+          expect(options_for("- Run rspec and report the result"))
+            .to eq([{ action: "Run rspec and report the result", reason: "" }])
+        end
+
+        it "takes at most three lines" do
+          raw = (1..5).map { |i| "- action #{i}" }.join("\n")
+          expect(options_for(raw).size).to eq(3)
+        end
+
+        it "ignores prose lines that carry no option markup" do
+          raw = "There's no clear task in progress — just folder browsing.\nThe conversation is essentially exploratory."
+          expect(options_for(raw)).to be_nil
+        end
+      end
+
+      describe "inline thinking" do
+        it "reads the array that follows a closed think block" do
+          raw = "<think>Weighing the options.</think>\n" \
+                '[{"action": "Run rspec", "reason": "Verify"}]'
+          expect(options_for(raw)).to eq([{ action: "Run rspec", reason: "Verify" }])
+        end
+
+        it "drops an unclosed think block instead of degrading its prose" do
+          raw = "<think>The user prefers a concise style.\n\nNo files written, no errors, no tests.\n\n" \
+                "According to rule 2 the first option must ask what the user wants."
+          allow(client).to receive(:send_messages).and_return(raw)
+          events = []
+          allow(agent).to receive(:emit_event) { |type, **data| events << [type, data] }
+
+          worker.finish_run
+
+          expect(events.map(&:first)).to eq(["ext.advisor.pending", "ext.advisor.done"])
+          expect(events[1][1]).to eq(reason: "empty")
+        end
+
+        it "keeps list options that appear after an unclosed think block is dropped" do
+          raw = "- Run rspec and report the result\n<think>still deciding"
+          expect(options_for(raw)).to eq([{ action: "Run rspec and report the result", reason: "" }])
+        end
+      end
     end
 
     it "emits done with the error reason when analysis raises" do
@@ -411,12 +535,26 @@ RSpec.describe "Advisor default extension" do
       out = StringIO.new
       ui = described_class.new(output: out)
 
-      ui.emit("ext.advisor.recommendations", content: "- [Run tests] Verify")
+      ui.emit("ext.advisor.recommendations", options: [
+                { action: "Run tests", reason: "Verify" },
+                { action: "Commit the changes", reason: "" }
+              ])
       ui.emit("ext.something.else", content: "should be ignored")
 
       expect(out.string).to include("💡")
-      expect(out.string).to include("- [Run tests] Verify")
+      expect(out.string).to include("- Run tests (Verify)")
+      expect(out.string).to include("- Commit the changes")
       expect(out.string).not_to include("should be ignored")
+    end
+
+    it "ignores a recommendations event with no usable options" do
+      out = StringIO.new
+      ui = described_class.new(output: out)
+
+      ui.emit("ext.advisor.recommendations", options: [])
+      ui.emit("ext.advisor.recommendations", options: [{ action: "  " }])
+
+      expect(out.string).to eq("")
     end
   end
 end
