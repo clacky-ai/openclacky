@@ -29,7 +29,29 @@ module Clacky
     CONVERSATION_TURNS = 8
     SUMMARY_LIMIT = 200
     MESSAGE_LIMIT = 200
+    MAX_OPTIONS = 3
+    ACTION_LIMIT = 500
+    REASON_LIMIT = 200
 
+    # Separators observed in real model output when it ignores the JSON format
+    # and falls back to one option per line. Ordered: explicit reason markers
+    # first, then " · " (which models copy from the panel's own rendering).
+    FALLBACK_REASON_SEPARATORS = [
+      /\s*(?:理由|原因)\s*[:：]\s*/,
+      /\s+Reason\s*[:：]\s*/i,
+      /\s+·\s+/
+    ].freeze
+
+    # Some providers keep thinking inline in `content` (e.g. MiniMax), and the
+    # closing tag is missing whenever the reply gets cut short.
+    THINK_BLOCK = %r{<think>.*?</think>}m.freeze
+    UNCLOSED_THINK = /<think>[\s\S]*\z/.freeze
+
+    # A degraded line only counts as an option when the model marked it up as
+    # one: a list bullet, a [action] wrapper, or an explicit reason marker.
+    # Without this, reasoning prose turns into three bogus suggestions.
+    FALLBACK_LIST_MARKER = /\A(?:[-*•]|\d+[.)])\s+/.freeze
+    FALLBACK_BRACKETED = /\A\[([^\]]+)\]\s*(.*)\z/m.freeze
     class << self
       def enabled_for?(agent)
         return false if agent.instance_variable_get(:@is_subagent)
@@ -137,14 +159,16 @@ module Clacky
       private def analyze(snapshot)
         cfg = Advisor.config_for(@agent)
         advice = generate_advice(cfg, snapshot)
+        options = parse_options(advice)
         Clacky::Logger.info("[Advisor] analyze",
                             session: @agent.session_id.to_s,
                             len: advice.length,
+                            options: options.size,
                             head: advice[0, 100].to_s)
-        if advice.empty? || advice.strip == "none"
+        if options.empty?
           @agent.emit_event("ext.advisor.done", reason: "empty")
         else
-          push_advice(advice)
+          push_advice(options)
         end
       rescue StandardError => e
         warn_error("analyze", e)
@@ -217,8 +241,88 @@ module Clacky
         nil
       end
 
-      private def push_advice(advice)
-        @agent.emit_event("ext.advisor.recommendations", content: advice)
+      # Turn the raw model reply into [{ action:, reason: }, ...]. The JSON path
+      # is authoritative; the line-based path exists because weak models still
+      # drift out of the requested format, and a rough clickable option beats
+      # showing nothing.
+      private def parse_options(raw)
+        text = strip_thinking(raw.to_s).strip
+        return [] if text.empty?
+
+        array = extract_json_array(text)
+        return normalize_options(array) if array
+
+        fallback_options(text)
+      end
+
+      private def strip_thinking(text)
+        text.gsub(THINK_BLOCK, "").sub(UNCLOSED_THINK, "")
+      end
+
+      private def extract_json_array(text)
+        body = text
+        body = body.gsub(/\A```[a-zA-Z]*\n?/, "").gsub(/```\z/, "").strip if body.start_with?("```")
+        parsed = begin
+          JSON.parse(body)
+        rescue JSON::ParserError
+          # Models still wrap the array in a sentence or a stray code fence.
+          match = body.match(/\[[\s\S]*\]/)
+          match && begin
+            JSON.parse(match[0])
+          rescue JSON::ParserError
+            nil
+          end
+        end
+        parsed.is_a?(Array) ? parsed : nil
+      end
+
+      private def normalize_options(array)
+        options = []
+        array.each do |entry|
+          next unless entry.is_a?(Hash)
+
+          action = entry["action"].to_s.strip
+          next if action.empty?
+
+          options << { action: action[0, ACTION_LIMIT], reason: entry["reason"].to_s.strip[0, REASON_LIMIT] }
+          break if options.size >= MAX_OPTIONS
+        end
+        options
+      end
+
+      # One option per line, splitting the reason off so it never leaks into
+      # `action` — that text is sent verbatim to the agent when clicked. Only
+      # list items qualify, so a reply that is plain prose yields nothing.
+      private def fallback_options(text)
+        options = []
+        text.split("\n").each do |line|
+          action, reason = split_fallback_line(line)
+          next if action.empty?
+
+          options << { action: action[0, ACTION_LIMIT], reason: reason[0, REASON_LIMIT] }
+          break if options.size >= MAX_OPTIONS
+        end
+        options
+      end
+
+      private def split_fallback_line(line)
+        stripped = line.strip
+        listed = FALLBACK_LIST_MARKER.match(stripped)
+        body = listed ? stripped.sub(FALLBACK_LIST_MARKER, "") : stripped
+        return ["", ""] if body.empty?
+
+        bracketed = body.match(FALLBACK_BRACKETED)
+        return [bracketed[1].strip, bracketed[2].strip] if bracketed
+
+        separator = FALLBACK_REASON_SEPARATORS.find { |re| re.match(body) }
+        return listed ? [body, ""] : ["", ""] unless separator
+
+        action, reason = body.split(separator, 2)
+        [action.to_s.strip, reason.to_s.strip]
+      end
+
+      private def push_advice(options)
+        @agent.emit_event("ext.advisor.recommendations", options: options)
       end
 
       private def advisor_model_name(cfg)
