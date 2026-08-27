@@ -89,11 +89,11 @@ RSpec.describe Clacky::Server::HttpServer, "directory picker mutation API" do
   end
 
   # ── WSL quick-access mapping ─────────────────────────────────────────────
-  # Under WSL the desktop/downloads/documents favorites must target the
+  # Under WSL every favorite (home/desktop/downloads/documents) must target the
   # Windows user profile (/mnt/<drive>/Users/<name>/...), not the Linux home.
 
   describe "WSL quick-access mapping" do
-    it "targets the Windows profile for desktop/downloads/documents under WSL" do
+    it "targets the Windows profile for home/desktop/downloads/documents under WSL" do
       with_server(agent_config: agent_config) do |server|
         win_home = File.join(tmproot, "win")
         %w[Desktop Downloads Documents].each { |d| FileUtils.mkdir_p(File.join(win_home, d)) }
@@ -101,7 +101,7 @@ RSpec.describe Clacky::Server::HttpServer, "directory picker mutation API" do
 
         places = server.send(:dir_picker_places)
 
-        expect(places.find { |p| p[:id] == "home" }[:path]).to eq(Dir.home)
+        expect(places.find { |p| p[:id] == "home" }[:path]).to eq(win_home)
         expect(places.find { |p| p[:id] == "desktop" }[:path]).to eq(File.join(win_home, "Desktop"))
         expect(places.find { |p| p[:id] == "downloads" }[:path]).to eq(File.join(win_home, "Downloads"))
         expect(places.find { |p| p[:id] == "documents" }[:path]).to eq(File.join(win_home, "Documents"))

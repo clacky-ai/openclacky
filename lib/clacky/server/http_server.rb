@@ -5080,16 +5080,15 @@ module Clacky
       WINDOWS_PROFILE_DIRS = ["Public", "Default", "Default User", "All Users"].freeze
 
       # Sidebar quick-access favorites for the directory picker (Finder-style).
-      # Translated client-side via `id`. On WSL the desktop/downloads/documents
-      # favorites target the Windows profile (/mnt/<drive>/Users/<name>/...) so they
-      # match where a Windows browser actually saves files; elsewhere they stay
-      # under Dir.home.
+      # Translated client-side via `id`. On WSL every favorite targets the
+      # Windows profile (/mnt/<drive>/Users/<name>/...) so they match where a
+      # Windows browser actually saves files; elsewhere they stay under Dir.home.
       private def dir_picker_places
         home = Dir.home
         win_home = wsl_windows_home
         places = []
 
-        [["home", home],
+        [["home", win_home || home],
          ["desktop",   File.join(win_home || home, "Desktop")],
          ["downloads", File.join(win_home || home, "Downloads")],
          ["documents", File.join(win_home || home, "Documents")]].each do |id, path|
