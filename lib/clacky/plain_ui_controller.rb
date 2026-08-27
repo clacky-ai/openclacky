@@ -121,11 +121,21 @@ module Clacky
     def emit(type, **data)
       return unless type == "ext.advisor.recommendations"
 
-      content = (data[:content] || data["content"]).to_s.strip
-      return if content.empty?
+      options = data[:options] || data["options"]
+      return unless options.is_a?(Array)
+
+      lines = options.map do |opt|
+        action = (opt[:action] || opt["action"]).to_s.strip
+        next if action.empty?
+
+        reason = (opt[:reason] || opt["reason"]).to_s.strip
+        reason.empty? ? "- #{action}" : "- #{action} (#{reason})"
+      end.compact
+      return if lines.empty?
 
       puts_line("")
-      puts_line("💡 #{content}")
+      puts_line("💡")
+      lines.each { |line| puts_line(line) }
     end
 
     def log(message, level: :info)

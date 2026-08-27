@@ -26,16 +26,20 @@ module Clacky
       # @param session_builder    [Proc] (name:, working_dir:) => session_id — from HttpServer
       # @param run_agent_task     [Proc] (session_id, agent, &task) — from HttpServer
       # @param interrupt_session  [Proc] (session_id) — from HttpServer
+      # @param persist_session    [Proc] (agent) — from HttpServer; flushes the agent to
+      #   its session file. Needed because clearing a stale channel_info must survive a
+      #   restart, and ChannelManager has no direct access to the session store.
       # @param channel_config     [Clacky::ChannelConfig]
       # @param binding_mode       [:chat | :chat_user | :user] how to map IM identities to sessions.
       #   :chat (default)      — one session per chat (all users in a chat share it).
       #   :chat_user           — one session per (chat, user) pair.
       #   :user                — one session per user (merges all chats).
-      def initialize(session_registry:, session_builder:, run_agent_task:, interrupt_session:, channel_config:, binding_mode: :chat)
+      def initialize(session_registry:, session_builder:, run_agent_task:, interrupt_session:, channel_config:, persist_session: nil, binding_mode: :chat)
         @registry          = session_registry
         @session_builder   = session_builder
         @run_agent_task    = run_agent_task
         @interrupt_session = interrupt_session
+        @persist_session   = persist_session
         @channel_config    = channel_config
         @binding_mode      = binding_mode
         @adapters          = []
@@ -391,31 +395,48 @@ module Clacky
           end
 
           # Detach channel_ui from the old session's web_ui, reattach to the new one.
-          # Also clear the old session's persisted agent.channel_info if it still
-          # matches this key — keeping channel_keys and channel_info strictly in sync
-          # so resolve_session never sees two sessions claim the same key via different
-          # sources (see comment in resolve_session).
+          # Stale channel_info for this key is then cleared from every other session
+          # (including ones evicted from memory) so resolve_session and
+          # restore_channel_bindings never see two sessions claim the same key.
           old_session_id = resolve_session(event)
           channel_ui = old_session_id ? channel_ui_for_session(old_session_id) : nil
+          cleared_agent = nil
 
           if channel_ui
             @registry.with_session(old_session_id) do |s|
               s[:ui]&.unsubscribe_channel(channel_ui)
               s.delete(:channel_ui)
-              if s[:agent]&.respond_to?(:channel_info=) && s[:agent].respond_to?(:channel_info) &&
-                 s[:agent].channel_info && channel_key_from_info(s[:agent].channel_info) == key
-                s[:agent].channel_info = nil
+              agent = s[:agent]
+              if agent&.channel_info && channel_key_from_info(agent.channel_info) == key
+                agent.channel_info = nil
+                cleared_agent = agent
               end
             end
           else
             channel_ui = ChannelUIController.new(event, -> { adapter_for(event[:platform]) }, -> { @channel_config.status_messages_enabled? }, -> { @channel_config.process_messages_enabled? })
           end
 
+          @persist_session&.call(cleared_agent) if cleared_agent
+          clear_channel_info_for_key(key, keep_session_id: session_id)
+
           bind_key_to_session(key, session_id)
+          bound_agent = nil
           @registry.with_session(session_id) do |s|
             s[:ui]&.subscribe_channel(channel_ui)
             s[:channel_ui] = channel_ui
+
+            # Stamp channel_info now instead of waiting for the next inbound message
+            # (see route_message): a restart in between would otherwise find no session
+            # carrying this key and drop the binding.
+            agent = s[:agent]
+            if agent
+              agent.channel_info = extract_channel_info(event)
+              bound_agent = agent
+            end
           end
+
+          # Flush outside with_session: the registry mutex must not be held across file IO.
+          @persist_session&.call(bound_agent) if bound_agent
 
           Clacky::Logger.info("[ChannelManager] Bound #{key} -> session #{session_id[0, 8]}")
           adapter.send_text(chat_id, "Bound to session `#{session_id[0, 8]}`.")
@@ -431,21 +452,43 @@ module Clacky
 
         when "/unbind"
           unbound = false
+          cleared_agents = []
           @registry.list.each do |summary|
             @registry.with_session(summary[:id]) do |s|
-              if s[:channel_keys]&.delete(key)
-                unbound = true
-                # Keep agent.channel_info in sync with channel_keys (see resolve_session).
-                # Without this, after process restart + eviction, the fallback path would
-                # silently re-bind this key back to the unbinded session via stale
-                # channel_info, defeating /unbind.
-                if s[:agent]&.respond_to?(:channel_info=) && s[:agent].respond_to?(:channel_info) &&
-                   s[:agent].channel_info && channel_key_from_info(s[:agent].channel_info) == key
-                  s[:agent].channel_info = nil
-                end
+              # Set#delete always returns self — use delete? so an unknown key
+              # reports "No binding found." instead of a false "Unbound.".
+              next unless s[:channel_keys]&.delete?(key)
+
+              unbound = true
+
+              agent = s[:agent]
+              if agent&.channel_info && channel_key_from_info(agent.channel_info) == key
+                # Clear in memory here rather than relying on clear_channel_info_for_key:
+                # that scan reads the on-disk summary, which misses a channel_info that
+                # was stamped on this live agent but not persisted yet.
+                agent.channel_info = nil
+                cleared_agents << agent
+              end
+
+              # Detach channel_ui once the last key is gone, otherwise outbound
+              # broadcasts keep reaching the IM chat through web_ui's subscriber
+              # list even though inbound messages no longer resolve this session.
+              # Keys are a Set: a session may still be reachable via another key.
+              if s[:channel_keys].empty?
+                s[:ui]&.unsubscribe_channel(s[:channel_ui]) if s[:channel_ui]
+                s.delete(:channel_ui)
               end
             end
           end
+
+          if unbound
+            cleared_agents.each { |agent| @persist_session&.call(agent) }
+            # Drop channel_info everywhere else too: restore_channel_bindings would
+            # otherwise hand the key to an older session that still carries a stale
+            # copy on disk, silently re-binding it after a restart.
+            clear_channel_info_for_key(key)
+          end
+
           adapter.send_text(chat_id, unbound ? "Unbound." : "No binding found.")
 
         when "/status"
@@ -748,6 +791,38 @@ module Clacky
           end
         end
         result
+      end
+
+      # Clear a stale agent.channel_info for `key` across every session except
+      # `keep_session_id`. Every inbound message stamps channel_info onto the
+      # bound agent (see route_message), so switching bindings leaves the field
+      # behind on older sessions. Those leftovers are what restore_channel_bindings
+      # reads at startup, letting an abandoned session silently reclaim the key.
+      # The on-disk summary is authoritative here, so sessions evicted from
+      # memory are cleaned too — which is exactly the case /bind used to miss.
+      def clear_channel_info_for_key(key, keep_session_id: nil)
+        @registry.list(limit: nil).each do |summary|
+          next if summary[:id] == keep_session_id
+
+          info = summary[:channel_info]
+          next unless info.is_a?(Hash) && info[:platform] && info[:user_id] && info[:chat_id]
+          next unless channel_key_from_info(info) == key
+          next unless @registry.ensure(summary[:id])
+
+          cleared = nil
+          @registry.with_session(summary[:id]) do |s|
+            agent = s[:agent]
+            next unless agent&.channel_info && channel_key_from_info(agent.channel_info) == key
+
+            agent.channel_info = nil
+            cleared = agent
+          end
+          next unless cleared
+
+          # Flush outside with_session: the registry mutex must not be held across file IO.
+          @persist_session&.call(cleared)
+          Clacky::Logger.info("[ChannelManager] Cleared stale channel_info #{key} from session #{summary[:id][0, 8]}")
+        end
       end
 
       def bind_key_to_session(key, session_id)
