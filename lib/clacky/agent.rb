@@ -726,6 +726,11 @@ module Clacky
 
         # Track if ask_user was called
         awaiting_user_feedback = false
+        # Heuristic sibling of the above: the reply merely ended with a question
+        # mark. Kept separate because it must never reach build_result — the
+        # session status it feeds shows a "waiting" badge to the user, and a
+        # rhetorical closing question is not a request for input.
+        turn_unfinished = false
         # Track if task was interrupted by user (denied tool execution)
         task_interrupted = false
 
@@ -849,7 +854,7 @@ module Clacky
             # If the assistant ended its turn with a question, treat this as
             # an in-flight conversation (agent is awaiting the user's reply)
             # and skip skill evolution — the task isn't truly complete yet.
-            awaiting_user_feedback = true if ends_with_question
+            turn_unfinished = true if ends_with_question
 
             break
           end
@@ -908,7 +913,7 @@ module Clacky
         # Run skill evolution hooks after main loop completes
         # Skip if task was interrupted by user (denied tool) or awaiting user feedback
         # Only for main agent (not subagents) to avoid recursive evolution
-        unless @is_subagent || task_interrupted || awaiting_user_feedback
+        unless @is_subagent || task_interrupted || awaiting_user_feedback || turn_unfinished
           run_skill_evolution_hooks
         end
 
@@ -919,7 +924,7 @@ module Clacky
         # and only then [OK] Task Complete is printed. No cleanup dance,
         # no cross-method progress handle holding.
         # Skip on interrupt / feedback / subagent (self-guarded inside too).
-        unless @is_subagent || task_interrupted || awaiting_user_feedback
+        unless @is_subagent || task_interrupted || awaiting_user_feedback || turn_unfinished
           run_memory_update_subagent
         end
 
