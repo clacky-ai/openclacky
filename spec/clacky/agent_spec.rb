@@ -1787,5 +1787,45 @@ RSpec.describe Clacky::Agent do
         expect(result[:awaiting_user_feedback]).to be false
       end
     end
+
+    it "is false when the reply merely ends with a question mark" do
+      Dir.mktmpdir do |tmpdir|
+        agent = build_agent(tmpdir, :confirm_all)
+
+        allow(client).to receive(:send_messages_with_tools)
+          .and_return(mock_api_response(content: "Fixed it. Want me to run the tests?"))
+
+        result = agent.run("fix the bug")
+
+        expect(result[:awaiting_user_feedback]).to be false
+      end
+    end
+
+    it "is false when the reply ends with a full-width question mark" do
+      Dir.mktmpdir do |tmpdir|
+        agent = build_agent(tmpdir, :confirm_all)
+
+        allow(client).to receive(:send_messages_with_tools)
+          .and_return(mock_api_response(content: "\u4FEE\u597D\u4E86\uFF0C\u8FD8\u9700\u8981\u6211\u505A\u4EC0\u4E48\u5417\uFF1F"))
+
+        result = agent.run("fix the bug")
+
+        expect(result[:awaiting_user_feedback]).to be false
+      end
+    end
+
+    it "still skips skill evolution and memory update on a question-mark ending" do
+      Dir.mktmpdir do |tmpdir|
+        agent = build_agent(tmpdir, :confirm_all)
+
+        allow(client).to receive(:send_messages_with_tools)
+          .and_return(mock_api_response(content: "Done. Anything else?"))
+
+        expect(agent).not_to receive(:run_skill_evolution_hooks)
+        expect(agent).not_to receive(:run_memory_update_subagent)
+
+        agent.run("fix the bug")
+      end
+    end
   end
 end
