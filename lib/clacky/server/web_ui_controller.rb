@@ -128,7 +128,8 @@ module Clacky
                context: context,
                options: first[:options] || [],
                questions: questions)
-          # Don't forward to IM subscribers — they get the formatted text version already
+          # IM subscribers render the same questions as plain text — they have no card.
+          forward_to_subscribers { |sub| sub.show_tool_call(name, args_data) }
           return
         end
 
