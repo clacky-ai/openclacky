@@ -64,6 +64,73 @@ RSpec.describe Clacky::Server::HttpServer, "directory picker mutation API" do
         expect(body).to have_key("entries")
       end
     end
+
+    it "exposes quick-access `places` as home favorites" do
+      with_server(agent_config: agent_config) do |server|
+        req = fake_req(method: "GET", path: "/api/dirs",
+                       query_string: "path=#{tmproot}")
+        res = fake_res
+        dispatch(server, req, res)
+
+        expect(res.status).to eq(200)
+        places = parsed_body(res)["places"]
+        expect(places).to be_an(Array)
+
+        home = places.find { |p| p["id"] == "home" }
+        expect(home).not_to be_nil
+        expect(home["path"]).to eq(Dir.home)
+        expect(home["kind"]).to eq("favorite")
+
+        # Only favorites are exposed; no root/locations/volumes.
+        expect(places.map { |p| p["id"] }).not_to include("root", "applications")
+        expect(places.map { |p| p["kind"] }.uniq).to eq(["favorite"])
+      end
+    end
+  end
+
+  # ── WSL quick-access mapping ─────────────────────────────────────────────
+  # Under WSL the desktop/downloads/documents favorites must target the
+  # Windows user profile (/mnt/<drive>/Users/<name>/...), not the Linux home.
+
+  describe "WSL quick-access mapping" do
+    it "targets the Windows profile for desktop/downloads/documents under WSL" do
+      with_server(agent_config: agent_config) do |server|
+        win_home = File.join(tmproot, "win")
+        %w[Desktop Downloads Documents].each { |d| FileUtils.mkdir_p(File.join(win_home, d)) }
+        allow(server).to receive(:wsl_windows_home).and_return(win_home)
+
+        places = server.send(:dir_picker_places)
+
+        expect(places.find { |p| p[:id] == "home" }[:path]).to eq(Dir.home)
+        expect(places.find { |p| p[:id] == "desktop" }[:path]).to eq(File.join(win_home, "Desktop"))
+        expect(places.find { |p| p[:id] == "downloads" }[:path]).to eq(File.join(win_home, "Downloads"))
+        expect(places.find { |p| p[:id] == "documents" }[:path]).to eq(File.join(win_home, "Documents"))
+      end
+    end
+
+    it "scans mounted drives for the single real profile, skipping system dirs" do
+      with_server(agent_config: agent_config) do |server|
+        allow(server).to receive(:wsl?).and_return(true)
+        allow(ENV).to receive(:[]).and_wrap_original do |original, *args|
+          %w[WINDOWS_USERNAME USERNAME].include?(args.first) ? nil : original.call(*args)
+        end
+        allow(Dir).to receive(:exist?).and_wrap_original do |original, *args|
+          %w[/mnt /mnt/c/Users /mnt/d/Users].include?(args.first) ? true : original.call(*args)
+        end
+        allow(Dir).to receive(:children).and_wrap_original do |original, *args|
+          case args.first
+          when "/mnt" then ["c", "d"]
+          when "/mnt/c/Users" then ["Public", "Default", "Default User", "All Users", "leo"]
+          else original.call(*args)
+          end
+        end
+        allow(File).to receive(:directory?).and_wrap_original do |original, *args|
+          args.first == "/mnt/c/Users/leo" ? true : original.call(*args)
+        end
+
+        expect(server.send(:wsl_windows_home)).to eq("/mnt/c/Users/leo")
+      end
+    end
   end
 
   # ── POST /api/dirs/mkdir ──────────────────────────────────────────────────

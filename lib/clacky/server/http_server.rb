@@ -5076,6 +5076,83 @@ module Clacky
       # Path traversal outside working_dir is rejected. Noisy dirs are hidden.
       IGNORED_FILE_ENTRIES = %w[.git .svn .hg node_modules .DS_Store .bundle vendor/bundle tmp .sass-cache].freeze
 
+      # Windows "special" folders under C:\Users that aren't real user profiles.
+      WINDOWS_PROFILE_DIRS = ["Public", "Default", "Default User", "All Users"].freeze
+
+      # Sidebar quick-access favorites for the directory picker (Finder-style).
+      # Translated client-side via `id`. On WSL the desktop/downloads/documents
+      # favorites target the Windows profile (/mnt/<drive>/Users/<name>/...) so they
+      # match where a Windows browser actually saves files; elsewhere they stay
+      # under Dir.home.
+      private def dir_picker_places
+        home = Dir.home
+        win_home = wsl_windows_home
+        places = []
+
+        [["home", home],
+         ["desktop",   File.join(win_home || home, "Desktop")],
+         ["downloads", File.join(win_home || home, "Downloads")],
+         ["documents", File.join(win_home || home, "Documents")]].each do |id, path|
+          places << { id: id, path: path, kind: "favorite" } if Dir.exist?(path)
+        end
+
+        places
+      end
+
+      # True when running inside Windows Subsystem for Linux.
+      private def wsl?
+        return true if ENV["WSL_DISTRO_NAME"]
+        return true if File.exist?("/proc/sys/fs/binfmt_misc/WSLInterop")
+        version = begin
+          File.read("/proc/version")
+        rescue StandardError
+          ""
+        end
+        version.downcase.include?("microsoft")
+      end
+
+      # Best-effort path to the Windows user profile under WSL, or nil when it
+      # can't be determined (then callers fall back to Dir.home). Scans every
+      # mounted drive's Users dir instead of assuming the system drive is C:.
+      private def wsl_windows_home
+        return nil unless wsl?
+
+        roots = wsl_windows_users_roots
+        username = ENV["WINDOWS_USERNAME"] || ENV["USERNAME"]
+        if username && !username.empty?
+          roots.each do |root|
+            candidate = File.join(root, username)
+            return candidate if Dir.exist?(candidate)
+          end
+        end
+
+        roots.each do |root|
+          profiles = Dir.children(root).select do |name|
+            full = File.join(root, name)
+            File.directory?(full) &&
+              !WINDOWS_PROFILE_DIRS.include?(name) &&
+              !name.start_with?(".")
+          end
+          return File.join(root, profiles.first) if profiles.one?
+        end
+
+        nil
+      end
+
+      # Every mounted drive that exposes a Windows Users directory, e.g.
+      # /mnt/c/Users and /mnt/d/Users.
+      private def wsl_windows_users_roots
+        mounts = "/mnt"
+        return [] unless Dir.exist?(mounts)
+
+        roots = []
+        Dir.children(mounts).each do |drive|
+          root = File.join(mounts, drive, "Users")
+          roots << root if Dir.exist?(root)
+        end
+        roots
+      end
+
       def api_session_files(session_id, req, res)
         unless @registry.ensure(session_id)
           return json_response(res, 404, { error: "Session not found" })
@@ -5132,7 +5209,7 @@ module Clacky
         # Directories first, then files; both case-insensitive alphabetical.
         items.sort_by! { |it| [it[:type] == "dir" ? 0 : 1, it[:name].downcase] }
 
-        json_response(res, 200, { root: display_root, path: rel, home: Dir.home, default: default_working_dir, entries: items })
+        json_response(res, 200, { root: display_root, path: rel, home: Dir.home, default: default_working_dir, entries: items, places: dir_picker_places })
       rescue StandardError => e
         json_response(res, 500, { error: e.message })
       end
@@ -5175,7 +5252,7 @@ module Clacky
         end
         items.sort_by! { |it| [it[:type] == "dir" ? 0 : 1, it[:name].downcase] }
 
-        json_response(res, 200, { root: target, path: target, parent: File.dirname(target), home: Dir.home, default: default_working_dir, entries: items })
+        json_response(res, 200, { root: target, path: target, parent: File.dirname(target), home: Dir.home, default: default_working_dir, entries: items, places: dir_picker_places })
       rescue StandardError => e
         json_response(res, 500, { error: e.message })
       end
