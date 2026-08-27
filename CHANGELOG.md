@@ -4,6 +4,40 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
+## [1.5.12] - 2026-08-27
+
+### Added
+- Add VS Code-style file tree with inline file viewer
+- Add quick-access sidebar for directory picker with WSL support
+- Add Web UI @mention references for files, directories and sessions
+- Add Gemini 3.7 Flash model with STT/video support; switch OCR default to DeepSeek vision
+- Add timestamps to assistant messages
+- Merge platform usage API data with local billing records
+- Refresh git panel on session completion
+- Allow disabling local extensions
+- Expose task mappings in core events (#496 - @YeEmrick)
+
+### Improved
+- Move file-trash sweep off the session save path and speed up session creation
+- Make recharge link a visible button on model cards
+
+### Fixed
+- Fix ask_user free-text input: render without options, guard IME composition, route Enter, render as text in IM channels, keep questions concise (#497 - @afumu)
+- Fix advisor recommendations: send structured options, keep card state per session, dismiss button no longer permanently suppresses
+- Fix home favorite pointing at the Windows profile under WSL
+- Fix session list pagination and pin truncation
+- Preserve task ids in compressed history (#500 - @YeEmrick)
+- Clear stale media model override when reverting to auto
+- Normalize gemini-3.7-flash name for pricing
+- Fix sidebar scrollbar visibility and session list styling
+- Fix messages loading created_at
+- Render parallel fan-out subagent phases as flat, isolated cards
+- Preserve subagent transcripts when an interrupted fan-out is resumed
+- Fix spinner in subagent raise process
+- Truncate messages carrying the system_injected flag
+- Stop reporting awaiting_feedback for question-mark endings
+- Detach channel_ui and keep channel_info unique on /bind and /unbind
+
 ## [1.5.11] - 2026-08-23
 
 ### Added
