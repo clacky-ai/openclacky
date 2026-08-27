@@ -92,3 +92,26 @@ RSpec.describe Clacky::Server::WebUIController, "#show_complete" do
     expect(events.last).not_to have_key(:task_id)
   end
 end
+
+RSpec.describe Clacky::Server::WebUIController, "#show_tool_call" do
+  let(:events) { [] }
+  let(:controller) do
+    described_class.new("test-session", ->(_sid, event) { events << event })
+  end
+  let(:subscriber) { double("channel_ui", show_tool_call: nil) }
+  let(:ask_args) { { "questions" => [{ "question" => "Pick one?", "options" => %w[a b] }] } }
+
+  before { controller.subscribe_channel(subscriber) }
+
+  it "forwards ask_user to channel subscribers so IM can render it as text" do
+    expect(subscriber).to receive(:show_tool_call).with("ask_user", ask_args)
+    controller.show_tool_call("ask_user", ask_args)
+  end
+
+  it "still emits the browser feedback card" do
+    controller.show_tool_call("ask_user", ask_args)
+    ev = events.find { |e| e[:type] == "request_feedback" }
+    expect(ev[:question]).to eq("Pick one?")
+    expect(ev[:options]).to eq(%w[a b])
+  end
+end

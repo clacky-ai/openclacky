@@ -95,7 +95,20 @@ module Clacky
       end
 
       def show_tool_call(name, args)
-        # Suppress — too noisy for IM
+        # ask_user is the one tool that must reach the user: the agent stops and
+        # waits for an answer, so swallowing it leaves the chat silently stuck.
+        # Sent unconditionally — it is a question, not process noise, so the
+        # process-messages toggle must not gate it.
+        if Clacky::Tools::AskUser.feedback_tool?(name)
+          args_data = args.is_a?(String) ? (JSON.parse(args) rescue args) : args
+          questions = Clacky::Tools::AskUser.normalize_questions(args_data)
+          return if questions.empty?
+
+          context = args_data.is_a?(Hash) ? (args_data[:context] || args_data["context"]).to_s : ""
+          flush_buffer
+          send_text(Clacky::Tools::AskUser.render_text(questions, context))
+          return
+        end
       end
 
       def show_tool_result(result)
