@@ -1827,5 +1827,19 @@ RSpec.describe Clacky::Agent do
         agent.run("fix the bug")
       end
     end
+
+    it "still reaches both hooks on a plain ending" do
+      Dir.mktmpdir do |tmpdir|
+        agent = build_agent(tmpdir, :confirm_all)
+
+        allow(client).to receive(:send_messages_with_tools)
+          .and_return(mock_api_response(content: "All done."))
+
+        expect(agent).to receive(:run_skill_evolution_hooks)
+        expect(agent).to receive(:run_memory_update_subagent)
+
+        agent.run("fix the bug")
+      end
+    end
   end
 end
