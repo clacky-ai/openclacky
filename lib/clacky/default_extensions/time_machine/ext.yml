@@ -1,7 +1,7 @@
 id: time_machine
 name: Time Machine
 display_name: Time Machine
-display_name_zh: 时间机器
+display_name_zh: 时光机
 description: Vertical timeline of session tasks with per-task diff and one-click restore
 description_zh: 会话任务时间轴，支持按任务查看差异并一键还原
 version: "0.1.0"

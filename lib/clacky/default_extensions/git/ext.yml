@@ -1,7 +1,7 @@
 id: git
 name: Git
 display_name: Git
-display_name_zh: Git
+display_name_zh: Git 管理
 description: Changes panel — a friendly view of what the AI changed in the working tree
 description_zh: 变更面板 — 直观查看 AI 在工作区的每一处修改
 version: "0.1.0"
