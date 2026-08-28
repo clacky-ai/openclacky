@@ -276,7 +276,7 @@ module Clacky
         "base_url" => "https://open.bigmodel.cn/api/paas/v4",
         "api" => "openai-completions",
         "default_model" => "glm-5.3",
-        "models" => ["glm-5.3", "glm-5.2", "glm-5.1", "glm-5", "glm-5-turbo", "glm-5v-turbo", "glm-4.7"],
+        "models" => ["glm-5.3", "glm-5.3-flash", "glm-5.2", "glm-5.1", "glm-5", "glm-5-turbo", "glm-5v-turbo", "glm-4.7"],
         # Zhipu / Z.ai expose four functionally-equivalent endpoints:
         # two regional sites (mainland open.bigmodel.cn + international api.z.ai)
         # each with a general-billing and a Coding-Plan subpath. They share the
@@ -292,10 +292,12 @@ module Clacky
           { "label" => "International · Pay-as-you-go", "label_key" => "settings.models.baseurl.variant.international_payg",  "base_url" => "https://api.z.ai/api/paas/v4",                "region" => "intl" }.freeze,
           { "label" => "International · Coding Plan",   "label_key" => "settings.models.baseurl.variant.international_coding","base_url" => "https://api.z.ai/api/coding/paas/v4",         "region" => "intl" }.freeze
         ].freeze,
-        # GLM models are text-only except glm-5v-turbo which is vision-capable ("v" = visual).
+        # GLM models are text-only except the vision-capable SKUs: glm-5v-turbo
+        # ("v" = visual) and glm-5.3-flash (GLM-5's first natively-multimodal model).
         "capabilities" => { "vision" => false }.freeze,
         "model_capabilities" => {
-          "glm-5v-turbo" => { "vision" => true }.freeze
+          "glm-5v-turbo" => { "vision" => true }.freeze,
+          "glm-5.3-flash" => { "vision" => true }.freeze
         }.freeze,
         "default_ocr_model" => "glm-5v-turbo",
         "website_url" => "https://open.bigmodel.cn/console/overview"
