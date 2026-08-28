@@ -189,6 +189,33 @@ class ExtStudioExt < Clacky::ApiExtension
     json(ok: true, ext_id: ext_id)
   end
 
+  # POST /api/ext/ext-studio/set_disabled
+  # body: { ext_id, disabled }
+  # Disables/enables a local extension. A disabled extension stays discoverable
+  # but stops contributing units (panels, api, skills, agents, ...) until it is
+  # re-enabled.
+  post "/set_disabled" do
+    ext_id   = require_ext_id!
+    disabled = json_body["disabled"] == true
+
+    result    = Clacky::ExtensionLoader.load_all(force: false)
+    container = Array(result.containers).find { |id, _| id == ext_id }&.last
+    error!("extension not found: #{ext_id}", status: 404) unless container
+    error!("not a local extension", status: 422) unless container[:layer] == :local
+
+    if disabled
+      Clacky::ExtensionLoader.disable!(ext_id)
+    else
+      Clacky::ExtensionLoader.enable!(ext_id)
+    end
+
+    # Reload the API registry so a disabled extension's routes unmount (and an
+    # enabled one remounts) without restarting the server.
+    Clacky::ApiExtensionLoader.load_all
+
+    json(ok: true, ext_id: ext_id, disabled: disabled)
+  end
+
   # POST /api/ext/ext-studio/unpublish
   # body: { ext_id }
   post "/unpublish" do
@@ -470,6 +497,7 @@ class ExtStudioExt < Clacky::ApiExtension
       version: raw["version"],
       origin: container[:origin],
       layer: container[:layer].to_s,
+      disabled: container[:disabled] == true,
       dir: dir,
       mtime: File.mtime(File.join(dir, "ext.yml")).to_i,
       units: ext_units.map { |u| serialize_unit(u) },

@@ -90,6 +90,59 @@ RSpec.describe Clacky::Channel::ChannelUIController do
     end
   end
 
+  describe "#show_tool_call" do
+    let(:ask_args) do
+      {
+        "questions" => [
+          { "question" => "语言选中文还是英文?", "options" => %w[中文 English] },
+          { "question" => "输出格式选 Markdown 还是纯文本?", "options" => %w[Markdown 纯文本] }
+        ]
+      }
+    end
+
+    it "renders ask_user questions as text so IM users can answer" do
+      controller.show_tool_call("ask_user", ask_args)
+      expect(sent.size).to eq(1)
+      expect(sent.first).to include("语言选中文还是英文?", "1. 中文", "2. English")
+      expect(sent.first).to include("输出格式选 Markdown 还是纯文本?", "1. Markdown")
+    end
+
+    it "sends ask_user even when process messages are disabled" do
+      @process_enabled = false
+      controller.show_tool_call("ask_user", ask_args)
+      expect(sent.size).to eq(1)
+      expect(sent.first).to include("语言选中文还是英文?")
+    end
+
+    it "accepts a JSON string payload" do
+      controller.show_tool_call("ask_user", JSON.generate(ask_args))
+      expect(sent.first).to include("语言选中文还是英文?")
+    end
+
+    it "renders the retired request_user_feedback name too" do
+      controller.show_tool_call("request_user_feedback", ask_args)
+      expect(sent.first).to include("语言选中文还是英文?")
+    end
+
+    it "flushes pending previews before the question" do
+      controller.buffer_line("$ ls")
+      controller.show_tool_call("ask_user", ask_args)
+      expect(sent).to eq(["$ ls", sent.last])
+      expect(sent.last).to include("语言选中文还是英文?")
+    end
+
+    it "stays silent when ask_user carries no usable question" do
+      controller.show_tool_call("ask_user", { "questions" => [] })
+      expect(sent).to be_empty
+    end
+
+    it "still suppresses every other tool" do
+      controller.show_tool_call("terminal", { "command" => "ls" })
+      controller.show_tool_call("write", { "path" => "a.rb" })
+      expect(sent).to be_empty
+    end
+  end
+
   describe "without a status_messages resolver" do
     it "defaults to not sending status messages" do
       controller = described_class.new(event, -> { adapter })
