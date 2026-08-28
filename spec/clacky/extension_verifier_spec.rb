@@ -43,6 +43,21 @@ RSpec.describe Clacky::ExtensionVerifier do
     expect(issues.find { |i| i.code == "schema.unknown_key" }.level).to eq(:warning)
   end
 
+  it "accepts the `config` top-level key without warning" do
+    manifest = <<~YAML
+      id: config-ok
+      origin: self
+      config:
+        foo: bar
+      contributes: {}
+    YAML
+    make_ext(local, "config-ok", manifest)
+    result = reload_layers
+
+    issues = described_class.verify(result)
+    expect(issues.map(&:code)).not_to include("schema.unknown_key")
+  end
+
   it "flags unknown contributes type" do
     manifest = <<~YAML
       id: bad-contrib
