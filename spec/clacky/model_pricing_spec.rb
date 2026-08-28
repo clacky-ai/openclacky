@@ -922,6 +922,16 @@ RSpec.describe Clacky::ModelPricing do
       expect(result[:source]).to eq(:price)
     end
 
+    it "bills qwen3.8-max at the same flat list rate as qwen3.7-max" do
+      result = described_class.calculate_cost(
+        model: "qwen3.8-max",
+        usage: { prompt_tokens: 1_000_000, completion_tokens: 1_000_000 }
+      )
+      # input 1M * $2.5 + output 1M * $7.5 = $10.00 (flat, no tier bump)
+      expect(result[:cost]).to be_within(0.0001).of(10.00)
+      expect(result[:source]).to eq(:price)
+    end
+
     it "bills qwen3.7-max at the flat list rate, not tiered" do
       result = described_class.calculate_cost(
         model: "qwen3.7-max",

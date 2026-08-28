@@ -724,6 +724,15 @@ module Clacky
       #   - cache.read  = official explicit-cache-hit price.
       #   - When a model has NO published explicit-cache price (e.g. qwen3.6-27b,
       #     qwen-plus-latest), cache.write/read fall back to the input rate.
+      # qwen3.8-max: NOT tiered (single flat tier). Reuses qwen3.7-max's
+      #   international list rates (2.5 / 7.5 / 3.125 / 0.25) — the billing
+      #   page hasn't listed qwen3.8-max yet, so this is a safe upper bound.
+      "qwen3.8-max" => {
+        input:  { default: 2.5, over_200k: 2.5 },
+        output: { default: 7.5, over_200k: 7.5 },
+        cache:  { write: 3.125, read: 0.25 }
+      },
+
       # qwen3.7-max: NOT tiered (single flat tier per Alibaba's definition).
       #   List price: input 2.5, output 7.5, explicit write 3.125, explicit read 0.25.
       "qwen3.7-max" => {
@@ -998,10 +1007,12 @@ module Clacky
           "minimax-m2.5"
 
         # Qwen (Alibaba DashScope) — strict anchored match per registered
-        # model id in providers.rb. qwen3.7-* is the latest flagship line;
-        # qwen3.6-* are the previous generation; qwen-plus-latest is the
-        # rolling alias for the latest Qwen-Plus release; qwen3-vl-plus is
-        # the multimodal SKU (replaces the retired qwen-vl-plus/max).
+        # model id in providers.rb. qwen3.8-max is the latest flagship;
+        # qwen3.7-* / qwen3.6-* are previous generations; qwen-plus-latest
+        # is the rolling alias for the latest Qwen-Plus release; qwen3-vl-plus
+        # is the multimodal SKU (replaces the retired qwen-vl-plus/max).
+        when /^qwen3\.8-max$/i
+          "qwen3.8-max"
         when /^qwen3\.7-max$/i
           "qwen3.7-max"
         when /^qwen3\.7-plus$/i

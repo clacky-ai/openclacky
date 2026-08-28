@@ -446,8 +446,9 @@ module Clacky
         "name" => "Qwen (Alibaba)",
         "base_url" => "https://dashscope.aliyuncs.com/compatible-mode/v1",
         "api" => "openai-completions",
-        "default_model" => "qwen3.7-max",
+        "default_model" => "qwen3.8-max",
         "models" => [
+          "qwen3.8-max",
           "qwen3.7-max",
           "qwen3.6-plus",
           "qwen3.6-max",
@@ -466,6 +467,7 @@ module Clacky
         }.freeze,
         "default_ocr_model" => "qwen3.6-flash",
         "lite_models" => {
+          "qwen3.8-max"      => "qwen3.6-flash",
           "qwen3.7-max"      => "qwen3.6-flash",
           "qwen3.6-plus"     => "qwen3.6-flash",
           "qwen3.6-max"      => "qwen3.6-flash",
