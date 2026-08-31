@@ -58,6 +58,49 @@ RSpec.describe Clacky::ExtensionVerifier do
     expect(issues.map(&:code)).not_to include("schema.unknown_key")
   end
 
+  it "accepts a three-segment numeric version" do
+    manifest = <<~YAML
+      id: valid-version
+      version: 10.2.35
+      origin: self
+      contributes: {}
+    YAML
+    make_ext(local, "valid-version", manifest)
+
+    issues = described_class.verify(reload_layers)
+
+    expect(issues.map(&:code)).not_to include("schema.invalid_version")
+  end
+
+  it "flags a version that is not three numeric segments" do
+    manifest = <<~YAML
+      id: invalid-version
+      version: test.1.0
+      origin: self
+      contributes: {}
+    YAML
+    make_ext(local, "invalid-version", manifest)
+
+    issues = described_class.verify(reload_layers)
+    issue = issues.find { |candidate| candidate.code == "schema.invalid_version" }
+
+    expect(issue).not_to be_nil
+    expect(issue.level).to eq(:error)
+  end
+
+  it "keeps the version field optional during local development" do
+    manifest = <<~YAML
+      id: no-version
+      origin: self
+      contributes: {}
+    YAML
+    make_ext(local, "no-version", manifest)
+
+    issues = described_class.verify(reload_layers)
+
+    expect(issues.map(&:code)).not_to include("schema.invalid_version")
+  end
+
   it "flags unknown contributes type" do
     manifest = <<~YAML
       id: bad-contrib

@@ -70,6 +70,15 @@ RSpec.describe Clacky::ExtensionPackager do
         .to raise_error(described_class::Error, /verify found errors/)
     end
 
+    it "blocks packing when the manifest version is invalid" do
+      dir = scaffold("bad-version")
+      yml = File.join(dir, "ext.yml")
+      File.write(yml, File.read(yml).sub(/^version:.*$/, "version: 测试test"))
+
+      expect { described_class.pack("bad-version", source_dir: local, out_dir: out) }
+        .to raise_error(described_class::Error, /schema.invalid_version/)
+    end
+
     it "refuses to pack a container whose produced zip exceeds the size limit" do
       scaffold("demo")
       stub_const("Clacky::ExtensionPackager::MAX_ZIP_SIZE", 1)
