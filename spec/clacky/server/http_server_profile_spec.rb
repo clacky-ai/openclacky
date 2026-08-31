@@ -102,6 +102,23 @@ RSpec.describe Clacky::Server::HttpServer, "profile + memories endpoints" do
       expect(body["user"]["is_default"]).to be false
       expect(body["user"]["content"]).to include("Yafei")
     end
+
+    it "extracts the AI name from a SOUL.md heading" do
+      File.write(File.join(agents_dir, "SOUL.md"), "# 老六 — Soul\n\n## Identity\n我是老六。\n")
+      req = fake_req(method: "GET", path: "/api/profile")
+      res = fake_res
+      dispatch(server, req, res)
+      body = parsed_body(res)
+      expect(body["soul"]["name"]).to eq("老六")
+    end
+
+    it "returns nil name when the soul has no heading" do
+      req = fake_req(method: "GET", path: "/api/profile")
+      res = fake_res
+      dispatch(server, req, res)
+      body = parsed_body(res)
+      expect(body["soul"]["name"]).to be_nil
+    end
   end
 
   describe "PUT /api/profile" do

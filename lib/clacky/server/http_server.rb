@@ -5776,10 +5776,12 @@ module Clacky
       # GET /api/profile
       # Returns { ok:, user: { path, content, is_default }, soul: { ... } }
       private def api_profile_get(res)
+        soul = _profile_read_file("SOUL.md")
+        soul[:name] = _soul_name(soul[:content])
         json_response(res, 200, {
           ok:   true,
           user: _profile_read_file("USER.md"),
-          soul: _profile_read_file("SOUL.md")
+          soul: soul
         })
       end
 
@@ -5848,6 +5850,16 @@ module Clacky
         }
       rescue StandardError => e
         { path: "", content: "", is_default: true, error: e.message }
+      end
+
+      # Extracts the AI name from a SOUL.md heading ("# 老六 — Soul"). Returns
+      # nil when the heading is absent (e.g. the built-in default soul).
+      private def _soul_name(content)
+        return nil if content.nil? || content.empty?
+        m = content.match(/^#\s*(.+?)\s*[—–-]\s*Soul\s*$/i)
+        return nil unless m
+        name = m[1].to_s.strip
+        name.empty? ? nil : name
       end
 
       # ── Memories API (~/.clacky/memories/*.md) ───────────────────────
