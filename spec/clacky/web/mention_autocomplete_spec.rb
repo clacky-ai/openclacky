@@ -22,4 +22,12 @@ RSpec.describe "Web mention autocomplete" do
     expect(input_handler).to include("!e.isComposing")
     expect(composition_handler).to include('_adoptCommittedAtMarker()')
   end
+
+  it "uses named DOM and caret positions when adopting committed text" do
+    expect(source).to include("node.nodeType !== Node.TEXT_NODE")
+    expect(source).to include("node.nodeType !== Node.ELEMENT_NODE")
+    expect(source).to include("const previousChildIndex = offset - 1")
+    expect(source).to include("const atOffset = offset - 1")
+    expect(source).not_to match(/node\.nodeType !== [13]/)
+  end
 end
