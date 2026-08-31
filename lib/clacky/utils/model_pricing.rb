@@ -617,6 +617,18 @@ module Clacky
       # GLM-5.3 shares GLM-5.2's base model (all gains are post-training per
       # Z.ai's release notes) and Z.ai's pricing page does not list a separate
       # GLM-5.3 row yet, so it is billed at the GLM-5.2 flat rate.
+      # GLM-5.3-Flash: GLM-5's first natively-multimodal model (image/video/
+      # file input). Listed at the non-promotional Z.ai rates — input $0.15,
+      # output $0.50, cache read $0.03 per 1M tokens; the 50%-off launch promo
+      # ($0.075 / $0.25 / $0.015, ends 2026-09-09) is ignored per the
+      # "displayed ≤ actual" rule. Cache write bills at the input miss rate
+      # (storage is "Limited-time Free").
+      "glm-5.3-flash" => {
+        input:  { default: 0.15, over_200k: 0.15 },
+        output: { default: 0.50, over_200k: 0.50 },
+        cache:  { write: 0.15, read: 0.03 }
+      },
+
       "glm-5.3" => {
         input:  { default: 1.40, over_200k: 1.40 },
         output: { default: 4.40, over_200k: 4.40 },
@@ -984,6 +996,8 @@ module Clacky
         # (mainland bigmodel.cn vs intl z.ai) the user configured.
         # Strict anchored match so unrelated strings like "glm-5-x-foo"
         # don't silently borrow a nearby model's rate.
+        when /^glm-5\.3-flash$/i
+          "glm-5.3-flash"
         when /^glm-5\.3$/i
           "glm-5.3"
         when /^glm-5\.2$/i

@@ -7,8 +7,8 @@ module Clacky
     # Read-mostly git operations scoped to a session's working directory, backing
     # the official "git" WebUI panel. Commands run with explicit argv (no shell),
     # so user-supplied values (paths, messages) cannot inject. Write operations
-    # are limited to a guarded `commit`; history-rewriting / remote-mutating
-    # commands are never exposed here.
+    # are limited to a guarded `commit` and a single-file `restore`;
+    # history-rewriting / remote-mutating commands are never exposed here.
     module GitPanel
       module_function
 
@@ -56,14 +56,24 @@ module Clacky
         { branch: branch, ahead: ahead, behind: behind, files: files }
       end
 
-      # Unified diff. `file` (optional, relative) limits to one path; omitted =
-      # whole working tree (tracked changes). `--` guards path from being read
-      # as an option.
+      # Unified diff for one file, or the whole tree when `file` is nil.
+      # Baseline is HEAD, not the index, so changes the agent staged with
+      # `git add` still show up. Untracked files have no baseline at all, so
+      # they diff against /dev/null via --no-index (rendered as pure
+      # additions); the trailing `--` keeps a leading-dash filename from
+      # being read as an option in that mode too.
       def diff(dir, file: nil)
-        args = ["diff"]
-        args += ["--", file] if file && !file.empty?
-        out, _err, _ok = git(dir, *args)
-        out
+        if file && !file.empty?
+          others, _e, _ok = git(dir, "ls-files", "--others", "--exclude-standard", "--", file)
+          if others.strip.empty?
+            out, _e, _ok = git(dir, "diff", "HEAD", "--", file)
+          else
+            out, _e, _ok = git(dir, "diff", "--no-index", "--", "/dev/null", file)
+          end
+          out
+        else
+          git(dir, "diff", "HEAD")[0]
+        end
       end
 
       # Recent commits: [{ hash:, short:, author:, date:, subject: }].
@@ -90,6 +100,48 @@ module Clacky
           next unless name && !name.empty?
           { name: name, current: head == "*" }
         end
+      end
+
+      # Discard uncommitted changes to one file and return it to its HEAD
+      # state (same baseline the diff API uses, so "what you saw is what you
+      # lose"). Files that never existed in HEAD (staged-new or untracked)
+      # have no earlier version, so they are removed instead. argv-only and
+      # guarded against path traversal; history rewriting and remote-mutating
+      # commands remain out of bounds.
+      def restore(dir, file:)
+        path = file.to_s.strip
+        return { ok: false, error: "file is required" } if path.empty?
+        return { ok: false, error: "invalid path" } if invalid_path?(path)
+
+        head_tree, _e, _ok = git(dir, "ls-tree", "HEAD", "--", path)
+        if head_tree.include?("\t#{path}")
+          _o, err, ok = git(dir, "checkout", "HEAD", "--", path)
+          return ok ? { ok: true } : { ok: false, error: "git checkout failed: #{err.strip}" }
+        end
+
+        in_index, _e, idx_ok = git(dir, "ls-files", "--", path)
+        if idx_ok && !in_index.strip.empty?
+          _o, err, ok = git(dir, "rm", "-f", "--", path)
+          return ok ? { ok: true } : { ok: false, error: "git rm failed: #{err.strip}" }
+        end
+
+        target = File.expand_path(path, dir.to_s)
+        root = File.expand_path(dir.to_s)
+        return { ok: false, error: "invalid path" } unless target.start_with?(root + File::SEPARATOR)
+
+        begin
+          File.delete(target)
+          { ok: true }
+        rescue Errno::ENOENT
+          { ok: true }
+        rescue StandardError => e
+          { ok: false, error: e.message }
+        end
+      end
+
+      # Relative repo paths only: no absolute paths, no traversal segments.
+      def invalid_path?(path)
+        path.start_with?("/") || path.split("/").include?("..")
       end
 
       # Stage `files` (relative paths) and commit with `message`. Returns

@@ -796,6 +796,9 @@ module Clacky
           elsif method == "POST" && path.match?(%r{^/api/sessions/[^/]+/git/commit$})
             session_id = path[%r{^/api/sessions/([^/]+)/git/}, 1]
             api_session_git_commit(session_id, req, res)
+          elsif method == "POST" && path.match?(%r{^/api/sessions/[^/]+/git/restore$})
+            session_id = path[%r{^/api/sessions/([^/]+)/git/}, 1]
+            api_session_git_restore(session_id, req, res)
           elsif method == "GET" && path.match?(%r{^/api/sessions/[^/]+/time_machine$})
             session_id = path.sub("/api/sessions/", "").sub("/time_machine", "")
             api_session_time_machine(session_id, res)
@@ -4975,7 +4978,26 @@ module Clacky
         end
       end
 
-      # GET /api/sessions/:id/time_machine — task history for the Time Machine
+      # POST /api/sessions/:id/git/restore - body: { file: }.
+      # Discards uncommitted changes to one file, back to its HEAD state.
+      def api_session_git_restore(session_id, req, res)
+        dir = git_session_dir(session_id, res)
+        return unless dir
+
+        unless Clacky::Server::GitPanel.repo?(dir)
+          return json_response(res, 400, { error: "Not a git repository" })
+        end
+
+        body = parse_json_body(req)
+        result = Clacky::Server::GitPanel.restore(dir, file: body["file"])
+        if result[:ok]
+          json_response(res, 200, result)
+        else
+          json_response(res, 422, { error: result[:error] })
+        end
+      end
+
+      # GET /api/sessions/:id/time_machine - task history for the Time Machine
       # panel. Mirrors the CLI menu: each entry carries id, summary, status
       # (current/past/undone) and whether it branches.
       def api_session_time_machine(session_id, res)
@@ -5754,10 +5776,12 @@ module Clacky
       # GET /api/profile
       # Returns { ok:, user: { path, content, is_default }, soul: { ... } }
       private def api_profile_get(res)
+        soul = _profile_read_file("SOUL.md")
+        soul[:name] = _soul_name(soul[:content])
         json_response(res, 200, {
           ok:   true,
           user: _profile_read_file("USER.md"),
-          soul: _profile_read_file("SOUL.md")
+          soul: soul
         })
       end
 
@@ -5826,6 +5850,16 @@ module Clacky
         }
       rescue StandardError => e
         { path: "", content: "", is_default: true, error: e.message }
+      end
+
+      # Extracts the AI name from a SOUL.md heading ("# 老六 — Soul"). Returns
+      # nil when the heading is absent (e.g. the built-in default soul).
+      private def _soul_name(content)
+        return nil if content.nil? || content.empty?
+        m = content.match(/^#\s*(.+?)\s*[—–-]\s*Soul\s*$/i)
+        return nil unless m
+        name = m[1].to_s.strip
+        name.empty? ? nil : name
       end
 
       # ── Memories API (~/.clacky/memories/*.md) ───────────────────────

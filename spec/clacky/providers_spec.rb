@@ -113,12 +113,14 @@ RSpec.describe Clacky::Providers do
                                          model_name: "mimo-v2.5")).to be true
       end
 
-      it "returns false for glm (default text-only), true for glm-5v-turbo" do
+      it "returns false for glm (default text-only), true for vision SKUs" do
         expect(described_class.supports?("glm", :vision)).to be false
         expect(described_class.supports?("glm", :vision,
                                          model_name: "glm-5.1")).to be false
         expect(described_class.supports?("glm", :vision,
                                          model_name: "glm-5v-turbo")).to be true
+        expect(described_class.supports?("glm", :vision,
+                                         model_name: "glm-5.3-flash")).to be true
       end
     end
 

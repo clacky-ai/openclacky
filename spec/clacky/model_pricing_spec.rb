@@ -741,6 +741,14 @@ RSpec.describe Clacky::ModelPricing do
   # regardless of mainland-vs-intl endpoint. Flat-rate (no tiered billing).
   # Source: https://docs.z.ai/guides/overview/pricing
   describe "GLM pricing" do
+    it "bills glm-5.3-flash at its lower list rate (launch promo ignored)" do
+      usage = { prompt_tokens: 1_000_000, completion_tokens: 1_000_000 }
+      result = described_class.calculate_cost(model: "glm-5.3-flash", usage: usage)
+      # (1M/1M)*$0.15 + (1M/1M)*$0.50 = $0.65
+      expect(result[:cost]).to be_within(0.0001).of(0.65)
+      expect(result[:source]).to eq(:price)
+    end
+
     it "bills glm-5.3 at the GLM-5.2 flat rate (same base model, no separate Z.ai row yet)" do
       usage = { prompt_tokens: 100_000, completion_tokens: 50_000 }
       result = described_class.calculate_cost(model: "glm-5.3", usage: usage)
