@@ -529,7 +529,15 @@ module Clacky
       private def looks_binary?(path)
         return false if path.nil? || !File.exist?(path)
         sample = File.binread(path, 8000)
-        sample.include?("\x00") || !sample.dup.force_encoding("UTF-8").valid_encoding?
+        return true if sample.include?("\x00")
+        sample.force_encoding("UTF-8")
+        # The 8000-byte window can cut a multibyte char in half; drop up to
+        # three dangling tail bytes before judging the encoding.
+        3.times do
+          break if sample.valid_encoding?
+          sample = sample.byteslice(0, sample.bytesize - 1)
+        end
+        !sample.valid_encoding?
       rescue StandardError
         true
       end

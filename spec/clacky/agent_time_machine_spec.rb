@@ -436,6 +436,36 @@ RSpec.describe "Clacky::Agent TimeMachine" do
     end
   end
 
+  describe "#looks_binary?" do
+    it "does not misclassify text when the 8000-byte window cuts a multibyte char" do
+      # 7998 ASCII bytes + a 3-byte box-drawing char (─ U+2500 = E2 94 80).
+      # binread(path, 8000) then reads the first two bytes of ─, leaving a
+      # dangling E2 94 tail that the old code misjudged as invalid UTF-8.
+      path = File.join(working_dir, "edge.txt")
+      File.binwrite(path, ("a" * 7998) + "\u2500")
+
+      expect(agent.send(:looks_binary?, path)).to be false
+    end
+
+    it "detects true binary content via a NUL byte" do
+      path = File.join(working_dir, "bin.dat")
+      File.binwrite(path, "abc\x00def")
+
+      expect(agent.send(:looks_binary?, path)).to be true
+    end
+
+    it "returns false for plain ASCII text" do
+      path = File.join(working_dir, "plain.txt")
+      File.write(path, "hello world\n")
+
+      expect(agent.send(:looks_binary?, path)).to be false
+    end
+
+    it "returns false for a nonexistent path" do
+      expect(agent.send(:looks_binary?, File.join(working_dir, "missing.txt"))).to be false
+    end
+  end
+
   describe "branching scenarios" do
     it "handles linear history" do
       agent.start_new_task  # 1
