@@ -29,6 +29,7 @@ module Clacky
     TOOL_KEYS    = %w[id file].freeze
 
     ATTACH_TOKEN_RE = /\A(\*|[\w\-]+)\z/.freeze
+    VERSION_RE      = /\A[0-9]+\.[0-9]+\.[0-9]+\z/.freeze
 
     class << self
       # Run all checks against a fully-loaded ExtensionLoader::Result. Returns
@@ -41,6 +42,10 @@ module Clacky
         issues.concat(manifest_schema_issues(result))
         issues.concat(reference_issues(result))
         issues
+      end
+
+      def valid_version?(version)
+        version.to_s.match?(VERSION_RE)
       end
 
       private def loader_errors_as_issues(result)
@@ -75,6 +80,14 @@ module Clacky
               message: "unknown top-level key #{unknown.inspect} in ext.yml",
               file: File.join(dir, "ext.yml"),
               hint: "Allowed: #{KNOWN_TOP_KEYS.join(', ')}"
+            )
+          end
+
+          if manifest.key?("version") && !valid_version?(manifest["version"])
+            issues << Issue.new(
+              ext: ext_id, unit: nil, level: :error, code: "schema.invalid_version",
+              message: "version must contain exactly three numeric segments (for example, 1.0.0)",
+              file: File.join(dir, "ext.yml"), hint: "Use the format x.x.x with digits only."
             )
           end
 
