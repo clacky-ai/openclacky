@@ -131,6 +131,24 @@ RSpec.describe Clacky::Server::HttpServer, "directory picker mutation API" do
         expect(server.send(:wsl_windows_home)).to eq("/mnt/c/Users/leo")
       end
     end
+
+    it "exposes mounted drives as `drive` places under WSL, skipping non-drive mounts" do
+      with_server(agent_config: agent_config) do |server|
+        allow(server).to receive(:wsl?).and_return(true)
+        allow(server).to receive(:wsl_windows_home).and_return(nil)
+        allow(Dir).to receive(:exist?).and_wrap_original do |original, *args|
+          %w[/mnt /mnt/c /mnt/d /mnt/e].include?(args.first) ? true : original.call(*args)
+        end
+        allow(Dir).to receive(:children).and_wrap_original do |original, *args|
+          args.first == "/mnt" ? ["c", "d", "e", "wsl", "wslg"] : original.call(*args)
+        end
+
+        drives = server.send(:dir_picker_places).select { |p| p[:kind] == "drive" }
+
+        expect(drives.map { |d| d[:letter] }).to eq(["C", "D", "E"])
+        expect(drives.map { |d| d[:path] }).to eq(["/mnt/c", "/mnt/d", "/mnt/e"])
+      end
+    end
   end
 
   # ── POST /api/dirs/mkdir ──────────────────────────────────────────────────
