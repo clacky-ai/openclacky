@@ -12681,26 +12681,6 @@ body.setup-mode[data-theme="dark"] {
   border-color: var(--color-accent-primary);
 }
 
-@media (max-width: 700px) {
-  .billing-controls .segmented-control {
-    flex: 1 0 100%;
-  }
-  .billing-model-filter {
-    width: auto;
-    flex: 1 1 0;
-  }
-}
-
-@media (max-width: 500px) {
-  .billing-controls .segmented-control {
-    overflow-x: auto;
-  }
-  .billing-controls .segmented-control__btn {
-    flex: 1 0 auto;
-    padding-inline: 0.5rem;
-  }
-}
-
 /* ── Stats Row ───────────────────────────────────────────────────────── */
 .billing-stats-row {
   display: grid;
@@ -14786,6 +14766,26 @@ body.setup-mode[data-theme="dark"] {
   #billing-body { padding: 1rem 1rem 1rem; }
   #trash-body   { padding: 1rem 1rem 1rem; }
 
+  .billing-controls .segmented-control {
+    flex: 1 0 100%;
+  }
+  .billing-controls .segmented-control__btn {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+  .billing-model-filter {
+    width: auto;
+    flex: 1 1 0;
+  }
+  @media (max-width: 500px) {
+    .billing-controls .segmented-control {
+      overflow-x: auto;
+    }
+    .billing-controls .segmented-control__btn {
+      flex: 1 0 auto;
+      padding-inline: 0.5rem;
+    }
+  }
   .billing-heatmap-row { grid-template-columns: 1fr; }
 
   /* ── MCP page ── */
