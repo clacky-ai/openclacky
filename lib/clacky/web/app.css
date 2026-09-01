@@ -3099,13 +3099,32 @@ body {
 /* ── Workspace viewer (file tree + tabbed preview, inside the Files tab) ── */
 .wv-root { flex: 1; min-height: 0; display: flex; }
 .wv-tree-pane {
-  flex: 0 0 38%;
+  flex: 0 0 auto;
+  width: var(--wv-tree-width, 38%);
   min-width: 168px;
-  max-width: 300px;
+  max-width: 460px;
   display: flex;
   flex-direction: column;
   min-height: 0;
-  border-right: 1px solid var(--color-border-primary);
+}
+.wv-tree-resize {
+  flex: none;
+  width: 6px;
+  cursor: col-resize;
+  position: relative;
+  z-index: 2;
+  background: transparent;
+  display: none;
+}
+.wv-root.has-open-files .wv-tree-resize { display: block; }
+.wv-tree-resize::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 2px;
+  width: 1px;
+  background: var(--color-border-primary);
 }
 .wv-viewer { flex: 1; min-width: 0; display: none; flex-direction: column; min-height: 0; }
 .wv-root.has-open-files .wv-viewer { display: flex; }
