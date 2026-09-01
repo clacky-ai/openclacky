@@ -912,14 +912,15 @@ module Clacky
       { success: false, error: e.message }
     end
 
-    # Synchronise brand extensions in the background for activated installs.
+    # Synchronise brand extensions in the background for activated consumer
+    # installs. Brand administrators manage extensions through ext-studio and
+    # must not auto-install the extensions they publish for consumers.
     # Mirrors sync_brand_skills_async! but installs into the extension layer.
-    # Unlike brand skills, new extensions are auto-installed because a bundled
-    # extension is chosen by the brand administrator, not the end user.
     #
     # @return [Thread, nil]
     def sync_brand_extensions_async!(on_complete: nil)
       return nil unless activated?
+      return nil if user_licensed?
       return nil if ENV["CLACKY_TEST"] == "1"
 
       Clacky::ThreadRegistry.spawn(name: "brand-fetch-extensions") do
