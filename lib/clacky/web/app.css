@@ -12574,31 +12574,43 @@ body.setup-mode[data-theme="dark"] {
 }
 .billing-top-bar {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
-  flex-wrap: wrap;
+  flex-direction: column;
+  align-items: stretch;
   gap: 1rem;
 }
 .billing-title-row {
   display: flex;
   align-items: baseline;
+  flex-wrap: wrap;
   gap: 0.75rem;
+  min-width: 0;
 }
 .billing-title-row h2 {
   font-size: 1.5rem;
   font-weight: 500;
   color: var(--color-text-primary);
   margin: 0;
+  flex-shrink: 0;
 }
 .billing-subtitle {
   font-size: 0.875rem;
   color: var(--color-text-secondary);
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 .billing-controls {
   display: flex;
   align-items: center;
   gap: 0.625rem;
   flex-wrap: wrap;
+}
+.billing-controls .segmented-control {
+  flex: 0 0 auto;
+}
+.billing-controls .segmented-control,
+.billing-model-filter,
+.billing-share-btn {
+  height: 2rem;
 }
 
 /* ── Disclaimer notice ──────────────────────────────────────────────── */
@@ -12616,14 +12628,19 @@ body.setup-mode[data-theme="dark"] {
 
 /* ── Model Filter ────────────────────────────────────────────────────── */
 .billing-model-filter {
-  padding: 0.5375rem 1.75rem 0.5375rem 0.75rem;
+  width: 16rem;
+  flex: 0 0 16rem;
+  min-width: 0;
+  padding: 0 1.75rem 0 0.75rem;
   border: 1px solid var(--color-border-primary);
   border-radius: 8px;
   background: var(--color-bg-secondary);
   color: var(--color-text-primary);
   font-size: 0.8125rem;
   cursor: pointer;
-  min-width: 130px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   appearance: none;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%23888' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
@@ -12644,6 +12661,8 @@ body.setup-mode[data-theme="dark"] {
 .billing-share-btn {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
+  margin-left: auto;
   gap: 0.375rem;
   padding: 0.4375rem 0.75rem;
   border: 1px solid var(--color-border-primary);
@@ -12660,6 +12679,26 @@ body.setup-mode[data-theme="dark"] {
   background: var(--color-bg-tertiary);
   color: var(--color-text-primary);
   border-color: var(--color-accent-primary);
+}
+
+@media (max-width: 700px) {
+  .billing-controls .segmented-control {
+    flex: 1 0 100%;
+  }
+  .billing-model-filter {
+    width: auto;
+    flex: 1 1 0;
+  }
+}
+
+@media (max-width: 500px) {
+  .billing-controls .segmented-control {
+    overflow-x: auto;
+  }
+  .billing-controls .segmented-control__btn {
+    flex: 1 0 auto;
+    padding-inline: 0.5rem;
+  }
 }
 
 /* ── Stats Row ───────────────────────────────────────────────────────── */
