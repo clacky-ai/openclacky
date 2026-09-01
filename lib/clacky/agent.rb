@@ -568,9 +568,12 @@ module Clacky
       all_disk_files = disk_files + downgraded
 
       # Format user message — text + inline vision images
-      # Store the tmp path alongside the data_url so the history replay can
-      # reconstruct the image if the base64 was stripped (e.g. after compression).
-      user_content = format_user_content(user_input, vision_images.map { |v| { url: v[:url], path: v[:path] } })
+      # Store the tmp path and original name alongside the data_url: the path supports
+      # normal replay, while the name becomes the lightweight badge after compression.
+      user_content = format_user_content(
+        user_input,
+        vision_images.map { |v| { url: v[:url], path: v[:path], name: v[:name] } }
+      )
 
       # Parse disk files — agent's responsibility, not the upload layer.
       # process_path runs the parser script and returns a FileRef with preview_path or parse_error.
@@ -2351,10 +2354,10 @@ module Clacky
 
     # Build user message content for LLM.
     # Returns plain String when no vision images; Array of content parts otherwise.
-    # Build user message content for LLM.
-    # vision_images: Array of String (plain url) OR Hash { url:, path: }
-    # path is stored in the block so history replay can reconstruct the image
-    # from the tmp file when the base64 data_url is no longer available.
+    # vision_images: Array of String (plain url) OR Hash { url:, path:, name: }
+    # path is stored so normal history replay can reconstruct the image; name is
+    # lightweight metadata used for an archived badge after compression. Both
+    # fields are stripped by MessageHistory before the content reaches the API.
     private def format_user_content(text, vision_images)
       vision_images ||= []
 
@@ -2366,6 +2369,7 @@ module Clacky
         if img.is_a?(Hash)
           block = { type: "image_url", image_url: { url: img[:url] } }
           block[:image_path] = img[:path] if img[:path]
+          block[:image_name] = img[:name] if img[:name]
           content << block
         else
           content << { type: "image_url", image_url: { url: img } }

@@ -39,7 +39,8 @@ RSpec.describe "replay_history chunk MD expansion" do
     end
 
     def show_user_message(content, task_id: nil, created_at: nil, files: [], editable: true, skill_command: nil, skill_command_display: nil)
-      @events << { type: :user, content: content, task_id: task_id, created_at: created_at, editable: editable }
+      @events << { type: :user, content: content, task_id: task_id, created_at: created_at,
+                   files: files, editable: editable }
     end
 
     def show_assistant_message(content, files:, interim: false, created_at: nil)
@@ -97,6 +98,33 @@ RSpec.describe "replay_history chunk MD expansion" do
       expect(rounds.first[:user_msg]).not_to have_key(:task_id)
       expect(rounds.first[:events].first[:content]).to include("Hi there")
       expect(rounds.first[:events].first[:role]).to eq("assistant")
+    end
+
+    it "keeps an attachment-only user round" do
+      path = File.join(sessions_dir, "chunk-1.md")
+      File.write(path, chunk_md(
+        user_content: '_Display files: [{"name":"data.csv","type":"csv"}]_',
+        assistant_content: "Processed"
+      ))
+
+      rounds = build_agent([]).send(:parse_chunk_md_to_rounds, path)
+
+      expect(rounds.size).to eq(1)
+      expect(rounds.first[:user_msg][:content]).to eq("")
+      expect(rounds.first[:user_msg][:display_files]).to eq([{ name: "data.csv", type: "csv" }])
+    end
+
+    it "removes attachment metadata from replayed user text" do
+      path = File.join(sessions_dir, "chunk-1.md")
+      File.write(path, chunk_md(
+        user_content: "Please analyze this\n\n_Display files: [{\"name\":\"data.csv\",\"type\":\"csv\"}]_",
+        assistant_content: "Processed"
+      ))
+
+      rounds = build_agent([]).send(:parse_chunk_md_to_rounds, path)
+
+      expect(rounds.first[:user_msg][:content]).to eq("Please analyze this")
+      expect(rounds.first[:user_msg][:display_files]).to eq([{ name: "data.csv", type: "csv" }])
     end
 
     it "restores task_id from a task-annotated user heading" do
@@ -363,6 +391,28 @@ RSpec.describe "replay_history chunk MD expansion" do
       expect(contents).to include(a_string_including("Current question"))
       expect(user_events.find { |event| event[:content] == "Current question" }[:task_id]).to eq(6)
       expect(result[:has_more]).to be false
+    end
+
+    it "replays an attachment-only message as a file badge" do
+      chunk_path = File.join(sessions_dir, "chunk-1.md")
+      File.write(chunk_path, chunk_md(
+        user_content: '_Display files: [{"name":"data.csv","type":"csv"}]_',
+        assistant_content: "Processed"
+      ))
+
+      messages = [
+        { role: "system", content: "You are helpful." },
+        { role: "assistant", content: "Summary...", compressed_summary: true, chunk_path: chunk_path }
+      ]
+
+      collector = TestCollector.new
+      build_agent(messages).replay_history(collector)
+
+      user_event = collector.events.find { |event| event[:type] == :user }
+      expect(user_event[:content]).to eq("")
+      expect(user_event[:files]).to contain_exactly(include(name: "data.csv", type: "csv",
+                                                            path: nil, preview_path: nil))
+      expect(user_event[:editable]).to be false
     end
 
     it "respects before cursor for chunk rounds" do
