@@ -23,19 +23,23 @@ RSpec.describe Clacky::AgentProfile, ".all" do
     File.write(File.join(path, "system_prompt.md"), "user prompt")
   end
 
-  def make_ext_agent(ext_id, agent_id, title:, description: "")
+  def make_ext_agent(ext_id, agent_id, title:, description: "", title_zh: "", hidden: false)
     dir = File.join(ext_local, ext_id)
     FileUtils.mkdir_p(File.join(dir, "prompts"))
-    File.write(File.join(dir, "ext.yml"), <<~YAML)
-      id: #{ext_id}
-      origin: self
-      contributes:
-        agents:
-          - id: #{agent_id}
-            title: #{title}
-            description: #{description}
-            prompt: prompts/p.md
-    YAML
+    agent = {
+      "id" => agent_id,
+      "title" => title,
+      "description" => description,
+      "prompt" => "prompts/p.md",
+    }
+    agent["title_zh"] = title_zh unless title_zh.empty?
+    agent["hidden"] = true if hidden
+    manifest = {
+      "id" => ext_id,
+      "origin" => "self",
+      "contributes" => { "agents" => [agent] },
+    }
+    File.write(File.join(dir, "ext.yml"), manifest.to_yaml)
     File.write(File.join(dir, "prompts", "p.md"), "ext prompt")
     Clacky::ExtensionLoader.load_all(layers: { local: ext_local })
   end
@@ -82,5 +86,19 @@ RSpec.describe Clacky::AgentProfile, ".all" do
 
     ids = described_class.all.map { |a| a[:id] }
     expect(ids).to contain_exactly("alpha", "beta")
+  end
+
+  it "keeps hidden extension agents (flagged) so existing sessions can resolve their names" do
+    make_ext_agent("painter-pack", "painter", title: "Painter", title_zh: "画家", hidden: true)
+    make_ext_agent("general-pack", "general", title: "General")
+
+    all = described_class.all
+    painter = all.find { |a| a[:id] == "painter" }
+    general = all.find { |a| a[:id] == "general" }
+
+    expect(all.map { |a| a[:id] }).to include("painter", "general")
+    expect(painter[:hidden]).to be true
+    expect(painter[:title_zh]).to eq("画家")
+    expect(general[:hidden]).to be false
   end
 end

@@ -88,11 +88,11 @@ module Clacky
     # @param recency [Hash<String, Integer>] agent id => epoch of last use,
     #   used to order third-party extension agents by most-recently-used
     #   instead of their static `order` field.
-    # @return [Array<Hash>] each: { id:, title:, title_zh:, description:, description_zh:, source:, order:, layer:, author:, avatar: }
+    # @return [Array<Hash>] each: { id:, title:, title_zh:, description:, description_zh:, source:, order:, layer:, author:, avatar:, hidden: }
     def self.all(recency: {})
       out = {}
 
-      add = lambda do |id, title, title_zh, description, description_zh, source, order, layer, author, avatar|
+      add = lambda do |id, title, title_zh, description, description_zh, source, order, layer, author, avatar, hidden|
         next if id.nil? || id.empty?
         out[id] = {
           id: id,
@@ -105,13 +105,13 @@ module Clacky
           layer: layer,
           author: author,
           avatar: avatar,
+          hidden: hidden,
         }
       end
 
       ext_result = ExtensionLoader.last_result || ExtensionLoader.load_all
       ext_result&.agents&.each do |unit|
         spec = unit.spec || {}
-        next if spec["hidden"]
         title = spec["title"].to_s
         title = unit.id if title.empty?
         avatar = spec["avatar_abs"].to_s.empty? ? nil : "/agent_avatar/#{unit.id}"
@@ -119,7 +119,7 @@ module Clacky
           unit.id, title, spec["title_zh"].to_s,
           spec["description"].to_s, spec["description_zh"].to_s,
           "extension", spec["order"], unit.layer.to_s,
-          spec["author"].to_s, avatar
+          spec["author"].to_s, avatar, !!spec["hidden"]
         )
       end
 
@@ -134,7 +134,7 @@ module Clacky
           id, meta["title"] || meta["name"] || id, meta["title_zh"].to_s,
           meta["description"].to_s, meta["description_zh"].to_s,
           "user", meta["order"], "user",
-          meta["author"].to_s.empty? ? "You" : meta["author"].to_s, user_avatar
+          meta["author"].to_s.empty? ? "You" : meta["author"].to_s, user_avatar, false
         )
       end
 
