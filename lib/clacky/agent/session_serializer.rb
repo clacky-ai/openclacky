@@ -979,7 +979,9 @@ module Clacky
 
           mime_type = (url || "")[/\Adata:([^;]+);/, 1] || "image/jpeg"
           ext       = mime_type.split("/").last
-          { name: "image_#{idx + 1}.#{ext}", mime_type: mime_type, data_url: url, path: path }
+          name      = block[:image_name] || block["image_name"]
+          name      = "image_#{idx + 1}.#{ext}" if name.nil? || name.to_s.strip.empty?
+          { name: name, mime_type: mime_type, data_url: url, path: path }
         end
       end
 

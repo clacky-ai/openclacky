@@ -61,7 +61,8 @@ RSpec.describe "replay_history image-only user message" do
     {
       type: "image_url",
       image_url: { url: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M8AAAMBAQDJ/pLvAAAAAElFTkSuQmCC" },
-      image_path: "/tmp/img_001.png"
+      image_path: "/tmp/img_001.png",
+      image_name: "IMG_1234.png"
     }
   end
 
@@ -80,7 +81,22 @@ RSpec.describe "replay_history image-only user message" do
     # … and carry the recovered image so the UI can render it.
     files = collector.user_messages.first[:files]
     expect(files).not_to be_empty
+    expect(files.first[:name]).to eq("IMG_1234.png")
     expect(files.first[:data_url]).to start_with("data:image/png")
+  end
+
+  it "falls back to a generated image name for legacy messages" do
+    legacy_image_block = image_block.dup.tap { |block| block.delete(:image_name) }
+    messages = [
+      { role: "system", content: "You are helpful." },
+      { role: "user", content: [legacy_image_block], created_at: Time.now.to_f }
+    ]
+
+    agent = build_agent(messages)
+    collector = ImageCollector.new
+    agent.replay_history(collector)
+
+    expect(collector.user_messages.first[:files].first[:name]).to eq("image_1.png")
   end
 
   it "still renders an image_url message that also has text (control)" do
