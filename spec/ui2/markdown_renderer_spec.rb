@@ -35,6 +35,22 @@ RSpec.describe Clacky::UI2::MarkdownRenderer do
       expect(result).to include("hello")
       expect(result).to include("world")
     end
+
+    # Regression: strings 0.2.1 wrap raises IndexError on ANSI-colored CJK tables.
+    it "falls back to uncolored rendering for Chinese tables at wide widths" do
+      allow(TTY::Screen).to receive(:width).and_return(200)
+
+      markdown = <<~MD
+        | 文件 | 做什么 |
+        |---|---|
+        | `message_compressor_helper.rb` | 归档时提取附件的 name/type，序列化成 `_Display files: [...]_` 标记写入 chunk |
+      MD
+
+      result = described_class.render(markdown)
+      expect(result).to include("message_compressor_helper")
+      expect(result).to include("标记写入")
+      expect(result).not_to include("`")
+    end
   end
 
   describe ".markdown?" do

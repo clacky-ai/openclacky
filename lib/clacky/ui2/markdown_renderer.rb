@@ -21,14 +21,24 @@ module Clacky
           # Get current theme colors
           theme = ThemeManager.current_theme
 
+          width = TTY::Screen.width - 4  # Leave some margin
+
           # Configure tty-markdown with custom theme and symbols
           parsed = TTY::Markdown.parse(content, 
             theme: theme_colors,
             symbols: custom_symbols,
-            width: TTY::Screen.width - 4  # Leave some margin
+            width: width
           )
 
           parsed
+        rescue IndexError => e
+          # strings 0.2.1 wrap raises IndexError on ANSI-colored CJK tables; retry uncolored.
+          warn "[markdown] color render failed (#{e.class}), retrying without color" if ENV["CLACKY_DEBUG"]
+          begin
+            TTY::Markdown.parse(content, color: :never, symbols: custom_symbols, width: width)
+          rescue StandardError
+            content
+          end
         rescue StandardError => e
           warn "[markdown] render failed: #{e.class}: #{e.message}" if ENV["CLACKY_DEBUG"]
           content
