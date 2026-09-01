@@ -11,12 +11,26 @@ require "spec_helper"
 RSpec.describe Clacky::BrandConfig, "brand extensions" do
   BRAND_EXT_KEY = "0000002A-00000007-DEADBEEF-CAFEBABE-A1B2C3D4"
 
-  def licensed_config
+  def admin_config
     described_class.new(
       "brand_name"      => "X",
       "license_key"     => BRAND_EXT_KEY,
       "license_user_id" => "42"
     )
+  end
+
+  def consumer_config
+    described_class.new(
+      "brand_name"  => "X",
+      "license_key" => BRAND_EXT_KEY
+    )
+  end
+
+  def without_clacky_test
+    previous = ENV.delete("CLACKY_TEST")
+    yield
+  ensure
+    ENV["CLACKY_TEST"] = previous
   end
 
   let(:fake_client) { instance_double(Clacky::PlatformHttpClient) }
@@ -40,7 +54,7 @@ RSpec.describe Clacky::BrandConfig, "brand extensions" do
     end
 
     it "POSTs a signed payload and annotates install state" do
-      config = licensed_config
+      config = admin_config
 
       expect(fake_client).to receive(:post) do |path, payload|
         expect(path).to eq("/api/v1/licenses/extensions")
@@ -63,7 +77,7 @@ RSpec.describe Clacky::BrandConfig, "brand extensions" do
 
   describe "#install_brand_extension! + #installed_brand_extensions" do
     it "installs via the packager and records the version" do
-      config   = licensed_config
+      config   = admin_config
       ext_info = { "name" => "meeting", "latest_version" => { "version" => "1.2.0", "download_url" => "https://x/meeting.zip" } }
 
       expect(Clacky::ExtensionPackager).to receive(:install).with("https://x/meeting.zip", force: true)
@@ -79,7 +93,7 @@ RSpec.describe Clacky::BrandConfig, "brand extensions" do
     end
 
     it "fails cleanly when no download URL is present" do
-      config = licensed_config
+      config = admin_config
       result = config.install_brand_extension!("name" => "meeting", "latest_version" => {})
       expect(result[:success]).to be false
       expect(result[:error]).to match(/download URL/i)
@@ -88,7 +102,7 @@ RSpec.describe Clacky::BrandConfig, "brand extensions" do
 
   describe "#delete_brand_extension!" do
     it "removes the container and the registry entry" do
-      config = licensed_config
+      config = admin_config
       FileUtils.mkdir_p(File.join(tmp_installed, "meeting"))
       File.write(config.brand_extensions_registry_path, JSON.generate("meeting" => { "version" => "1.0.0" }))
 
@@ -101,9 +115,32 @@ RSpec.describe Clacky::BrandConfig, "brand extensions" do
 
   describe "#installed_brand_extensions" do
     it "prunes entries whose container is gone" do
-      config = licensed_config
+      config = admin_config
       File.write(config.brand_extensions_registry_path, JSON.generate("gone" => { "version" => "1.0.0" }))
       expect(config.installed_brand_extensions).to eq({})
+    end
+  end
+
+  describe "#sync_brand_extensions_async!" do
+    it "skips automatic sync for brand administrators" do
+      config = admin_config
+
+      without_clacky_test do
+        expect(Clacky::ThreadRegistry).not_to receive(:spawn)
+        expect(config.sync_brand_extensions_async!).to be_nil
+      end
+    end
+
+    it "keeps automatic sync enabled for consumer licenses" do
+      config = consumer_config
+      thread = instance_double(Thread)
+
+      without_clacky_test do
+        expect(Clacky::ThreadRegistry).to receive(:spawn)
+          .with(name: "brand-fetch-extensions")
+          .and_return(thread)
+        expect(config.sync_brand_extensions_async!).to be(thread)
+      end
     end
   end
 end
