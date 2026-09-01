@@ -712,4 +712,27 @@ RSpec.describe Clacky::MessageHistory do
       expect(api_messages).to all(satisfy { |m| !m.key?(:subagent_transcript) })
     end
   end
+
+  describe "display_files internal field" do
+    let(:files) { [{ name: "data.csv", type: "csv", path: "/tmp/data.csv" }] }
+
+    it "is persisted internally but stripped from the LLM payload" do
+      history.append(user_msg("analyze this", display_files: files))
+
+      expect(history.to_a.last[:display_files]).to eq(files)
+      expect(history.to_api.last).not_to have_key(:display_files)
+    end
+
+    it "strips image badge metadata from multipart content" do
+      history.append(user_msg([
+        { type: "image_url", image_url: { url: "data:image/png;base64,AA==" },
+          image_path: "/tmp/photo.png", image_name: "photo.png" }
+      ]))
+
+      image_block = history.to_api.last[:content].first
+      expect(image_block).not_to have_key(:image_path)
+      expect(image_block).not_to have_key(:image_name)
+      expect(image_block.dig(:image_url, :url)).to eq("data:image/png;base64,AA==")
+    end
+  end
 end
