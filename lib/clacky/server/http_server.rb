@@ -3682,7 +3682,7 @@ module Clacky
         Clacky::Logger.info("[Upgrade] Official source — running: #{cmd}")
         broadcast_all(type: "upgrade_log", line: "Starting upgrade: #{cmd}\n")
 
-        output, exit_code = run_shell(cmd, timeout: 600)
+        output, exit_code = run_shell(cmd, timeout: 600, env: gem_install_env)
 
         Clacky::Logger.info("[Upgrade] exit_code=#{exit_code}")
         Clacky::Logger.info("[Upgrade] output=#{output.slice(0, 1000)}")
@@ -3740,7 +3740,7 @@ module Clacky
         broadcast_all(type: "upgrade_log", line: "Installing...\n")
         Clacky::Logger.info("[Upgrade] Running: #{cmd}")
 
-        output, exit_code = run_shell(cmd, timeout: 600)
+        output, exit_code = run_shell(cmd, timeout: 600, env: gem_install_env)
         success = exit_code&.zero? || false
 
         broadcast_all(type: "upgrade_log", line: output)
@@ -3928,8 +3928,23 @@ module Clacky
       # Delegates to Terminal.run_sync which handles the idle-poll loop
       # internally (see its docs for why that's needed — this wrapper used
       # to re-implement it wrong and caused the 0.9.36 upgrade bug).
-      private def run_shell(command, timeout: 120)
-        Clacky::Tools::Terminal.run_sync(command, timeout: timeout)
+      private def run_shell(command, timeout: 120, env: nil)
+        Clacky::Tools::Terminal.run_sync(command, timeout: timeout, env: env)
+      end
+
+      # Install next to the gem the server is currently running from, bypassing
+      # any GEM_HOME hardcoded in the user's shell rc (system-Ruby users).
+      private def gem_install_env
+        spec = Gem.loaded_specs["openclacky"]
+        gem_home = if spec
+                     spec.base_dir
+                   else
+                     Gem.dir
+                   end
+        {
+          "GEM_HOME" => gem_home,
+          "GEM_PATH" => Gem.path.join(File::PATH_SEPARATOR),
+        }
       end
 
       # ── Channel API ───────────────────────────────────────────────────────────
