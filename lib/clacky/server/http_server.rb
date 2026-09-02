@@ -5134,6 +5134,7 @@ module Clacky
 
         # Absolute mode: allow browsing outside working directory (e.g., root "/")
         if absolute_mode
+          rel = Utils::EnvironmentDetector.win_to_linux_path(rel)
           target = File.expand_path(rel.empty? ? "/" : rel)
           display_root = target
           # Normalize rel for API response
@@ -5188,7 +5189,9 @@ module Clacky
         show_hidden = query["show_hidden"] == "true"
         include_files = query["files"] == "true"
         rel   = Dir.home if rel.empty?
+        rel   = Utils::EnvironmentDetector.win_to_linux_path(rel)
         target = File.expand_path(rel.start_with?("~") ? rel.sub(/\A~/, Dir.home) : rel)
+        requested_target = target
 
         # The requested directory may not exist yet (e.g. the default
         # ~/clacky_workspace before any session created it). Instead of 404,
@@ -5215,7 +5218,7 @@ module Clacky
         end
         items.sort_by! { |it| [it[:type] == "dir" ? 0 : 1, it[:name].downcase] }
 
-        json_response(res, 200, { root: target, path: target, parent: File.dirname(target), home: Dir.home, default: default_working_dir, entries: items, places: dir_picker_places })
+        json_response(res, 200, { root: target, path: target, parent: File.dirname(target), exact: target == requested_target, home: Dir.home, default: default_working_dir, entries: items, places: dir_picker_places })
       rescue StandardError => e
         json_response(res, 500, { error: e.message })
       end
@@ -5236,7 +5239,7 @@ module Clacky
       # Body: { parent: "/abs/parent", name: "New Folder" }
       def api_dirs_mkdir(req, res)
         body   = parse_json_body(req)
-        parent = body["parent"].to_s
+        parent = Utils::EnvironmentDetector.win_to_linux_path(body["parent"].to_s)
         name   = body["name"].to_s.strip
 
         return json_response(res, 422, { error: "parent must be an absolute path" }) unless parent.start_with?("/")
