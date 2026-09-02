@@ -21,6 +21,7 @@ module Clacky
         "dsk-deepseek-v4-flash"            => "deepseek-v4-flash",
         "dsk-deepseek-v4-flash-vision-exp" => "deepseek-v4-flash-vision-exp",
         # claude via bedrock (abs-)
+        "abs-claude-fable-5-1"  => "global.anthropic.claude-fable-5-1",
         "abs-claude-fable-5"    => "global.anthropic.claude-fable-5",
         "abs-claude-opus-5"     => "global.anthropic.claude-opus-5",
         "abs-claude-opus-4-8"   => "global.anthropic.claude-opus-4-8",

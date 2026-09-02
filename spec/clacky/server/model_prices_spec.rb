@@ -7,7 +7,7 @@ require "clacky/server/model_prices"
 RSpec.describe Clacky::Server::ModelPrices do
   let(:panel_models) do
     %w[
-      abs-claude-fable-5 abs-claude-opus-5 abs-claude-opus-4-8 abs-claude-opus-4-7
+      abs-claude-fable-5-1 abs-claude-fable-5 abs-claude-opus-5 abs-claude-opus-4-8 abs-claude-opus-4-7
       abs-claude-opus-4-6 abs-claude-sonnet-5 abs-claude-sonnet-4-6 abs-claude-sonnet-4-5
       abs-claude-haiku-4-5 dsk-deepseek-v4-pro dsk-deepseek-v4-flash
       or-gemini-3-1-pro or-gemini-3-6-flash or-gemini-3-7-flash or-gemini-3-5-flash
