@@ -1349,8 +1349,8 @@ module Clacky
 
       # ── Security gate ──────────────────────────────────────────────────────
       # Binding to 0.0.0.0 exposes the server to the public network.
-      # Refuse to start unless CLACKY_ACCESS_KEY env var is set.
-      if options[:host] == "0.0.0.0" && !ENV.key?("CLACKY_ACCESS_KEY")
+      # Refuse to start unless an access key is available.
+      if options[:host] == "0.0.0.0" && !ENV.key?("CLACKY_ACCESS_KEY") && Clacky::AccessKey.from_file.nil?
         puts <<~MSG
           ╔══════════════════════════════════════════════════════════════╗
           ║  ⚠️  Security Warning: Refusing to start                      ║
@@ -1364,6 +1364,8 @@ module Clacky
           ║                                                              ║
           ║  Then export it:                                             ║
           ║    export CLACKY_ACCESS_KEY=<your-generated-key>             ║
+          ║                                                              ║
+          ║  Or write it to ~/.clacky/access_key                         ║
           ║                                                              ║
           ╚══════════════════════════════════════════════════════════════╝
         MSG

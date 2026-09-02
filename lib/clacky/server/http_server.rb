@@ -661,6 +661,8 @@ module Clacky
         when ["PATCH",  "/api/config/settings"]  then api_update_settings(req, res)
         when ["POST",   "/api/config/models"] then api_add_model(req, res)
         when ["POST",   "/api/config/test"]   then api_test_config(req, res)
+        when ["POST",   "/api/config/reload"] then api_config_reload(req, res)
+        when ["POST",   "/api/access_key/reload"] then api_access_key_reload(req, res)
         when ["POST",   "/api/config/media/test"] then api_test_media_config(req, res)
         when ["GET",    "/api/config/media"]  then api_get_media_config(res)
         when ["GET",    "/api/config/ocr"]    then api_get_ocr_config(res)
@@ -3557,10 +3559,10 @@ module Clacky
         s.start_with?("127.") || s == "::ffff:127.0.0.1"
       end
 
-      # Resolve access key from CLACKY_ACCESS_KEY env var only.
+      # Resolve access key from ~/.clacky/access_key, falling back to the
+      # CLACKY_ACCESS_KEY env var.
       private def resolve_access_key
-        key = ENV.fetch("CLACKY_ACCESS_KEY", "").strip
-        key.empty? ? nil : key
+        Clacky::AccessKey.resolve
       end
 
       # Extract bearer token or query param from a WEBrick request.
@@ -3814,6 +3816,63 @@ module Clacky
       def api_restart(req, res)
         json_response(res, 200, { ok: true, message: "Restarting…" })
         schedule_restart
+      end
+
+      # POST /api/config/reload
+      # Re-reads ~/.clacky/config.yml into the live @agent_config. Every session
+      # shares the same @models array, so a reload reaches all of them at once.
+      def api_config_reload(_req, res)
+        was_configured = @agent_config.models_configured?
+
+        unless @agent_config.reload!
+          json_response(res, 500, { ok: false, error: "Failed to reload config.yml" })
+          return
+        end
+
+        # A server that booted with an empty config never built its default
+        # session (create_default_session bails on models_configured?). Now
+        # that models exist, complete that deferred startup step.
+        if !was_configured && @agent_config.models_configured?
+          create_default_session
+        end
+
+        json_response(res, 200, {
+          ok:                true,
+          models:            @agent_config.models.size,
+          models_configured: @agent_config.models_configured?
+        })
+      end
+
+      # POST /api/access_key/reload
+      # Re-reads the access key from ~/.clacky/access_key (or CLACKY_ACCESS_KEY).
+      # Write the new key to that file first, then call this to swap it in
+      # without restarting. Pass {"key": "..."} to have the server persist the
+      # key for you, or {"generate": true} to get a freshly generated one back.
+      def api_access_key_reload(req, res)
+        body = parse_json_body(req)
+
+        if body["generate"]
+          key = Clacky::AccessKey.write(Clacky::AccessKey.generate)
+        elsif !body["key"].to_s.strip.empty?
+          key = Clacky::AccessKey.write(body["key"])
+        else
+          key = Clacky::AccessKey.resolve
+        end
+
+        @access_key = @localhost_only ? nil : key
+        # Old lockout counters were scoped to the previous key; a client that
+        # tripped them should not stay banned after a rotation.
+        @auth_failures_mutex.synchronize { @auth_failures.clear }
+
+        Clacky::Logger.info("[Auth] Access key reloaded (configured=#{!key.nil?})")
+
+        payload = { ok: true, configured: !key.nil? }
+        # Only echo the key when the server generated it — otherwise the caller
+        # already knows it, and logging/proxies shouldn't see it again.
+        payload[:access_key] = key if body["generate"]
+        json_response(res, 200, payload)
+      rescue ArgumentError => e
+        json_response(res, 400, { ok: false, error: e.message })
       end
 
       private def schedule_restart

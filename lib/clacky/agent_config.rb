@@ -402,6 +402,46 @@ module Clacky
       Clacky::ProxyConfig.reset_cache! if defined?(Clacky::ProxyConfig)
     end
 
+    # Re-read config.yml from disk and apply it to this instance in place.
+    #
+    # Two invariants make this safe for a running server:
+    #   1. @models is mutated with #replace, never reassigned — every session
+    #      built via #deep_copy shares that array by design (see #deep_copy).
+    #   2. Model ids are regenerated on every load and are not persisted, so
+    #      fresh entries inherit the id of the matching old entry (same model
+    #      name + base_url). Otherwise every session's @current_model_id
+    #      would dangle after a reload.
+    #
+    # Returns true when applied, false when the file could not be parsed —
+    # in-memory config is left untouched rather than wiped.
+    def reload!(config_file = CONFIG_FILE)
+      fresh = self.class.load(config_file)
+
+      fresh.models.each do |m|
+        previous = find_model_by_name_and_url(m["model"], m["base_url"])
+        m["id"] = previous["id"] if previous
+      end
+
+      @models.replace(fresh.models)
+
+      CONFIG_SETTINGS_KEYS.each do |key|
+        send("#{key}=", fresh.send(key))
+      end
+
+      # A session may have been pinned to a model the user just deleted.
+      unless @models.any? { |m| m["id"] == @current_model_id }
+        fallback = find_model_by_type("default") || @models.first
+        @current_model_id    = fallback && fallback["id"]
+        @current_model_index = fallback ? @models.index(fallback).to_i : 0
+      end
+
+      Clacky::ProxyConfig.reset_cache! if defined?(Clacky::ProxyConfig)
+      true
+    rescue StandardError => e
+      Clacky::Logger.warn("[AgentConfig] reload! failed: #{e.class}: #{e.message}") if defined?(Clacky::Logger)
+      false
+    end
+
     # Convert to YAML format (top-level array)
     # Auto-injected lite models (auto_injected: true) are excluded from persistence —
     # they are regenerated at load time from the provider preset.
