@@ -7027,7 +7027,8 @@ body {
 .dp-modal {
   max-width: 820px;
   width: 820px;
-  max-height: 85vh;
+  height: min(640px, calc(100vh - 2rem));
+  max-height: none;
   display: flex;
   flex-direction: row;
   padding: 0;
@@ -7091,6 +7092,7 @@ body {
   flex-direction: column;
   flex: 1;
   min-width: 0;
+  min-height: 0;
 }
 
 /* Toolbar */
@@ -7313,7 +7315,7 @@ body {
 .dp-list {
   flex: 1;
   overflow-y: auto;
-  min-height: 320px;
+  min-height: 0;
   padding-top: 0.35rem;
   background: var(--color-bg-primary);
 }
