@@ -7081,9 +7081,55 @@ body {
   color: var(--color-text-secondary);
 }
 .dp-sidebar-name {
+  flex: 1;
+  min-width: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+.dp-sidebar-favorite {
+  display: flex;
+  align-items: center;
+  border-radius: 6px;
+  transition: background 0.08s;
+}
+.dp-sidebar-favorite:hover,
+.dp-sidebar-favorite:focus-within {
+  background: var(--color-bg-hover);
+}
+.dp-sidebar-favorite-open {
+  min-width: 0;
+  padding-right: 0.25rem;
+}
+.dp-sidebar-favorite-open:hover {
+  background: transparent;
+}
+.dp-sidebar-favorite-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  margin-right: 2px;
+  padding: 0;
+  flex-shrink: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--color-text-tertiary);
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.1s, background 0.1s, color 0.1s;
+}
+.dp-sidebar-favorite:hover .dp-sidebar-favorite-remove,
+.dp-sidebar-favorite:focus-within .dp-sidebar-favorite-remove {
+  opacity: 1;
+  pointer-events: auto;
+}
+.dp-sidebar-favorite-remove:hover {
+  background: var(--color-bg-active);
+  color: var(--color-text-primary);
 }
 
 /* Main column — toolbar + list + footer */
@@ -7130,6 +7176,12 @@ body {
 .dp-nav-btn:disabled {
   opacity: 0.3;
   cursor: not-allowed;
+}
+.dp-favorite-btn {
+  flex-shrink: 0;
+}
+.dp-favorite-btn.active {
+  color: var(--color-accent-primary);
 }
 /* Breadcrumb */
 .dp-breadcrumb {
