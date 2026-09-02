@@ -76,21 +76,30 @@ RSpec.describe Clacky::OpenAIResponsesStreamAggregator do
   end
 
   describe "reasoning streaming" do
-    it "accumulates reasoning deltas" do
+    it "accumulates reasoning deltas and emits them in to_h" do
       events = [
         { "type" => "response.reasoning.delta", "delta" => "Thinking..." },
         { "type" => "response.reasoning.delta", "delta" => " more." }
       ]
       events.each { |e| agg.handle(JSON.generate(e)) }
 
-      # Reasoning doesn't appear in to_h output directly; it's used for
-      # token estimation. Just verify no crash and saw_done is false.
-      expect(agg.saw_done?).to be false
+      reasoning = agg.to_h["output"].find { |o| o["type"] == "reasoning" }
+      expect(reasoning).not_to be_nil
+      expect(reasoning["content"]).to eq([{ "type" => "reasoning_text", "text" => "Thinking... more." }])
     end
 
     it "accumulates reasoning deltas from response.reasoning_text.delta (OpenAI official / DeepSeek)" do
       agg.handle(JSON.generate({ "type" => "response.reasoning_text.delta", "delta" => "Thinking..." }))
-      expect(agg.saw_done?).to be false
+
+      reasoning = agg.to_h["output"].find { |o| o["type"] == "reasoning" }
+      expect(reasoning).not_to be_nil
+      expect(reasoning["content"]).to eq([{ "type" => "reasoning_text", "text" => "Thinking..." }])
+    end
+
+    it "omits the reasoning item when no reasoning was streamed" do
+      agg.handle(JSON.generate({ "type" => "response.output_text.delta", "delta" => "plain" }))
+
+      expect(agg.to_h["output"].map { |o| o["type"] }).to eq(["message"])
     end
   end
 
@@ -232,6 +241,96 @@ RSpec.describe Clacky::OpenAIResponsesStreamAggregator do
       expect(h["output"][1]["type"]).to eq("function_call")
       expect(h["output"][1]["call_id"]).to eq("call_1")
       expect(h["output"][1]["arguments"]).to eq("{\"city\":\"Paris\"}")
+    end
+
+    it "backfills reasoning from a top-level reasoning item when no delta was seen" do
+      payload = {
+        "type" => "response.completed",
+        "response" => {
+          "status" => "completed",
+          "output" => [
+            { "type" => "reasoning", "content" => [{ "type" => "reasoning_text", "text" => "Let me think." }] },
+            { "type" => "message", "content" => [{ "type" => "output_text", "text" => "Answer" }] }
+          ],
+          "usage" => {}
+        }
+      }
+      agg.handle(JSON.generate(payload))
+
+      output = agg.to_h["output"]
+      reasoning = output.find { |o| o["type"] == "reasoning" }
+      message = output.find { |o| o["type"] == "message" }
+      expect(reasoning["content"]).to eq([{ "type" => "reasoning_text", "text" => "Let me think." }])
+      expect(message["content"]).to eq([{ "type" => "output_text", "text" => "Answer" }])
+    end
+
+    it "backfills reasoning from an OpenAI-style reasoning block inside the message item" do
+      payload = {
+        "type" => "response.completed",
+        "response" => {
+          "status" => "completed",
+          "output" => [
+            {
+              "type" => "message",
+              "content" => [
+                {
+                  "type" => "reasoning",
+                  "content" => [{ "type" => "reasoning_text", "text" => "Step by step." }],
+                  "summary" => []
+                },
+                { "type" => "output_text", "text" => "Answer" }
+              ]
+            }
+          ],
+          "usage" => {}
+        }
+      }
+      agg.handle(JSON.generate(payload))
+
+      reasoning = agg.to_h["output"].find { |o| o["type"] == "reasoning" }
+      expect(reasoning["content"]).to eq([{ "type" => "reasoning_text", "text" => "Step by step." }])
+    end
+
+    it "falls back to summary_text when the reasoning block carries no full text" do
+      payload = {
+        "type" => "response.completed",
+        "response" => {
+          "status" => "completed",
+          "output" => [
+            {
+              "type" => "message",
+              "content" => [
+                { "type" => "reasoning", "summary" => [{ "type" => "summary_text", "text" => "Brief summary." }] },
+                { "type" => "output_text", "text" => "Answer" }
+              ]
+            }
+          ],
+          "usage" => {}
+        }
+      }
+      agg.handle(JSON.generate(payload))
+
+      reasoning = agg.to_h["output"].find { |o| o["type"] == "reasoning" }
+      expect(reasoning["content"]).to eq([{ "type" => "reasoning_text", "text" => "Brief summary." }])
+    end
+
+    it "keeps incremental reasoning deltas over the final snapshot" do
+      agg.handle(JSON.generate({ "type" => "response.reasoning_text.delta", "delta" => "Live reasoning" }))
+      payload = {
+        "type" => "response.completed",
+        "response" => {
+          "status" => "completed",
+          "output" => [
+            { "type" => "reasoning", "content" => [{ "type" => "reasoning_text", "text" => "Snapshot reasoning" }] },
+            { "type" => "message", "content" => [{ "type" => "output_text", "text" => "Answer" }] }
+          ],
+          "usage" => {}
+        }
+      }
+      agg.handle(JSON.generate(payload))
+
+      reasoning = agg.to_h["output"].find { |o| o["type"] == "reasoning" }
+      expect(reasoning["content"]).to eq([{ "type" => "reasoning_text", "text" => "Live reasoning" }])
     end
   end
 

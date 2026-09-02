@@ -483,7 +483,8 @@ module Clacky
 
     # ── OpenAI Responses API request / response ───────────────────────────────
 
-    def send_openai_responses_request(messages, model, tools, max_tokens, _caching_enabled, reasoning_effort: nil, on_chunk: nil, capability_model: nil)
+    def send_openai_responses_request(messages, model, tools, max_tokens, caching_enabled,
+                                      reasoning_effort: nil, on_chunk: nil, capability_model: nil)
       # Override max_tokens when the model declares a higher output ceiling
       model_for_limit = capability_model || model
       model_limit = Providers.max_output_for(model_for_limit)

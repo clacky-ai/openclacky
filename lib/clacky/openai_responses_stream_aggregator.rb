@@ -106,6 +106,18 @@ module Clacky
         }
       end
 
+      # Reasoning item. Both providers stream reasoning via
+      # response.reasoning(_text).delta; emit it as a top-level "reasoning"
+      # item (DeepSeek shape) so MessageFormat::OpenAIResponses#extract_reasoning
+      # can consume it. Without this the streaming path silently drops
+      # reasoning content while the non-streaming path keeps it.
+      unless @reasoning_text.empty?
+        output << {
+          "type" => "reasoning",
+          "content" => [{ "type" => "reasoning_text", "text" => @reasoning_text.to_s }]
+        }
+      end
+
       # Function call items
       @function_calls.each_value do |fc|
         output << {
@@ -177,15 +189,19 @@ module Clacky
       output.each do |item|
         case item["type"]
         when "message"
-          next unless @text.empty?
           content = item["content"]
-          if content.is_a?(Array)
-            content.each do |block|
-              if block["type"] == "output_text"
-                @text << block["text"].to_s
-              end
+          next unless content.is_a?(Array)
+
+          content.each do |block|
+            case block["type"]
+            when "output_text"
+              @text << block["text"].to_s if @text.empty?
+            when "reasoning"
+              backfill_reasoning(block["content"], block["summary"])
             end
           end
+        when "reasoning"
+          backfill_reasoning(item["content"], item["summary"])
         when "function_call"
           next if @function_calls.key?(item["call_id"])
           @function_calls[item["call_id"]] = {
@@ -195,6 +211,34 @@ module Clacky
           }
         end
       end
+    end
+
+    # Backfill @reasoning_text from the final response snapshot when no
+    # reasoning delta was seen. Handles both item shapes: OpenAI's official
+    # reasoning block inside the message item, and DeepSeek's top-level
+    # reasoning item. Prefers full reasoning text; falls back to the summary
+    # (mirrors MessageFormat::OpenAIResponses#extract_reasoning).
+    private def backfill_reasoning(content_blocks, summary_blocks = nil)
+      return unless @reasoning_text.empty?
+
+      return if append_typed_blocks(content_blocks, "reasoning_text")
+
+      append_typed_blocks(content_blocks, "summary_text") || append_typed_blocks(summary_blocks, "summary_text")
+    end
+
+    # Append every block of the given type to @reasoning_text.
+    # Returns true when at least one block matched.
+    private def append_typed_blocks(blocks, type)
+      return false unless blocks.is_a?(Array)
+
+      found = false
+      blocks.each do |block|
+        next unless block.is_a?(Hash) && block["type"] == type
+
+        @reasoning_text << block["text"].to_s if block["text"]
+        found = true
+      end
+      found
     end
 
     private def parse_or_nil(s)
