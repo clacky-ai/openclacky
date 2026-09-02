@@ -4,6 +4,7 @@ require "spec_helper"
 require "json"
 require "tmpdir"
 require "fileutils"
+require "uri"
 require "clacky/server/http_server"
 require "clacky/agent_config"
 require_relative "../../support/http_server_spec_helpers"
@@ -86,6 +87,63 @@ RSpec.describe Clacky::Server::HttpServer, "directory picker mutation API" do
         expect(places.map { |p| p["kind"] }.uniq).to eq(["favorite"])
       end
     end
+
+    it "normalizes any WSL drive-letter path before browsing" do
+      with_server(agent_config: agent_config) do |server|
+        windows_path = "R:\\Users\\tester\\workspace"
+        allow(Clacky::Utils::EnvironmentDetector).to receive(:win_to_linux_path)
+          .with(windows_path).and_return(tmproot)
+
+        req = fake_req(method: "GET", path: "/api/dirs",
+                       query_string: URI.encode_www_form(path: windows_path))
+        res = fake_res
+        dispatch(server, req, res)
+
+        expect(res.status).to eq(200)
+        body = parsed_body(res)
+        expect(body["path"]).to eq(tmproot)
+        expect(body["exact"]).to be true
+      end
+    end
+
+    it "marks fallback-to-an-ancestor results as inexact" do
+      with_server(agent_config: agent_config) do |server|
+        missing = File.join(tmproot, "missing", "nested")
+        req = fake_req(method: "GET", path: "/api/dirs",
+                       query_string: URI.encode_www_form(path: missing))
+        res = fake_res
+        dispatch(server, req, res)
+
+        expect(res.status).to eq(200)
+        body = parsed_body(res)
+        expect(body["path"]).to eq(tmproot)
+        expect(body["exact"]).to be false
+      end
+    end
+  end
+
+  describe "GET /api/sessions/:id/files" do
+    it "normalizes a drive-letter path in absolute mode" do
+      with_server(agent_config: agent_config) do |server|
+        windows_path = "Q:/workspaces/project"
+        allow(Clacky::Utils::EnvironmentDetector).to receive(:win_to_linux_path)
+          .with(windows_path).and_return(tmproot)
+
+        registry = double("registry")
+        allow(registry).to receive(:ensure).with("session-1").and_return(true)
+        allow(registry).to receive(:get).with("session-1")
+          .and_return({ agent: double("agent", working_dir: tmproot) })
+        server.instance_variable_set(:@registry, registry)
+
+        req = fake_req(method: "GET", path: "/api/sessions/session-1/files",
+                       query_string: URI.encode_www_form(path: windows_path, absolute: true))
+        res = fake_res
+        server.send(:api_session_files, "session-1", req, res)
+
+        expect(res.status).to eq(200)
+        expect(parsed_body(res)["path"]).to eq(tmproot)
+      end
+    end
   end
 
   # ── WSL quick-access mapping ─────────────────────────────────────────────
@@ -166,6 +224,22 @@ RSpec.describe Clacky::Server::HttpServer, "directory picker mutation API" do
         expect(body["ok"]).to be true
         expect(body["name"]).to eq("fresh")
         expect(Dir.exist?(File.join(tmproot, "fresh"))).to be true
+      end
+    end
+
+    it "normalizes a drive-letter parent before creating a directory" do
+      with_server(agent_config: agent_config) do |server|
+        windows_parent = "Z:\\workspace"
+        allow(Clacky::Utils::EnvironmentDetector).to receive(:win_to_linux_path)
+          .with(windows_parent).and_return(tmproot)
+
+        req = fake_req(method: "POST", path: "/api/dirs/mkdir",
+                       body: { parent: windows_parent, name: "from-windows-path" })
+        res = fake_res
+        dispatch(server, req, res)
+
+        expect(res.status).to eq(200)
+        expect(Dir.exist?(File.join(tmproot, "from-windows-path"))).to be true
       end
     end
 
