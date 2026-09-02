@@ -7360,10 +7360,11 @@ module Clacky
       # ── Session actions ───────────────────────────────────────────────────────
 
       def handle_edit_message(session_id, content, created_at)
-        return unless @registry.exist?(session_id)
+        session = @registry.get(session_id)
+        return unless session
+        return if session[:status] == :running
 
-        agent = nil
-        @registry.with_session(session_id) { |s| agent = s[:agent] }
+        agent = session[:agent]
         return unless agent
 
         if agent.history.respond_to?(:truncate_from_created_at) && !created_at.to_s.empty?
