@@ -24,6 +24,7 @@ require_relative "agent/skill_evolution"
 require_relative "agent/skill_reflector"
 require_relative "agent/skill_auto_creator"
 require_relative "agent/fake_tool_call_detector"
+require_relative "agent/tool_loop_detector"
 require_relative "agent/goal_state"
 require_relative "agent/goal_manager"
 
@@ -43,6 +44,7 @@ module Clacky
     include SkillReflector
     include SkillAutoCreator
     include FakeToolCallDetector
+    include ToolLoopDetector
 
     attr_reader :session_id, :name, :history, :iterations, :total_cost, :working_dir, :created_at, :total_tasks, :todos,
                 :cache_stats, :cost_source, :ui, :skill_loader, :agent_profile,
@@ -87,6 +89,8 @@ module Clacky
       @history = MessageHistory.new
       @todos = []  # Store todos in memory
       @iterations = 0
+      @recent_tool_signatures = []  # Sliding window for tool-loop detection (see ToolLoopDetector)
+      @unresolved_loop_streak = 0   # Consecutive repeated turns (see ToolLoopDetector)
       @total_cost = 0.0
       @cost_mutex = Mutex.new
       @cache_stats = {
@@ -516,6 +520,8 @@ module Clacky
         @start_time = Time.now
         @task_truncation_count = 0  # Reset truncation counter for each task
         @task_fake_tool_call_count = 0  # Reset fake tool-call counter for each task
+        @recent_tool_signatures = []  # Reset tool-loop detection window for each task
+        @unresolved_loop_streak = 0   # Reset tool-loop streak for each task
         @task_timeout_hint_injected = false  # Reset read-timeout hint injection (see LlmCaller)
         @task_upstream_truncation_hint_injected = false  # Reset upstream-truncation hint injection (see LlmCaller)
         @task_cost_source = :estimated  # Reset for new task
@@ -871,6 +877,13 @@ module Clacky
           # This ensures WebUI renders the token line below the assistant bubble.
           @ui&.show_token_usage(response[:token_usage]) if response[:token_usage]
 
+          # Tool-loop detection: record this turn's tool-call signatures and
+          # detect repetition. Execution is never blocked here (legitimate
+          # repeats such as `git status` → edit → `git status` are valid); the
+          # signal is applied after observe() so any injected message lands in
+          # a legal position. See ToolLoopDetector (issue #440).
+          loop_signal = detect_tool_calls_loop(response[:tool_calls])
+
           # Act: Execute tool calls
           action_result = act(response[:tool_calls])
 
@@ -889,6 +902,16 @@ module Clacky
           # Must happen AFTER observe() so toolResult is appended before skill instructions,
           # producing a legal message sequence for all API providers (especially Bedrock).
           flush_pending_injections
+
+          # Tool-loop circuit breaker: escalate or force-break a repeated
+          # tool-call sequence (see ToolLoopDetector, issue #440). Placed after
+          # observe() so an injected nudge follows the tool results it refers to.
+          if loop_signal == :break
+            handle_tool_loop_break
+            break
+          elsif loop_signal
+            inject_tool_loop_warning(loop_signal)
+          end
 
           # Check if user denied any tool
           if action_result[:denied]
