@@ -100,14 +100,22 @@
         </div>
         <!-- Filter row -->
         <div class="search-filter-row">
-          <select id="session-search-type" class="search-select">
-            <option value=""        data-i18n="sessions.search.typeAll">All types</option>
-            <option value="manual"  data-i18n="sessions.search.typeManual">Default</option>
-            <option value="cron"    data-i18n="sessions.search.typeCron">Scheduled</option>
-            <option value="channel" data-i18n="sessions.search.typeChannel">Channel</option>
-            <option value="setup"   data-i18n="sessions.search.typeSetup">Setup</option>
-            <option value="coding"  data-i18n="sessions.search.typeCoding">Coding</option>
-          </select>
+          <div class="custom-select-wrapper search-select" id="session-search-type">
+            <div class="custom-select-trigger custom-select-trigger--bare" tabindex="0">
+              <span class="custom-select-value placeholder" data-i18n="sessions.search.typeAll">All types</span>
+              <svg class="custom-select-arrow" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+              </svg>
+            </div>
+            <div class="custom-select-dropdown">
+              <div class="custom-select-option" data-value="" data-i18n="sessions.search.typeAll">All types</div>
+              <div class="custom-select-option" data-value="manual" data-i18n="sessions.search.typeManual">Default</div>
+              <div class="custom-select-option" data-value="cron" data-i18n="sessions.search.typeCron">Scheduled</div>
+              <div class="custom-select-option" data-value="channel" data-i18n="sessions.search.typeChannel">Channel</div>
+              <div class="custom-select-option" data-value="setup" data-i18n="sessions.search.typeSetup">Setup</div>
+              <div class="custom-select-option" data-value="coding" data-i18n="sessions.search.typeCoding">Coding</div>
+            </div>
+          </div>
           <div class="search-date-wrap">
             <button id="session-search-date" class="search-date datepicker-trigger" type="button" data-value="" data-i18n="sessions.search.datePlaceholder"></button>
           </div>
@@ -720,15 +728,31 @@
           </div>
           <div class="extensions-toolbar-right">
             <input type="text" id="extensions-search-input" class="extensions-search" placeholder="Search extensions…" />
-            <select id="extensions-sort" class="extensions-sort">
-              <option value="downloads" data-i18n="extensions.sort.downloads">Most downloaded</option>
-              <option value="newest" data-i18n="extensions.sort.newest">Newest</option>
-              <option value="updated" data-i18n="extensions.sort.updated">Recently updated</option>
-            </select>
-            <select id="extensions-installed-filter" class="extensions-sort">
-              <option value="all" data-i18n="extensions.filter.all">All</option>
-              <option value="installed" data-i18n="extensions.filter.installed">Installed</option>
-            </select>
+            <div class="custom-select-wrapper extensions-select" id="extensions-sort">
+              <div class="custom-select-trigger" tabindex="0">
+                <span class="custom-select-value" data-i18n="extensions.sort.downloads">Most downloaded</span>
+                <svg class="custom-select-arrow" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+                </svg>
+              </div>
+              <div class="custom-select-dropdown">
+                <div class="custom-select-option" data-value="downloads" data-i18n="extensions.sort.downloads">Most downloaded</div>
+                <div class="custom-select-option" data-value="newest" data-i18n="extensions.sort.newest">Newest</div>
+                <div class="custom-select-option" data-value="updated" data-i18n="extensions.sort.updated">Recently updated</div>
+              </div>
+            </div>
+            <div class="custom-select-wrapper extensions-select" id="extensions-installed-filter">
+              <div class="custom-select-trigger" tabindex="0">
+                <span class="custom-select-value" data-i18n="extensions.filter.all">All</span>
+                <svg class="custom-select-arrow" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+                </svg>
+              </div>
+              <div class="custom-select-dropdown">
+                <div class="custom-select-option" data-value="all" data-i18n="extensions.filter.all">All</div>
+                <div class="custom-select-option" data-value="installed" data-i18n="extensions.filter.installed">Installed</div>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -764,9 +788,15 @@
               <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="trash-filter-project-icon">
                 <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
               </svg>
-              <select id="trash-filter-project" class="trash-filter-project-select">
-                <option value="" data-i18n="trash.filterAllProjects">所有项目</option>
-              </select>
+              <div class="custom-select-wrapper" id="trash-filter-project">
+                <div class="custom-select-trigger custom-select-trigger--bare" tabindex="0">
+                  <span class="custom-select-value placeholder" data-i18n="trash.filterAllProjects">所有项目</span>
+                  <svg class="custom-select-arrow" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+                  </svg>
+                </div>
+                <div class="custom-select-dropdown"></div>
+              </div>
             </div>
           </div>
           <span class="trash-summary" id="trash-summary"></span>
@@ -934,9 +964,15 @@
                          data-i18n-placeholder="settings.models.search.placeholder"
                          placeholder="Search model / provider / remark / base URL" autocomplete="off">
                 </div>
-                <select id="model-provider-filter" class="model-provider-filter" aria-label="Filter by provider">
-                  <option value="">All providers</option>
-                </select>
+                <div class="custom-select-wrapper model-provider-filter" id="model-provider-filter">
+                  <div class="custom-select-trigger" tabindex="0">
+                    <span class="custom-select-value placeholder" data-i18n="settings.models.filter.all">All providers</span>
+                    <svg class="custom-select-arrow" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+                    </svg>
+                  </div>
+                  <div class="custom-select-dropdown"></div>
+                </div>
                 <button id="btn-add-model" class="btn-settings-add" data-i18n="settings.models.add">+ Add Model</button>
               </div>
             </div>
@@ -1705,6 +1741,7 @@
 <script src="/components/notify.js"></script>
 <script src="/ws.js"></script>
 <script src="/ws-dispatcher.js"></script>
+<script src="/components/custom-select.js"></script>
 <script src="/sessions.js"></script>
 <script src="/projects.js"></script>
 <script src="/features/workspace/store.js"></script>
@@ -1727,7 +1764,6 @@
 <script src="/features/new-session/view.js"></script>
 <script src="/features/model-tester/store.js"></script>
 <script src="/features/model-tester/view.js"></script>
-<script src="/components/custom-select.js"></script>
 <script src="/settings.js"></script>
 <script src="/features/billing/store.js"></script>
 <script src="/features/billing/view.js"></script>

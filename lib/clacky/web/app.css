@@ -1270,15 +1270,8 @@ body {
 .search-select {
   flex: 0 0 5rem;
   min-width: 0;
-  padding: 0 2px 0 0.25rem;
   height: 100%;
-  font-size: 0.6875rem;
-  border: none;
   border-right: 1px solid var(--color-border-primary);
-  background: transparent;
-  color: var(--color-text-secondary);
-  outline: none;
-  cursor: pointer;
 }
 
 /* date wrapper: half width, position:relative for the icon overlay */
@@ -1318,7 +1311,6 @@ body {
 }
 
 /* Active filter highlight */
-.search-select[data-active="true"],
 .search-date[data-active="true"] {
   color: var(--color-accent-primary);
   font-weight: 500;
@@ -6163,10 +6155,12 @@ body {
   align-items: center;
   justify-content: space-between;
   font-size: 1.125rem;
-  font-weight: 700;
   color: var(--color-text-primary);
   letter-spacing: -0.3px;
   padding-bottom: 0.5rem;
+}
+.settings-section-title > span {
+  font-weight: 700;
 }
 .btn-settings-add {
   display: flex;
@@ -6571,6 +6565,7 @@ body {
   cursor: pointer;
   display: flex;
   align-items: center;
+  gap: 0.375rem;
   justify-content: space-between;
   transition: border-color 0.15s ease;
 }
@@ -6591,6 +6586,24 @@ body {
 .custom-select-trigger .placeholder {
   color: var(--color-text-secondary);
 }
+.custom-select-value {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.custom-select-trigger--bare {
+  border: none;
+  background: transparent;
+  border-radius: 0;
+  padding: 0 0.25rem;
+  font-size: 0.6875rem;
+  height: 100%;
+  color: var(--color-text-secondary);
+}
+.custom-select-trigger--bare .custom-select-value:not(.placeholder) {
+  color: var(--color-accent-primary);
+  font-weight: 500;
+}
 .custom-select-arrow {
   width: 0.75rem;
   height: 0.75rem;
@@ -6605,7 +6618,9 @@ body {
   position: absolute;
   top: calc(100% + 0.25rem);
   left: 0;
-  right: 0;
+  min-width: 100%;
+  width: max-content;
+  max-width: 24rem;
   background: var(--color-bg-secondary);
   border: 1px solid var(--color-border-primary);
   border-radius: 8px;
@@ -6627,6 +6642,9 @@ body {
   cursor: pointer;
   border-radius: 6px;
   transition: background-color 0.15s ease;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .custom-select-option:hover {
   background: var(--color-bg-hover);
@@ -6657,6 +6675,9 @@ body {
   display: flex;
   align-items: center;
   gap: 0.5rem;
+  /* Override .custom-select-option's overflow:hidden (ellipsis) so the
+     ::before divider can extend above this row. */
+  overflow: visible;
   margin: 0.375rem;
   padding: 0.5rem 0.75rem;
   border-radius: 6px;
@@ -6784,25 +6805,13 @@ body {
   color: var(--color-text-tertiary);
 }
 .model-provider-filter {
-  height: 2.25rem;
-  padding: 0 1.75rem 0 0.625rem;
-  border: 1px solid var(--color-border-primary);
-  border-radius: 6px;
-  background: var(--color-bg-primary);
-  color: var(--color-text-primary);
-  font-size: 0.8125rem;
-  outline: none;
-  cursor: pointer;
-  transition: border-color 0.15s;
+  width: auto;
   max-width: 12rem;
   min-width: 0;
-  appearance: none;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238b949e' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M19 9l-7 7-7-7'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right 0.625rem center;
+  height: 2.25rem;
 }
-.model-provider-filter:focus {
-  border-color: var(--color-accent-primary);
+.model-provider-filter .custom-select-trigger {
+  height: 100%;
 }
 
 /* ── Grid Model Card ────────────────────────────────────────────────────────── */
@@ -9012,23 +9021,8 @@ body {
   background: var(--color-bg-secondary);
   color: var(--color-text-primary);
 }
-.extensions-sort {
-  flex-shrink: 0;
-  font-size: 0.8125rem;
-  padding: 0.4375rem 2rem 0.4375rem 0.75rem;
-  border-radius: 6px;
-  border: 1px solid var(--color-border-primary);
-  background: var(--color-bg-secondary);
-  color: var(--color-text-primary);
-  cursor: pointer;
-  appearance: none;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%23888' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right 0.625rem center;
-}
-.extensions-sort:focus {
-  outline: none;
-  border-color: var(--color-accent, #6366f1);
+.extensions-select {
+  width: auto;
 }
 #extensions-list {
   display: flex;
@@ -12581,6 +12575,7 @@ body.setup-mode[data-theme="dark"] {
 }
 /* Project filter dropdown */
 .trash-filter-project-wrap {
+  position: relative;
   display: inline-flex;
   align-items: center;
   gap: 0.3rem;
@@ -12600,16 +12595,12 @@ body.setup-mode[data-theme="dark"] {
   flex-shrink: 0;
   pointer-events: none;
 }
-.trash-filter-project-select {
-  font-size: 0.6875rem;
-  color: inherit;
-  background: transparent;
-  border: none;
-  outline: none;
-  cursor: pointer;
-  padding: 0;
+.trash-filter-project-wrap .custom-select-wrapper {
+  /* dropdown anchors to the wrap (icon + trigger) instead, so the panel
+     aligns with the whole control's left edge rather than the icon's right */
+  position: static;
+  min-width: 0;
   max-width: 130px;
-  appearance: auto;
 }
 .trash-actions {
   display: flex;
@@ -12920,30 +12911,9 @@ body.setup-mode[data-theme="dark"] {
   width: 16rem;
   flex: 0 0 16rem;
   min-width: 0;
-  padding: 0 1.75rem 0 0.75rem;
-  border: 1px solid var(--color-border-primary);
-  border-radius: 8px;
-  background: var(--color-bg-secondary);
-  color: var(--color-text-primary);
-  font-size: 0.8125rem;
-  cursor: pointer;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  appearance: none;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%23888' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right 0.625rem center;
-  transition: border-color 0.15s ease;
 }
-.billing-model-filter:focus {
-  outline: none;
-  border-color: var(--color-accent-primary);
-  box-shadow: 0 0 0 3px var(--color-accent-soft);
-}
-.billing-model-filter option {
-  background: var(--color-bg-secondary);
-  color: var(--color-text-primary);
+.billing-model-filter .custom-select-trigger {
+  height: 100%;
 }
 
 /* ── Action Buttons ──────────────────────────────────────────────────── */
