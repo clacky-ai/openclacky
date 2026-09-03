@@ -215,7 +215,11 @@ module Clacky
       #
       # Zero side-effects: when reasoning_effort is nil/empty the body is
       # unchanged, preserving the provider default for all models.
-      private_class_method def self.apply_reasoning_params(body, model, reasoning_effort)
+      #
+      # Single source of truth for reasoning param mapping — shared with
+      # MessageFormat::OpenAIResponses (the Responses API accepts the same
+      # top-level fields).
+      def self.apply_reasoning_params(body, model, reasoning_effort)
         effort_str = reasoning_effort.to_s
 
         if model.to_s.match?(/\Aglm-5[-.]3/i)

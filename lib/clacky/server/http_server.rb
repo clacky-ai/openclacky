@@ -6415,13 +6415,13 @@ module Clacky
       # never send "the whole list" anymore.
 
       # Normalize an incoming api_format value into one of the supported
-      # explicit formats ("anthropic-messages" / "openai-completions"), or nil
-      # for auto. Returns :invalid for unsupported values so callers can
-      # reject the request outright.
+      # explicit formats ("anthropic-messages" / "openai-completions" /
+      # "openai-responses"), or nil for auto. Returns :invalid for unsupported
+      # values so callers can reject the request outright.
       private def normalize_api_format(value)
         return nil if value.nil? || value.to_s.strip.empty?
         v = value.to_s.strip
-        return v if %w[anthropic-messages openai-completions].include?(v)
+        return v if %w[anthropic-messages openai-completions openai-responses].include?(v)
         :invalid
       end
 
