@@ -737,6 +737,29 @@ RSpec.describe Clacky::Server::HttpServer do
       end
     end
 
+    it "persists the custom provider marker without breaking runtime preset resolution" do
+      with_server(agent_config: agent_config) do |server|
+        payload = {
+          model:       "deepseek-v4-pro",
+          base_url:    "https://api.deepseek.com",
+          api_key:     "sk-newkey0000111122223333",
+          provider_id: "custom",
+          api_format:  "openai-responses"
+        }
+        req = fake_req(method: "POST", path: "/api/config/models", body: payload)
+        res = fake_res
+        dispatch(server, req, res)
+
+        expect(res.status).to eq(200)
+        created = agent_config.models.find { |m| m["id"] == parsed_body(res)["id"] }
+        expect(created["provider_id"]).to eq("custom")
+        expect(created["api_format"]).to eq("openai-responses")
+        # "custom" is not a preset: runtime provider resolution must fall back
+        # to the base_url lookup so media sidecars and capabilities still work.
+        expect(agent_config.provider_id_for(created)).to eq("deepseekv4")
+      end
+    end
+
     it "stores the optional remark when provided" do
       with_server(agent_config: agent_config) do |server|
         payload = {
