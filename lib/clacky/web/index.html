@@ -1122,11 +1122,19 @@
             <div class="settings-network">
               <p class="settings-network-desc" data-i18n="settings.search.desc">By default web_search scrapes DuckDuckGo and Bing, which needs no key but returns lower-quality results. Select a search provider to use an API instead — it falls back to the built-in engines if the provider fails.</p>
               <div class="settings-network-url">
-                <label class="settings-network-url-label" for="settings-search-provider" data-i18n="settings.search.provider">Provider</label>
+                <label class="settings-network-url-label" for="settings-search-provider-trigger" data-i18n="settings.search.provider">Provider</label>
                 <div class="settings-network-url-row">
-                  <select id="settings-search-provider" class="field-select">
-                    <option value="" data-i18n="settings.search.builtin">Built-in (DuckDuckGo / Bing)</option>
-                  </select>
+                  <div class="custom-select-wrapper" id="settings-search-provider-wrapper">
+                    <div class="custom-select-trigger" tabindex="0" id="settings-search-provider-trigger">
+                      <span class="custom-select-value placeholder" id="settings-search-provider-value" data-i18n="settings.search.builtin">Built-in (DuckDuckGo / Bing)</span>
+                      <svg class="custom-select-arrow" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+                      </svg>
+                    </div>
+                    <div class="custom-select-dropdown" id="settings-search-provider-dropdown">
+                      <div class="custom-select-option" data-value="" data-i18n="settings.search.builtin">Built-in (DuckDuckGo / Bing)</div>
+                    </div>
+                  </div>
                   <button type="button" id="btn-save-search" class="btn-settings-action" data-i18n="settings.search.save">Save</button>
                 </div>
                 <div id="settings-search-status" class="model-test-result"></div>
@@ -1368,7 +1376,7 @@
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
                 </svg>
               </div>
-              <div class="custom-select-dropdown" id="model-modal-provider-dropdown"></div>
+              <div class="custom-select-dropdown custom-select-dropdown--footer" id="model-modal-provider-dropdown"></div>
             </div>
             <div id="model-modal-promo-hint" class="provider-promo-hint" data-index="modal"></div>
           </label>
@@ -1416,12 +1424,20 @@
 
           <label class="model-field" id="model-modal-apiformat-field">
             <span class="field-label" data-i18n="settings.models.field.apiFormat">API Format</span>
-            <select id="model-modal-api-format" class="field-input field-select">
-              <option value="" data-i18n="settings.models.apiFormat.auto">Auto (detect from provider &amp; model)</option>
-              <option value="anthropic-messages" data-i18n="settings.models.apiFormat.anthropicMessages">Anthropic Messages API</option>
-              <option value="openai-completions" data-i18n="settings.models.apiFormat.openaiCompletions">OpenAI Chat Completions</option>
-              <option value="openai-responses" data-i18n="settings.models.apiFormat.openaiResponses">OpenAI Responses API</option>
-            </select>
+            <div class="custom-select-wrapper" id="model-modal-api-format-wrapper">
+              <div class="custom-select-trigger" tabindex="0" id="model-modal-api-format-trigger">
+                <span class="custom-select-value placeholder" id="model-modal-api-format-value" data-i18n="settings.models.apiFormat.auto">Auto (detect from provider &amp; model)</span>
+                <svg class="custom-select-arrow" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+                </svg>
+              </div>
+              <div class="custom-select-dropdown" id="model-modal-api-format-dropdown">
+                <div class="custom-select-option" data-value="" data-i18n="settings.models.apiFormat.auto">Auto (detect from provider &amp; model)</div>
+                <div class="custom-select-option" data-value="anthropic-messages" data-i18n="settings.models.apiFormat.anthropicMessages">Anthropic Messages API</div>
+                <div class="custom-select-option" data-value="openai-completions" data-i18n="settings.models.apiFormat.openaiCompletions">OpenAI Chat Completions</div>
+                <div class="custom-select-option" data-value="openai-responses" data-i18n="settings.models.apiFormat.openaiResponses">OpenAI Responses API</div>
+              </div>
+            </div>
           </label>
 
           <label class="model-field">
@@ -1711,6 +1727,7 @@
 <script src="/features/new-session/view.js"></script>
 <script src="/features/model-tester/store.js"></script>
 <script src="/features/model-tester/view.js"></script>
+<script src="/components/custom-select.js"></script>
 <script src="/settings.js"></script>
 <script src="/features/billing/store.js"></script>
 <script src="/features/billing/view.js"></script>
