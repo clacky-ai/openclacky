@@ -1,4 +1,7 @@
 ---
+# Maintenance note: Do not relax the installed-gem source restriction.
+# After context compression, previously inspected host files may be
+# mistaken for extension edit targets.
 name: ext-develop
 description: Build, debug, or publish an OpenClacky extension — scaffold a new one from an idea, fix a broken/invisible panel/api/skill/agent, or ship it to the marketplace. Trigger on create/start extension, plugin, panel, ext verify error, "won't load", "not showing up", publish/ship/unpublish an extension.
 agent: ext-developer
@@ -6,586 +9,185 @@ agent: ext-developer
 
 # Extension Development
 
-Build an OpenClacky extension end to end — scaffold, edit, verify, hot-reload, and
-(only when asked) publish. Prefer editing real files and verifying over describing.
+Use this skill to guide the workflow, not as a second API manual. The online
+references below own the detailed contracts, examples, and reload behavior. The local
+engineering checks below remain mandatory even when those references cannot be fetched.
 
-## The extension model (ground truth)
+## Before designing or editing
 
-An extension is one directory with a single `ext.yml` manifest declaring
-`contributes:`. Nothing is nested — units reference each other by id. It survives
-`gem update` and never requires editing gem source.
+1. Identify what the user wants and the smallest capability set that can provide it.
+   Check existing host services and shared panels before building a replacement.
+2. For behavior-only discussion, apply **Engineering checks** without enumerating APIs.
+   Before specifying or implementing an interface, fetch its capability reference below;
+   read the overview when container/scaffold/reload behavior is relevant. Reuse verified
+   text still in context. Check truncation and missing details using **Documentation
+   fallback**; a successful response does not prove the needed contract was retrieved.
+   Use the article's contract/examples, not the documentation site's navigation, page
+   styles or scripts. Those belong to a different application, not the extension host.
+3. Confirm the proposed behavior, affected files, and visible result with the user
+   before scaffolding or editing. Do not publish, restart, or add privileged behavior
+   merely because implementation was approved.
 
-Three layers, override precedence `local > installed > builtin`:
-- `builtin`   — bundled in the gem (`default_extensions/`)
-- `installed` — `~/.clacky/ext/installed/<id>/` (from `ext install`)
-- `local`     — `~/.clacky/ext/local/<id>/` (where users develop; `ext new` lands here)
+### Documentation fallback
 
-Eight `contributes:` types (use one, several, or all):
-- `panels`   — WebUI panels (a `view.js`, no build step, no React, no iframe)
-- `api`      — one backend file `api/handler.rb`, mounted at `/api/ext/<id>/`
-- `skills`   — a `SKILL.md` under `skills/<id>/` (prompt-only capability)
-- `agents`   — a `system_prompt.md`; can reference `panels: [id]` and `skills: [id]`; `hidden: true` hides from the new-session picker
-- `channels` — an IM adapter
-- `patches`  — monkey-patch a real class (advanced, supply-chain risk)
-- `hooks`    — lifecycle hooks like `before_tool_use` (advanced)
-- `tools`    — a custom agent tool (a `Clacky::Tools::Base` subclass in `tools/<id>.rb`)
+1. Fetch the relevant official URL directly; a web search is not required. For truncated
+   output, read the returned `temp_file` for the needed section. For HTML pages, `web_fetch`
+   saves extracted text with whitespace collapsed, not original HTML: line-based reading
+   may still return one long line. One targeted text extraction is enough to check a
+   detail. Do not write helper scripts or try to reconstruct code formatting from that
+   text; lost newlines can change the meaning of code comments and examples.
+   A no-file-change task includes temporary files such as `/tmp/*.py`: only read the
+   tool-returned cache, do not create a script or reformatted copy elsewhere.
+2. If the needed contract is still missing, truncated, or ambiguous, stop this lookup.
+   Report it as unverified; no match on a page does not prove the method or its namespace
+   absent, private, or unsupported. Do not inventory other APIs to infer an answer.
+   Do not retry extraction or probe other extensions/the running host to fill the gap.
+   Ask permission to open the official documentation in a new browser tab. If already
+   authorized for this task's documentation lookup, do not ask again for each page.
+3. After consent, use the available `browser` tool to read only the relevant official
+   documentation. Do not navigate, inspect, or close unrelated tabs. Read beyond truncated
+   snapshots as needed; opening a page alone does not verify its contents. If browser setup
+   is required, ask whether the user wants to use `browser-setup`; never enable it silently
+   or bypass a disabled browser. If the tool is unavailable, do not invent another browser
+   control mechanism or install one without approval.
+4. If the user declines or the browser cannot retrieve the reference, ask the user to
+   supply the documentation or designate a separate source checkout matching the running
+   version and permit read-only inspection. Do not search installed OpenClacky gem source.
+   Reading a checkout does not authorize modifying it to make an extension work.
+5. If still blocked, end with only **Unverified detail**, **Reference checked**, and
+   **Evidence or permission needed next**. For example: "I could not verify this method
+   from this page; please provide its source." Do not turn that into "the object does
+   not exist" followed by a disclaimer. Clarifying the user's goal may continue, but
+   implementation against that contract must wait. Resolve version differences before
+   relying on a contract; version metadata is allowed, installed implementation source is not.
 
-Hot reload is per-request: after editing `view.js`, `handler.rb`, or a `SKILL.md`,
-the user just reloads the WebUI page — no server restart. Editing `ext.yml` also
-applies on the next load.
+## Capability → reference
 
-## Hard rules — never break these
+| Need | Read |
+|---|---|
+| Container model, source layers, scaffold, reload, verification, publishing | [Extension System Overview](https://www.openclacky.com/docs/extension-system) |
+| Manifest metadata, panels, agents, tools, skill restrictions, field validation | [ext.yml Manifest](https://www.openclacky.com/docs/ext-manifest) |
+| Slots, agent scope, tab lifecycle/badges, subscriptions, replay, Composer, Aside, Modal, Workspace | [Web UI Extensions](https://www.openclacky.com/docs/extend-webui) |
+| Extension-owned backend, route parameters, persistent data, session/project helpers, public endpoints | [HTTP API Extensions](https://www.openclacky.com/docs/extend-api) |
+| Host sessions/history, files, recovery, billing, media, development UI helpers | [Calling Host APIs](https://www.openclacky.com/docs/extend-host-api) |
+| Agent persona and configuration | [Agent Configuration](https://www.openclacky.com/docs/agent-config) |
+| Skill authoring and invocation | [Skills](https://www.openclacky.com/docs/how-to-use-a-skill) |
+| IM adapters, optional file delivery and buffered output | [Channel Adapters](https://www.openclacky.com/docs/extend-channel-adapter) |
+| Tool-call/lifecycle hooks and persistent custom events | [Hooks](https://www.openclacky.com/docs/extend-shell-hooks) |
+| Explicitly requested runtime patches | [Runtime Patches](https://www.openclacky.com/docs/extend-patches) |
 
-- ❌ **Never edit the gem source.** Do NOT `bundle show openclacky` and change files
-  in there. Everything lives in `~/.clacky/ext/local/<id>/` and survives `gem update`.
-- ❌ **Never `restart the server` to apply a change.** Hot reload is per-request —
-  the user just reloads the WebUI page. If you're telling them to restart, you're wrong.
-- ❌ **Never declare success on "it should work."** A task is done only when
-  `clacky ext verify` is clean AND the user reloaded and saw it work. Run verify —
-  don't imagine its output.
-- ❌ **Never add `patches:` or `hooks:` unless the user explicitly asks.** They run
-  arbitrary Ruby and carry supply-chain risk. Default to `panels`/`api`/`skills`/`agents`.
-- ❌ **Never publish on your own initiative.** Publishing is opt-in — see **Publish**.
-- ❌ **Never write `window.Sessions` / `"Sessions" in window` in `view.js`.** Host
-  services are `const` bindings, not `window` properties — such checks return
-  `undefined`/`false` even when loaded. Always use `Clacky.Sessions.*` etc.
-- ✅ **Always work in the `local` layer** (`~/.clacky/ext/local/<id>/`). `ext new` lands
-  there; that's the only layer you edit.
+Read the pages needed for this task, not every reference indiscriminately. This index
+routes lookups; field lists, signatures, and code examples belong in those pages.
 
-## Which section do I need?
+## Working boundaries
 
-Pick exactly ONE and follow it top to bottom. Don't blend the three.
+- Develop in `~/.clacky/ext/local/<id>/`. Never edit installed/builtin packages or
+  gem source to customize a user's extension. Do not search or read installed OpenClacky
+  gem implementation source, even to resolve missing documentation; version metadata is
+  allowed. Confirm intentional id overrides.
+- Do not add hooks or patches without an explicit request; they execute arbitrary Ruby.
+- Reuse the documented host APIs and theme conventions. Do not guess methods from
+  similarly named libraries or manipulate host internals.
+- Keep data outside the extension package using the documented persistence facility.
+  Validate input and get consent for destructive or paid operations.
+- Choose the reload procedure from the overview's contribution-specific table.
+  Do not claim that every change hot-reloads, or restart the server without consent.
+- Verification is evidence, not a prediction: distinguish manifest checks, tests,
+  actual UI/API behavior, and anything still awaiting user verification.
+- Local development does not imply marketplace publication.
 
-- Starting a new extension from an idea → **Scaffold**.
-- Something is broken, `verify` errors, or a change didn't show up → **Debug & verify**.
-- The user explicitly wants to share/ship it to others → **Publish** (optional; skip
-  it entirely for extensions the user only runs themselves).
+## Engineering checks
 
-**Reference: the contracts** is not a path — it's the field/slot/event/API ground truth
-you consult from whichever path you're on.
+Apply these when proposing the design and again against the actual code before handoff.
+Do not count a promise to follow a rule as evidence that the implementation follows it.
 
----
-
-## Reference: the contracts
-
-Read the relevant reference doc with `web_fetch` before writing code — don't guess field
-names, hook events, adapter methods, or the `Clacky.ext` WebUI contract. These docs are
-long (well over the default cap); pass `max_length: 20000` so you get the whole page in one
-fetch instead of a truncated head full of nav chrome.
-
-### Authoritative documentation
-
-- Extension system overview → https://www.openclacky.com/docs/extension-system
-- **ext.yml manifest — every field (names, avatar, title_zh, order, …)** → https://www.openclacky.com/docs/ext-manifest
-- Panels (WebUI) → https://www.openclacky.com/docs/extend-webui
-- API backends → https://www.openclacky.com/docs/extend-api
-- **Calling the host's native APIs from a panel (sessions, trash/file-recovery, skills, memories, cron, billing, media)** → https://www.openclacky.com/docs/extend-host-api
-- Agents (prompt, avatar, panels/skills wiring) → https://www.openclacky.com/docs/agent-config
-- Channel adapters → https://www.openclacky.com/docs/extend-channel-adapter
-- Patches → https://www.openclacky.com/docs/extend-patches
-- Shell hooks → https://www.openclacky.com/docs/extend-shell-hooks
-
-### WebUI panels: the `Clacky.ext` contract
-
-A panel is a plain `view.js` (no build step, no React, no iframe). It reaches the host
-**only** through `window.Clacky` — everything else on the page is off-limits. There are
-exactly three capabilities:
-
-```js
-Clacky.ext.ui.mount(slot, spec, opts)     // inject UI into a named slot
-Clacky.ext.subscribe(event, handler)      // observe store events + live session events (read-only)
-Clacky.ext.api.register(name, fn)         // expose a named data source; api.resolve(name)
-```
-
-**`subscribe(event, handler)`** - two event families: (1) host **store** events (`skills:changed`, `tasks:changed`, `profile:changed`, …) and (2) **live session events** mirrored from the WebSocket stream — conversation (`session:assistant-message`, `session:tool-call`, `session:tool-result`), status/errors (`session:error`, `session:warning`, `session:update`), lifecycle (`session:renamed`, `session:deleted`, …). Payload is `{ sessionId, ...wsFields }`. Full list in the "Core Events" section of the extend-webui docs. Handlers are read-only.
-
-**`ui.mount(slot, spec, opts)`** — `spec` is either `(container, ctx, runtime) => …` or
-`{ create?, render }`. The render function:
-- gets a host-owned `container` DOM element — append into it, **or** return a Node / HTML
-  string and the host appends for you;
-- returning a **function** registers it as a teardown callback;
-- returning **`null`/`undefined` renders nothing** (safe) — a red "crashed" placeholder
-  means the render **threw**; the #1 cause is a wrong signature shifting every argument
-  (e.g. `(ctx) => …` instead of `(container, ctx) => …`). Match the signature exactly.
-
-`ctx` carries `{ sessionId, agentProfile }`. `opts`: `order` (lower renders first,
-default 100), `tab: { id, label, badge? }` (**required** for tabbed slots — `session.aside`
-is tabbed), `agents: [profile]` (override auto scope), `workspace: id` (for nav items).
-
-**Valid slot names** (mounting into any other name silently renders nothing, warned once):
-
-```
-header.left  header.right
-sidebar.nav.top  sidebar.nav  sidebar.nav.bottom  sidebar.footer
-main.workspace
-session.banner  session.composer  session.aside      (session.aside is tabbed)
-settings.tabs  settings.body
-```
-
-Agent scope is automatic: mounts into `session.*` / `settings.*` slots only show for the
-panel's owning agent(s); all other slots (`sidebar.*`, `header.*`, `main.workspace`) are
-global chrome. You rarely set `agents:` by hand.
-
-**Per-session state** — for `session.aside/banner/composer`, pass `{ create(ctx), render }`:
-`create` runs once per session and returns a runtime (put timers/recorders/subscriptions
-there), `render(container, ctx, runtime)` runs on each show, and `runtime.dispose()` runs
-when the session leaves. State survives tab switches; use this instead of module globals.
-
-**Full-page workspace** - `Clacky.ext.ui.registerWorkspace(id, { title, render })` takes
-over the main area with its own `#ext/<id>` URL; open it with `Clacky.ext.ui.openWorkspace(id)`,
-typically from a `sidebar.nav` item mounted with `opts.workspace: id`.
-
-**Sidebar nav items** - render the host nav-item structure (`div.task-item.task-item-summary >
-div.task-row > svg.task-icon + div.task-info > span.task-name` - copy `navRow()` from the
-`full` scaffold template) with `opts.workspace: id` so the item inherits theme styling
-and the Router's active highlight.
-
-**Safe mode** - `?pure=true` makes the whole registry a no-op; never rely on side effects
-outside these calls.
-
-### Other host services under `Clacky.*`
-
-Beyond `Clacky.ext`, the host exposes stores as properties on `window.Clacky`. Use them
-instead of bare globals:
-
-```js
-Clacky.Sessions.on("switched", handler);   // active session store
-Clacky.Router.go("session");                // top-level view routing
-Clacky.Router.navigate("session", { id }); // navigate with params
-Clacky.I18n.t("some.key");                  // translations
-Clacky.Modal.confirm("Delete?");            // dialogs
-Clacky.Modal.toast("Saved", "success");     // toasts (not window.alert)
-Clacky.Auth.passed;                          // auth state
-Clacky.Workspace.list(dir);                 // working-directory files
-Clacky.Skills.list();                       // skill catalog
-Clacky.WS.send({ type: "..." });            // send a WebSocket message to the agent
-```
-
-- Prefer `Clacky.Xxx.method(...)` — the recommended, forward-stable form. Never test with
-  `window.Sessions` / `"Sessions" in window` (see Hard rules).
-
-A panel can also `fetch("/api/...")` the host's own REST endpoints directly (same origin,
-auth is automatic) — sessions, trash/**file-recovery**, skills, memories, cron, billing,
-media, and more each have a ready-made endpoint. Before telling a user a feature "can't be
-done" (e.g. "delete a file but keep it recoverable"), check whether the host already
-exposes it — `web_fetch` https://www.openclacky.com/docs/extend-host-api for the callable
-list. Don't rebuild what the host already provides.
-
-### API backend: the `Clacky::ApiExtension` contract
-
-`api/handler.rb` subclasses `Clacky::ApiExtension`. Routes mount under
-`/api/ext/<ext_id>/`. This base class already wires up auth, JSON envelopes, timeouts, and
-path params — you only write business logic. Full surface:
-
-```ruby
-class MyExt < Clacky::ApiExtension
-  timeout 30                              # class-wide default (max 600s)
-
-  get "/summary" do
-    json(count: session_manager.list.size)   # json(key: val) → 200 JSON
-  end
-
-  post "/items/:id" do                    # :id → params["id"]
-    body = json_body                      # parsed request JSON (Hash)
-    q    = query["page"]                  # query string params
-    File.write(data_path("items", "#{params['id']}.json"), body.to_json)  # persistence
-    json({ ok: true }, status: 201)
-  end
-
-  get "/export", timeout: 60 do
-    send_data(bytes, content_type: "text/csv", filename: "out.csv")
-  end
-end
-```
-
-Response helpers: `json` / `text(str)` / `send_data(bytes, content_type:, filename:)` /
-`error!(msg, status:)`. Request: `params` (path), `query`, `json_body`, `req`.
-
-- **`data_path(*parts)`** is the **official way to persist user data** — it returns a path
-  under `~/.clacky/ext-data/<id>/`, **outside** the package tree, so it survives reloads,
-  `gem update`, and even uninstall/reinstall (uninstall keeps it by default; the user opts
-  in to deleting it via a checkbox). **Never** write user data into the extension's code
-  dir (`ext_dir` / `File.join(ext_dir, ...)`) — uninstall deletes the whole package, so
-  anything there is lost. Package-internal writes are only for disposable caches.
-- Host context (white-listed): `session_manager`, `registry`, `agent_config`, `config`
-  (from ext.yml), `logger`, `ext_id`, `ext_dir`, `project_manager`.
-- Drive sessions from the backend: `create_session(prompt:, profile:, …)`,
-  `submit_task(session_id, prompt)`, `dispatch_to_session(session_id, prompt)` (runs a
-  side task on a fork and returns its reply without touching the conversation).
-- **Projects**: `project_manager.all` lists projects, `find(id)` returns one (or
-  `nil`), `create(name:, working_dir:, …)` / `update(id, …)` / `delete(id)` mutate.
-  Pass `project_id:` to `create_session` to bind a session to a project - its
-  `working_dir` is inherited (unless overridden) and `agent.project_id` is persisted.
-  A panel can also `fetch("/api/projects")` directly (same-origin, no-auth; see
-  [Host API](/docs/extend-host-api)).
-- **Session source grouping** (⚠️ opt-in only): `create_session` accepts `source: "manual"`
-  (default) or `source: "ext"`; anything else is rejected with 400. Use `"ext"` **only**
-  when the extension creates sessions the user did not individually ask for (bookkeeping,
-  background workers, one per webhook) and would otherwise flood the list — they collapse
-  under a single "Extensions" sidebar entry with their own 200-session cleanup pool.
-  **Default to `"manual"`**: a session the user asked for is one they should be able to
-  find, and folded sessions are easy to overlook while the separate pool silently consumes
-  storage until evicted. Sessions bound to a project always show in that project's area
-  regardless of `source`, and count toward the regular pool rather than the ext one.
-- Public (no-auth) endpoints: call `public_endpoint("/path")` in the class **and** set
-  `public: true` at ext.yml top level — both are required.
-
-### Patches & hooks (advanced — only when asked)
-
-- **Patch** (`contributes.patches: [{ target, file, fingerprint?, on_mismatch }]`):
-  overrides a method via `Module#prepend` without editing gem source. `target` is
-  `"Clacky::Tools::WebSearch#execute"` (`#` = instance, `.` = class). `fingerprint` is a
-  SHA of the original method source; on drift the patch is disabled (`on_mismatch: disable`,
-  default) or warned (`warn`).
-- **Hook** (`contributes.hooks: [{ event, file }]`): registers a lifecycle callback. Valid
-  `event` values (exactly these): `before_tool_use after_tool_use on_tool_error on_start
-  on_complete on_iteration session_rollback`. A `before_tool_use` hook returning
-  `{ action: :deny, reason: "…" }` **blocks** the tool call — this is how you audit or
-  gate dangerous commands. Every event passes the **agent as its last block arg**
-  (`|call, result, agent|` for `after_tool_use`); call `agent.emit_event("ext.<id>.<event>",
-  persist: true, **data)` to push structured events to the frontend. `persist: false`
-  (default) vanishes on refresh — emit a `persist: true` terminal event at the end.
-
-### Custom tools
-
-**Tool** (`contributes.tools: [{ id, file }]`): adds a brand-new tool to an agent's
-schema. The tool is injected **only into agents that declare it** via `tools: [<id>]`
-in the same container's agent spec — an agent can only reference tools from its own
-container. `file` points at a Ruby file in the container (`tools/<id>.rb`) defining
-`Clacky::Tools::<Camelized id>` — the file name IS the class-name mapping
-(`tools/hello.rb` → `Clacky::Tools::Hello`). The class contract is identical to a
-built-in tool:
-
-```ruby
-module Clacky
-  module Tools
-    class Weather < Base
-      self.tool_name = "weather"          # the name the model calls
-      self.tool_description = "Get current weather for a city."
-      self.tool_category = "general"
-      self.tool_parameters = {
-        type: "object",
-        properties: { city: { type: "string", description: "City name" } },
-        required: %w[city]
-      }
-
-      def execute(city:, **)
-        { temperature: 22, city: city }
-      end
-    end
-  end
-end
-```
-
-Rules:
-- **Instance methods only** — `execute(**args)` takes keyword args; `working_dir: nil`
-  is passed when the agent runs inside a project directory.
-- A broken tool file is logged and skipped at startup — it never blocks the agent.
-- Name collisions with built-ins: the extension tool **wins** (registered last, same as
-  the `local > installed > builtin` layer precedence).
-- Prefer a `skill` when the capability can be composed from existing tools — a tool is
-  only needed for something no built-in tool can do (new API integration, new
-  system-level operation).
+1. **Access and side effects:** identify files, sessions, credentials, and external
+   destinations involved. Refuse unauthorized access or disclosure; never bypass host
+   authentication. Keep secrets out of frontend code and logs. Validate inputs and paths,
+   keep persistent data outside the package, and ensure destructive changes or private-data
+   transfers require specific approval rather than general permission to build.
+2. **Request budget:** check every fetch, loop, timer, retry, and worker. Prefer events and
+   cached reads; do not repeatedly fetch full histories. Default to no added threads;
+   necessary concurrency must be bounded. No tight loops or sub-second polling. Necessary
+   polling must use a coarse interval, prevent overlap, pause when hidden or finished, and
+   have bounded retries and request duration. Check the failure path as well as success.
+3. **Lifecycle and cost:** verify rerenders and session switches do not multiply listeners,
+   timers, or requests; disposal releases them and stale responses cannot affect a new
+   session. Hidden cached panels must pause unnecessary work without waiting for disposal.
+   A tab/session switch does not prove disposal occurred; verify unsubscribe/visibility
+   contracts instead of using assumed disposal as a substitute for cleanup.
+   Model/media calls need explicit approval, including recurring scope; mounting, refresh,
+   and history replay must not initiate paid or destructive actions or external sends.
+   Read-only billing queries are not model invocations, but still need request limits.
+4. **Host reuse and evidence:** reuse host capabilities and `btn-*` / `form-*`,
+   `Clacky.Modal`, and `var(--color-*)`; use scoped, prefixed custom styles where needed.
+   For basic inputs use `form-input` / `form-textarea`. Confirm custom property names in
+   the relevant reference or generated scaffold, not by their plausible spelling; do not
+   invent fallback token names. If a token is unverified, omit the color override and
+   inherit host styling, rather than adding a guessed token with hardcoded fallback colors.
+   Prefix tab ids with the extension id to avoid collisions.
+   Check light/dark appearance for UI work. Do not add unrequested hooks or patches or
+   modify installed packages. Test the applicable boundaries above with controlled data;
+   do not use real destructive, disclosure, or paid operations just to prove a safeguard.
+   Report which checks were exercised, which were code review only, and which remain open.
 
 ## Scaffold
 
-Turn a plain-language idea into a working skeleton.
-
-### 1 — Understand the idea
-
-Figure out what it should DO and which contributes types it needs. Ask one clarifying
-question only if genuinely ambiguous. Common mappings:
-
-| User wants to… | contributes: field |
-|---|---|
-| Show X in a side panel / add a button / dashboard | `panels:` (+ `api:` if it needs a backend or an external service) |
-| A capability the AI can invoke (summarize, translate, format) | `skills:` |
-| A specialized assistant with its own personality/tools | `agents:` (usually bundling its own panels/skills) |
-| Connect to Slack / an in-house IM | `channels:` |
-| Change behavior of a built-in method | `patches:` |
-| Audit / block / observe tool calls | `hooks:` |
-| A brand-new tool the model can call (new API, new system op) | `tools:` (+ agent-side `tools:` declaration) |
-
-Keep it minimal — most useful extensions are one panel + one handler, or one skill.
-Do NOT add `patches` or `hooks` unless the user explicitly asks; they run arbitrary
-Ruby and carry supply-chain risk.
-
-**Appearance & naming are manifest fields, not separate features.** When the user wants a
-custom logo/avatar for an agent, a Chinese (or other-language) display name, a panel tab
-label, or ordering, those are optional keys in `ext.yml` — e.g. agent `avatar:` (image
-path), `title` / `title_zh`, `description` / `description_zh`, `order`. Never say it can't
-be done; set the field and check the full list in the ext.yml manifest doc.
-
-### 2 — Generate the skeleton
-
-Pick a lowercase, hyphenated id derived from the idea (e.g. `weather-panel`).
-
-```
-clacky ext new <id>
-```
-
-This creates `~/.clacky/ext/local/<id>/` with a working hello panel + handler:
-- `ext.yml` — the manifest
-- `panels/hello/view.js` — a panel that pings the backend
-- `api/handler.rb` — a `Clacky::ApiExtension` subclass mounted at `/api/ext/<id>/`
-- `test/handler_test.rb` — a runnable minitest example (`ruby test/handler_test.rb`)
-
-Use `--full` only when the user needs the kitchen-sink reference exercising all eight
-contributes types — it's a lot to read, so prefer the plain scaffold otherwise.
-
-### 3 — Reshape to the idea
-
-Below is a concrete before → after for a tiny "add a note" panel — use it as
-the shape to copy, not the literal content.
-
-**`ext.yml`** — rename the panel id/view to the feature; add `skills:`/`agents:` only if needed:
-
-```yaml
-contributes:
-  api: api/handler.rb
-  panels:
-    - id: notes                       # was: hello
-      view: panels/notes/view.js      # was: panels/hello/view.js
-      attach: ["*"]
-```
-
-**`panels/notes/view.js`** — keep the `Clacky.ext.ui.mount(...)` wrapper and host CSS
-classes; swap the body for the real UI, POST to your own route:
-
-```js
-Clacky.ext.ui.mount("session.aside", function (container, ctx) {
-  var el = document.createElement("div");
-  el.style.padding = "16px";
-  var input = document.createElement("input");
-  input.className = "form-input";                 // reuse host theme
-  var btn = document.createElement("button");
-  btn.className = "btn-primary";
-  btn.textContent = "Save note";
-  btn.addEventListener("click", async function () {
-    await fetch("/api/ext/<id>/notes", {          // relative to your mount
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text: input.value }),
-    });
-    Clacky.Modal.toast("Saved", "success");       // host toast, not window.alert
-  });
-  el.append(input, btn);
-  return el;
-}, { tab: { id: "notes", label: () => "Notes" }, order: 500 });
-```
-
-**`api/handler.rb`** — stay a `Clacky::ApiExtension` subclass; add the route the panel
-calls. Persist user data with `data_path`, never into the code dir:
-
-```ruby
-class <Prefix>Ext < Clacky::ApiExtension
-  post "/notes" do            # matches /api/ext/<id>/notes
-    text = json_body["text"].to_s
-    File.write(data_path("notes.txt"), "#{text}\n", mode: "a")
-    json(saved: true)
-  end
-end
-```
-
-Rules while reshaping:
-- Keep the panel `view:` path and the on-disk `view.js` path in sync — mismatched paths
-  are the #1 cause of a `loader.error`.
-- Routes in `handler.rb` are **relative** to `/api/ext/<id>/`; the `view.js` `fetch` must
-  match. A mismatch is a silent 404, not a verify error.
-- **UI styling: default to host classes; anything the host has no class for, build
-  freely.** Colors: only `var(--color-*)` — raw hex breaks the dark theme. For the
-  full class/variable list grep the host stylesheet `lib/clacky/web/app.css`.
-
-### 4 — Write tests
-
-Test the backend before you call it done. Rewrite the scaffolded `test/handler_test.rb`
-to exercise your real routes (parse the JSON response, assert its fields), then run it
-green:
-
-```
-ruby test/handler_test.rb
-```
-
-- If `test/` is missing from the scaffold, create `test/handler_test.rb` yourself
-  (`mkdir -p test` then write it) — do NOT skip tests just because the file is absent.
-- A handler that only returns a static string may keep the scaffold's hello test;
-  anything that fetches, transforms, caches, or computes MUST have a real test.
-
-### 5 — Confirm it loads
-
-Run `clacky ext verify` and confirm the new units resolve with no errors, then have the
-user reload the WebUI page. If verify reports problems, go to **Debug & verify**.
-
-## When NOT to build an extension
-
-- The user is building features in their own app that just *use* openclacky — that's
-  normal coding, no extension container needed.
-- The user wants a skill for *their own* project — use `.clacky/skills/` in their
-  project, not a gem-level container.
-- The user wants a custom agent **tool** — contribute it from a local extension
-  (`contributes.tools`), which is the supported way to add a tool name to the agent's
-  schema. Don't patch a built-in tool to fake new behavior.
-- The change can be made via `clacky config set ...` — prefer config over patches.
-
----
+1. Agree on the smallest implementation. A panel may reuse a host API without a new
+   backend; a capability composed from existing tools may only need a skill.
+   A user's ordinary app work does not need an extension container, and a project-only
+   skill can live in that project's `.clacky/skills/`.
+2. Run `clacky ext new <id>` for a runnable skeleton. Use `--full` only when the task
+   needs the broader examples. Read generated files before changing them.
+3. Implement the approved behavior against the referenced contracts. Keep manifest
+   paths, unit ids, and actual files aligned; do not retain unused scaffold features.
+4. Adapt the scaffold's tests to the real behavior and run them. If a backend has no
+   tests, add them instead of treating missing tests as permission to skip verification.
+   Cover invalid input and failures as well as the successful response; apply
+   **Engineering checks** to the implementation.
+5. Run `clacky ext verify`; resolve errors and review warnings using its actual
+   `code`, `file`, and `hint`. Verify the visible feature or endpoint afterward.
+6. Follow **Handoff** below.
 
 ## Debug & verify
 
-Your primary instrument is `clacky ext verify` — a compiler for extensions: every issue
-is structured with a `code`, `message`, the offending `file`, and a `hint`.
+1. Reproduce the reported symptom; inspect the actual local container and relevant
+   reference before proposing a fix.
+2. Run `clacky ext verify` and read its structured findings. Use `clacky ext list`
+   to identify the resolved layer and accidental shadowing. Do not maintain a second
+   hardcoded list of accepted keys in this skill.
+3. For invisible panels, check documented slots, tab options, manifest associations,
+   and the browser error stack. For API failures, check the request method/path,
+   handler contract, status, and logs. For stale behavior, check the reload matrix.
+4. Fix the root cause within the agreed scope, rerun relevant tests and verification,
+   then check the reported behavior and the affected **Engineering checks**. Do not widen
+   scope to unrelated warnings without discussing them with the user.
+5. Follow **Handoff** below.
 
-**Top 5 things that break — check these first:**
+## Publish (only on explicit request)
 
-| Symptom | Almost always | Fix |
-|---|---|---|
-| Red error box where the panel should be | `ui.mount` render threw — usually a wrong signature | signature is `(container, ctx, runtime)` — not `(ctx)` |
-| Panel doesn't appear at all | `slot` name typo (silent) or no `attach:` | use a valid slot; set `attach: ["*"]` or an agent id |
-| Frontend `fetch` gets 404 | route in `handler.rb` ≠ path in `view.js` fetch | routes are relative to `/api/ext/<id>/` |
-| `loader.error` on verify | `ext.yml` `view:` path ≠ the on-disk `view.js` path | make the two match exactly |
-| Edited a file, nothing changed | page not reloaded (or edited `ext.yml`) | reload the WebUI page — hot reload is per-request |
+1. Read the overview's current publishing requirements and command options.
+2. Confirm the target local container, intended marketplace status, device binding,
+   and version. Do not bypass authentication, ownership, or encrypted-content limits.
+3. Run tests and verification. If `README.md` is missing, ask whether to write usage
+   instructions before proceeding; derive them from the actual implemented behavior.
+4. Publish only the approved target/version/status. Updating an existing extension
+   requires manually choosing a greater version in `ext.yml`; `--force` does not
+   increment it. Explain failures instead of guessing alternate publish behavior.
+5. Report the actual version and status returned. Unpublishing also needs explicit
+   approval; it is not routine cleanup.
 
+## Handoff
 
-### 1 — Run verify
-
-```
-clacky ext verify
-```
-
-Read the output line by line. `[OK]` confirms a resolved unit; `[ERR]` blocks a load;
-`[WARN]` is advisory. Each issue looks like:
-
-```
-[ERR] <ext> <unit> (<code>) — <message> [<file>]
-         hint: <how to fix>
-```
-
-**Always trust the `hint` first.** The line below tells you the fix per code; do the
-smallest change, re-run verify, repeat until clean — fix ONE issue at a time.
-
-### 2 — Fix by error code
-
-- **`loader.error`** → a file the manifest points at is missing, or `ext.yml` isn't valid
-  YAML. **Do:** open the `file` path in the error; make sure it exists and the path in
-  `ext.yml` matches it exactly. (skill → `SKILL.md` under `skills/<id>/`; agent → its
-  `prompt` file; panel → its `view` file; api → `api/handler.rb`.)
-- **`schema.unknown_contributes`** → a top-level key under `contributes:` is misspelled.
-  **Do:** fix the spelling to one of `panels api skills agents channels patches hooks`.
-- **`schema.unknown_key`** → an unknown **top-level** key in `ext.yml`. **Do:** fix the
-  spelling. Allowed top-level keys: `id name name_zh display_name display_name_zh title
-  description description_zh emoji version origin author homepage license public
-  license_required keywords contributes`.
-- **`schema.unknown_field`** → a unit has a field not allowed for its type. **Do:** delete
-  or rename that field. Allowed fields per type (this is the authoritative list — do not
-  invent others):
-  - panel: `id title title_zh description description_zh view order attach entry_points`
-  - api: `id handler`
-  - skill: `id dir protected`
-  - agent: `id title title_zh description description_zh order prompt panels skills avatar`
-  - channel: `id platform adapter`
-  - patch: `target file fingerprint on_mismatch`
-  - hook: `event file`
-- **`schema.bad_attach`** → a panel `attach:` entry isn't a valid token. **Do:** set it to
-  an agent id or `"*"` (all).
-- **`ref.missing_panel`** → an agent's `panels: [id]` names a panel that doesn't exist.
-  **Do:** fix the id, or use `<ext_id>/<panel_id>` to point at another extension's panel.
-- **`ref.missing_skill`** → an agent's `skills: [id]` names a skill that doesn't exist.
-  **Do:** fix the id, or add the `SKILL.md`.
-- **`ref.missing_attach_agent`** → a panel's `attach:` names a nonexistent agent.
-  **Do:** fix the agent id.
-- **`override`** (warning) → a higher layer is shadowing a lower one
-  (`local > installed > builtin`). **Do:** usually intentional — leave it; confirm with the
-  user only if the shadowing is a surprise.
-
-Fix one issue, re-run verify, repeat until clean.
-
-### 3 — "It verifies but doesn't show up"
-
-If verify is clean but a change isn't visible:
-- **Hot reload is per-request.** After editing `view.js`, `handler.rb`, or a `SKILL.md`,
-  the user must **reload the WebUI page** — no restart, but a stale tab won't update on
-  its own. Editing `ext.yml` also applies on the next load.
-- **Panel not appearing?** In order: (1) the `slot` name in `ui.mount` must be one of the
-  valid slots — a typo like `session.aisde` silently renders nothing (check the browser
-  console for a "unknown slot" warning); (2) check the panel's `attach:` (or the agent
-  that references it via `panels: [id]`) — a panel with no `attach` and no referencing
-  agent has nothing to mount onto; (3) a red error box means the render function threw
-  (usually a wrong signature) — open the console for the stack.
-- **API 404?** Routes are relative to `/api/ext/<ext_id>/`. Confirm the handler subclasses
-  `Clacky::ApiExtension` and the route pattern matches what `view.js` fetches.
-- **Skill not triggering?** The AI selects skills by their `description`. Make the
-  description concrete about WHEN to use it.
-
-### 4 — Confirm the fix
-
-End with a clean `clacky ext verify` and have the user reload to confirm the behavior
-actually works — don't declare success on "should work."
-
----
-
-## Publish (optional)
-
-Publishing is **not** a required step. Many extensions are built for the user's own use —
-scaffold, verify, and reload is the whole job. Only publish when the user explicitly asks
-to share, ship, or list the extension for others. Never publish on your own initiative or
-as a "wrap up" of the build.
-
-The **Creator Center panel** has a Publish button — prefer it for a
-guided flow. Use the CLI below for scripted/CI publishing.
-
-### Before publishing
-
-- The extension must live in the **local** layer (`~/.clacky/ext/local/<id>/`). Only local
-  containers can be packed; encrypted (`SKILL.md.enc`) containers are rejected.
-- Publishing requires the device to be **bound to a platform account** (it attributes the
-  extension to that account). If it isn't bound, tell the user to authorize the device
-  first — don't try to work around it.
-- Run `clacky ext verify` one last time and confirm no errors.
-- **README check:** If `~/.clacky/ext/local/<id>/README.md` does not exist, ask the user
-  before proceeding: "No README.md found — would you like me to write usage instructions
-  first?" If yes, read the source files and write a concise README, then publish. If the
-  user asks to write a README / usage instructions at any point, do the same.
-
-### Publish (first time)
-
-```
-clacky ext publish <id>
-```
-
-Packs the local container into a zip and uploads it. On success: `Published <id>
-v<version> → status=<status>`. Options:
-- `--status draft` — publish as a draft (not visible on the public marketplace). Omit or
-  use `--status published` to go live.
-- `--changelog "..."` — release notes for this version.
-
-### Publish a new version
-
-If already published, a plain `publish` fails with `Error: <id> already published. Re-run
-with --force to publish a new version.` Re-run with `--force` (and ideally a `--changelog`);
-the patch version auto-increments on the platform side.
-
-```
-clacky ext publish <id> --force --changelog "Fixed the weather refresh bug"
-```
-
-### List your published extensions
-
-```
-clacky ext published
-```
-
-Shows each extension with its latest version, status, and unit summary.
-
-### Unpublish
-
-```
-clacky ext unpublish <id>
-```
-
-Soft-deletes (takes down) one of your published extensions. Confirm with the user first —
-it removes it from the marketplace.
-
-### Wrap up
-
-After a successful publish, tell the user the version and status in plain terms, and
-mention they can run `clacky ext published` to see it, or bump a new version anytime with
-`--force`.
+- State what changed, what passed, and what the user still needs to check.
+- After extension edits, use the development UI helpers documented in **Calling Host
+  APIs** to show the refresh button once; also open the aside for a session-aside panel.
+  Use the injected service/session context, not a guessed host, port, or session id.
+- These HTTP helpers are not browser control. If the user will test the browser, keep
+  that boundary and report UI checks as pending; do not treat it as permission to inspect
+  their tabs. Honor a separate request not to send UI-helper broadcasts.
+- A successful UI-helper response only acknowledges a broadcast. If no matching UI
+  is connected, ask for manual refresh. Verify required Ruby reloads separately;
+  neither UI helper restarts the server.
+- Stop at the approved outcome. Do not publish or perform other release actions as
+  an automatic wrap-up.
