@@ -4,6 +4,54 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
+## [1.5.13] - 2026-09-03
+
+### Added
+- Add Gemini 3.8 Flash model and set it as the trial default
+- Add or-stt-gemini-3-8-flash speech-to-text model; default STT and video understanding to 3.8
+- Add OpenAI Responses API as a fourth API format (#490 - @kylezhang)
+- Add access-key API and config-reload API
+- Add Claude Fable 5.1, GLM-5.3-Flash and qwen3.8-max models with pricing
+- Default the Web UI to the OS/browser language on first visit
+- Make the workspace file tree resizable
+- Expose mounted drives in the directory picker
+- Personalize the new-session page title and empty-chat greeting with the AI's name
+- Localise built-in setup session titles
+
+### Improved
+- Replace native selects with shared CustomSelect dropdowns across settings
+- Overhaul the git & time-machine panel
+- Improve the directory picker (#521)
+
+### Fixed
+- Merge OpenClacky billing across all configured API keys
+- Preserve custom provider and API format when editing a model
+- Reclaim PTY file descriptors when a session shell dies
+- Wrap ANSI-coloured CJK text without IndexError
+- Prevent history edits while a session is running (#520)
+- Preserve attachment badges after compression (#516)
+- Flag hidden agents instead of dropping them
+- Install upgrades next to the running gem's base directory
+- Skip extension auto-sync for administrators (#515)
+- Support the mention menu with Windows IME (#513)
+- Validate extension version input (#514)
+- Keep mention chips anchored and on one line while typing
+- Fall back to uncolored markdown for CJK tables
+- Stabilise billing toolbar layout (#517)
+- Light the group unread dot for backend-created sessions (#518)
+- Translate maximum reasoning effort (#522)
+- Harden WSL Windows profile detection in the directory picker
+- Wrap download errors so the CDN fallback fires
+- Surface the git tab badge eagerly
+- Show the meeting panel only in general sessions
+- Whitelist the config top-level key in the extension verifier
+
+### More
+- Extract shared ModelPicker model dropdown component
+- Refine dropdown chevrons and submenu selection
+- Adjust sidebar panel order and labels
+- Update trial model copy to Gemini 3.7 Flash
+
 ## [1.5.12] - 2026-08-27
 
 ### Added
