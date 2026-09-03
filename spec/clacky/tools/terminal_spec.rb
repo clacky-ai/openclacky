@@ -457,6 +457,66 @@ RSpec.describe Clacky::Tools::Terminal do
   end
 
   # ---------------------------------------------------------------------------
+  # Resource reclamation — regression specs for the EMFILE ("Too many open
+  # files") leak. A session whose shell died used to keep its PTY master fd
+  # open until the agent explicitly polled or killed it; a forgotten session
+  # leaked that fd for the lifetime of the process. The reader thread now
+  # watches for the child's death and releases the fds itself.
+  # ---------------------------------------------------------------------------
+  describe "session reclamation" do
+    it "reclaims a forgotten session's fds once its shell dies (no poll, no kill)" do
+      # BACKGROUND_COLLECT_SECONDS is 0.4s in this suite, so the command is
+      # still alive at collection time and is handed back as a session_id.
+      # `exit` makes the shell terminate itself once the command finishes,
+      # simulating a background process that ends while the agent is gone.
+      started = tool.execute(command: "sleep 1; exit", background: true)
+      expect(started[:session_id]).to be_a(Integer)
+
+      sid = started[:session_id]
+      session = Clacky::Tools::Terminal::SessionManager.get(sid)
+      expect(session).to be_truthy
+      expect(session.reader).not_to be_closed
+
+      # Simulate the agent walking away. Wait past the child's natural
+      # death (1s) plus the reader thread's 0.5s select cycle.
+      deadline = Time.now + 8
+      while Time.now < deadline && Clacky::Tools::Terminal::SessionManager.get(sid)
+        sleep 0.05
+      end
+
+      # Before the fix, both the registry entry and the open fd survived
+      # here forever — one leaked PTY master fd per forgotten session.
+      expect(Clacky::Tools::Terminal::SessionManager.get(sid)).to be_nil
+      expect(session.reader).to be_closed
+      expect(session.writer).to be_closed
+    end
+
+    it "polling a session that died while forgotten reports not-found" do
+      started = tool.execute(command: "sleep 1; exit", background: true)
+      sid = started[:session_id]
+
+      deadline = Time.now + 8
+      while Time.now < deadline && Clacky::Tools::Terminal::SessionManager.get(sid)
+        sleep 0.05
+      end
+
+      result = tool.execute(session_id: sid, input: "")
+      expect(result[:error]).to match(/not found/i)
+    end
+
+    it "still reclaims fds when the agent explicitly kills" do
+      started = tool.execute(command: "sleep 30", background: true)
+      sid = started[:session_id]
+      session = Clacky::Tools::Terminal::SessionManager.get(sid)
+
+      tool.execute(session_id: sid, kill: true)
+
+      expect(Clacky::Tools::Terminal::SessionManager.get(sid)).to be_nil
+      expect(session.reader).to be_closed
+    end
+  end
+
+  # ---------------------------------------------------------------------------
   # Persistent-session reuse — the same PTY shell is reused across calls.
   # This is what saves us the ~1s cold-start cost of `zsh -l -i` on every
   # foreground command.

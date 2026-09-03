@@ -15,8 +15,10 @@ module Clacky
       subagent_instructions subagent_result subagent_transcript token_usage
       compressed_summary chunk_path truncated transient
       chunk_index chunk_count ext_events skill_command skill_command_display
-      display_references
+      display_files display_references
     ].freeze
+
+    INTERNAL_CONTENT_BLOCK_FIELDS = %i[image_path image_name].freeze
 
     # Cap on persisted ext_events per message. These are milestone events
     # (progress chatter is transient), so a handful per message is the norm —
@@ -358,7 +360,9 @@ module Clacky
           next nil
         end
 
-        block.key?(:image_path) ? block.reject { |k, _| k == :image_path } : block
+        next block if (block.keys & INTERNAL_CONTENT_BLOCK_FIELDS).empty?
+
+        block.reject { |key, _| INTERNAL_CONTENT_BLOCK_FIELDS.include?(key) }
       end
 
       return msg if cleaned == content

@@ -344,6 +344,9 @@ class ExtStudioExt < Clacky::ApiExtension
     ext_id  = require_ext_id!
     version = presence(json_body["version"])
     error!("version required", status: 422) unless version
+    unless Clacky::ExtensionVerifier.valid_version?(version)
+      error!("version must use three numeric segments (for example, 1.0.0)", status: 422)
+    end
 
     result  = Clacky::ExtensionLoader.load_all(force: false)
     container = Array(result.containers).find { |id, _| id == ext_id }&.last

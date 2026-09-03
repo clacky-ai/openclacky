@@ -28,7 +28,7 @@ module Clacky
         COLORS = {
           # Format: [symbol_color, dark_bg_text, light_bg_text]
           user: [:bright_black, :bright_black, :black],           # User prompt and input
-          assistant: [:green, :bright_black, :bright_black],      # AI response
+          assistant: [:green, :bright_white, :black],           # AI response
           tool_call: [:cyan, :cyan, :cyan],                       # Tool execution
           tool_result: [:cyan, :bright_black, :bright_black],     # Tool output
           tool_denied: [:yellow, :yellow, :yellow],               # Denied actions

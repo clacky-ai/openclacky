@@ -300,10 +300,12 @@ module Clacky
         ) do |io| # rubocop:disable Security/Open
           File.open(dest, "wb") { |out| out.write(io.read) }
         end
-      rescue OpenURI::HTTPError, SocketError => e
-        raise Error, "failed to download #{url}: #{e.message}"
       rescue Net::OpenTimeout, Net::ReadTimeout => e
         raise Error, "download timed out: #{e.message}"
+      # Catch-all so any transport-layer failure triggers download()'s
+      # secondary-host fallback instead of surfacing a raw error.
+      rescue StandardError => e
+        raise Error, "failed to download #{url}: #{e.message}"
       end
 
       private def extract_zip(zip_path, dest_root)

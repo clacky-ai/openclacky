@@ -31,6 +31,7 @@ module Clacky
         "api" => "bedrock",
         "default_model" => "abs-claude-sonnet-5",
         "models" => [
+          "abs-claude-fable-5-1",
           "abs-claude-fable-5",
           "abs-claude-opus-5",
           "abs-claude-opus-4-8",
@@ -148,6 +149,7 @@ module Clacky
         # themselves, so they're intentionally not listed here as keys —
         # no injection happens when the default model is already lite-class.
         "lite_models" => {
+          "abs-claude-fable-5-1"  => "abs-claude-haiku-4-5",
           "abs-claude-fable-5"    => "abs-claude-haiku-4-5",
           "abs-claude-opus-5"     => "abs-claude-haiku-4-5",
           "abs-claude-opus-4-8"   => "abs-claude-haiku-4-5",
@@ -162,6 +164,7 @@ module Clacky
         # Fallback chain: if a model is unavailable, try the next one in order.
         # Keys are primary model names; values are the fallback model to use instead.
         "fallback_models" => {
+          "abs-claude-fable-5-1"  => "abs-claude-fable-5",
           "abs-claude-fable-5"    => "abs-claude-opus-5",
           "abs-claude-opus-5"     => "abs-claude-opus-4-8",
           "abs-claude-sonnet-5"   => "abs-claude-sonnet-4-6",

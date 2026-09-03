@@ -19,6 +19,7 @@ require "open3"
 require_relative "session_registry"
 require_relative "project_manager"
 require_relative "git_panel"
+require_relative "dir_picker"
 require_relative "web_ui_controller"
 require_relative "model_prices"
 require_relative "scheduler"
@@ -166,6 +167,8 @@ module Clacky
     #   *    /api/*                  → JSON REST API (sessions, tasks, schedules)
     #   GET  /**                     → static files served from lib/clacky/web/ directory
     class HttpServer
+      include DirPicker
+
       WEB_ROOT = File.expand_path("../web", __dir__)
       # How long shutdown waits for each agent thread to unwind before falling
       # back to a manual session save.
@@ -658,6 +661,8 @@ module Clacky
         when ["PATCH",  "/api/config/settings"]  then api_update_settings(req, res)
         when ["POST",   "/api/config/models"] then api_add_model(req, res)
         when ["POST",   "/api/config/test"]   then api_test_config(req, res)
+        when ["POST",   "/api/config/reload"] then api_config_reload(req, res)
+        when ["POST",   "/api/access_key/reload"] then api_access_key_reload(req, res)
         when ["POST",   "/api/config/media/test"] then api_test_media_config(req, res)
         when ["GET",    "/api/config/media"]  then api_get_media_config(res)
         when ["GET",    "/api/config/ocr"]    then api_get_ocr_config(res)
@@ -3554,10 +3559,10 @@ module Clacky
         s.start_with?("127.") || s == "::ffff:127.0.0.1"
       end
 
-      # Resolve access key from CLACKY_ACCESS_KEY env var only.
+      # Resolve access key from ~/.clacky/access_key, falling back to the
+      # CLACKY_ACCESS_KEY env var.
       private def resolve_access_key
-        key = ENV.fetch("CLACKY_ACCESS_KEY", "").strip
-        key.empty? ? nil : key
+        Clacky::AccessKey.resolve
       end
 
       # Extract bearer token or query param from a WEBrick request.
@@ -3679,7 +3684,7 @@ module Clacky
         Clacky::Logger.info("[Upgrade] Official source — running: #{cmd}")
         broadcast_all(type: "upgrade_log", line: "Starting upgrade: #{cmd}\n")
 
-        output, exit_code = run_shell(cmd, timeout: 600)
+        output, exit_code = run_shell(cmd, timeout: 600, env: gem_install_env)
 
         Clacky::Logger.info("[Upgrade] exit_code=#{exit_code}")
         Clacky::Logger.info("[Upgrade] output=#{output.slice(0, 1000)}")
@@ -3737,7 +3742,7 @@ module Clacky
         broadcast_all(type: "upgrade_log", line: "Installing...\n")
         Clacky::Logger.info("[Upgrade] Running: #{cmd}")
 
-        output, exit_code = run_shell(cmd, timeout: 600)
+        output, exit_code = run_shell(cmd, timeout: 600, env: gem_install_env)
         success = exit_code&.zero? || false
 
         broadcast_all(type: "upgrade_log", line: output)
@@ -3811,6 +3816,63 @@ module Clacky
       def api_restart(req, res)
         json_response(res, 200, { ok: true, message: "Restarting…" })
         schedule_restart
+      end
+
+      # POST /api/config/reload
+      # Re-reads ~/.clacky/config.yml into the live @agent_config. Every session
+      # shares the same @models array, so a reload reaches all of them at once.
+      def api_config_reload(_req, res)
+        was_configured = @agent_config.models_configured?
+
+        unless @agent_config.reload!
+          json_response(res, 500, { ok: false, error: "Failed to reload config.yml" })
+          return
+        end
+
+        # A server that booted with an empty config never built its default
+        # session (create_default_session bails on models_configured?). Now
+        # that models exist, complete that deferred startup step.
+        if !was_configured && @agent_config.models_configured?
+          create_default_session
+        end
+
+        json_response(res, 200, {
+          ok:                true,
+          models:            @agent_config.models.size,
+          models_configured: @agent_config.models_configured?
+        })
+      end
+
+      # POST /api/access_key/reload
+      # Re-reads the access key from ~/.clacky/access_key (or CLACKY_ACCESS_KEY).
+      # Write the new key to that file first, then call this to swap it in
+      # without restarting. Pass {"key": "..."} to have the server persist the
+      # key for you, or {"generate": true} to get a freshly generated one back.
+      def api_access_key_reload(req, res)
+        body = parse_json_body(req)
+
+        if body["generate"]
+          key = Clacky::AccessKey.write(Clacky::AccessKey.generate)
+        elsif !body["key"].to_s.strip.empty?
+          key = Clacky::AccessKey.write(body["key"])
+        else
+          key = Clacky::AccessKey.resolve
+        end
+
+        @access_key = @localhost_only ? nil : key
+        # Old lockout counters were scoped to the previous key; a client that
+        # tripped them should not stay banned after a rotation.
+        @auth_failures_mutex.synchronize { @auth_failures.clear }
+
+        Clacky::Logger.info("[Auth] Access key reloaded (configured=#{!key.nil?})")
+
+        payload = { ok: true, configured: !key.nil? }
+        # Only echo the key when the server generated it — otherwise the caller
+        # already knows it, and logging/proxies shouldn't see it again.
+        payload[:access_key] = key if body["generate"]
+        json_response(res, 200, payload)
+      rescue ArgumentError => e
+        json_response(res, 400, { ok: false, error: e.message })
       end
 
       private def schedule_restart
@@ -3925,8 +3987,23 @@ module Clacky
       # Delegates to Terminal.run_sync which handles the idle-poll loop
       # internally (see its docs for why that's needed — this wrapper used
       # to re-implement it wrong and caused the 0.9.36 upgrade bug).
-      private def run_shell(command, timeout: 120)
-        Clacky::Tools::Terminal.run_sync(command, timeout: timeout)
+      private def run_shell(command, timeout: 120, env: nil)
+        Clacky::Tools::Terminal.run_sync(command, timeout: timeout, env: env)
+      end
+
+      # Install next to the gem the server is currently running from, bypassing
+      # any GEM_HOME hardcoded in the user's shell rc (system-Ruby users).
+      private def gem_install_env
+        spec = Gem.loaded_specs["openclacky"]
+        gem_home = if spec
+                     spec.base_dir
+                   else
+                     Gem.dir
+                   end
+        {
+          "GEM_HOME" => gem_home,
+          "GEM_PATH" => Gem.path.join(File::PATH_SEPARATOR),
+        }
       end
 
       # ── Channel API ───────────────────────────────────────────────────────────
@@ -5098,82 +5175,6 @@ module Clacky
       # Path traversal outside working_dir is rejected. Noisy dirs are hidden.
       IGNORED_FILE_ENTRIES = %w[.git .svn .hg node_modules .DS_Store .bundle vendor/bundle tmp .sass-cache].freeze
 
-      # Windows "special" folders under C:\Users that aren't real user profiles.
-      WINDOWS_PROFILE_DIRS = ["Public", "Default", "Default User", "All Users"].freeze
-
-      # Sidebar quick-access favorites for the directory picker (Finder-style).
-      # Translated client-side via `id`. On WSL every favorite targets the
-      # Windows profile (/mnt/<drive>/Users/<name>/...) so they match where a
-      # Windows browser actually saves files; elsewhere they stay under Dir.home.
-      private def dir_picker_places
-        home = Dir.home
-        win_home = wsl_windows_home
-        places = []
-
-        [["home", win_home || home],
-         ["desktop",   File.join(win_home || home, "Desktop")],
-         ["downloads", File.join(win_home || home, "Downloads")],
-         ["documents", File.join(win_home || home, "Documents")]].each do |id, path|
-          places << { id: id, path: path, kind: "favorite" } if Dir.exist?(path)
-        end
-
-        places
-      end
-
-      # True when running inside Windows Subsystem for Linux.
-      private def wsl?
-        return true if ENV["WSL_DISTRO_NAME"]
-        return true if File.exist?("/proc/sys/fs/binfmt_misc/WSLInterop")
-        version = begin
-          File.read("/proc/version")
-        rescue StandardError
-          ""
-        end
-        version.downcase.include?("microsoft")
-      end
-
-      # Best-effort path to the Windows user profile under WSL, or nil when it
-      # can't be determined (then callers fall back to Dir.home). Scans every
-      # mounted drive's Users dir instead of assuming the system drive is C:.
-      private def wsl_windows_home
-        return nil unless wsl?
-
-        roots = wsl_windows_users_roots
-        username = ENV["WINDOWS_USERNAME"] || ENV["USERNAME"]
-        if username && !username.empty?
-          roots.each do |root|
-            candidate = File.join(root, username)
-            return candidate if Dir.exist?(candidate)
-          end
-        end
-
-        roots.each do |root|
-          profiles = Dir.children(root).select do |name|
-            full = File.join(root, name)
-            File.directory?(full) &&
-              !WINDOWS_PROFILE_DIRS.include?(name) &&
-              !name.start_with?(".")
-          end
-          return File.join(root, profiles.first) if profiles.one?
-        end
-
-        nil
-      end
-
-      # Every mounted drive that exposes a Windows Users directory, e.g.
-      # /mnt/c/Users and /mnt/d/Users.
-      private def wsl_windows_users_roots
-        mounts = "/mnt"
-        return [] unless Dir.exist?(mounts)
-
-        roots = []
-        Dir.children(mounts).each do |drive|
-          root = File.join(mounts, drive, "Users")
-          roots << root if Dir.exist?(root)
-        end
-        roots
-      end
-
       def api_session_files(session_id, req, res)
         unless @registry.ensure(session_id)
           return json_response(res, 404, { error: "Session not found" })
@@ -5192,6 +5193,7 @@ module Clacky
 
         # Absolute mode: allow browsing outside working directory (e.g., root "/")
         if absolute_mode
+          rel = Utils::EnvironmentDetector.win_to_linux_path(rel)
           target = File.expand_path(rel.empty? ? "/" : rel)
           display_root = target
           # Normalize rel for API response
@@ -5246,7 +5248,9 @@ module Clacky
         show_hidden = query["show_hidden"] == "true"
         include_files = query["files"] == "true"
         rel   = Dir.home if rel.empty?
+        rel   = Utils::EnvironmentDetector.win_to_linux_path(rel)
         target = File.expand_path(rel.start_with?("~") ? rel.sub(/\A~/, Dir.home) : rel)
+        requested_target = target
 
         # The requested directory may not exist yet (e.g. the default
         # ~/clacky_workspace before any session created it). Instead of 404,
@@ -5273,7 +5277,7 @@ module Clacky
         end
         items.sort_by! { |it| [it[:type] == "dir" ? 0 : 1, it[:name].downcase] }
 
-        json_response(res, 200, { root: target, path: target, parent: File.dirname(target), home: Dir.home, default: default_working_dir, entries: items, places: dir_picker_places })
+        json_response(res, 200, { root: target, path: target, parent: File.dirname(target), exact: target == requested_target, home: Dir.home, default: default_working_dir, entries: items, places: dir_picker_places })
       rescue StandardError => e
         json_response(res, 500, { error: e.message })
       end
@@ -5294,7 +5298,7 @@ module Clacky
       # Body: { parent: "/abs/parent", name: "New Folder" }
       def api_dirs_mkdir(req, res)
         body   = parse_json_body(req)
-        parent = body["parent"].to_s
+        parent = Utils::EnvironmentDetector.win_to_linux_path(body["parent"].to_s)
         name   = body["name"].to_s.strip
 
         return json_response(res, 422, { error: "parent must be an absolute path" }) unless parent.start_with?("/")
@@ -7418,10 +7422,11 @@ module Clacky
       # ── Session actions ───────────────────────────────────────────────────────
 
       def handle_edit_message(session_id, content, created_at)
-        return unless @registry.exist?(session_id)
+        session = @registry.get(session_id)
+        return unless session
+        return if session[:status] == :running
 
-        agent = nil
-        @registry.with_session(session_id) { |s| agent = s[:agent] }
+        agent = session[:agent]
         return unless agent
 
         if agent.history.respond_to?(:truncate_from_created_at) && !created_at.to_s.empty?

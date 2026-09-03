@@ -624,10 +624,12 @@ module Clacky
 
           case role
           when "user"
+            display_files = display_files_for_archive(msg)
             lines << (msg[:task_id] ? "## User [Task #{msg[:task_id]}]" : "## User")
             lines << ""
-            lines << format_message_content(content)
+            lines << format_archived_user_content(content, display_files)
             lines << ""
+            append_display_files_line(lines, display_files)
             append_ext_events_line(lines, msg)
           when "assistant"
             # If this message is itself a compressed summary, annotate the header
@@ -674,6 +676,55 @@ module Clacky
           end
         end
         lines
+      end
+
+      # Serialize only the lightweight UI metadata needed to reconstruct file
+      # badges after compression. File paths, previews, sizes, MIME types, and
+      # contents deliberately stay out of the chunk archive.
+      def display_files_for_archive(msg)
+        files = Array(msg[:display_files]).dup
+        Array(msg[:content]).each do |block|
+          next unless block.is_a?(Hash)
+          next unless %w[image image_url].include?((block[:type] || block["type"]).to_s)
+
+          name = block[:image_name] || block["image_name"]
+          if name.nil? || name.to_s.strip.empty?
+            path = block[:image_path] || block["image_path"]
+            name = File.basename(path.to_s).sub(/\A[0-9a-f]{16}_/, "") unless path.to_s.empty?
+          end
+          name = "image" if name.nil? || name.to_s.strip.empty?
+          files << { name: name, type: "image" }
+        end
+
+        files.filter_map do |file|
+          next unless file.is_a?(Hash)
+
+          name = file[:name] || file["name"]
+          next if name.nil? || name.to_s.strip.empty?
+
+          type = file[:type] || file["type"] || "file"
+          type = "file" if type.to_s.strip.empty?
+          { name: name.to_s, type: type.to_s }
+        end.uniq { |file| [file[:name], file[:type]] }
+      end
+
+      # Once an image has a badge in the archive, omit the generic [image_url]
+      # placeholder from the visible replay text. Text blocks remain unchanged.
+      def format_archived_user_content(content, display_files)
+        return format_message_content(content) unless content.is_a?(Array)
+        return format_message_content(content) unless display_files.any? { |file| file[:type] == "image" }
+
+        visible_blocks = content.reject do |block|
+          block.is_a?(Hash) && %w[image image_url].include?((block[:type] || block["type"]).to_s)
+        end
+        format_message_content(visible_blocks)
+      end
+
+      def append_display_files_line(lines, files)
+        return if files.empty?
+
+        lines << "_Display files: #{files.to_json}_"
+        lines << ""
       end
 
       # Serialize persisted extension events into the chunk MD so they survive

@@ -534,6 +534,7 @@ module Clacky
         sections.each do |sec|
           text = sec[:lines].join.strip
           text, sec_ext_events = extract_ext_events_from_text(text)
+          text, sec_display_files = extract_display_files_from_text(text)
 
           # Nested chunk: expand it recursively, prepend before current rounds
           if sec[:nested_chunk]
@@ -546,7 +547,7 @@ module Clacky
             next
           end
 
-          next if text.empty? && sec_ext_events.empty?
+          next if text.empty? && sec_ext_events.empty? && sec_display_files.empty?
 
           if sec[:role] == "user"
             round_index += 1
@@ -560,6 +561,7 @@ module Clacky
               _from_chunk: true
             }
             user_msg[:task_id] = sec[:task_id] if sec[:task_id]
+            user_msg[:display_files] = sec_display_files unless sec_display_files.empty?
             current_round = {
               user_msg: user_msg,
               events: [],
@@ -615,6 +617,35 @@ module Clacky
       rescue => e
         Clacky::Logger.warn("parse_chunk_md_to_rounds failed for #{chunk_path}: #{e.message}")
         []
+      end
+
+
+      # Pull lightweight attachment badge metadata out of a chunk section.
+      # The marker is internal archive data and must not appear in replayed text.
+      # Only name + type are accepted; paths and file contents are never restored.
+      def extract_display_files_from_text(text)
+        return [text, []] unless text.include?("_Display files:")
+
+        files = []
+        kept = text.each_line.reject do |line|
+          match = line.strip.match(/\A_Display files:\s*(\[.*\])_?\z/i)
+          next false unless match
+
+          parsed = JSON.parse(match[1]) rescue []
+          Array(parsed).each do |file|
+            next unless file.is_a?(Hash)
+
+            name = file["name"] || file[:name]
+            next if name.nil? || name.to_s.strip.empty?
+
+            type = file["type"] || file[:type] || "file"
+            type = "file" if type.to_s.strip.empty?
+            files << { name: name.to_s, type: type.to_s }
+          end
+          true
+        end
+
+        [kept.join.strip, files]
       end
 
 
@@ -948,7 +979,9 @@ module Clacky
 
           mime_type = (url || "")[/\Adata:([^;]+);/, 1] || "image/jpeg"
           ext       = mime_type.split("/").last
-          { name: "image_#{idx + 1}.#{ext}", mime_type: mime_type, data_url: url, path: path }
+          name      = block[:image_name] || block["image_name"]
+          name      = "image_#{idx + 1}.#{ext}" if name.nil? || name.to_s.strip.empty?
+          { name: name, mime_type: mime_type, data_url: url, path: path }
         end
       end
 

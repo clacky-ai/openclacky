@@ -876,7 +876,8 @@ module Clacky
         end
 
         marker_token = SecureRandom.hex(8)
-        reader_thread = start_reader_thread(reader, log_io)
+        session_box = []
+        reader_thread = start_reader_thread(reader, log_io, session_box)
 
         session = SessionManager.register(
           pid: pid, command: command, cwd: cwd || Dir.pwd,
@@ -886,6 +887,7 @@ module Clacky
           mode: "shell", marker_token: marker_token,
           shell_name: shell_name
         )
+        session_box << session
 
         # Give the shell a moment to print its startup banner (zsh -l -i
         # loads a lot of stuff), then drain whatever noise it wrote so the
@@ -905,8 +907,21 @@ module Clacky
         session
       end
 
-      # Background thread: drain PTY → log file.
-      private def start_reader_thread(reader, log_io)
+      # Background thread: drain PTY → log file. It doubles as the session's
+      # death watcher: when the child exits, read_nonblock raises EIO and the
+      # thread ends up in the ensure block below. Releasing the PTY fds and
+      # forgetting the session there means a dead session's master fd is
+      # reclaimed the moment its child dies — even when the calling agent
+      # never comes back to poll or kill it, which used to leak the fd until
+      # the process hit EMFILE ("Too many open files").
+      #
+      # `session_box` is a one-element array filled by spawn_shell right
+      # after SessionManager.register (the session cannot exist before the
+      # thread starts); an empty box means registration never happened and
+      # spawn_shell itself owns the cleanup. Every close is rescue-guarded
+      # and SessionManager.forget is a plain Hash#delete, so this whole
+      # block is a no-op when the main thread's cleanup_session ran first.
+      private def start_reader_thread(reader, log_io, session_box)
         Clacky::ThreadRegistry.spawn(name: "terminal-pty-reader") do
           loop do
             break if reader.closed? || log_io.closed?
@@ -926,6 +941,15 @@ module Clacky
           end
         ensure
           log_io.close rescue nil
+          if (session = session_box[0])
+            # Flip the status first so a main thread parked in
+            # read_until_marker's poll loop notices the death immediately
+            # (its refresh() no longer finds the session in the registry).
+            session.status = "exited" unless %w[exited killed].include?(session.status)
+            session.writer.close rescue nil
+            session.reader.close rescue nil
+            SessionManager.forget(session.id)
+          end
         end
       end
 

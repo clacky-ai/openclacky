@@ -2,6 +2,7 @@
 
 require "tty-screen"
 require_relative "theme_manager"
+require_relative "strings_cjk_patch"
 
 module Clacky
   module UI2
@@ -21,14 +22,24 @@ module Clacky
           # Get current theme colors
           theme = ThemeManager.current_theme
 
+          width = TTY::Screen.width - 4  # Leave some margin
+
           # Configure tty-markdown with custom theme and symbols
           parsed = TTY::Markdown.parse(content, 
             theme: theme_colors,
             symbols: custom_symbols,
-            width: TTY::Screen.width - 4  # Leave some margin
+            width: width
           )
 
           parsed
+        rescue IndexError => e
+          # Safety net behind strings_cjk_patch; retry uncolored if wrap still fails.
+          warn "[markdown] color render failed (#{e.class}), retrying without color" if ENV["CLACKY_DEBUG"]
+          begin
+            TTY::Markdown.parse(content, color: :never, symbols: custom_symbols, width: width)
+          rescue StandardError
+            content
+          end
         rescue StandardError => e
           warn "[markdown] render failed: #{e.class}: #{e.message}" if ENV["CLACKY_DEBUG"]
           content
@@ -59,20 +70,12 @@ module Clacky
         def theme_colors
           theme = ThemeManager.current_theme
 
-          # Map our theme colors to tty-markdown's expected format
-          # Note: theme.colors values are already arrays, so we need to flatten when adding styles
+          # tty-markdown accepts a single :header key for all header levels
+          # (h1 additionally underlines). Code block colors come from rouge.
           {
-            # Headers use info color (cyan/blue)
-            h1: Array(theme.colors[:info]) + [:bold],
-            h2: Array(theme.colors[:info]) + [:bold],
-            h3: Array(theme.colors[:info]),
-            h4: Array(theme.colors[:info]),
-            h5: Array(theme.colors[:info]),
-            h6: Array(theme.colors[:info]),
+            header: [:bright_cyan, :bold],
             # Horizontal rule - make it subtle (dim gray)
             hr: [:bright_black],
-            # Code blocks use dim color
-            code: Array(theme.colors[:thinking]),
             # Links use success color (green)
             link: Array(theme.colors[:success]),
             # Lists use default text color
