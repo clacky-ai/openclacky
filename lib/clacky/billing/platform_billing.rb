@@ -50,6 +50,7 @@ module Clacky
         "or-tts-gemini-2-5-flash" => "gemini-2.5-flash-tts",
         "or-tts-gemini-2-5-pro"   => "gemini-2.5-pro-tts",
         # speech-to-text (or-)
+        "or-stt-gemini-3-8-flash" => "gemini-3.8-flash",
         "or-stt-gemini-3-7-flash" => "gemini-3.7-flash",
         "or-stt-gemini-3-6-flash" => "gemini-3.6-flash",
         "or-stt-gemini-3-5-flash" => "gemini-3.5-flash",

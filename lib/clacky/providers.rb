@@ -99,18 +99,20 @@ module Clacky
         # routes them to Vertex AI Gemini (generateContent with inline
         # audio parts). The gateway returns transcription text.
         "stt_models" => [
+          "or-stt-gemini-3-8-flash",
           "or-stt-gemini-3-7-flash",
           "or-stt-gemini-3-6-flash",
           "or-stt-gemini-3-5-flash",
           "or-stt-gemini-1-5-pro"
         ],
         "stt_model_aliases" => {
+          "or-stt-gemini-3-8-flash" => "Gemini 3.8 Flash STT",
           "or-stt-gemini-3-7-flash" => "Gemini 3.7 Flash STT",
           "or-stt-gemini-3-6-flash" => "Gemini 3.6 Flash STT",
           "or-stt-gemini-3-5-flash" => "Gemini 3.5 Flash STT",
           "or-stt-gemini-1-5-pro"   => "Gemini 1.5 Pro STT"
         },
-        "default_stt_model" => "or-stt-gemini-3-7-flash",
+        "default_stt_model" => "or-stt-gemini-3-8-flash",
         # Video understanding models served by the openclacky gateway, which
         # routes video frames to Gemini (generateContent with inline image
         # parts). The gateway returns analysis text.
@@ -128,7 +130,7 @@ module Clacky
           "or-gemini-3-5-flash" => "Gemini 3.5 Flash",
           "or-gemini-3-1-pro"   => "Gemini 3.1 Pro"
         },
-        "default_video_understanding_model" => "or-gemini-3-7-flash",
+        "default_video_understanding_model" => "or-gemini-3-8-flash",
         # Default OCR sidecar — used when the primary model is text-only.
         # Candidates are derived from the provider's vision-capable models;
         # this just picks the cheap+fast default to surface in "auto" mode.
