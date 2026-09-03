@@ -102,7 +102,7 @@ module Clacky
 
         # Rewrite local image paths to /api/local-image proxy URLs for browser rendering
         rewritten = Utils::FileProcessor.rewrite_local_image_urls(content.to_s)
-        ev = { type: "assistant_message", session_id: @session_id, content: rewritten }
+        ev = { type: "assistant_message", session_id: @session_id, content: rewritten, interim: interim }
         ev[:created_at] = created_at if created_at
         @events << stamp(ev)
       end
@@ -6756,15 +6756,38 @@ module Clacky
 
         unless agent
           Clacky::Logger.warn("[messages] agent is nil", session_id: session_id)
+          if query["navigation"] == "1"
+            return json_response(res, 200, { sources: [], total: 0 })
+          end
+          if query["preview"]
+            return json_response(res, 409, { error: "History location is no longer available" })
+          end
           return json_response(res, 200, { events: [], has_more: false })
         end
 
         # Collect events emitted by replay_history via a lightweight collector UI
+        if query["navigation"] == "1"
+          return json_response(res, 200, agent.history_navigation)
+        end
+        if query["preview"]
+          return json_response(res, 200, agent.history_navigation_preview(id: query["preview"]))
+        end
         collected = []
         collector = HistoryCollector.new(session_id, collected)
-        result    = agent.replay_history(collector, limit: limit, before: before)
+        if query["window"] == "1"
+          result = agent.replay_history_window(collector, limit: limit, around: query["around"],
+            before_id: query["before_id"], after_id: query["after_id"])
+          ids = result.delete(:round_ids)
+          collected.select { |event| event[:type] == "history_user_message" }.each_with_index do |event, index|
+            event[:round_id] = ids[index]
+          end
+        else
+          result = agent.replay_history(collector, limit: limit, before: before)
+        end
 
-        json_response(res, 200, { events: collected, has_more: result[:has_more] })
+        json_response(res, 200, { events: collected }.merge(result))
+      rescue ArgumentError => e
+        json_response(res, 409, { error: e.message })
       end
 
       # ── Project API ───────────────────────────────────────────────────────────

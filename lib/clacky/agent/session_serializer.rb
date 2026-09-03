@@ -1,12 +1,16 @@
 # frozen_string_literal: true
 
 require "strscan"
+require_relative "history_navigation"
+require_relative "chunk_index"
 
 module Clacky
   class Agent
     # Session serialization for saving and restoring agent state
     # Handles session data serialization and deserialization
     module SessionSerializer
+      include HistoryNavigation
+      include ChunkIndex
       # Restore from a saved session
       # @param session_data [Hash] Saved session data
       def restore_session(session_data)
@@ -289,77 +293,8 @@ module Clacky
       #   created_at < before. Pass nil to get the most recent rounds.
       # @return [Hash] { has_more: Boolean } — whether older rounds exist beyond this page
       def replay_history(ui, limit: 20, before: nil)
-        # Split @history into rounds, each starting at a real user message
-        rounds = []
-        current_round = nil
-
-        @history.to_a.each do |msg|
-          role = msg[:role].to_s
-
-          # A real user message can have either a String content or an Array content
-          # (Array = multipart: text + image blocks). Exclude system-injected messages
-          # and synthetic [SYSTEM] text messages.
-          is_real_user_msg = role == "user" && !msg[:system_injected] &&
-            if msg[:content].is_a?(String)
-              !msg[:content].start_with?("[SYSTEM]")
-            elsif msg[:content].is_a?(Array)
-              # Must contain at least one text or image block (not a tool_result array).
-              # "image_url" covers image-only messages (user sent a picture with no
-              # accompanying text); without it such messages start no round and get
-              # dropped on replay, making the image vanish on session reopen.
-              msg[:content].any? { |b| b.is_a?(Hash) && %w[text image image_url].include?(b[:type].to_s) }
-            else
-              false
-            end
-
-          if is_real_user_msg
-            # Start a new round at each real user message.
-            # editable: true — this message still lives in the active in-memory
-            # @history, so truncate_from_created_at can locate and truncate it.
-            current_round = { user_msg: msg, events: [], editable: true }
-            rounds << current_round
-          elsif current_round
-            current_round[:events] << msg
-          elsif msg[:compressed_summary]
-            # Compressed summary sitting before any user rounds — expand ALL chunk
-            # MD files that belong to the same session (siblings of chunk_path),
-            # in chunk-index ascending order.
-            #
-            # Under the current "single summary + previous_chunks index" scheme,
-            # session.json only keeps the newest compressed_summary message (which
-            # points at the newest chunk). Older chunks (chunk-1..chunk-N-1) are
-            # referenced only as basenames inside the summary text. Expanding just
-            # msg[:chunk_path] would therefore lose all prior chunks on replay.
-            #
-            # chunk_path may be blank when a hot restart's SIGKILL killed the
-            # worker after the chunk file was written but before its path was
-            # persisted into session.json. Fall back to discovering the chunks
-            # on disk from session_id + created_at so the history is not lost.
-            chunk_paths = if msg[:chunk_path].to_s.empty?
-              session_manager.chunks_for_current(@session_id, @created_at).map { |c| c[:path] }
-            else
-              sibling_chunks_of(msg[:chunk_path])
-            end
-            chunk_rounds = chunk_paths.flat_map { |p| parse_chunk_md_to_rounds(p) }
-            rounds.concat(chunk_rounds)
-            # After expanding, treat the last chunk round as the current round so that
-            # any orphaned assistant/tool messages that follow in session.json (belonging
-            # to the same task whose user message was compressed into the chunk) get
-            # appended here instead of being silently discarded.
-            current_round = rounds.last unless chunk_rounds.empty?
-          elsif rounds.last
-            # Orphaned non-user message with no current_round yet (e.g. recent_messages
-            # after compression started mid-task with no leading user message).
-            # Attach to the last known round rather than drop silently.
-            rounds.last[:events] << msg
-          end
-        end
-
-        # Expand any compressed_summary assistant messages sitting inside a round's events.
-        # These occur when compression happened mid-round (rare) — expand them in-place.
-        rounds.each do |round|
-          round[:events].select! { |ev| !ev[:compressed_summary] }
-        end
+        sources = navigation_sources
+        rounds = sources.each_index.flat_map { |index| navigation_source_rounds(sources, index) }
 
         # Apply before-cursor filter: only rounds whose user message created_at < before
         if before
@@ -379,6 +314,11 @@ module Clacky
         # Take the most recent `limit` rounds
         page = rounds.last(limit)
 
+        replay_rounds(ui, page)
+        { has_more: has_more }
+      end
+
+      private def replay_rounds(ui, page)
         page.each do |round|
           msg = round[:user_msg]
           raw_text    = msg[:display_text] || extract_text_from_content(msg[:content])
@@ -410,7 +350,6 @@ module Clacky
           end
         end
 
-        { has_more: has_more }
       end
 
       # Return all chunk MD file paths that belong to the same session as
@@ -446,7 +385,8 @@ module Clacky
       #
       # @param chunk_path [String] Path to the chunk md file
       # @return [Array<Hash>] rounds array (may be empty if file missing/unreadable)
-      private def parse_chunk_md_to_rounds(chunk_path, visited: Set.new)
+      private def parse_chunk_md_to_rounds(chunk_path, visited: Set.new, excluded_paths: Set.new,
+                                          byte_range: nil, index: nil, round_offset: 0)
         return [] unless chunk_path
 
         # 1. Try the stored absolute path first (same machine, normal case).
@@ -468,7 +408,14 @@ module Clacky
 
         # Scrub invalid UTF-8 bytes defensively — chunk files written before
         # the 0.9.37 fix may contain poisoned bytes from file_reader results.
-        raw = File.read(resolved).then do |s|
+        raw = (if byte_range
+          File.open(resolved, "rb") do |file|
+            file.seek(byte_range[:start])
+            file.read(byte_range[:length]).to_s.force_encoding(Encoding::UTF_8)
+          end
+        else
+          File.read(resolved)
+        end).then do |s|
           s.encoding == Encoding::UTF_8 && s.valid_encoding? ? s :
             s.encode("UTF-8", invalid: :replace, undef: :replace, replace: "\u{FFFD}")
         end
@@ -486,7 +433,7 @@ module Clacky
             end
           end
         end
-        base_time = (archived_at || Time.now).to_f
+        base_time = index ? index[:base_time] : (archived_at || File.mtime(resolved)).to_f
         chunk_dir = File.dirname(chunk_path.to_s)
 
         # Split into sections by ## headings
@@ -498,25 +445,12 @@ module Clacky
 
         raw.each_line do |line|
           stripped = line.chomp
-          if (m = stripped.match(/\A## Assistant \[Compressed Summary — original conversation at: (.+)\]/))
-            # Nested chunk reference — record it, treat as assistant section
+          if (header = chunk_section_header(stripped, chunk_dir))
             sections << { role: current_role, lines: current_lines.dup, nested_chunk: current_nested_chunk, task_id: current_task_id } if current_role
-            current_role         = "assistant"
+            current_role         = header[:role]
             current_lines        = []
-            current_nested_chunk = File.join(chunk_dir, m[1])
-            current_task_id      = nil
-          elsif (m = stripped.match(/\A## (User|Assistant)(?: \[Task ([1-9]\d*)\])?\z/))
-            sections << { role: current_role, lines: current_lines.dup, nested_chunk: current_nested_chunk, task_id: current_task_id } if current_role
-            current_role         = m[1].downcase
-            current_lines        = []
-            current_nested_chunk = nil
-            current_task_id      = m[2]&.to_i
-          elsif stripped.match?(/\A### Tool Result:/)
-            sections << { role: current_role, lines: current_lines.dup, nested_chunk: current_nested_chunk, task_id: current_task_id } if current_role
-            current_role         = "tool"
-            current_lines        = []
-            current_nested_chunk = nil
-            current_task_id      = nil
+            current_nested_chunk = header[:nested_chunk]
+            current_task_id      = header[:task_id]
           else
             current_lines << line
           end
@@ -538,11 +472,15 @@ module Clacky
 
           # Nested chunk: expand it recursively, prepend before current rounds
           if sec[:nested_chunk]
-            nested = parse_chunk_md_to_rounds(sec[:nested_chunk], visited: visited)
+            nested = if excluded_paths.include?(File.basename(sec[:nested_chunk]))
+              []
+            else
+              parse_chunk_md_to_rounds(sec[:nested_chunk], visited: visited, excluded_paths: excluded_paths)
+            end
             rounds = nested + rounds unless nested.empty?
             # Also render its summary text as an assistant event in current round if any
             if current_round && !text.empty?
-              current_round[:events] << { role: "assistant", content: text }
+              current_round[:events] << { role: "assistant", content: text, compressed_summary: true }
             end
             next
           end
@@ -552,7 +490,7 @@ module Clacky
           if sec[:role] == "user"
             round_index += 1
             # Synthetic timestamp: spread rounds backwards from archived_at
-            synthetic_ts = base_time - (sections.size - round_index) * 1.0
+            synthetic_ts = base_time - ((index ? index[:section_count] : sections.size) - round_offset - round_index) * 1.0
             user_msg = {
               role: "user",
               content: text,
@@ -594,7 +532,9 @@ module Clacky
 
               # Flush any plain text
               plain_text = remaining_lines.join.strip
-              current_round[:events] << { role: "assistant", content: plain_text } unless plain_text.empty?
+              unless plain_text.empty?
+                current_round[:events] << { role: "assistant", content: plain_text, interim: !pending_tool_entries.empty? }
+              end
 
               # Emit one synthetic tool_calls message per detected tool
               pending_tool_entries.each do |entry|
@@ -774,7 +714,8 @@ module Clacky
             else
               raw_text
             end
-            ui.show_assistant_message(text, files: [], created_at: msg[:created_at])
+            ui.show_assistant_message(text, files: [], created_at: msg[:created_at],
+                                      interim: !!msg[:interim] || Array(msg[:tool_calls]).any?)
           end
 
           # Tool calls embedded in assistant message
