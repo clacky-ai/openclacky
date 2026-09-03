@@ -32,7 +32,8 @@ module Clacky
         "abs-claude-sonnet-4-5" => "global.anthropic.claude-sonnet-4-5",
         "abs-claude-haiku-4-5"  => "global.anthropic.claude-haiku-4-5",
         # gemini chat (or-)
-        "or-gemini-3-1-pro"  => "gemini-3.1-pro-preview",
+        "or-gemini-3-1-pro"   => "gemini-3.1-pro-preview",
+        "or-gemini-3-8-flash" => "gemini-3.8-flash",
         "or-gemini-3-7-flash" => "gemini-3.7-flash",
         "or-gemini-3-6-flash" => "gemini-3.6-flash",
         "or-gemini-3-5-flash" => "gemini-3.5-flash",
@@ -63,6 +64,7 @@ module Clacky
         "google/gemini-3-pro-image-preview"  => "or-gemini-3-pro-image",
         # STT aliases reuse the chat real id; Hash#invert keeps the later STT
         # key, so pin these back to the chat alias for display.
+        "gemini-3.8-flash" => "or-gemini-3-8-flash",
         "gemini-3.7-flash" => "or-gemini-3-7-flash",
         "gemini-3.6-flash" => "or-gemini-3-6-flash",
         "gemini-3.5-flash" => "or-gemini-3-5-flash"

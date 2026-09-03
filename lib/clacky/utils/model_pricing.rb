@@ -425,6 +425,26 @@ module Clacky
         }
       },
 
+      # Gemini 3.8 Flash. Flat pricing, 1M context, 64K max output.
+      # Same list price as 3.7/3.6 Flash; intro rate $0.75/$3.75 through
+      # 2026-12-31 before settling at $1.50/$7.50 (list price shown).
+      # Cache write billed at input rate (Vertex doesn't expose a separate
+      # cache-write charge in the OpenAI shim usage response).
+      "gemini-3.8-flash" => {
+        input: {
+          default: 1.50,
+          over_200k: 1.50
+        },
+        output: {
+          default: 7.50,
+          over_200k: 7.50
+        },
+        cache: {
+          write: 1.50,
+          read: 0.15
+        }
+      },
+
       # Gemini 3.7 Flash. Flat pricing, 1M context, 64K max output.
       # Same list price as 3.6 Flash; both carry an intro rate of $0.75/$3.75
       # through 2026-12-31 before settling at $1.50/$7.50 (list price shown).
@@ -1073,6 +1093,8 @@ module Clacky
           "gemini-3.6-flash"
         when /^or-gemini-3-7-flash$/i, /^gemini-3\.7-flash$/i
           "gemini-3.7-flash"
+        when /^or-gemini-3-8-flash$/i, /^gemini-3\.8-flash$/i
+          "gemini-3.8-flash"
 
         # OpenAI GPT-5.x models - match various dashed/dotted/compact forms
         # (e.g. "gpt-5.5", "gpt-5-5", "gpt5.5", "gpt55")

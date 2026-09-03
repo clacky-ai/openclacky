@@ -45,6 +45,7 @@ module Clacky
           "dsk-deepseek-v4-flash",
           "dsk-deepseek-v4-flash-vision-exp",
           "or-gemini-3-1-pro",
+          "or-gemini-3-8-flash",
           "or-gemini-3-7-flash",
           "or-gemini-3-6-flash",
           "or-gemini-3-5-flash"
@@ -114,12 +115,14 @@ module Clacky
         # routes video frames to Gemini (generateContent with inline image
         # parts). The gateway returns analysis text.
         "video_understanding_models" => [
+          "or-gemini-3-8-flash",
           "or-gemini-3-7-flash",
           "or-gemini-3-6-flash",
           "or-gemini-3-5-flash",
           "or-gemini-3-1-pro"
         ],
         "video_understanding_model_aliases" => {
+          "or-gemini-3-8-flash" => "Gemini 3.8 Flash",
           "or-gemini-3-7-flash" => "Gemini 3.7 Flash",
           "or-gemini-3-6-flash" => "Gemini 3.6 Flash",
           "or-gemini-3-5-flash" => "Gemini 3.5 Flash",
