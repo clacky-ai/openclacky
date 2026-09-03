@@ -170,7 +170,7 @@ RSpec.describe Clacky::Server::HttpServer, "directory picker mutation API" do
       with_server(agent_config: agent_config) do |server|
         allow(server).to receive(:wsl?).and_return(true)
         allow(ENV).to receive(:[]).and_wrap_original do |original, *args|
-          %w[WINDOWS_USERNAME USERNAME].include?(args.first) ? nil : original.call(*args)
+          %w[WINDOWS_USERNAME USERNAME USER].include?(args.first) ? nil : original.call(*args)
         end
         allow(Dir).to receive(:exist?).and_wrap_original do |original, *args|
           %w[/mnt /mnt/c/Users /mnt/d/Users].include?(args.first) ? true : original.call(*args)
@@ -184,6 +184,71 @@ RSpec.describe Clacky::Server::HttpServer, "directory picker mutation API" do
         end
         allow(File).to receive(:directory?).and_wrap_original do |original, *args|
           args.first == "/mnt/c/Users/leo" ? true : original.call(*args)
+        end
+
+        expect(server.send(:wsl_windows_home)).to eq("/mnt/c/Users/leo")
+      end
+    end
+
+    it "prefers the cmd.exe-queried username over the first profile" do
+      with_server(agent_config: agent_config) do |server|
+        allow(server).to receive(:wsl?).and_return(true)
+        allow(server).to receive(:wsl_windows_username).and_return("maria")
+        allow(ENV).to receive(:[]).and_wrap_original do |original, *args|
+          %w[WINDOWS_USERNAME USERNAME USER].include?(args.first) ? nil : original.call(*args)
+        end
+        allow(Dir).to receive(:exist?).and_wrap_original do |original, *args|
+          %w[/mnt /mnt/c/Users /mnt/c/Users/maria].include?(args.first) ? true : original.call(*args)
+        end
+        allow(Dir).to receive(:children).and_wrap_original do |original, *args|
+          args.first == "/mnt" ? ["c"] : original.call(*args)
+        end
+
+        expect(server.send(:wsl_windows_home)).to eq("/mnt/c/Users/maria")
+      end
+    end
+
+    it "matches the WSL Linux username before guessing the first profile" do
+      with_server(agent_config: agent_config) do |server|
+        allow(server).to receive(:wsl?).and_return(true)
+        allow(server).to receive(:wsl_windows_username).and_return(nil)
+        allow(ENV).to receive(:[]).and_wrap_original do |original, *args|
+          case args.first
+          when "WINDOWS_USERNAME", "USERNAME" then nil
+          when "USER" then "maria"
+          else original.call(*args)
+          end
+        end
+        allow(Dir).to receive(:exist?).and_wrap_original do |original, *args|
+          %w[/mnt /mnt/c/Users /mnt/c/Users/maria].include?(args.first) ? true : original.call(*args)
+        end
+        allow(Dir).to receive(:children).and_wrap_original do |original, *args|
+          args.first == "/mnt" ? ["c"] : original.call(*args)
+        end
+
+        expect(server.send(:wsl_windows_home)).to eq("/mnt/c/Users/maria")
+      end
+    end
+
+    it "falls back to the first real profile when no username matches" do
+      with_server(agent_config: agent_config) do |server|
+        allow(server).to receive(:wsl?).and_return(true)
+        allow(server).to receive(:wsl_windows_username).and_return(nil)
+        allow(ENV).to receive(:[]).and_wrap_original do |original, *args|
+          %w[WINDOWS_USERNAME USERNAME USER].include?(args.first) ? nil : original.call(*args)
+        end
+        allow(Dir).to receive(:exist?).and_wrap_original do |original, *args|
+          %w[/mnt /mnt/c/Users].include?(args.first) ? true : original.call(*args)
+        end
+        allow(Dir).to receive(:children).and_wrap_original do |original, *args|
+          case args.first
+          when "/mnt" then ["c"]
+          when "/mnt/c/Users" then ["Public", "Default", "leo", "maria"]
+          else original.call(*args)
+          end
+        end
+        allow(File).to receive(:directory?).and_wrap_original do |original, *args|
+          %w[/mnt/c/Users/leo /mnt/c/Users/maria].include?(args.first) ? true : original.call(*args)
         end
 
         expect(server.send(:wsl_windows_home)).to eq("/mnt/c/Users/leo")
