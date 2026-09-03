@@ -1767,6 +1767,9 @@ body {
 .session-actions-submenu-item:hover .session-actions-submenu-icon {
   color: var(--color-text-primary);
 }
+.session-actions-submenu-item.selected {
+  background: var(--color-bg-hover);
+}
 .session-actions-submenu-divider {
   height: 1px;
   background: var(--color-border-secondary);
@@ -6611,6 +6614,9 @@ body {
   transition: transform 0.2s ease;
   flex-shrink: 0;
 }
+.custom-select-arrow path {
+  stroke-width: 2.5;
+}
 .custom-select-trigger.open .custom-select-arrow {
   transform: rotate(180deg);
 }
@@ -9015,7 +9021,7 @@ body {
   flex: 1;
   min-width: 15rem;
   font-size: 0.8125rem;
-  padding: 0.4375rem 0.75rem;
+  padding: 0.5375rem 0.75rem;
   border-radius: 6px;
   border: 1px solid var(--color-border-primary);
   background: var(--color-bg-secondary);
