@@ -81,6 +81,26 @@ module Clacky
           ALIAS_TO_REAL[alias_name]
         end
 
+        # Fetch and merge usage summaries across multiple openclacky keys
+        # (e.g. several accounts). The platform bills per key, so summing
+        # per-key results yields the combined total. Failing keys
+        # (invalid/revoked) are skipped; returns nil only when every key fails.
+        def fetch_summary_merged(api_keys, period:, model: nil)
+          summaries = Array(api_keys).uniq.map { |key| fetch_summary(key, period: period, model: model) }.compact
+          return nil if summaries.empty?
+
+          summaries.reduce { |acc, summary| merge_summaries(acc, summary) }
+        end
+
+        # Fetch and merge daily breakdowns across multiple openclacky keys.
+        # Same skip-on-failure semantics as fetch_summary_merged.
+        def fetch_daily_merged(api_keys, days:, model: nil)
+          dailies = Array(api_keys).uniq.map { |key| fetch_daily(key, days: days, model: model) }.compact
+          return nil if dailies.empty?
+
+          { days: merge_daily_entries(dailies.flat_map { |daily| daily[:days] }) }
+        end
+
         # Fetch authoritative usage summary for the platform (openclacky).
         # Returns a hash shaped like BillingStore#summary, or nil on failure.
         def fetch_summary(api_key, period:, model: nil)
@@ -115,6 +135,65 @@ module Clacky
           result[:success] ? result[:data] : nil
         rescue StandardError
           nil
+        end
+
+        private def merge_summaries(a, b)
+          merged = {}
+          (a.keys | b.keys).each do |key|
+            merged[key] =
+              case key
+              when :by_model then merge_by_model(a[:by_model], b[:by_model])
+              when :by_day   then merge_by_day(a[:by_day], b[:by_day])
+              else merge_value(a[key], b[key])
+              end
+          end
+          merged
+        end
+
+        private def merge_by_model(a, b)
+          merged = {}
+          (a || {}).each { |model, entry| merged[model] = entry }
+          (b || {}).each do |model, entry|
+            merged[model] = merged.key?(model) ? merge_entries(merged[model], entry) : entry
+          end
+          merged
+        end
+
+        private def merge_by_day(a, b)
+          merged = {}
+          (a || {}).each { |date, cost| merged[date] = cost.to_f }
+          (b || {}).each { |date, cost| merged[date] = (merged[date] || 0.0) + cost.to_f }
+          merged
+        end
+
+        private def merge_daily_entries(entries)
+          by_date = {}
+          entries.each do |entry|
+            next unless entry.is_a?(Hash)
+
+            date = entry[:date] || entry["date"]
+            next if date.nil?
+
+            by_date[date] = by_date.key?(date) ? merge_entries(by_date[date], entry) : entry
+          end
+          by_date.values.sort_by { |entry| entry[:date].to_s }
+        end
+
+        private def merge_entries(a, b)
+          merged = {}
+          (a.keys | b.keys).each { |key| merged[key] = merge_value(a[key], b[key]) }
+          merged
+        end
+
+        # Sum numeric leaf fields. Non-numeric fields (period, from/to,
+        # source) are identical across keys — they come from the same query
+        # shape — so the first value wins.
+        private def merge_value(a, b)
+          return b if a.nil?
+          return a if b.nil?
+          return a + b if a.is_a?(Numeric) && b.is_a?(Numeric)
+
+          a
         end
 
         # Normalise the platform summary (string keys) to the same shape as

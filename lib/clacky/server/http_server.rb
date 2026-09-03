@@ -3417,21 +3417,21 @@ module Clacky
       private def platform_usage_summary(period:, model:)
         require_relative "../billing/platform_billing"
 
-        api_key = platform_api_key
-        return nil if api_key.nil? || api_key.empty?
+        api_keys = platform_api_keys
+        return nil if api_keys.empty?
 
         real = Clacky::Billing::PlatformBilling.real_model(model) || model
-        Clacky::Billing::PlatformBilling.fetch_summary(api_key, period: period, model: real)
+        Clacky::Billing::PlatformBilling.fetch_summary_merged(api_keys, period: period, model: real)
       end
 
       private def platform_usage_daily(days:, model:)
         require_relative "../billing/platform_billing"
 
-        api_key = platform_api_key
-        return nil if api_key.nil? || api_key.empty?
+        api_keys = platform_api_keys
+        return nil if api_keys.empty?
 
         real = Clacky::Billing::PlatformBilling.real_model(model) || model
-        Clacky::Billing::PlatformBilling.fetch_daily(api_key, days: days, model: real)
+        Clacky::Billing::PlatformBilling.fetch_daily_merged(api_keys, days: days, model: real)
       end
 
       private def merge_billing_models(platform_models, local_models)
@@ -3464,14 +3464,19 @@ module Clacky
         merged.transform_values { |v| v.round(6) }
       end
 
-      private def platform_api_key
+      # All openclacky api keys in the user's model config, deduped and
+      # empty-stripped. The billing page queries the platform once per key
+      # and merges the results, so every configured account is included.
+      private def platform_api_keys
+        keys = []
         @agent_config.models.each do |m|
           next unless m.is_a?(Hash)
           next unless @agent_config.provider_id_for(m) == "openclacky"
+
           key = m["api_key"].to_s.strip
-          return key unless key.empty?
+          keys << key unless key.empty?
         end
-        nil
+        keys.uniq
       end
 
       # POST /api/ui/open_aside
