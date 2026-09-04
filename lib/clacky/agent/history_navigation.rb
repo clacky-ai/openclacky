@@ -2,9 +2,10 @@
 
 module Clacky
   class Agent
-    # Read-only navigation: locations at startup, one preview on demand.
+    # Read-only navigation: locations at startup, bounded previews on demand.
     module HistoryNavigation
       NAVIGATION_PREVIEW_LENGTH = 400
+      NAVIGATION_PREVIEW_BATCH_LIMIT = 30
 
       def history_navigation
         sources = navigation_sources
@@ -18,12 +19,23 @@ module Clacky
       end
 
       def history_navigation_preview(id:)
-        sources = navigation_sources
-        source_index, offset = navigation_position(sources, id)
-        unless offset && offset < navigation_source_count(sources[source_index])
-          raise ArgumentError, "History location is no longer available"
+        history_navigation_previews(ids: [id]).fetch(0)
+      end
+
+      def history_navigation_previews(ids:)
+        ids = Array(ids)
+        if ids.length > NAVIGATION_PREVIEW_BATCH_LIMIT
+          raise ArgumentError, "Too many history locations"
         end
-        navigation_entry(navigation_source_rounds(sources, source_index, offset: offset, limit: 1).fetch(0))
+
+        sources = navigation_sources
+        ids.map do |id|
+          source_index, offset = navigation_position(sources, id)
+          unless offset && offset < navigation_source_count(sources[source_index])
+            raise ArgumentError, "History location is no longer available"
+          end
+          navigation_entry(navigation_source_rounds(sources, source_index, offset: offset, limit: 1).fetch(0))
+        end
       end
 
       def replay_history_window(ui, limit: 30, around: nil, before_id: nil, after_id: nil)

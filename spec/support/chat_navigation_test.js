@@ -20,8 +20,15 @@ class Element {
     this.isConnected = true;
     this.hidden = false;
     this.classes = new Set();
-    this.classList = { toggle: (name, on) => on ? this.classes.add(name) : this.classes.delete(name) };
+    this.classList = {
+      add: name => this.classes.add(name),
+      remove: name => this.classes.delete(name),
+      toggle: (name, on) => on ? this.classes.add(name) : this.classes.delete(name),
+      contains: name => this.classes.has(name),
+    };
   }
+  set className(value) { this._className = value; this.classes = new Set(value.split(/\s+/).filter(Boolean)); }
+  get className() { return this._className || ""; }
   setAttribute(key, value) { this.attrs[key] = value; }
   removeAttribute(key) { delete this.attrs[key]; }
   addEventListener(key, fn) { this.handlers[key] = fn; }
@@ -29,7 +36,16 @@ class Element {
   remove() { if (this.parentNode) this.parentNode.children = this.parentNode.children.filter(child => child !== this); }
   replaceChildren(...children) { this.children = []; children.forEach(child => this.appendChild(child)); }
   insertBefore(child) { this.children.unshift(...(child.fragment ? child.children : [child])); }
-  querySelector() { return null; }
+  querySelector(selector) {
+    if (!selector.startsWith(".")) return null;
+    const name = selector.slice(1);
+    for (const child of this.children) {
+      if (child.classes?.has(name)) return child;
+      const nested = child.querySelector?.(selector);
+      if (nested) return nested;
+    }
+    return null;
+  }
   querySelectorAll() { return []; }
   getBoundingClientRect() { return { top: 40, bottom: 400, height: 360, left: 0, right: 500, width: 500 }; }
   get firstChild() { return this.children[0]; }
@@ -75,12 +91,12 @@ function markdownPreviewTests() {
 }
 
 async function navigatorTests() {
-  const nodes = Object.fromEntries(["nav", "track", "canvas", "popup", "userPreview", "answerPreview", "messages", "chatMain"].map(key => [key, new Element()]));
+  const nodes = Object.fromEntries(["nav", "track", "canvas", "popup", "answerPreview", "messages", "chatMain"].map(key => [key, new Element()]));
   const context = vm.createContext({
     window: {}, document, console, URLSearchParams, AbortController,
     setTimeout, clearTimeout, I18n: { t: key => key },
     Sessions: { activeId: "test", jumpToHistory: async () => true, isHistoricalWindow: () => false },
-    getComputedStyle: () => ({ width: "40px", getPropertyValue: () => "12px" }),
+    getComputedStyle: element => ({ width: "40px", getPropertyValue: name => name === "--chat-nav-expanded-width" ? "352px" : "12px" }),
     ...nodes,
   });
   loadMarkdownPreview(context);
@@ -88,14 +104,23 @@ async function navigatorTests() {
   let source = fs.readFileSync(sourcePath("components/chat-navigator.js"), "utf8");
   source = source.replace("window.ChatNavigator = {", `window.testing = {
     configure(data, nodes, cached = true) {
-      items = data; ({nav, track, canvas, popup, userPreview, answerPreview, messages, chatMain} = nodes);
-      sessionId = 'test'; hoveredIdx = -1; pointerY = null;
-      _cancelPreview(); clearTimeout(hideTimer); loading = failed = jumping = false;
+      items = data; ({nav, track, canvas, popup, answerPreview, messages, chatMain} = nodes);
+      sessionId = 'test'; hoveredIdx = -1; pointerY = null; hoveringMessage = false; expanded = false;
+      nav.classList.remove('expanded'); _cancelPreview(); clearTimeout(hideTimer); loading = failed = jumping = false;
       previews.clear(); if (cached) data.forEach(item => previews.set(item.id, item));
     },
-    _hover, _hide, _nearest, _tickY, _renderTicks, _renderPreview, _jump, _loadIndex, _syncBounds, _cancelPreview,
-    state() { return {items, activeIdx, hoveredIdx, loading, failed, previewFailure, cacheSize: previews.size}; },
-    requestPreviewNow() { clearTimeout(previewTimer); previewDue = true; return _loadPreview(); },
+    _expand, _hover, _hide, _nearest, _tickY, _visibleBounds, _renderTicks, _renderPreview, _jump,
+    _loadIndex, _syncBounds, _cancelPreview,
+    state() { return {items, activeIdx, hoveredIdx, expanded, loading, failed,
+      previewFailures: Array.from(previewFailures), cacheSize: previews.size}; },
+    loadVisibleNow() {
+      clearTimeout(previewTimer); previewQueueKey = null;
+      const bounds = _visibleBounds();
+      return _loadVisiblePreviews(_visiblePreviewIds(bounds.first, bounds.last)
+        .filter(id => !previews.has(id) && !previewFailures.has(id)).slice(0, PREVIEW_BATCH_SIZE));
+    },
+    loadIdsNow(ids) { return _loadVisiblePreviews(ids); },
+    setLoaded(value) { loaded = value; },
     setLoading(value) { loading = value; },
   }; window.ChatNavigator = {`);
   vm.runInContext(source, context);
@@ -128,13 +153,25 @@ async function navigatorTests() {
 
   const tickPositions = entries.map((_, i) => api._tickY(i));
   const canvasHeight = nodes.canvas.style.height;
-  api._hover(86); // exactly between two baseline ticks, rather than on a tick
+  assert.equal(tickPositions[0], parseFloat(canvasHeight) - tickPositions.at(-1),
+    "the first and last rows keep equal vertical insets");
+  nodes.track.scrollTop = 10;
+  api._renderTicks();
+  assert.equal(nodes.canvas.children.find(row => row.id === "chat-nav-tick-0").hidden, false,
+    "a partially clipped edge row remains rendered");
+  nodes.track.scrollTop = 0;
+  api._renderTicks();
+  api._expand();
+  api._hover(86, true); // exactly between two baseline ticks, rather than on a tick
   assert.ok(api.state().hoveredIdx >= 0, "gaps select nearest tick");
+  assert.equal(api.state().expanded, true);
+  assert.ok(nodes.nav.classes.has("expanded"), "hover expands a framed panel to the left");
   assert.deepEqual(entries.map((_, i) => api._tickY(i)), tickPositions, "hover does not move any tick vertically");
   assert.equal(nodes.canvas.style.height, canvasHeight, "hover does not change the track content height");
   assert.equal(nodes.popup.hidden, false);
   const index = api.state().hoveredIdx;
-  assert.equal(nodes.userPreview.innerHTML, `Question ${index}`);
+  const hoveredRow = nodes.canvas.children.find(tick => tick.id === `chat-nav-tick-${index}`);
+  assert.equal(hoveredRow.querySelector(".chat-nav-user").innerHTML, `Question ${index}`);
   assert.equal(nodes.answerPreview.innerHTML, `Answer ${index}`);
   const renderCalls = vm.runInContext("renderCalls", context);
   api._renderPreview();
@@ -142,34 +179,56 @@ async function navigatorTests() {
   entries[index].assistant = "**Updated** `answer`";
   api._renderPreview();
   assert.equal(nodes.answerPreview.innerHTML, "<strong>Updated</strong> <code>answer</code>", "new reply updates the cached preview");
-  assert.ok(nodes.canvas.children.find(tick => tick.id === `chat-nav-tick-${index}`).classes.has("hovered"));
+  assert.ok(hoveredRow.classes.has("hovered"));
   const css = fs.readFileSync(sourcePath("app.css"), "utf8");
-  const hoveredStyle = css.match(/\.chat-nav-bar\.hovered\s*\{([^}]+)\}/)[1];
+  const hoveredStyle = css.match(/\.chat-nav-row\.hovered \.chat-nav-bar\s*\{([^}]+)\}/)[1];
   assert.match(hoveredStyle, /background:\s*var\(--color-accent-primary\)/);
   assert.match(hoveredStyle, /opacity:\s*1;/);
-  assert.equal(nodes.canvas.children.find(tick => tick.id === `chat-nav-tick-${index}`).style.width, "30px");
-  assert.equal(nodes.canvas.children.find(tick => tick.id === `chat-nav-tick-${index + 1}`).style.width, "24px",
-    "neighbors still expand horizontally");
-  assert.equal(api._tickY(index + 1) - api._tickY(index), 12, "neighbors keep their original spacing");
+  assert.match(css, /\.chat-nav-user\s*\{[^}]*left:\s*1rem;[^}]*color:\s*var\(--color-text-muted\);[^}]*font-size:\s*0\.875rem;/s,
+    "expanded messages use a roomier muted text style");
+  assert.match(css, /\.chat-nav-row\.active \.chat-nav-user,\s*\.chat-nav-row\.hovered \.chat-nav-user\s*\{[^}]*color:\s*var\(--color-text-primary\);/s,
+    "the active and hovered messages use the primary text color");
+  assert.match(source, /chat-nav-frame.*chat-nav-viewport.*chat-nav-track/s,
+    "the navigator renders the track inside a dedicated visual viewport");
+  assert.match(css, /\.chat-navigator\.expanded \.chat-nav-viewport\s*\{[^}]*clip-path:\s*inset\([^}]*var\(--chat-nav-frame-top\)[^}]*var\(--chat-nav-frame-height\)[^}]*0\.75rem[^}]*round 0\.6875rem/s,
+    "the expanded viewport reserves fixed edge space and clips rows to the frame");
+  assert.doesNotMatch(source, /chat-nav-edge-mask/,
+    "the navigator no longer relies on overlay masks for edge spacing");
+  assert.doesNotMatch(css, /\.chat-nav-bar\.nearby/, "neighbor-wave styling is removed");
+  assert.doesNotMatch(source, /distance <=|LENS_RADIUS/, "neighbor bars no longer change width");
+  assert.equal(api._tickY(index + 1) - api._tickY(index), 32, "rows use the wider fixed spacing in both states");
   const neighborY = api._tickY(index + 1);
-  api._hover(neighborY);
-  api._hover(neighborY);
+  api._hover(neighborY, true);
+  api._hover(neighborY, true);
   assert.equal(api.state().hoveredIdx, index + 1, "selection stays stable at visual center");
-  api._hover(1);
+  api._hover(1, true);
   assert.equal(nodes.popup.style.top, "0px", "preview stays below toolbar");
-  api._hover(359);
+  api._hover(359, true);
   assert.ok(parseFloat(nodes.popup.style.top) + nodes.popup.offsetHeight <= 360, "preview stays above composer");
+  api._hover(359, false);
+  assert.equal(nodes.popup.hidden, true, "AI tooltip only appears over the user-message column");
   let target;
   context.Sessions.jumpToHistory = async id => { target = id; return true; };
   await api._jump();
   assert.equal(target, entries[api.state().hoveredIdx].id, "unloaded target uses source locator");
+  assert.equal(api.state().expanded, true, "loading a history target keeps the navigation expanded");
+
+  api.configure(entries, nodes);
+  api._expand();
+  api._hover(api._tickY(0), true);
+  api.setLoaded([{ index: 0, el: { isConnected: true, getBoundingClientRect: () => ({ top: 100 }) } }]);
+  nodes.messages.getBoundingClientRect = () => ({ top: 40, bottom: 400, height: 360, left: 0, right: 500, width: 500 });
+  await api._jump();
+  assert.equal(api.state().expanded, true, "jumping to an already-rendered target keeps the navigation expanded");
+  delete nodes.messages.getBoundingClientRect;
 
   api.configure(entries, nodes);
   nodes.track.scrollTop = parseFloat(canvasHeight) - nodes.track.clientHeight;
   api._renderTicks();
   const bottomScroll = nodes.track.scrollTop;
   for (const y of [1, 180, 359]) {
-    api._hover(y);
+    api._expand();
+    api._hover(y, true);
     assert.deepEqual(entries.map((_, i) => api._tickY(i)), tickPositions, "hover near the bottom keeps all tick positions fixed");
     assert.equal(nodes.canvas.style.height, canvasHeight);
     assert.equal(nodes.track.scrollTop, bottomScroll, "hover does not shift the navigation scroll position");
@@ -179,19 +238,21 @@ async function navigatorTests() {
   api._hide();
   await new Promise(resolve => setTimeout(resolve, 180));
   assert.equal(nodes.popup.hidden, true);
+  assert.equal(api.state().expanded, false);
+  assert.ok(!nodes.nav.classes.has("expanded"));
   assert.deepEqual(entries.map((_, i) => api._tickY(i)), tickPositions, "leaving hover keeps tick positions fixed");
   assert.equal(nodes.track.scrollTop, bottomScroll);
   nodes.track.scrollTop = 0;
   assert.equal(api._nearest(-100), 0);
   assert.equal(api._nearest(100000), entries.length - 1);
 
-  api.configure([], nodes);
-  api.setLoading(true);
-  api._hover(50);
+  api.configure(entries, nodes, false);
+  api._expand();
+  api._hover(50, true);
   assert.equal(nodes.popup.attrs["aria-busy"], "true");
   assert.ok(nodes.popup.classes.has("loading"), "loading renders a skeleton");
-  assert.equal(nodes.userPreview.innerHTML, "");
   assert.equal(nodes.answerPreview.innerHTML, "");
+  assert.ok(nodes.canvas.children.some(row => row.classes.has("loading")), "visible user rows reuse the skeleton state");
 
   api.configure(entries, nodes, false);
   api._syncBounds();
@@ -242,42 +303,62 @@ async function navigatorTests() {
   const requests = [];
   let resolvePreview;
   context.fetch = url => { requests.push(url); return new Promise(resolve => { resolvePreview = resolve; }); };
-  api._hover(86);
-  const firstPreviewId = entries[api.state().hoveredIdx].id;
-  assert.equal(requests.length, 0, "moving the mouse does not immediately issue a request");
-  assert.equal(nodes.popup.attrs["aria-busy"], "true", "uncached preview displays a skeleton");
-  const pendingPreview = api.requestPreviewNow();
+  api._expand();
+  api._hover(86, true);
+  assert.equal(requests.length, 0, "expanding does not immediately issue a request");
+  assert.equal(nodes.popup.attrs["aria-busy"], "true", "uncached answer tooltip displays a skeleton");
+  const firstBounds = api._visibleBounds();
+  const pendingPreview = api.loadVisibleNow();
   assert.equal(requests.length, 1);
-  api._hover(150);
-  api._hover(250);
-  const latestPreviewId = entries[api.state().hoveredIdx].id;
-  await api.requestPreviewNow();
-  assert.equal(requests.length, 1, "rapid movement does not create concurrent preview requests");
-  resolvePreview({ ok: true, json: async () => ({ id: firstPreviewId, user: "Old", assistant: "Old answer" }) });
+  const firstRequestedIds = JSON.parse(new URL(requests[0], "http://localhost").searchParams.get("previews"));
+  assert.deepEqual(firstRequestedIds, entries.slice(firstBounds.first, firstBounds.last).map(item => item.id).slice(0, 8),
+    "expanded navigation requests a URI-safe batch from only the visible rows");
+  assert.ok(requests[0].length < 2048, "preview batches remain below common request-target limits");
+  assert.ok(!firstRequestedIds.includes(entries[100].id), "off-screen rows stay unloaded");
+  resolvePreview({ ok: true, json: async () => ({ previews: firstRequestedIds.map((id, i) => ({
+    id, user: `Loaded ${i}`, assistant: i === 2 ? "**Final** answer" : `Answer ${i}`,
+  })) }) });
   await pendingPreview;
-  assert.equal(requests.length, 2, "only the latest waiting target is fetched");
-  assert.equal(new URL(requests[1], "http://localhost").searchParams.get("preview"), latestPreviewId);
-  assert.equal(nodes.answerPreview.innerHTML, "", "a late response does not replace the hovered preview");
-  resolvePreview({ ok: true, json: async () => ({ id: latestPreviewId, user: "Latest", assistant: "**Final** answer" }) });
-  await new Promise(resolve => setImmediate(resolve));
+  api._cancelPreview();
+  const loadedIndex = firstBounds.first + 2;
+  api._hover(api._tickY(loadedIndex) - nodes.track.scrollTop, true);
   assert.equal(nodes.answerPreview.innerHTML, "<strong>Final</strong> answer");
   assert.equal(nodes.popup.attrs["aria-busy"], "false");
-  api._hover(86);
-  await api.requestPreviewNow();
-  assert.equal(requests.length, 2, "revisiting a cached tick does not fetch again");
+  await api.loadIdsNow(firstRequestedIds);
+  assert.equal(requests.length, 1, "cached rows are not fetched again");
+
+  nodes.track.scrollTop = 3200;
+  api._renderTicks();
+  let secondRequest;
+  context.fetch = async url => {
+    secondRequest = url;
+    const ids = JSON.parse(new URL(url, "http://localhost").searchParams.get("previews"));
+    return { ok: true, json: async () => ({ previews: ids.map(id => ({ id, user: "New row", assistant: "New answer" })) }) };
+  };
+  await api.loadVisibleNow();
+  api._cancelPreview();
+  const secondRequestedIds = JSON.parse(new URL(secondRequest, "http://localhost").searchParams.get("previews"));
+  assert.ok(secondRequestedIds.every(id => !firstRequestedIds.includes(id)), "scrolling loads only newly visible rows");
 
   api.configure(entries, nodes, false);
+  api._expand();
   context.fetch = async () => { throw new Error("offline"); };
-  api._hover(86);
-  await api.requestPreviewNow();
-  assert.equal(api.state().previewFailure, entries[api.state().hoveredIdx].id);
+  api._hover(86, true);
+  await api.loadVisibleNow();
+  assert.ok(api.state().previewFailures.length > 0);
   assert.equal(nodes.popup.attrs["aria-busy"], "false", "failure does not leave a permanent skeleton");
 
-  context.fetch = async url => ({ ok: true, json: async () => ({ id: new URL(url, "http://localhost").searchParams.get("preview"), user: "Question", assistant: "Answer" }) });
-  for (let i = 0; i < 90; i++) {
-    nodes.track.scrollTop = i * 12;
-    api._hover(100);
-    await api.requestPreviewNow();
+  api.configure(entries, nodes, false);
+  api._expand();
+  context.fetch = async url => {
+    const ids = JSON.parse(new URL(url, "http://localhost").searchParams.get("previews"));
+    return { ok: true, json: async () => ({ previews: ids.map(id => ({ id, user: "Question", assistant: "Answer" })) }) };
+  };
+  for (let i = 0; i < 12; i++) {
+    nodes.track.scrollTop = i * 640;
+    api._renderTicks();
+    await api.loadVisibleNow();
+    api._cancelPreview();
   }
   assert.equal(api.state().cacheSize, 80, "preview cache has a fixed upper bound");
   api._cancelPreview();
@@ -294,13 +375,14 @@ async function navigatorTests() {
   assert.equal(api.state().items.length, 5000, "all ticks are available from source counts");
   assert.ok(nodes.canvas.children.length < 50);
 
-  api._hover(86);
+  api._expand();
+  api._hover(86, true);
   let resolveStalePreview;
   context.fetch = () => new Promise(resolve => { resolveStalePreview = resolve; });
-  const stalePreview = api.requestPreviewNow();
+  const stalePreview = api.loadVisibleNow();
   context.fetch = async () => ({ ok: true, json: async () => ({ total: 0, sources: [] }) });
   context.window.ChatNavigator.setSession("test");
-  resolveStalePreview({ ok: true, json: async () => ({ user: "Stale", assistant: "Stale" }) });
+  resolveStalePreview({ ok: true, json: async () => ({ previews: [{ id: entries[0].id, user: "Stale", assistant: "Stale" }] }) });
   await stalePreview;
   assert.equal(api.state().cacheSize, 0, "a switched session cannot inherit an old preview response");
 

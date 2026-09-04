@@ -2808,6 +2808,8 @@ body {
 #chat-panel { flex: 1; display: flex; flex-direction: row; overflow: hidden; position: relative; }
 #chat-main {
   --chat-nav-width: 2.5rem;
+  --chat-nav-expanded-width: 22rem;
+  --chat-nav-row-height: 2rem;
   --chat-nav-scrollbar-space: 12px;
   flex: 1;
   display: flex;
@@ -3271,6 +3273,8 @@ body {
    Absolutely positioned inside #chat-main, vertically synced to #messages
    via JS (ResizeObserver). The track scrolls independently of the chat. */
 .chat-navigator {
+  --chat-nav-frame-top: 0px;
+  --chat-nav-frame-height: 100%;
   position: absolute;
   right: var(--chat-nav-scrollbar-space);
   width: var(--chat-nav-width);
@@ -3278,9 +3282,50 @@ body {
   pointer-events: none;
   display: flex;
   flex-direction: column;
+  transition: width 0.14s ease;
+}
+.chat-nav-frame {
+  position: absolute;
+  z-index: 0;
+  left: 0;
+  right: 0;
+  top: var(--chat-nav-frame-top);
+  height: var(--chat-nav-frame-height);
+  border-radius: 0.75rem;
+  background: var(--color-bg-primary);
+  box-shadow: 0 0 0 1px var(--color-border-primary), 0 0.5rem 1.75rem rgba(0, 0, 0, 0.1);
+  opacity: 0;
+  transition: opacity 0.14s ease;
+  pointer-events: none;
+}
+.chat-nav-viewport {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  overflow: visible;
+  pointer-events: none;
+}
+.chat-navigator.expanded {
+  width: var(--chat-nav-expanded-width);
+}
+.chat-navigator.expanded .chat-nav-frame {
+  opacity: 1;
+  pointer-events: auto;
+}
+.chat-navigator.expanded .chat-nav-viewport {
+  /* Keep the track geometry stable; only its paint/hit-test viewport changes. */
+  clip-path: inset(
+    calc(var(--chat-nav-frame-top) + 0.75rem)
+    0
+    calc(100% - var(--chat-nav-frame-top) - var(--chat-nav-frame-height) + 0.75rem)
+    0
+    round 0.6875rem
+  );
 }
 .chat-nav-track {
-  flex: 1;
+  position: relative;
+  width: 100%;
+  height: 100%;
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
@@ -3297,41 +3342,92 @@ body {
 .chat-nav-canvas {
   position: relative;
 }
+.chat-nav-row {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: var(--chat-nav-row-height);
+  transform: translateY(-50%);
+  border-radius: 0.375rem;
+  transition: background 0.12s ease;
+}
+.chat-navigator.expanded .chat-nav-row:hover,
+.chat-navigator.expanded .chat-nav-row.hovered {
+  background: var(--color-bg-hover);
+}
 .chat-nav-bar {
   position: absolute;
   right: 0.5rem;
+  top: 50%;
+  width: 0.625rem;
   height: 0.1875rem;
   transform: translateY(-50%);
   border-radius: 0.125rem;
-  background: var(--color-border-secondary);
-  cursor: pointer;
-  pointer-events: none;
-  opacity: 0.45;
-  transition: width 0.12s ease, opacity 0.12s ease, background 0.12s ease;
-}
-.chat-nav-bar.nearby {
-  opacity: 0.6;
   background: var(--color-text-muted);
+  pointer-events: none;
+  opacity: 0.62;
+  transition: opacity 0.12s ease, background 0.12s ease;
 }
-.chat-nav-bar.active,
-.chat-nav-bar.hovered {
+.chat-nav-row.active .chat-nav-bar,
+.chat-nav-row.hovered .chat-nav-bar {
   opacity: 1;
   background: var(--color-accent-primary);
 }
+.chat-nav-user {
+  position: absolute;
+  left: 1rem;
+  right: var(--chat-nav-width);
+  top: 50%;
+  transform: translateY(-50%);
+  visibility: hidden;
+  opacity: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-text-muted);
+  font-size: 0.875rem;
+  font-weight: 400;
+  line-height: 1.4;
+  transition: color 0.1s ease, opacity 0.1s ease;
+}
+.chat-navigator.expanded .chat-nav-user {
+  visibility: visible;
+  opacity: 1;
+}
+.chat-nav-row.active .chat-nav-user,
+.chat-nav-row.hovered .chat-nav-user {
+  color: var(--color-text-primary);
+}
+.chat-nav-user code {
+  padding: 0.0625rem 0.1875rem;
+  border-radius: 0.1875rem;
+  background: var(--color-bg-tertiary);
+  font-size: 0.9em;
+}
+.chat-nav-row.loading .chat-nav-user::after {
+  content: "";
+  display: block;
+  width: 72%;
+  height: 0.75rem;
+  margin-top: 0.25rem;
+  border-radius: 0.25rem;
+  background: var(--color-border-secondary);
+  animation: chat-nav-pulse 1.2s ease-in-out infinite alternate;
+}
 
-/* ── Hover popup ─────────────────────────────────────────────────────────── */
+/* ── Final-answer tooltip ────────────────────────────────────────────────── */
 .chat-nav-popup {
   position: absolute;
-  right: 100%;
+  z-index: 3;
+  right: calc(100% + 0.5rem);
   top: 0;
-  width: 23rem;
-  max-width: 70vw;
+  width: 20rem;
+  max-width: 55vw;
   max-height: 100%;
   margin: 0;
   padding: 0.75rem;
   text-align: left;
   font: inherit;
-  cursor: pointer;
   background: var(--color-bg-primary);
   border: 1px solid var(--color-border-primary);
   border-radius: 0.5rem;
@@ -3340,25 +3436,17 @@ body {
   flex-direction: column;
   gap: 0.375rem;
   overflow: hidden;
-  pointer-events: auto;
+  pointer-events: none;
 }
 .chat-nav-popup[hidden] { display: none; }
-.chat-nav-user,
 .chat-nav-answer {
   display: -webkit-box;
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
+  -webkit-line-clamp: 3;
   overflow: hidden;
   overflow-wrap: anywhere;
   font-size: 0.8125rem;
   line-height: 1.5;
-}
-.chat-nav-user {
-  color: var(--color-text-primary);
-  font-weight: 600;
-}
-.chat-nav-answer {
-  -webkit-line-clamp: 3;
   color: var(--color-text-secondary);
 }
 .chat-nav-popup code {
@@ -3382,7 +3470,13 @@ body {
   to { opacity: 0.8; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .chat-nav-bar { transition: none; }
+  .chat-navigator,
+  .chat-nav-frame,
+  .chat-nav-track,
+  .chat-nav-row,
+  .chat-nav-bar,
+  .chat-nav-user { transition: none; }
+  .chat-nav-row.loading .chat-nav-user::after,
   .chat-nav-popup.loading span { animation: none; }
 }
 

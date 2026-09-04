@@ -6759,6 +6759,9 @@ module Clacky
           if query["navigation"] == "1"
             return json_response(res, 200, { sources: [], total: 0 })
           end
+          if query["previews"]
+            return json_response(res, 200, { previews: [] })
+          end
           if query["preview"]
             return json_response(res, 409, { error: "History location is no longer available" })
           end
@@ -6768,6 +6771,12 @@ module Clacky
         # Collect events emitted by replay_history via a lightweight collector UI
         if query["navigation"] == "1"
           return json_response(res, 200, agent.history_navigation)
+        end
+        if query["previews"]
+          ids = JSON.parse(query["previews"])
+          raise ArgumentError, "History locations must be an array" unless ids.is_a?(Array)
+
+          return json_response(res, 200, { previews: agent.history_navigation_previews(ids: ids) })
         end
         if query["preview"]
           return json_response(res, 200, agent.history_navigation_preview(id: query["preview"]))
@@ -6786,7 +6795,7 @@ module Clacky
         end
 
         json_response(res, 200, { events: collected }.merge(result))
-      rescue ArgumentError => e
+      rescue ArgumentError, JSON::ParserError => e
         json_response(res, 409, { error: e.message })
       end
 

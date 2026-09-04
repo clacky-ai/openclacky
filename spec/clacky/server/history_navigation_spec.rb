@@ -50,6 +50,22 @@ RSpec.describe "Session history navigation API" do
     expect(response[:body]).not_to have_key(:events)
   end
 
+  it "returns a bounded batch of previews in request order" do
+    manifest = request(navigation: 1)[:body][:sources].first
+    ids = 2.times.map do |offset|
+      JSON.generate([manifest[:key], offset, manifest[:version], manifest[:identities][offset]])
+    end
+    response = request(previews: JSON.generate(ids))
+    expect(response[:status]).to eq(200)
+    expect(response[:body][:previews].map { |entry| entry[:user] }).to eq(["First", "Second"])
+    expect(response[:body]).not_to have_key(:events)
+  end
+
+  it "rejects malformed or oversized preview batches" do
+    expect(request(previews: "not-json")[:status]).to eq(409)
+    expect(request(previews: JSON.generate([first_id] * 31))[:status]).to eq(409)
+  end
+
   it "stamps source IDs onto user events and provides both pagination directions" do
     id = first_id
     response = request(window: 1, around: id, limit: 1)
