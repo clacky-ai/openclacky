@@ -48,6 +48,10 @@ class Element {
   }
   querySelectorAll() { return []; }
   getBoundingClientRect() { return { top: 40, bottom: 400, height: 360, left: 0, right: 500, width: 500 }; }
+  contains(target) {
+    for (let node = target; node; node = node.parentNode) if (node === this) return true;
+    return false;
+  }
   get firstChild() { return this.children[0]; }
 }
 
@@ -106,10 +110,13 @@ async function navigatorTests() {
     configure(data, nodes, cached = true) {
       items = data; ({nav, track, canvas, popup, answerPreview, messages, chatMain} = nodes);
       sessionId = 'test'; hoveredIdx = -1; pointerY = null; hoveringMessage = false; expanded = false;
+      keepOpenUntilPointerMove = false;
       nav.classList.remove('expanded'); _cancelPreview(); clearTimeout(hideTimer); loading = failed = jumping = false;
       previews.clear(); if (cached) data.forEach(item => previews.set(item.id, item));
     },
     _expand, _hover, _hide, _nearest, _tickY, _visibleBounds, _renderTicks, _renderPreview, _jump,
+    _click, _leave, _handleDocumentPointerMove,
+    _canExpandFrom,
     _loadIndex, _syncBounds, _cancelPreview,
     state() { return {items, activeIdx, hoveredIdx, expanded, loading, failed,
       previewFailures: Array.from(previewFailures), cacheSize: previews.size}; },
@@ -122,6 +129,7 @@ async function navigatorTests() {
     loadIdsNow(ids) { return _loadVisiblePreviews(ids); },
     setLoaded(value) { loaded = value; },
     setLoading(value) { loading = value; },
+    setViewport(matches) { viewportQuery = { matches }; },
   }; window.ChatNavigator = {`);
   vm.runInContext(source, context);
   const api = context.window.testing;
@@ -129,6 +137,34 @@ async function navigatorTests() {
   api.configure(entries, nodes);
   api._renderTicks();
   assert.ok(nodes.canvas.children.length < 50, "virtualizes thousands of ticks");
+  assert.equal(api._canExpandFrom({ closest: () => null }), false,
+    "collapsed blank space does not expand the navigator");
+  assert.equal(api._canExpandFrom({ closest: selector => selector === ".chat-nav-bar" ? {} : null }), true,
+    "collapsed tick hit areas expand the navigator");
+
+  nodes.messages.getBoundingClientRect = () => ({ top: 40, bottom: 800, height: 760, left: 0, right: 500, width: 500 });
+  nodes.chatMain.getBoundingClientRect = () => ({ top: 40, bottom: 800, height: 760, left: 0, right: 500, width: 500 });
+  api._syncBounds();
+  assert.equal(nodes.nav.style.height, "432px", "thirteen rows include independent top and bottom breathing room");
+  assert.equal(nodes.nav.style.top, "162px", "the capped navigator is centered in the available message area");
+  delete nodes.messages.getBoundingClientRect;
+  delete nodes.chatMain.getBoundingClientRect;
+
+  nodes.track.clientHeight = 432;
+  api.configure(entries.slice(0, 13), nodes);
+  api._renderTicks();
+  assert.equal(api._tickY(0), 24, "the first row stays below the rounded top clip");
+  assert.equal(api._tickY(12), 408, "the last row keeps matching bottom breathing room");
+  nodes.track.clientHeight = 360;
+  api.configure(entries, nodes);
+  api._renderTicks();
+
+  api.setViewport(true);
+  api._renderTicks();
+  assert.equal(nodes.nav.style.display, "none", "the navigator is hidden at the mobile breakpoint");
+  assert.ok(!nodes.chatMain.classes.has("has-chat-navigator"), "mobile messages do not reserve navigator space");
+  api.setViewport(false);
+  api._renderTicks();
 
   nodes.messages.querySelectorAll = () => entries.slice(0, 2).map((item, i) => ({
     querySelector: () => ({ dataset: { roundId: item.id } }),
@@ -162,8 +198,8 @@ async function navigatorTests() {
   nodes.track.scrollTop = 0;
   api._renderTicks();
   api._expand();
-  api._hover(86, true); // exactly between two baseline ticks, rather than on a tick
-  assert.ok(api.state().hoveredIdx >= 0, "gaps select nearest tick");
+  api._hover(86, true); // expanded pointer coordinates still map to the nearest row
+  assert.ok(api.state().hoveredIdx >= 0, "expanded rows select the nearest message");
   assert.equal(api.state().expanded, true);
   assert.ok(nodes.nav.classes.has("expanded"), "hover expands a framed panel to the left");
   assert.deepEqual(entries.map((_, i) => api._tickY(i)), tickPositions, "hover does not move any tick vertically");
@@ -184,8 +220,18 @@ async function navigatorTests() {
   const hoveredStyle = css.match(/\.chat-nav-row\.hovered \.chat-nav-bar\s*\{([^}]+)\}/)[1];
   assert.match(hoveredStyle, /background:\s*var\(--color-accent-primary\)/);
   assert.match(hoveredStyle, /opacity:\s*1;/);
-  assert.match(css, /\.chat-nav-user\s*\{[^}]*left:\s*1rem;[^}]*color:\s*var\(--color-text-muted\);[^}]*font-size:\s*0\.875rem;/s,
-    "expanded messages use a roomier muted text style");
+  assert.match(css, /\.chat-nav-user\s*\{[^}]*left:\s*1rem;[^}]*color:\s*var\(--color-text-muted\);[^}]*font-size:\s*0\.8125rem;/s,
+    "expanded messages remain visually secondary to the conversation");
+  assert.match(css, /\.chat-nav-bar\s*\{[^}]*opacity:\s*0\.42;/s,
+    "collapsed ticks use a quieter neutral tone");
+  assert.match(css, /\.chat-nav-track\s*\{[^}]*pointer-events:\s*none;[^}]*\}\s*\.chat-navigator\.expanded \.chat-nav-track\s*\{[^}]*pointer-events:\s*auto;/s,
+    "only stable tick hit areas are interactive while collapsed");
+  assert.match(css, /\.chat-nav-popup-label\s*\{[^}]*color:\s*var\(--color-accent-primary\);/s,
+    "the final-answer preview is explicitly identified as an AI reply");
+  assert.match(css, /@media \(max-width: 768px\)\s*\{[\s\S]*?\.chat-navigator\s*\{[^}]*display:\s*none !important;/,
+    "the existing mobile breakpoint hides the navigator");
+  assert.match(source, /I18n\.t\("chat\.nav\.aiReply"\)/,
+    "the AI reply label is localized");
   assert.match(css, /\.chat-nav-row\.active \.chat-nav-user,\s*\.chat-nav-row\.hovered \.chat-nav-user\s*\{[^}]*color:\s*var\(--color-text-primary\);/s,
     "the active and hovered messages use the primary text color");
   assert.match(source, /chat-nav-frame.*chat-nav-viewport.*chat-nav-track/s,
@@ -220,6 +266,13 @@ async function navigatorTests() {
   nodes.messages.getBoundingClientRect = () => ({ top: 40, bottom: 400, height: 360, left: 0, right: 500, width: 500 });
   await api._jump();
   assert.equal(api.state().expanded, true, "jumping to an already-rendered target keeps the navigation expanded");
+  api._click();
+  api._leave();
+  await new Promise(resolve => setTimeout(resolve, 180));
+  assert.equal(api.state().expanded, true, "a synthetic pointerleave after clicking does not collapse the navigation");
+  api._handleDocumentPointerMove({ target: new Element() });
+  await new Promise(resolve => setTimeout(resolve, 180));
+  assert.equal(api.state().expanded, false, "the next real pointer movement outside collapses the navigation");
   delete nodes.messages.getBoundingClientRect;
 
   api.configure(entries, nodes);
