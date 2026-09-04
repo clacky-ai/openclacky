@@ -18,12 +18,12 @@ engineering checks below remain mandatory even when those references cannot be f
 1. Identify what the user wants and the smallest capability set that can provide it.
    Check existing host services and shared panels before building a replacement.
 2. For behavior-only discussion, apply **Engineering checks** without enumerating APIs.
-   Before specifying or implementing an interface, fetch its capability reference below;
-   read the overview when container/scaffold/reload behavior is relevant. Reuse verified
-   text still in context. Check truncation and missing details using **Documentation
-   fallback**; a successful response does not prove the needed contract was retrieved.
-   Use the article's contract/examples, not the documentation site's navigation, page
-   styles or scripts. Those belong to a different application, not the extension host.
+   Before specifying or implementing an interface, choose its one matching capability
+   reference below; read the overview when container/scaffold/reload behavior is relevant.
+   Reuse verified text still in context. For a named interface, obey the system prompt's
+   strict lookup budget and stop as unverified when it is exhausted. Use the article's
+   contract/examples, not the documentation site's navigation, styles, or scripts. If the
+   user declined a fallback, request only the missing source and never ask again.
 3. Confirm the proposed behavior, affected files, and visible result with the user
    before scaffolding or editing. Do not publish, restart, or add privileged behavior
    merely because implementation was approved.
