@@ -6261,6 +6261,10 @@ body {
   content: attr(data-placeholder);
   color: var(--color-text-tertiary);
   pointer-events: none;
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 #btn-send, #btn-interrupt {
