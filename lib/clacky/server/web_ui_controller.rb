@@ -105,7 +105,7 @@ module Clacky
         # Channel subscribers receive the original content so they can deliver
         # local images as native attachments via send_file().
         web_content = Clacky::Utils::FileProcessor.rewrite_local_image_urls(content.to_s)
-        emit("assistant_message", content: web_content, files: files, created_at: created_at)
+        emit("assistant_message", content: web_content, files: files, created_at: created_at, interim: interim)
         forward_to_subscribers { |sub| sub.show_assistant_message(content, files: files, interim: interim) }
       end
 
