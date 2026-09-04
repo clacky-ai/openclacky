@@ -3342,7 +3342,7 @@ body {
 }
 
 /* Default app icon on the main "Open" button */
-.wv-main-app-icon { display: inline-flex; width: 1rem; height: 1rem; }
+.wv-main-app-icon { display: inline-flex; align-items: center; justify-content: center; width: 1rem; height: 1rem; }
 .wv-main-app-icon svg { width: 1rem; height: 1rem; display: block; }
 .wv-main-app-icon img {
   width: 1rem;
@@ -3479,8 +3479,8 @@ body {
   position: absolute;
   right: 0.5rem;
   top: 50%;
-  width: 0.625rem;
-  height: 0.1875rem;
+  width: 0.525rem;
+  height: 0.1475rem;
   transform: translateY(-50%);
   border-radius: 0.125rem;
   background: var(--color-text-muted);
