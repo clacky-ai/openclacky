@@ -251,15 +251,15 @@ RSpec.describe Clacky::Media::OpenAICompat do
       req_double
     end
 
-    context "on the openclacky gateway" do
+    context "on the openclacky gateway (multipart only — JSON unsupported upstream)" do
       let(:entry) do
         { "model" => "or-stt-whisper", "base_url" => "https://api.openclacky.com", "api_key" => "clacky-k" }
       end
 
-      it "sends base64 JSON (input_audio) and returns the transcript" do
+      it "falls back to multipart form-data until the gateway supports input_audio" do
         captured = {}
-        allow(provider).to receive(:stt_json_connection).and_return(fake_conn)
-        stub_transcription(captured)
+        req_double = stub_transcription(captured)
+        allow(provider).to receive(:stt_connection).and_return(fake_conn)
 
         result = provider.generate_transcription(
           audio_base64: Base64.strict_encode64("RIFF....WAVE"),
@@ -267,18 +267,15 @@ RSpec.describe Clacky::Media::OpenAICompat do
         )
 
         expect(result["success"]).to be true
-        expect(result["text"]).to eq("hello world")
         expect(result["provider"]).to eq("openclacky")
-
-        body = JSON.parse(captured[:body])
-        expect(body["model"]).to eq("or-stt-whisper")
-        expect(body.dig("input_audio", "data")).to eq(Base64.strict_encode64("RIFF....WAVE"))
-        expect(body.dig("input_audio", "format")).to eq("wav")
+        expect(req_double.headers["Content-Type"]).to start_with("multipart/form-data; boundary=")
+        expect(captured[:body]).to include('name="file"; filename="chunk.wav"')
+        expect(captured[:body]).to include("RIFF....WAVE")
       end
 
-      it "passes through prompt when provided" do
+      it "passes through prompt in multipart form" do
+        allow(provider).to receive(:stt_connection).and_return(fake_conn)
         captured = {}
-        allow(provider).to receive(:stt_json_connection).and_return(fake_conn)
         stub_transcription(captured)
 
         provider.generate_transcription(
@@ -286,7 +283,8 @@ RSpec.describe Clacky::Media::OpenAICompat do
           mime_type: "audio/wav",
           prompt: "punctuation please"
         )
-        expect(JSON.parse(captured[:body])["prompt"]).to eq("punctuation please")
+        expect(captured[:body]).to include('name="prompt"')
+        expect(captured[:body]).to include("punctuation please")
       end
     end
 

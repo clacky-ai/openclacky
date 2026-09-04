@@ -308,14 +308,14 @@ module Clacky
         end
 
         ext = mime_type.split(";").first.split("/").last.then { |e| e == "mpeg" ? "mp3" : e }
-        ext = "m4a" if ext == "mp4" # OpenRouter wants the audio format, not the container
 
         # OpenRouter caps multipart uploads at 25 MB and redirects larger files
-        # to base64 JSON via input_audio. The openclacky gateway (which proxies
-        # third-party STT like Groq) has its own JSON flavor with the same
-        # input_audio shape. Both get the JSON path; plain OpenAI-compatible
-        # providers keep multipart.
-        if openrouter_host? || openclacky_gateway?
+        # to base64 JSON via input_audio. Plain OpenAI-compatible providers keep
+        # multipart (incl. the openclacky gateway, which only parses multipart
+        # on its /audio/transcriptions today — enable the JSON flavor there once
+        # the server supports it).
+        if provider_id == "openrouter"
+          ext = "m4a" if ext == "mp4" # OpenRouter wants the audio format, not the container
           payload = {
             model: @model,
             input_audio: {
@@ -517,14 +517,6 @@ module Clacky
           f.options.timeout      = 120
           f.options.open_timeout = 10
         end
-      end
-
-      private def openrouter_host?
-        @base_url.to_s.include?("openrouter.ai")
-      end
-
-      private def openclacky_gateway?
-        @base_url.to_s.include?("openclacky.com")
       end
 
       private def vu_connection
