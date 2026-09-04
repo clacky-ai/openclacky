@@ -15781,3 +15781,40 @@ body.setup-mode[data-theme="dark"] {
 .project-picker-done-btn:hover {
   background: var(--color-bg-hover);
 }
+/* ═══ Quote-on-selection floating button (quote-select.js) ═══
+   Appears above a text selection inside a user/assistant message.
+   Neutral dark pill — deliberately brand-color independent so it stays
+   legible in both light and dark themes. */
+.quote-select-btn {
+  position: fixed;
+  z-index: 3000;
+  transform: translateX(-50%);
+  display: none;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 11px;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.5;
+  color: #fff;
+  background: rgba(24, 26, 32, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 6px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.22);
+  cursor: pointer;
+  user-select: none;
+  transition: opacity var(--transition-fast, 120ms);
+}
+.quote-select-btn.visible {
+  display: inline-flex;
+}
+.quote-select-btn svg {
+  flex: none;
+  pointer-events: none;
+}
+.quote-select-btn:hover {
+  background: rgba(24, 26, 32, 1);
+}
+.quote-select-btn:active {
+  background: #000;
+}
