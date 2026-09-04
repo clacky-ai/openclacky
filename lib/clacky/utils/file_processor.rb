@@ -540,7 +540,9 @@ module Clacky
     LOCAL_IMAGE_EXTENSIONS = %w[.png .jpg .jpeg .gif .webp].freeze
     LOCAL_VIDEO_EXTENSIONS = %w[.mp4 .webm .mov].freeze
     LOCAL_AUDIO_EXTENSIONS = %w[.wav .mp3 .ogg .aac .flac .m4a].freeze
-    LOCAL_MEDIA_EXTENSIONS = (LOCAL_IMAGE_EXTENSIONS + LOCAL_VIDEO_EXTENSIONS + LOCAL_AUDIO_EXTENSIONS).freeze
+    # .pdf: served by /api/local-image so the WebUI file viewer can embed it
+    # in an iframe (browser-native PDF rendering, no extra dependency).
+    LOCAL_MEDIA_EXTENSIONS = (LOCAL_IMAGE_EXTENSIONS + LOCAL_VIDEO_EXTENSIONS + LOCAL_AUDIO_EXTENSIONS + %w[.pdf]).freeze
 
     # Replace local image paths in markdown content with base64 data URLs.
     #

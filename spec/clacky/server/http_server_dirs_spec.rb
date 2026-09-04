@@ -144,6 +144,54 @@ RSpec.describe Clacky::Server::HttpServer, "directory picker mutation API" do
         expect(parsed_body(res)["path"]).to eq(tmproot)
       end
     end
+
+    it "lists root-level entries with relative paths (no leading slash)" do
+      with_server(agent_config: agent_config) do |server|
+        FileUtils.touch(File.join(tmproot, "demo.txt"))
+        FileUtils.mkdir_p(File.join(tmproot, "sub"))
+
+        registry = double("registry")
+        allow(registry).to receive(:ensure).with("session-1").and_return(true)
+        allow(registry).to receive(:get).with("session-1")
+          .and_return({ agent: double("agent", working_dir: tmproot) })
+        server.instance_variable_set(:@registry, registry)
+
+        req = fake_req(method: "GET", path: "/api/sessions/session-1/files",
+                       query_string: "")
+        res = fake_res
+        server.send(:api_session_files, "session-1", req, res)
+
+        expect(res.status).to eq(200)
+        entries = parsed_body(res)["entries"]
+        file_entry = entries.find { |e| e["name"] == "demo.txt" }
+        dir_entry  = entries.find { |e| e["name"] == "sub" }
+        # A leading slash would make the Web UI treat the path as absolute and
+        # send "/demo.txt" to file-action, which fails with "file not found".
+        expect(file_entry["path"]).to eq("demo.txt")
+        expect(dir_entry["path"]).to eq("sub")
+      end
+    end
+
+      it "keeps subdirectory entries under their relative parent path" do
+        with_server(agent_config: agent_config) do |server|
+          FileUtils.mkdir_p(File.join(tmproot, "sub"))
+          FileUtils.touch(File.join(tmproot, "sub", "nested.txt"))
+        registry = double("registry")
+        allow(registry).to receive(:ensure).with("session-1").and_return(true)
+        allow(registry).to receive(:get).with("session-1")
+          .and_return({ agent: double("agent", working_dir: tmproot) })
+        server.instance_variable_set(:@registry, registry)
+
+        req = fake_req(method: "GET", path: "/api/sessions/session-1/files",
+                       query_string: URI.encode_www_form(path: "sub"))
+        res = fake_res
+        server.send(:api_session_files, "session-1", req, res)
+
+        expect(res.status).to eq(200)
+        entry = parsed_body(res)["entries"].find { |e| e["name"] == "nested.txt" }
+        expect(entry["path"]).to eq("sub/nested.txt")
+      end
+    end
   end
 
   # ── WSL quick-access mapping ─────────────────────────────────────────────

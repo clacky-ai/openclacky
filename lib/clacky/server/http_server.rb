@@ -722,6 +722,9 @@ module Clacky
         when ["POST",   "/api/tool/browser"]      then api_tool_browser(req, res)
         when ["POST",   "/api/upload"]            then api_upload_file(req, res)
         when ["POST",   "/api/file-action"]       then api_file_action(req, res)
+        when ["GET",    "/api/file/apps"]         then api_file_apps(req, res)
+        when ["GET",    "/api/file/default-app"]  then api_file_default_app(req, res)
+        when ["GET",    "/api/app-icon"]          then api_app_icon(req, res)
         when ["GET",    "/api/local-image"]       then api_serve_local_image(req, res)
         when ["POST",   "/api/media/image"]       then api_media_image(req, res)
         when ["POST",   "/api/media/video"]       then api_media_video(req, res)
@@ -4423,12 +4426,63 @@ module Clacky
         json_response(res, 500, { ok: false, error: e.message })
       end
 
+      # GET /api/file/apps?path=/path/to/file.pptx
+      # Lists installed applications that declare support for the file's
+      # extension (macOS only), so the Web UI can offer "open with" choices
+      # for formats it cannot preview inline. Always [] on other OSes.
+      def api_file_apps(req, res)
+        raw_path = URI.decode_www_form(req.query_string.to_s).to_h["path"].to_s
+        return json_response(res, 400, { error: "path is required" }) if raw_path.empty?
+
+        path = Utils::EnvironmentDetector.resolve_local_path(raw_path)
+        ext = File.extname(path).downcase.sub(/\A\./, "")
+
+        apps = ext.empty? ? [] : Utils::MacAppDetector.apps_for_ext(ext)
+        json_response(res, 200, { ok: true, apps: apps })
+      rescue => e
+        json_response(res, 500, { ok: false, error: e.message })
+      end
+
+      # GET /api/file/default-app?path=...
+      # Returns the application macOS would use to open the file.
+      def api_file_default_app(req, res)
+        raw_path = URI.decode_www_form(req.query_string.to_s).to_h["path"].to_s
+        return json_response(res, 400, { error: "path is required" }) if raw_path.empty?
+
+        path = Utils::EnvironmentDetector.resolve_local_path(raw_path)
+        app = File.extname(path).empty? ? nil : Utils::MacAppDetector.default_app_for(path)
+        json_response(res, 200, { ok: true, app: app })
+      rescue => e
+        json_response(res, 500, { ok: false, error: e.message })
+      end
+
+      # GET /api/app-icon?path=/Applications/Keynote.app
+      # Serves an application's bundle icon as a 64px PNG (converted from
+      # .icns via sips, cached under ~/Library/Caches/openclacky/app-icons).
+      def api_app_icon(req, res)
+        raw_path = URI.decode_www_form(req.query_string.to_s).to_h["path"].to_s
+        return json_response(res, 400, { error: "path is required" }) if raw_path.empty?
+
+        png = Utils::MacAppDetector.icon_png(Utils::EnvironmentDetector.resolve_local_path(raw_path))
+        return json_response(res, 404, { error: "icon not found" }) unless png
+
+        res.status = 200
+        res["Content-Type"] = "image/png"
+        res["Cache-Control"] = "public, max-age=604800"
+        res["Content-Length"] = File.size(png).to_s
+        res.body = File.binread(png)
+      rescue => e
+        json_response(res, 500, { error: e.message })
+      end
+
       # POST /api/file-action
       # Unified file action endpoint — open locally or download.
-      # Body: { path: String, action: "open" | "download" | "save" }
-      #   open:     opens the file with the OS default handler (local deployments).
-      #   download: returns the file as a download (remote deployments).
-      #   save:     writes content back to the file. Body must include { content: String }.
+      # Body: { path: String, action: "open" | "open_with" | "download" | "save" }
+      #   open:      opens the file with the OS default handler (local deployments).
+      #   open_with: opens the file with the app named in body.app (macOS only;
+      #              the app must be one returned by /api/file/apps).
+      #   download:  returns the file as a download (remote deployments).
+      #   save:      writes content back to the file. Body must include { content: String }.
       def api_file_action(req, res)
         body = parse_json_body(req)
         path = body["path"]
@@ -4452,6 +4506,11 @@ module Clacky
           result = Utils::EnvironmentDetector.open_file(linux_path)
           return json_response(res, 501, { error: "unsupported OS" }) if result.nil?
           json_response(res, 200, { ok: true })
+        when "open_with"
+          result = Utils::MacAppDetector.open_with(linux_path, body["app"].to_s)
+          return json_response(res, 400, { error: "unknown application" }) if result.nil?
+          return json_response(res, 500, { error: "failed to open with application" }) unless result
+          json_response(res, 200, { ok: true })
         when "reveal"
           Utils::EnvironmentDetector.reveal_file(linux_path)
           json_response(res, 200, { ok: true })
@@ -4467,7 +4526,7 @@ module Clacky
           File.write(linux_path, content, encoding: "UTF-8")
           json_response(res, 200, { ok: true })
         else
-          json_response(res, 400, { error: "invalid action. Must be 'open', 'reveal', 'download', 'display-path' or 'save'" })
+          json_response(res, 400, { error: "invalid action. Must be 'open', 'open_with', 'reveal', 'download', 'display-path' or 'save'" })
         end
       rescue => e
         json_response(res, 500, { ok: false, error: e.message })
@@ -5226,7 +5285,10 @@ module Clacky
           next unless File.exist?(full)
           {
             name:  name,
-            path:  "#{rel}/#{name}".gsub(%r{/+}, "/"),
+            # Root-level entries must NOT get a leading "/" — the client treats
+            # slash-prefixed paths as absolute and passes them to file-action
+            # verbatim, which then fails to find "<root>/<name>".
+            path:  rel.empty? ? name : "#{rel}/#{name}".gsub(%r{/+}, "/"),
             type:  is_dir ? "dir" : "file",
             size:  is_dir ? nil : (File.size(full) rescue nil)
           }

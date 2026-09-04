@@ -1664,8 +1664,12 @@ body {
   flex-shrink: 0;
 }
 .session-actions-menu-label {
-  flex: 1;
-  min-width: 0;
+  flex: none;
+  white-space: nowrap;
+}
+.wv-open-menu {
+  width: max-content;
+  max-width: calc(100vw - 16px);
 }
 .session-actions-menu-item:hover {
   background: var(--color-bg-hover);
@@ -2838,7 +2842,7 @@ body {
 /* Empty slot (no panels for this agent) → collapse the whole column. */
 #session-aside:has(.session-aside-slot:empty) { width: 0; border-left: none; }
 #session-aside:has(.session-aside-slot:empty) .session-aside-resize,
-#session-aside:has(.session-aside-slot:empty) .session-aside-collapse { display: none; }
+#session-aside:has(.session-aside-slot:empty) .aside-tabbar-actions { display: none; }
 
 .session-aside-resize {
   position: absolute;
@@ -2863,36 +2867,59 @@ body {
 .session-aside-resize:hover::after,
 .session-aside-resize.active::after { background: transparent; }
 
-.session-aside-collapse {
+/* Actions docked at the right end of the tab bar: same height, solid
+   background so scrolling tabs never bleed underneath. */
+.aside-tabbar-actions {
   position: absolute;
-  top: 4px;
-  right: 0.5rem;
+  top: 0;
+  right: 0;
   z-index: 11;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding-right: 4px;
+  background: var(--color-bg-secondary);
+  border-bottom: 1px solid var(--color-border-primary);
+}
+.session-aside-collapse,
+.session-aside-fullscreen {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   width: 2rem;
   height: 2rem;
-  border: 1px solid var(--color-border-primary);
-  background: var(--color-bg-secondary);
-  color: var(--color-text-secondary);
+  border: none;
+  background: transparent;
+  color: var(--color-text-tertiary);
   border-radius: var(--radius-sm);
   cursor: pointer;
-  box-shadow: var(--shadow-sm, 0 2px 8px rgba(0,0,0,0.06));
-  transition: background-color var(--transition-base), color var(--transition-base);
+  transition: background-color var(--transition-fast), color var(--transition-fast);
 }
-.session-aside-collapse:hover { background: var(--color-bg-hover); color: var(--color-text-primary); }
+.session-aside-collapse:hover,
+.session-aside-fullscreen:hover { background: var(--color-bg-hover); color: var(--color-text-primary); }
+.session-aside-fullscreen .icon-fs-exit { display: none; }
+#chat-panel.aside-fullscreen .session-aside-fullscreen .icon-fs-enter { display: none; }
+#chat-panel.aside-fullscreen .session-aside-fullscreen .icon-fs-exit { display: inline-flex; }
+
+/* Fullscreen mode: the chat column is hidden and the aside takes over. */
+#chat-panel.aside-fullscreen #chat-main { display: none; }
+#chat-panel.aside-fullscreen #session-aside {
+  width: 100%;
+  border-left: none;
+}
+#chat-panel.aside-fullscreen .session-aside-resize { display: none; }
 
 .session-aside-slot { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
 
-/* Tab bar (rendered by Clacky.ext). Leaves room on the right for the collapse
-   button which is absolutely positioned over it. */
+/* Tab bar (rendered by Clacky.ext). Leaves room on the right for the
+   fullscreen + collapse buttons docked by the host over that end. */
 .aside-tabs {
   flex: none;
   display: flex;
   align-items: stretch;
   height: 40px;
-  padding: 0 38px 0 4px;
+  padding: 0 78px 0 4px;
   gap: 2px;
   border-bottom: 1px solid var(--color-border-primary);
   overflow-x: auto;
@@ -2972,8 +2999,8 @@ body {
   flex: none;
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 6px 8px;
+  gap: 0.375rem;
+  padding: 0.375rem 0.5rem;
   border-bottom: 1px solid var(--color-border-secondary);
 }
 .wt-search {
@@ -2981,9 +3008,9 @@ body {
   min-width: 0;
   display: flex;
   align-items: center;
-  gap: 6px;
-  height: 26px;
-  padding: 0 4px 0 8px;
+  gap: 0.375rem;
+  height: 1.625rem;
+  padding: 0 0.25rem 0 0.5rem;
   background: var(--color-bg-primary);
   border: 1px solid var(--color-border-primary);
   border-radius: var(--radius-sm);
@@ -2997,7 +3024,7 @@ body {
   border: none;
   outline: none;
   background: transparent;
-  font-size: 12px;
+  font-size: 0.75rem;
   color: var(--color-text-primary);
   padding: 0;
 }
@@ -3007,8 +3034,8 @@ body {
   display: none;
   align-items: center;
   justify-content: center;
-  width: 18px;
-  height: 18px;
+  width: 1.125rem;
+  height: 1.125rem;
   padding: 0;
   border: none;
   border-radius: var(--radius-xs);
@@ -3020,10 +3047,10 @@ body {
 .wt-search-list {
   flex: 1;
   overflow-y: auto;
-  padding: 4px 6px 8px;
+  padding: 0.25rem 0.375rem 0.5rem;
   font-size: 0.8125rem;
 }
-.wt-search-row { gap: 6px; }
+.wt-search-row { gap: 0.375rem; }
 .wt-search-dir {
   margin-left: auto;
   padding-left: 0.5rem;
@@ -3045,8 +3072,8 @@ body {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 24px;
-  height: 24px;
+  width: 1.5rem;
+  height: 1.5rem;
   padding: 0;
   border: none;
   border-radius: var(--radius-xs);
@@ -3058,16 +3085,16 @@ body {
 .wt-tree {
   flex: 1;
   overflow-y: auto;
-  padding: 4px 6px 8px;
+  padding: 0.25rem 0.375rem 0.5rem;
   font-size: 0.8125rem;
 }
 .wt-node { user-select: none; }
 .wt-row {
   display: flex;
   align-items: center;
-  gap: 5px;
-  height: 24px;
-  padding: 0 8px 0 5px;
+  gap: 0.3125rem;
+  height: 1.5rem;
+  padding: 0 0.5rem 0 0.3125rem;
   border-radius: var(--radius-xs);
   cursor: pointer;
   color: var(--color-text-primary);
@@ -3091,7 +3118,7 @@ body {
 .wt-size { margin-left: auto; padding-left: 0.5rem; font-size: 0.6875rem; color: var(--color-text-muted); opacity: 0; transition: opacity var(--transition-base); flex-shrink: 0; }
 .wt-row:hover .wt-size, .wt-row.active .wt-size { opacity: 1; }
 .wt-children {
-  margin-left: 11px;
+  margin-left: 0.6875rem;
   border-left: 1px solid transparent;
 }
 .wt-children.guide-on { border-left-color: color-mix(in srgb, var(--color-text-primary) 20%, transparent); }
@@ -3107,15 +3134,15 @@ body {
 .wv-tree-pane {
   flex: 0 0 auto;
   width: var(--wv-tree-width, 38%);
-  min-width: 168px;
-  max-width: 460px;
+  min-width: 10.5rem;
+  max-width: 28.75rem;
   display: flex;
   flex-direction: column;
   min-height: 0;
 }
 .wv-tree-resize {
   flex: none;
-  width: 6px;
+  width: 3px;
   cursor: col-resize;
   position: relative;
   z-index: 2;
@@ -3123,6 +3150,8 @@ body {
   display: none;
 }
 .wv-root.has-open-files .wv-tree-resize { display: block; }
+.wv-root.tree-hidden .wv-tree-pane { display: none; }
+.wv-root.tree-hidden .wv-tree-resize { display: none; }
 .wv-tree-resize::after {
   content: "";
   position: absolute;
@@ -3140,8 +3169,8 @@ body {
   flex: none;
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 4px 6px 4px 8px;
+  gap: 0.375rem;
+  padding: 0.32rem 0.375rem 0.32rem 0.5rem;
   border-bottom: 1px solid var(--color-border-secondary);
 }
 .wv-tabs {
@@ -3149,7 +3178,7 @@ body {
   min-width: 0;
   display: flex;
   align-items: center;
-  gap: 2px;
+  gap: 0.125rem;
   overflow-x: auto;
   scrollbar-width: none;
 }
@@ -3158,13 +3187,14 @@ body {
   flex: none;
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  max-width: 150px;
-  padding: 3px 4px 3px 9px;
+  gap: 0.25rem;
+  max-width: 9.375rem;
+  height: 1.625rem;
+  padding: 0.1875rem 0.25rem 0.1875rem 0.5625rem;
   border: 1px solid transparent;
   border-radius: var(--radius-sm);
   background: none;
-  font-size: 12px;
+  font-size: 0.75rem;
   color: var(--color-text-tertiary);
   cursor: pointer;
   white-space: nowrap;
@@ -3179,8 +3209,8 @@ body {
 .wv-tab-label { overflow: hidden; text-overflow: ellipsis; }
 .wv-tab-dot {
   flex: none;
-  width: 6px;
-  height: 6px;
+  width: 0.375rem;
+  height: 0.375rem;
   border-radius: 50%;
   background: var(--color-accent-primary);
 }
@@ -3188,21 +3218,21 @@ body {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 16px;
-  height: 16px;
-  border-radius: 4px;
+  width: 1rem;
+  height: 1rem;
+  border-radius: var(--radius-xs);
   color: var(--color-text-tertiary);
   cursor: pointer;
 }
 .wv-tab-close:hover { background: var(--color-border-primary); color: var(--color-text-primary); }
 
-.wv-actions { flex: none; display: flex; align-items: center; gap: 2px; }
+.wv-actions { flex: none; display: flex; align-items: center; gap: 0.25rem; }
 .wv-action {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 26px;
-  height: 26px;
+  width: 1.625rem;
+  height: 1.625rem;
   border: none;
   border-radius: var(--radius-sm);
   background: none;
@@ -3219,6 +3249,9 @@ body {
 .wv-pane--text { flex-direction: column; }
 .wv-pane[data-mode="edit"] .wv-md-preview { display: none; }
 .wv-pane[data-mode="preview"] .wv-code { display: none; }
+.wv-pane--text[data-mode="split"] { flex-direction: row; }
+.wv-pane--text[data-mode="split"] .wv-code { flex: 1; min-width: 0; }
+.wv-pane--text[data-mode="split"] .wv-md-preview { min-width: 0; border-left: 1px solid var(--color-border-primary); }
 .wv-code { flex: 1; min-height: 0; overflow: hidden; }
 .wv-code .cm-editor {
   height: 100%;
@@ -3241,6 +3274,95 @@ body {
   background: var(--color-bg-primary);
 }
 .wv-pane--image img { max-width: 100%; max-height: 100%; object-fit: contain; }
+
+/* PDF: browser-native rendering inside an iframe pointing at /api/local-image */
+.wv-pane--pdf { background: var(--color-bg-primary); }
+.wv-pane--pdf iframe {
+  flex: 1;
+  width: 100%;
+  border: none;
+  background: var(--color-bg-primary);
+}
+
+/* Binary fallback: file icon + name + hints; "Open ▾" lives in the tabbar */
+.wv-pane--fallback {
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.375rem;
+  padding: 1.5rem 1.25rem;
+  text-align: center;
+  background: var(--color-bg-primary);
+}
+.wv-fallback-icon { color: var(--color-text-tertiary); }
+.wv-fallback-icon svg { width: 2.5rem; height: 2.5rem; }
+.wv-fallback-name {
+  font-weight: 600;
+  color: var(--color-text-primary);
+  word-break: break-all;
+}
+.wv-fallback-hint {
+  font-size: 0.8125rem;
+  color: var(--color-text-secondary);
+}
+.wv-fallback-subhint {
+  font-size: 0.75rem;
+  color: var(--color-text-tertiary);
+}
+
+/* Toolbar "Open ▾" split group for binary tabs */
+.wv-action-group {
+  display: inline-flex;
+  align-items: center;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  border: 1px solid var(--color-border-primary);
+}
+.wv-action-group .wv-action { border-radius: 0; }
+.wv-action-group .wv-action + .wv-action {
+  border-left: 1px solid var(--color-border-primary);
+}
+.wv-action--open {
+  width: auto;
+  padding: 0 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--color-text-secondary);
+  gap: 0.375rem;
+}
+.wv-action--open:hover { color: var(--color-text-primary); }
+
+/* Real app icons inside the "open with" dropdown (served by /api/app-icon) */
+.wv-open-app-icon { width: 1rem; height: 1rem; }
+.wv-open-app-icon img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  border-radius: 0.1875rem;
+}
+
+/* Default app icon on the main "Open" button */
+.wv-main-app-icon { display: inline-flex; width: 1rem; height: 1rem; }
+.wv-main-app-icon svg { width: 1rem; height: 1rem; display: block; }
+.wv-main-app-icon img {
+  width: 1rem;
+  height: 1rem;
+  display: block;
+  border-radius: 0.1875rem;
+}
+
+/* Highlight the OS default app in the "open with" dropdown */
+.wv-open-menu .session-actions-menu-item.wv-open-menu-item--default {
+  background: var(--color-bg-hover);
+  font-weight: 600;
+}
+
+/* Separator inside the "open with" dropdown */
+.wv-open-menu-separator {
+  height: 1px;
+  margin: 0.25rem 0.375rem;
+  background: var(--color-border-secondary);
+}
 
 
 /* Mobile-only floating back button — replaces the old in-header back button.
@@ -15311,6 +15433,7 @@ body.setup-mode[data-theme="dark"] {
     border-left: 1px solid var(--color-border-primary);
   }
   #session-aside-resize { display: none; }
+  .aside-tabbar-actions #btn-aside-fullscreen { display: none; }
 
   #workspace-overlay {
     display: none;
