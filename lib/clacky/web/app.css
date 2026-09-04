@@ -748,6 +748,20 @@ body {
   cursor: col-resize;
   z-index: 10;
 }
+#sidebar-resize-handle::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 2px;
+  width: 1px;
+  background: transparent;
+  transition: background-color var(--transition-base);
+}
+#sidebar-resize-handle:hover::after,
+#sidebar-resize-handle.active::after {
+  background: var(--color-accent-primary);
+}
 #sidebar:has(#sidebar-resize-handle.active) {
   transition: background-color var(--transition-base);
 }
@@ -2865,7 +2879,7 @@ body {
   transition: background-color var(--transition-base);
 }
 .session-aside-resize:hover::after,
-.session-aside-resize.active::after { background: transparent; }
+.session-aside-resize.active::after { background: var(--color-accent-primary); }
 
 /* Actions docked at the right end of the tab bar: same height, solid
    background so scrolling tabs never bleed underneath. */
@@ -3160,6 +3174,11 @@ body {
   left: 2px;
   width: 1px;
   background: var(--color-border-primary);
+  transition: background-color var(--transition-base);
+}
+.wv-tree-resize:hover::after,
+.wv-tree-resize.active::after {
+  background: var(--color-accent-primary);
 }
 .wv-viewer { flex: 1; min-width: 0; display: none; flex-direction: column; min-height: 0; }
 .wv-root.has-open-files .wv-viewer { display: flex; }
