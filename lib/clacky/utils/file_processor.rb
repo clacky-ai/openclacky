@@ -299,7 +299,9 @@ module Clacky
       Zip::InputStream.open(StringIO.new(body)) do |zis|
         while (entry = zis.get_next_entry)
           size = entry.size ? " (#{entry.size} bytes)" : ""
-          lines << "- #{entry.name}#{size}"
+          # rubyzip returns names as raw ASCII-8BIT bytes regardless of the zip's
+          # UTF-8 flag; convert so the listing never carries binary encoding.
+          lines << "- #{Clacky::Utils::Encoding.to_utf8(entry.name)}#{size}"
         end
       end
       lines.join("\n")
@@ -325,7 +327,7 @@ module Clacky
             tar.each do |entry|
               kind = entry.directory? ? "[dir] " : ""
               size = entry.header.size ? " (#{entry.header.size} bytes)" : ""
-              lines << "- #{kind}#{entry.full_name}#{size}"
+              lines << "- #{kind}#{Clacky::Utils::Encoding.to_utf8(entry.full_name)}#{size}"
             end
           end
         end
@@ -339,7 +341,7 @@ module Clacky
               tar.each do |entry|
                 kind = entry.directory? ? "[dir] " : ""
                 size = entry.header.size ? " (#{entry.header.size} bytes)" : ""
-                lines << "- #{kind}#{entry.full_name}#{size}"
+                lines << "- #{kind}#{Clacky::Utils::Encoding.to_utf8(entry.full_name)}#{size}"
               end
             end
           end
@@ -359,7 +361,7 @@ module Clacky
                   found_tar = true
                   kind = entry.directory? ? "[dir] " : ""
                   size = entry.header.size ? " (#{entry.header.size} bytes)" : ""
-                  lines << "- #{kind}#{entry.full_name}#{size}"
+                  lines << "- #{kind}#{Clacky::Utils::Encoding.to_utf8(entry.full_name)}#{size}"
                 end
               end
             end
@@ -388,7 +390,8 @@ module Clacky
           end
         end
         lines = ["# GZIP Contents\n"]
-        lines << "- Original filename: #{original_name || "(not recorded)"}"
+        display_name = original_name ? Clacky::Utils::Encoding.to_utf8(original_name) : "(not recorded)"
+        lines << "- Original filename: #{display_name}"
         lines << "- Compressed size:   #{File.size(path)} bytes"
         lines << "- Uncompressed size: #{uncompressed} bytes#{uncompressed && uncompressed > 64 * 1024 * 1024 ? " (truncated)" : ""}"
         lines.join("\n")
@@ -406,7 +409,14 @@ module Clacky
       FileUtils.mkdir_p(UPLOAD_DIR)
       safe_name = File.basename(original_path.to_s).gsub(/[\/\:\*?"<>|\x00]/, "_")
       dest = File.join(UPLOAD_DIR, "#{SecureRandom.hex(8)}_#{safe_name}.preview.md")
-      File.write(dest, content)
+      # File.write transcodes to the default external encoding and raises
+      # "\xE8 from ASCII-8BIT to UTF-8" on binary (ASCII-8BIT) content, which
+      # can leak in from archive entry names / external parsers.
+      text = content.to_s
+      unless text.encoding == ::Encoding::UTF_8 && text.valid_encoding?
+        text = Clacky::Utils::Encoding.to_utf8(text)
+      end
+      File.write(dest, text)
       dest
     end
 

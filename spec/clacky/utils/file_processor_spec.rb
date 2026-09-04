@@ -146,6 +146,39 @@ RSpec.describe Clacky::Utils::FileProcessor do
           expect(File.read(ref.preview_path)).to include("readme.txt")
         end
       end
+
+      it "lists non-ASCII entry names as UTF-8 without raising" do
+        require "zip"
+        Dir.mktmpdir do |dir|
+          zip_path = File.join(dir, "chinese.zip")
+          Zip::OutputStream.open(zip_path) do |z|
+            z.put_next_entry("项目说明/README-中文.md")
+            z.write("hello")
+          end
+
+          ref = described_class.process_path(zip_path)
+          expect(ref.parse_error).to be_nil
+          preview = File.read(ref.preview_path)
+          expect(preview.encoding).to eq(Encoding::UTF_8)
+          expect(preview).to include("项目说明/README-中文.md")
+        end
+      end
+
+      it "survives entry names whose bytes are not valid UTF-8" do
+        require "zip"
+        Dir.mktmpdir do |dir|
+          zip_path = File.join(dir, "latin1.zip")
+          Zip::OutputStream.open(zip_path) do |z|
+            # Windows zips often store cp437/GBK names without the UTF-8 flag.
+            z.put_next_entry("caf\xE9.txt".b)
+            z.write("hello")
+          end
+
+          ref = described_class.process_path(zip_path)
+          expect(ref.parse_error).to be_nil
+          expect(File.read(ref.preview_path)).to include("caf")
+        end
+      end
     end
 
     context "with markdown files" do
