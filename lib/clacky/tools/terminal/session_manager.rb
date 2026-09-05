@@ -176,12 +176,15 @@ module Clacky
           end
 
           # Kill every live session and close any open fds. Called from at_exit.
+          # Signal the whole process group (-pid) so background `&` jobs
+          # and other grandchildren get reaped too. See issue #485.
           def kill_all!
-            (@sessions.values rescue []).each do |s|
+            @sessions.values.each do |s|
+              next if %w[exited killed].include?(s.status.to_s)
               begin
-                Process.kill("KILL", s.pid) unless %w[exited killed].include?(s.status.to_s)
-              rescue StandardError
-                # ignore
+                Process.kill("KILL", -s.pid)
+              rescue Errno::ESRCH
+                # group already gone
               end
               s.log_io&.close rescue nil
               s.writer&.close rescue nil
