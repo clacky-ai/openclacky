@@ -1161,7 +1161,7 @@ module Clacky
       # find_by_base_url only matches registered preset URLs, so localhost
       # and other non-openclacky endpoints correctly return nil.
       provider_id = Clacky::Providers.find_by_base_url(m["base_url"])
-      return nil unless provider_id == "openclacky"
+      return nil unless provider_id == Clacky::Providers::OPENCLACKY_ID
 
       fallback_url = Clacky::Providers.fallback_base_url(provider_id)
       return nil unless fallback_url

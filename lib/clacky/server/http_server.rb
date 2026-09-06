@@ -3474,7 +3474,7 @@ module Clacky
         keys = []
         @agent_config.models.each do |m|
           next unless m.is_a?(Hash)
-          next unless @agent_config.provider_id_for(m) == "openclacky"
+          next unless @agent_config.provider_id_for(m) == Clacky::Providers::OPENCLACKY_ID
 
           key = m["api_key"].to_s.strip
           keys << key unless key.empty?

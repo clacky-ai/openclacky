@@ -314,7 +314,7 @@ module Clacky
         # multipart (incl. the openclacky gateway, which only parses multipart
         # on its /audio/transcriptions today — enable the JSON flavor there once
         # the server supports it).
-        if provider_id == "openrouter"
+        if provider_id == Clacky::Providers::OPENROUTER_ID
           ext = "m4a" if ext == "mp4" # OpenRouter wants the audio format, not the container
           payload = {
             model: @model,

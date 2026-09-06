@@ -1903,7 +1903,7 @@ module Clacky
             if new_model
               # Determine anthropic_format based on provider
               # For Anthropic provider, use Anthropic API format
-              anthropic_format = new_model[:provider] == "anthropic"
+              anthropic_format = new_model[:provider] == Clacky::Providers::ANTHROPIC_ID
 
               current_config.add_model(
                 model: new_model[:model],

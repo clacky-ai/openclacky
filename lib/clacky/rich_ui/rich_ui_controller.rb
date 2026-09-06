@@ -496,7 +496,7 @@ module Clacky
         when :add
           new_model = show_model_edit_form(nil, test_callback: test_callback)
           if new_model
-            anthropic_format = new_model[:provider] == "anthropic"
+            anthropic_format = new_model[:provider] == Clacky::Providers::ANTHROPIC_ID
             current_config.add_model(
               model: new_model[:model],
               api_key: new_model[:api_key],

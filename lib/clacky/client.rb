@@ -720,12 +720,12 @@ module Clacky
           conn.headers["x-api-key"]      = @api_key
           conn.headers["anthropic-version"] = "2023-06-01"
           conn.headers["anthropic-dangerous-direct-browser-access"] = "true"
-          if @provider_id == "openrouter"
+          if @provider_id == Clacky::Providers::OPENROUTER_ID
             conn.headers["Authorization"] = "Bearer #{@api_key}"
           end
           # Moonshot's Kimi Code (Coding Plan) endpoint enforces a User-Agent
           # prefix whitelist limited to first-party coding agents.
-          if @provider_id == "kimi-coding"
+          if @provider_id == Clacky::Providers::KIMI_CODING_ID
             conn.headers["User-Agent"] = "claude-cli/1.0.51 (external, cli)"
           end
           conn.options.timeout      = @read_timeout || 300

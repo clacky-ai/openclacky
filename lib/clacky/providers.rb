@@ -703,6 +703,23 @@ module Clacky
 
     }.freeze
 
+    # Canonical provider identifiers. Mirror the PRESETS keys above; keep both
+    # in sync when adding or renaming a provider.
+    OPENCLACKY_ID     = "openclacky"
+    OPENROUTER_ID     = "openrouter"
+    DEEPSEEKV4_ID     = "deepseekv4"
+    GLM_ID            = "glm"
+    KIMI_ID           = "kimi"
+    KIMI_CODING_ID    = "kimi-coding"
+    MINIMAX_ID        = "minimax"
+    ANTHROPIC_ID      = "anthropic"
+    OPENAI_ID         = "openai"
+    QWEN_ID           = "qwen"
+    MIMO_ID           = "mimo"
+    VOLCENGINE_ARK_ID = "volcengine-ark"
+    OLLAMA_ID         = "ollama"
+    ORCAROUTER_ID     = "orcarouter"
+
     MEDIA_KINDS = %w[image video audio stt video_understanding].freeze
 
     # Per-model maximum output token limits.

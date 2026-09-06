@@ -20,7 +20,7 @@ module Clacky
       # list never drifts from providers.rb as models are added or removed.
       def openclacky_models
         @openclacky_models ||= begin
-          preset = Clacky::Providers.get("openclacky")
+          preset = Clacky::Providers.get(Clacky::Providers::OPENCLACKY_ID)
           return [] unless preset
           OPENCLACKY_MODEL_KINDS.flat_map { |kind| preset[kind] || [] }.uniq
         end
@@ -30,7 +30,7 @@ module Clacky
       # carry an explicit provider id; legacy records (written before the
       # field existed) are detected by matching the full openclacky model list.
       def openclacky_record?(record)
-        return true if record.provider == "openclacky"
+        return true if record.provider == Clacky::Providers::OPENCLACKY_ID
         openclacky_models.include?(record.model.to_s)
       end
 
