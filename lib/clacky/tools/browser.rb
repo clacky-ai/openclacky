@@ -130,6 +130,23 @@ module Clacky
         { error: classify_browser_error(e) }
       end
 
+      # Hidden once the user turns the browser off, so the model never sees an
+      # action it would only get rejected for. An unconfigured browser stays
+      # visible — that path guides the user into browser-setup.
+      #
+      # Checked once at registration: the tools array carries the prompt-cache
+      # breakpoint, so it must stay byte-identical for the whole process.
+      # Toggling the browser takes effect on the next restart.
+      def self.available?
+        return true unless File.exist?(BROWSER_CONFIG_PATH)
+
+        config = YAMLCompat.safe_load(File.read(BROWSER_CONFIG_PATH),
+                                      permitted_classes: [Date, Time, Symbol])
+        config.is_a?(Hash) && config["enabled"] == true
+      rescue StandardError
+        true
+      end
+
       def format_call(args)
         action = args[:action] || args["action"] || "browser"
         "browser(#{action})"

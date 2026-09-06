@@ -1741,7 +1741,7 @@ module Clacky
       @tool_registry.register(Tools::TodoManager.new)
       @tool_registry.register(Tools::AskUser.new)
       @tool_registry.register(Tools::InvokeSkill.new)
-      @tool_registry.register(Tools::Browser.new)
+      @tool_registry.register(Tools::Browser.new) if Tools::Browser.available?
     end
 
     # Register tools the agent declared via `tools:` — each id maps to

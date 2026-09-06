@@ -670,4 +670,39 @@ RSpec.describe Clacky::Tools::Browser do
     end
   end
 
+  # ---------------------------------------------------------------------------
+  # available?
+  # ---------------------------------------------------------------------------
+  describe ".available?" do
+    let(:config_path) { described_class::BROWSER_CONFIG_PATH }
+
+    def stub_config(exists:, body: nil)
+      allow(File).to receive(:exist?).and_call_original
+      allow(File).to receive(:exist?).with(config_path).and_return(exists)
+      allow(File).to receive(:read).and_call_original
+      allow(File).to receive(:read).with(config_path).and_return(body) if body
+    end
+
+    it "is available when the browser is enabled" do
+      stub_config(exists: true, body: "enabled: true\n")
+      expect(described_class.available?).to be true
+    end
+
+    it "is unavailable when the user disabled the browser" do
+      stub_config(exists: true, body: "enabled: false\n")
+      expect(described_class.available?).to be false
+    end
+
+    it "stays available when the browser was never configured" do
+      stub_config(exists: false)
+      expect(described_class.available?).to be true
+    end
+
+    it "stays available when the config is unreadable rather than raising" do
+      stub_config(exists: true, body: "enabled: [oops\n")
+      expect { described_class.available? }.not_to raise_error
+      expect(described_class.available?).to be true
+    end
+  end
+
 end
