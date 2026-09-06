@@ -17,3 +17,6 @@ AGENTS.md
 .history
 coscli*
 /assets
+
+# CodeMirror bundle build tooling
+/lib/clacky/web/vendor/codemirror/node_modules/
