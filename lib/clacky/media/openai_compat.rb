@@ -308,38 +308,69 @@ module Clacky
         end
 
         ext = mime_type.split(";").first.split("/").last.then { |e| e == "mpeg" ? "mp3" : e }
-        filename = "chunk.#{ext}"
-        audio_data = Base64.decode64(audio_base64)
-        boundary = "----FormBoundary#{SecureRandom.hex(8)}"
-        # A multipart body is a byte stream: build it in binary so UTF-8 text
-        # parts (e.g. a non-ASCII vocabulary prompt) don't clash with the
-        # ASCII-8BIT audio bytes.
-        body = "".b
-        body << "--#{boundary}\r\n".b
-        body << "Content-Disposition: form-data; name=\"file\"; filename=\"#{filename}\"\r\n".b
-        body << "Content-Type: #{mime_type.split(';').first}\r\n\r\n".b
-        body << audio_data.b
-        body << "\r\n--#{boundary}\r\n".b
-        body << "Content-Disposition: form-data; name=\"model\"\r\n\r\n".b
-        body << @model.to_s.b
-        unless prompt.to_s.strip.empty?
-          body << "\r\n--#{boundary}\r\n".b
-          body << "Content-Disposition: form-data; name=\"prompt\"\r\n\r\n".b
-          body << prompt.to_s.strip.b
-        end
-        body << "\r\n--#{boundary}--\r\n".b
 
-        begin
-          response = stt_connection.post("audio/transcriptions") do |req|
-            req.headers["Content-Type"]  = "multipart/form-data; boundary=#{boundary}"
-            req.headers["Authorization"] = "Bearer #{@api_key}"
-            req.body = body
+        # OpenRouter caps multipart uploads at 25 MB and redirects larger files
+        # to base64 JSON via input_audio. Plain OpenAI-compatible providers keep
+        # multipart (incl. the openclacky gateway, which only parses multipart
+        # on its /audio/transcriptions today — enable the JSON flavor there once
+        # the server supports it).
+        if provider_id == "openrouter"
+          ext = "m4a" if ext == "mp4" # OpenRouter wants the audio format, not the container
+          payload = {
+            model: @model,
+            input_audio: {
+              data:   audio_base64, # raw base64 bytes, NOT a data URI
+              format: ext
+            }
+          }
+          payload[:prompt] = prompt.to_s.strip unless prompt.to_s.strip.empty?
+
+          begin
+            response = stt_json_connection.post("audio/transcriptions") do |req|
+              req.headers["Content-Type"]  = "application/json"
+              req.headers["Authorization"] = "Bearer #{@api_key}"
+              req.body = JSON.generate(payload)
+            end
+          rescue Faraday::Error => e
+            return transcription_error_response(
+              error: "HTTP request failed: #{e.message}",
+              error_type: "network_error", provider: provider_id
+            )
           end
-        rescue Faraday::Error => e
-          return transcription_error_response(
-            error: "HTTP request failed: #{e.message}",
-            error_type: "network_error", provider: provider_id
-          )
+        else
+          filename = "chunk.#{ext}"
+          audio_data = Base64.decode64(audio_base64)
+          boundary = "----FormBoundary#{SecureRandom.hex(8)}"
+          # A multipart body is a byte stream: build it in binary so UTF-8 text
+          # parts (e.g. a non-ASCII vocabulary prompt) don't clash with the
+          # ASCII-8BIT audio bytes.
+          body = "".b
+          body << "--#{boundary}\r\n".b
+          body << "Content-Disposition: form-data; name=\"file\"; filename=\"#{filename}\"\r\n".b
+          body << "Content-Type: #{mime_type.split(';').first}\r\n\r\n".b
+          body << audio_data.b
+          body << "\r\n--#{boundary}\r\n".b
+          body << "Content-Disposition: form-data; name=\"model\"\r\n\r\n".b
+          body << @model.to_s.b
+          unless prompt.to_s.strip.empty?
+            body << "\r\n--#{boundary}\r\n".b
+            body << "Content-Disposition: form-data; name=\"prompt\"\r\n\r\n".b
+            body << prompt.to_s.strip.b
+          end
+          body << "\r\n--#{boundary}--\r\n".b
+
+          begin
+            response = stt_connection.post("audio/transcriptions") do |req|
+              req.headers["Content-Type"]  = "multipart/form-data; boundary=#{boundary}"
+              req.headers["Authorization"] = "Bearer #{@api_key}"
+              req.body = body
+            end
+          rescue Faraday::Error => e
+            return transcription_error_response(
+              error: "HTTP request failed: #{e.message}",
+              error_type: "network_error", provider: provider_id
+            )
+          end
         end
 
         unless response.success?
@@ -475,6 +506,15 @@ module Clacky
       private def stt_connection
         Faraday.new(url: normalized_base_url) do |f|
           f.options.timeout      = 30
+          f.options.open_timeout = 10
+        end
+      end
+
+      # STT JSON body carries a large base64 payload; upstream may need longer
+      # to decode/transcribe it than the 30s multipart path.
+      private def stt_json_connection
+        Faraday.new(url: normalized_base_url) do |f|
+          f.options.timeout      = 120
           f.options.open_timeout = 10
         end
       end
