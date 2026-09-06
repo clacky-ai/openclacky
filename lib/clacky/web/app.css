@@ -5014,6 +5014,10 @@ body {
   border-radius: 3px;
   opacity: 0.75;        /* tier 2 */
   transition: all 0.15s ease;
+  max-width: 17rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 #sib-dir:hover {
   background: var(--color-bg-hover);
