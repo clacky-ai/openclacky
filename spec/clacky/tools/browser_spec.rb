@@ -441,6 +441,189 @@ RSpec.describe Clacky::Tools::Browser do
         .to raise_error(RuntimeError, /Element ref e1 not found/)
       expect(call_count).to eq(1)
     end
+
+    it "primes the page snapshot and retries once on 'No snapshot found for page'" do
+      calls = []
+      click_count = 0
+      allow(manager).to receive(:mcp_call) do |tool_name, _args|
+        calls << tool_name
+        case tool_name
+        when "click"
+          click_count += 1
+          raise "Error: No snapshot found for page 10. Use take_snapshot to capture one." if click_count == 1
+          { "ok" => true }
+        when "take_snapshot" then { "structuredContent" => { "snapshot" => {} } }
+        when "list_pages" then { "structuredContent" => { "pages" => [] } }
+        end
+      end
+
+      result = tool.send(:mcp_call, "click", { uid: "e1" })
+      expect(result).to eq({ "ok" => true })
+      expect(calls).to eq(%w[click list_pages take_snapshot click])
+    end
+
+    it "raises an actionable message when priming the snapshot fails" do
+      allow(manager).to receive(:mcp_call) do |tool_name, _args|
+        case tool_name
+        when "click" then raise "No snapshot found for page 3."
+        when "take_snapshot" then raise "boom"
+        when "list_pages" then { "structuredContent" => { "pages" => [] } }
+        end
+      end
+
+      expect { tool.send(:mcp_call, "click", { uid: "e1" }) }
+        .to raise_error(RuntimeError, /action=snapshot first/)
+    end
+
+    it "tells the AI to re-snapshot when a ref has gone stale" do
+      allow(manager).to receive(:mcp_call) do |tool_name, _args|
+        raise 'Element uid "e9" not found on page 2.' if tool_name == "click"
+        { "structuredContent" => { "pages" => [] } }
+      end
+
+      expect { tool.send(:mcp_call, "click", { uid: "e9" }) }
+        .to raise_error(RuntimeError, /use action=snapshot to get fresh refs/)
+    end
+
+    it "does not retry a stale ref error" do
+      call_count = 0
+      allow(manager).to receive(:mcp_call) do |tool_name, _args|
+        if tool_name == "click"
+          call_count += 1
+          raise "Element with uid e9 no longer exists on the page."
+        end
+        { "structuredContent" => { "pages" => [] } }
+      end
+
+      expect { tool.send(:mcp_call, "click", { uid: "e9" }) }
+        .to raise_error(RuntimeError, /fresh refs/)
+      expect(call_count).to eq(1)
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # act: includeSnapshot passthrough
+  # ---------------------------------------------------------------------------
+  describe "#do_user_act includeSnapshot passthrough" do
+    let(:manager) { instance_double(Clacky::BrowserManager) }
+    let(:calls)   { [] }
+
+    let(:snapshot_payload) do
+      {
+        "structuredContent" => {
+          "message"  => "Successfully clicked on the element",
+          "snapshot" => {
+            "role" => "document", "id" => "e0",
+            "children" => [
+              { "role" => "button", "name" => "Submit", "id" => "e4" }
+            ]
+          }
+        }
+      }
+    end
+
+    before do
+      allow(Clacky::BrowserManager).to receive(:instance).and_return(manager)
+      allow(manager).to receive(:mcp_call) do |tool_name, args|
+        calls << [tool_name, args]
+        tool_name == "list_pages" ? { "structuredContent" => { "pages" => [] } } : snapshot_payload
+      end
+    end
+
+    it "requests a snapshot by default on click" do
+      tool.send(:do_user_act, { kind: "click", ref: "e4" })
+      expect(calls).to include(["click", hash_including(includeSnapshot: true)])
+    end
+
+    it "renders the returned snapshot into the output" do
+      result = tool.send(:do_user_act, { kind: "click", ref: "e4" })
+      expect(result[:snapshot_included]).to be true
+      expect(result[:output]).to include("Page snapshot after click")
+      expect(result[:output]).to include('button "Submit" [ref=e4]')
+    end
+
+    it "omits includeSnapshot when include_snapshot is false" do
+      result = tool.send(:do_user_act, { kind: "click", ref: "e4", include_snapshot: false })
+      expect(calls).to include(["click", hash_excluding(includeSnapshot: true)])
+      expect(result[:snapshot_included]).to be false
+      expect(result[:output]).not_to include("Page snapshot")
+    end
+
+    it "accepts include_snapshot as the string 'false'" do
+      tool.send(:do_user_act, { kind: "click", ref: "e4", "include_snapshot" => "false" })
+      expect(calls).to include(["click", hash_excluding(includeSnapshot: true)])
+    end
+
+    it "passes includeSnapshot on fill" do
+      tool.send(:do_user_act, { kind: "fill", ref: "e3", text: "a@b.c" })
+      expect(calls).to include(["fill", hash_including(includeSnapshot: true, value: "a@b.c")])
+    end
+
+    it "fills then presses submit_key, attaching the snapshot to the key press" do
+      tool.send(:do_user_act, { kind: "fill", ref: "e3", text: "hi", submit_key: "Enter" })
+      fill_args  = calls.find { |c| c[0] == "fill" }[1]
+      press_args = calls.find { |c| c[0] == "press_key" }[1]
+      expect(fill_args).not_to include(:includeSnapshot)
+      expect(press_args).to include(key: "Enter", includeSnapshot: true)
+    end
+
+    it "falls back to a generic message when the response has none" do
+      allow(manager).to receive(:mcp_call).and_return({})
+      result = tool.send(:do_user_act, { kind: "hover", ref: "e1" })
+      expect(result[:output]).to eq("hover completed.")
+      expect(result[:snapshot_included]).to be false
+    end
+
+    it "strips the MCP-rendered snapshot block from text-only responses" do
+      text_result = {
+        "content" => [
+          { "type" => "text", "text" => "Clicked.\n## Latest page snapshot\n- button \"x\"" }
+        ]
+      }
+      allow(manager).to receive(:mcp_call).and_return(text_result)
+      result = tool.send(:do_user_act, { kind: "click", ref: "e4" })
+      expect(result[:output]).to include("Clicked.")
+      expect(result[:output]).not_to include("Latest page snapshot")
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # act: fill_form
+  # ---------------------------------------------------------------------------
+  describe "#do_user_act fill_form" do
+    let(:manager) { instance_double(Clacky::BrowserManager) }
+    let(:calls)   { [] }
+
+    before do
+      allow(Clacky::BrowserManager).to receive(:instance).and_return(manager)
+      allow(manager).to receive(:mcp_call) do |tool_name, args|
+        calls << [tool_name, args]
+        tool_name == "list_pages" ? { "structuredContent" => { "pages" => [] } } : {}
+      end
+    end
+
+    it "maps ref to the uid key the MCP server expects" do
+      tool.send(:do_user_act, {
+        kind: "fill_form",
+        elements: [{ "ref" => "e1", "value" => "alice" }, { "ref" => "e2", "value" => "secret" }]
+      })
+      args = calls.find { |c| c[0] == "fill_form" }[1]
+      expect(args[:elements]).to eq([
+        { uid: "e1", value: "alice" },
+        { uid: "e2", value: "secret" }
+      ])
+      expect(args[:includeSnapshot]).to be true
+    end
+
+    it "errors when elements is missing" do
+      result = tool.send(:do_user_act, { kind: "fill_form" })
+      expect(result[:error]).to match(/non-empty `elements`/)
+    end
+
+    it "errors when no entry carries a ref" do
+      result = tool.send(:do_user_act, { kind: "fill_form", elements: [{ "value" => "x" }] })
+      expect(result[:error]).to match(/must each have a `ref`/)
+    end
   end
 
   # ---------------------------------------------------------------------------
@@ -468,6 +651,22 @@ RSpec.describe Clacky::Tools::Browser do
 
     it "documents evaluate as a JS expression in tool_description" do
       expect(described_class.tool_description).to include("JS expression")
+    end
+
+    it "exposes fill_form as an act kind" do
+      kinds = described_class.tool_parameters.dig(:properties, :kind, :enum)
+      expect(kinds).to include("fill_form")
+    end
+
+    it "exposes include_snapshot, submit_key and elements params" do
+      props = described_class.tool_parameters[:properties]
+      expect(props[:include_snapshot]).to be_a(Hash)
+      expect(props[:submit_key]).to be_a(Hash)
+      expect(props[:elements]).to be_a(Hash)
+    end
+
+    it "tells the AI not to snapshot right after an act" do
+      expect(described_class.tool_description).to include("do NOT follow an act with a snapshot")
     end
   end
 

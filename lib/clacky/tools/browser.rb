@@ -34,7 +34,9 @@ module Clacky
         Actions: open | navigate | snapshot | act | screenshot | tabs | focus | close | status
         Workflow: open → snapshot(interactive:true) → act(ref=...). New tab from `open` is auto-selected; only use `focus` to switch back to a previously-opened tab.
         snapshot: returns hierarchical a11y tree truncated to ~8KB. Use query="text" to seek, or offset=N to page.
-        act kinds: click | dblclick | type | fill | press | hover | scroll | drag | select | wait | evaluate | click_at
+        act kinds: click | dblclick | type | fill | fill_form | press | hover | scroll | drag | select | wait | evaluate | click_at
+        act auto-waits for network/DOM to settle and returns the post-action page state, so do NOT follow an act with a snapshot — read the result instead. Pass include_snapshot:false to skip it on trivial acts.
+        fill_form: ALWAYS prefer this over several individual fill/click calls on a form — one call, fewer turns. fill/type accept submit_key:"Enter" to submit in the same call.
         evaluate: `js` is a JS expression, e.g. "document.title". For multi-line / async logic use an IIFE: "(async () => { const r = await fetch(...); return r.status })()". Result is JSON-encoded.
         screenshot: expensive — pass `ref` to capture one element instead of the whole page.
       DESC
@@ -48,11 +50,24 @@ module Clacky
           },
           kind: {
             type: "string",
-            enum: %w[click dblclick type fill press hover drag select scroll wait evaluate click_at],
+            enum: %w[click dblclick type fill fill_form press hover drag select scroll wait evaluate click_at],
             description: "act: interaction kind"
           },
           ref:         { type: "string",  description: "element ref from snapshot (e.g. 'e1')" },
           text:        { type: "string",  description: "act type/fill text" },
+          submit_key:  { type: "string",  description: "act fill/type: key to press after filling (e.g. 'Enter')" },
+          elements: {
+            type: "array",
+            description: "act fill_form: [{ref, value}, ...] — fill a whole form in one call",
+            items: {
+              type: "object",
+              properties: {
+                ref:   { type: "string", description: "element ref from snapshot" },
+                value: { type: "string", description: "value; 'true'/'false' for checkboxes and toggles" }
+              },
+              required: ["ref", "value"]
+            }
+          },
           key:         { type: "string",  description: "act press key (e.g. 'Enter')" },
           direction:   { type: "string",  enum: %w[up down left right], description: "act scroll" },
           amount:      { type: "integer", description: "act scroll pixels (default 300)" },
@@ -70,7 +85,11 @@ module Clacky
           depth:       { type: "integer", description: "snapshot: max tree depth" },
           query:       { type: "string",  description: "snapshot: return window around first match" },
           offset:      { type: "integer", description: "snapshot: skip N lines (paging)" },
-          full_page:   { type: "boolean", description: "screenshot: full page" }
+          full_page:   { type: "boolean", description: "screenshot: full page" },
+          include_snapshot: {
+            type: "boolean",
+            description: "act: return the post-action page snapshot (default true). Set false for trivial acts."
+          }
         },
         required: ["action"]
       }
@@ -89,6 +108,14 @@ module Clacky
         "no active page",
         "Target closed",
         "page is detached"
+      ].freeze
+      # chrome-devtools-mcp resolves refs against the last snapshot it took for a
+      # page, so a page that has never been snapshotted rejects every ref call.
+      MISSING_SNAPSHOT_ERROR = "No snapshot found for page"
+      # Raised when a ref exists in no/older snapshot — the AI needs fresh refs.
+      STALE_REF_ERRORS = [
+        "not found on page",
+        "no longer exists on the page"
       ].freeze
 
       def execute(action:, profile: nil, working_dir: nil, **opts)
@@ -142,13 +169,14 @@ module Clacky
         end
 
         output = result[:output].to_s
-        output = compress_snapshot(output) if action == "snapshot"
-        max_chars = action == "snapshot" ? MAX_SNAPSHOT_CHARS : MAX_LLM_OUTPUT_CHARS
+        has_snapshot = action == "snapshot" || result[:snapshot_included]
+        output = compress_snapshot(output) if has_snapshot
+        max_chars = has_snapshot ? MAX_SNAPSHOT_CHARS : MAX_LLM_OUTPUT_CHARS
 
         {
           action:  action,
           success: result[:success],
-          stdout:  truncate_output(output, max_chars),
+          stdout:  truncate_output(output, max_chars, paged: action == "snapshot"),
           profile: result[:profile]
         }.compact
       end
@@ -302,6 +330,7 @@ module Clacky
       private def do_user_act(opts)
         kind = (opts[:kind] || opts["kind"] || "click").to_s
         ref  = opts[:ref]   || opts["ref"]
+        snap = include_snapshot?(opts)
 
         # Page-scoped MCP calls all benefit from an explicit pageId. We pass it
         # transparently via with_page so the AI never has to think about it.
@@ -311,31 +340,48 @@ module Clacky
           return uid if uid.is_a?(Hash)
           args = { uid: uid }
           args[:dblClick] = true if kind == "dblclick"
-          mcp_call("click", with_page(args))
+          return act_result(kind, mcp_call("click", with_page(with_snapshot(args, snap))), opts, snap)
 
         when "fill", "type"
           uid = require_ref(ref)
           return uid if uid.is_a?(Hash)
-          mcp_call("fill", with_page({ uid: uid, value: opts[:text] || opts["text"] || "" }))
+          submit = opts[:submit_key] || opts["submit_key"]
+          fill_args = { uid: uid, value: (opts[:text] || opts["text"] || "").to_s }
+          if submit && !submit.to_s.empty?
+            mcp_call("fill", with_page(fill_args))
+            result = mcp_call("press_key", with_page(with_snapshot({ key: submit.to_s }, snap)))
+          else
+            result = mcp_call("fill", with_page(with_snapshot(fill_args, snap)))
+          end
+          return act_result(kind, result, opts, snap)
+
+        when "fill_form"
+          elements = normalize_form_elements(opts[:elements] || opts["elements"])
+          return elements if elements.is_a?(Hash)
+          result = mcp_call("fill_form", with_page(with_snapshot({ elements: elements }, snap)))
+          return act_result(kind, result, opts, snap)
 
         when "press"
-          mcp_call("press_key", with_page({ key: opts[:key] || opts["key"] || "Enter" }))
+          args = { key: (opts[:key] || opts["key"] || "Enter").to_s }
+          return act_result(kind, mcp_call("press_key", with_page(with_snapshot(args, snap))), opts, snap)
 
         when "hover"
           uid = require_ref(ref)
           return uid if uid.is_a?(Hash)
-          mcp_call("hover", with_page({ uid: uid }))
+          return act_result(kind, mcp_call("hover", with_page(with_snapshot({ uid: uid }, snap))), opts, snap)
 
         when "drag"
           uid = require_ref(ref)
           return uid if uid.is_a?(Hash)
-          mcp_call("drag", with_page({ from_uid: uid, to_uid: opts[:target_ref] || opts["target_ref"] || "" }))
+          args = { from_uid: uid, to_uid: (opts[:target_ref] || opts["target_ref"] || "").to_s }
+          return act_result(kind, mcp_call("drag", with_page(with_snapshot(args, snap))), opts, snap)
 
         when "select"
           uid = require_ref(ref)
           return uid if uid.is_a?(Hash)
           values = Array(opts[:values] || opts["values"] || [])
-          mcp_call("fill", with_page({ uid: uid, value: values.first.to_s }))
+          args = { uid: uid, value: values.first.to_s }
+          return act_result(kind, mcp_call("fill", with_page(with_snapshot(args, snap))), opts, snap)
 
         when "scroll"
           direction = opts[:direction] || opts["direction"] || "down"
@@ -352,7 +398,8 @@ module Clacky
             sleep(ms.to_i / 1000.0)
             return { action: "act", success: true, profile: "user", output: "Waited #{ms}ms" }
           elsif sel
-            mcp_call("wait_for", with_page({ text: [sel] }))
+            # wait_for always attaches a snapshot server-side.
+            return act_result(kind, mcp_call("wait_for", with_page({ text: [sel] })), opts, true)
           else
             sleep(1)
           end
@@ -367,14 +414,80 @@ module Clacky
           x = opts[:x] || opts["x"]
           y = opts[:y] || opts["y"]
           return { error: "click_at requires x and y coordinates" } unless x && y
-          result = mcp_call("click_at", with_page({ x: x.to_f, y: y.to_f }))
-          return { action: "act", success: true, profile: "user", output: extract_message(result).to_s }
+          args = { x: x.to_f, y: y.to_f }
+          return act_result(kind, mcp_call("click_at", with_page(with_snapshot(args, snap))), opts, snap)
 
         else
           return { error: "Unknown act kind: #{kind}" }
         end
 
         { action: "act", success: true, profile: "user", output: "#{kind} completed." }
+      end
+
+      # act defaults to returning the post-action snapshot: chrome-devtools-mcp
+      # renders it in the same response, so a follow-up snapshot call is waste.
+      private def include_snapshot?(opts)
+        val = opts.key?(:include_snapshot) ? opts[:include_snapshot] : opts["include_snapshot"]
+        return true if val.nil?
+        !(val == false || val.to_s == "false")
+      end
+
+      private def with_snapshot(args, enabled)
+        enabled ? args.merge(includeSnapshot: true) : args
+      end
+
+      private def normalize_form_elements(raw)
+        list = Array(raw)
+        return { error: "fill_form requires a non-empty `elements` array of {ref, value}" } if list.empty?
+
+        normalized = list.map do |entry|
+          next nil unless entry.is_a?(Hash)
+          uid   = entry[:ref]   || entry["ref"]   || entry[:uid]   || entry["uid"]
+          value = entry[:value] || entry["value"] || entry[:text]  || entry["text"]
+          next nil if uid.nil? || uid.to_s.empty?
+          { uid: uid.to_s, value: value.to_s }
+        end.compact
+
+        return { error: "fill_form `elements` entries must each have a `ref`" } if normalized.empty?
+        normalized
+      end
+
+      # Render an act response: the MCP status line plus the post-action
+      # snapshot when one was attached.
+      private def act_result(kind, result, opts, snapshot_requested)
+        message = extract_act_message(result).strip
+        message = "#{kind} completed." if message.empty?
+
+        parts = [message]
+        included = false
+
+        if snapshot_requested
+          node = extract_snapshot(result)
+          if node.is_a?(Hash) && !node.empty?
+            text = build_ai_snapshot(node,
+                                     interactive: opts[:interactive] || opts["interactive"],
+                                     compact:     opts[:compact]     || opts["compact"],
+                                     max_depth:   opts[:depth]       || opts["depth"])
+            unless text.empty?
+              parts << "## Page snapshot after #{kind}\n#{text}"
+              included = true
+            end
+          end
+        end
+
+        { action: "act", success: true, profile: "user",
+          output: parts.join("\n\n"), snapshot_included: included }
+      end
+
+      # Like extract_message, but drops the MCP-rendered snapshot block from the
+      # text fallback so it is not duplicated alongside our own rendering.
+      private def extract_act_message(result)
+        return "" unless result.is_a?(Hash)
+
+        structured = result["structuredContent"]
+        return structured["message"].to_s if structured.is_a?(Hash) && structured["message"]
+
+        extract_text_content(result).split("## Latest page snapshot").first.to_s
       end
 
       # Merge pageId into MCP args when we know the current page. Safe no-op
@@ -460,11 +573,19 @@ module Clacky
       # -----------------------------------------------------------------------
 
       # Delegate to BrowserManager. Auto-retries once on transient page-context errors
-      # (closed/detached selected page, or "no active page" right after open).
+      # (closed/detached selected page, or "no active page" right after open) and on
+      # a missing page snapshot (fresh tab that ref-based calls cannot resolve yet).
       private def mcp_call(tool_name, arguments = {})
         Clacky::BrowserManager.instance.mcp_call(tool_name, arguments)
       rescue RuntimeError => e
         msg = e.message.to_s
+
+        if msg.include?(MISSING_SNAPSHOT_ERROR)
+          # Prime the page snapshot the MCP server resolves refs against, then retry once.
+          return Clacky::BrowserManager.instance.mcp_call(tool_name, arguments) if prime_page_snapshot
+          raise RuntimeError, "The page has no snapshot yet. Use action=snapshot first, then retry."
+        end
+
         if RETRYABLE_PAGE_ERRORS.any? { |frag| msg.include?(frag) }
           # Try to recover by re-selecting the most recent page, then retry once.
           recovered = recover_selected_page
@@ -474,7 +595,21 @@ module Clacky
           end
           raise RuntimeError, "The browser tab is no longer available. Use action=open to open a new tab, then retry."
         end
+
+        if STALE_REF_ERRORS.any? { |frag| msg.include?(frag) }
+          raise RuntimeError, "#{msg} The page changed — use action=snapshot to get fresh refs, then retry."
+        end
+
         raise
+      end
+
+      # Take a snapshot purely so the MCP server has refs to resolve against.
+      # Returns true when the page now has one.
+      private def prime_page_snapshot
+        Clacky::BrowserManager.instance.mcp_call("take_snapshot", with_page({}))
+        true
+      rescue StandardError
+        false
       end
 
       # Pick the currently selected page, or fall back to the most recent one,
@@ -762,7 +897,7 @@ module Clacky
         collapsed.join
       end
 
-      private def truncate_output(output, max_chars)
+      private def truncate_output(output, max_chars, paged: true)
         return output if output.length <= max_chars
 
         lines      = output.lines
@@ -774,8 +909,13 @@ module Clacky
           first_part << line
           acc += line.length
         end
-        hint = "\n... [truncated: #{first_part.size}/#{lines.size} lines shown — " \
-               "rerun with query=\"keyword\" or offset=#{first_part.size} to see more] ...\n"
+        hint = if paged
+                 "\n... [truncated: #{first_part.size}/#{lines.size} lines shown — " \
+                 "rerun with query=\"keyword\" or offset=#{first_part.size} to see more] ...\n"
+               else
+                 "\n... [truncated: #{first_part.size}/#{lines.size} lines shown — " \
+                 "use action=snapshot with query=\"keyword\" if you need the rest] ...\n"
+               end
         first_part.join + hint
       end
     end
