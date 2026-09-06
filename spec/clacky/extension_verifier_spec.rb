@@ -156,6 +156,26 @@ RSpec.describe Clacky::ExtensionVerifier do
     expect(unknown).to be_empty
   end
 
+  it "accepts disabled_skills on agents while still warning about misspelled fields" do
+    manifest = <<~YAML
+      id: filtered-agent-pack
+      origin: self
+      contributes:
+        agents:
+          - id: filtered
+            title: Filtered
+            prompt: prompt.md
+            disabled_skills: [triage]
+            disabled_skill: [typo]
+    YAML
+    make_ext(local, "filtered-agent-pack", manifest, "prompt.md" => "hi")
+
+    issues = described_class.verify(reload_layers)
+    unknown = issues.select { |i| i.code == "schema.unknown_field" && i.unit == "filtered" }
+    expect(unknown.size).to eq(1)
+    expect(unknown.first.message).to eq("agent unit has unknown key(s): disabled_skill")
+  end
+
   it "flags an agent referencing a non-existent panel" do
     manifest = <<~YAML
       id: ghost-ref
