@@ -17,7 +17,7 @@ module Clacky
   #
   #   class MyDashboardExt < Clacky::ApiExtension
   #     get "/summary" do
-  #       json(sessions: session_manager.list.size)
+  #       json(sessions: session_manager.all_sessions.size)
   #     end
   #   end
   #
