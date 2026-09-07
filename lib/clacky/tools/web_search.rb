@@ -30,10 +30,14 @@ module Clacky
       }
 
       # Ordered list of search providers to try in sequence.
-      # cn.bing.com is accessible in mainland China without VPN.
-      PROVIDERS = %i[duckduckgo bing].freeze
+      # Parallel is the primary no-key provider; the HTML scrapers remain as
+      # fallbacks, with cn.bing.com accessible in mainland China without VPN.
+      PROVIDERS = %i[parallel duckduckgo bing].freeze
 
       SEARCHER_TIMEOUT = 30
+      PARALLEL_ENDPOINT = "https://search.parallel.ai/mcp"
+      PARALLEL_SNIPPET_MAX_CHARS = 400
+      PROVIDER_COOLDOWN_SECONDS = 600
 
       def execute(query:, max_results: 10, working_dir: nil)
         if query.nil? || query.strip.empty?
@@ -57,8 +61,13 @@ module Clacky
               error: nil
             }
           rescue StandardError => e
-            # DuckDuckGo failed — suppress it for 10 minutes
-            @ddg_unavailable_until = Time.now + 600 if provider == :duckduckgo
+            # Avoid paying the same network/handshake failure on every search.
+            if provider == :parallel
+              reset_parallel_client
+              @parallel_unavailable_until = Time.now + PROVIDER_COOLDOWN_SECONDS
+            elsif provider == :duckduckgo
+              @ddg_unavailable_until = Time.now + PROVIDER_COOLDOWN_SECONDS
+            end
             last_error = e
             next
           end
@@ -93,11 +102,73 @@ module Clacky
         # broken key or script look like a low-quality result set.
         return [:custom] if Clacky::SearchConfig.script_path
 
-        if @ddg_unavailable_until && Time.now < @ddg_unavailable_until
-          PROVIDERS.drop(1)
-        else
-          PROVIDERS
+        PROVIDERS.reject do |provider|
+          unavailable_until = case provider
+                              when :parallel then @parallel_unavailable_until
+                              when :duckduckgo then @ddg_unavailable_until
+                              end
+          unavailable_until && Time.now < unavailable_until
         end
+      end
+
+      # ── Parallel Free MCP ──────────────────────────────────────────────────
+
+      private def search_parallel(query, max_results)
+        result = parallel_client.call_tool(
+          "web_search",
+          {
+            "objective" => query[0, 5000],
+            "search_queries" => [query[0, 200]],
+            "session_id" => parallel_logical_session_id
+          }
+        )
+
+        if result["isError"]
+          message = extract_parallel_content_text(result)
+          raise(message.empty? ? "Parallel search failed" : message)
+        end
+
+        payload = result["structuredContent"]
+        payload ||= JSON.parse(extract_parallel_content_text(result))
+        raise "Parallel returned malformed search results" unless payload.is_a?(Hash) && payload["results"].is_a?(Array)
+
+        payload["results"].filter_map do |item|
+          next unless item.is_a?(Hash)
+
+          url = item["url"].to_s
+          next if url.empty?
+
+          snippet = Array(item["excerpts"]).join(" ").gsub(/\s+/, " ").strip
+          {
+            title: item["title"].to_s,
+            url: url,
+            snippet: snippet[0, PARALLEL_SNIPPET_MAX_CHARS]
+          }
+        end.first(max_results)
+      rescue JSON::ParserError
+        raise "Parallel returned malformed JSON"
+      end
+
+      private def parallel_client
+        @parallel_client ||= Clacky::Mcp::Client.from_spec(
+          "parallel-free",
+          { "type" => "http", "url" => PARALLEL_ENDPOINT }
+        ).tap(&:start)
+      end
+
+      private def reset_parallel_client
+        @parallel_client&.stop
+        @parallel_client = nil
+      end
+
+      private def parallel_logical_session_id
+        @parallel_logical_session_id ||= SecureRandom.uuid
+      end
+
+      private def extract_parallel_content_text(result)
+        Array(result["content"]).filter_map do |item|
+          item["text"] if item.is_a?(Hash) && item["type"] == "text"
+        end.join("\n")
       end
 
       # ── Configured searcher (~/.clacky/searchers/<provider>.rb) ────────────

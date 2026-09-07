@@ -6,10 +6,10 @@ require "fileutils"
 module Clacky
   # Search provider selection, backed by ~/.clacky/search.yml.
   #
-  # The built-in DuckDuckGo/Bing scrapers need no configuration and stay the
-  # default. Pointing `provider` at a script in ~/.clacky/searchers/ routes
+  # The built-in Parallel/DuckDuckGo/Bing providers need no configuration and
+  # stay the default. Pointing `provider` at a script in ~/.clacky/searchers/ routes
   # web_search through an API-backed engine instead, which is what users who
-  # want higher-quality results (or China-reachable ones) reach for.
+  # want a provider-specific API or policy controls reach for.
   #
   # search.yml schema:
   #   provider: tavily     — basename of a script in ~/.clacky/searchers/;

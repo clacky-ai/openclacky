@@ -6,7 +6,10 @@ RSpec.describe Clacky::Tools::WebSearch do
   describe "#execute" do
     # A searcher configured on the dev machine would run in a subprocess and
     # bypass the Net::HTTP stubs below, so pin the config off.
-    before { allow(Clacky::SearchConfig).to receive(:script_path).and_return(nil) }
+    before do
+      allow(Clacky::SearchConfig).to receive(:script_path).and_return(nil)
+      allow(tool).to receive(:search_parallel).and_raise(StandardError.new("Parallel unavailable"))
+    end
 
     it "returns error for empty query" do
       result = tool.execute(query: "")

@@ -103,6 +103,7 @@ RSpec.describe Clacky::Tools::WebSearch, "configured searcher" do
   end
 
   it "ignores an unset provider and uses the built-ins" do
+    allow(tool).to receive(:search_parallel).and_return([])
     allow(tool).to receive(:search_duckduckgo).and_return(
       [{ title: "ddg", url: "https://example.com", snippet: "" }]
     )

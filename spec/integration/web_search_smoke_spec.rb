@@ -24,7 +24,8 @@ RSpec.describe "WebSearch smoke tests", :smoke do
     it "returns results from #{provider}" do
       results = begin
         tool.send(:"search_#{provider}", query, 5)
-      rescue Net::OpenTimeout, Net::ReadTimeout, Errno::ECONNREFUSED, SocketError => e
+      rescue Net::OpenTimeout, Net::ReadTimeout, Errno::ECONNREFUSED, SocketError,
+             Clacky::Mcp::Client::McpError, Clacky::Mcp::Client::TransportError => e
         skip "#{provider} unreachable in this environment (#{e.class})" unless required
         []
       end
@@ -41,6 +42,9 @@ RSpec.describe "WebSearch smoke tests", :smoke do
       results.each do |r|
         expect(r[:title]).not_to be_empty,   "empty title in #{provider} result: #{r.inspect}"
         expect(r[:url]).to match(/\Ahttps?:\/\/.+/), "invalid URL in #{provider}: #{r[:url].inspect}"
+        if provider == :parallel
+          expect(r[:snippet].length).to be <= Clacky::Tools::WebSearch::PARALLEL_SNIPPET_MAX_CHARS
+        end
       end
 
       relevant = results.any? { |r| r[:title].downcase.include?("ruby") || r[:url].downcase.include?("ruby") }
@@ -57,6 +61,10 @@ RSpec.describe "WebSearch smoke tests", :smoke do
     # DuckDuckGo may be blocked or rate-limited in some environments (e.g. mainland China).
     # Mark as non-required so it skips instead of failing when blocked.
     include_examples "live search provider", :duckduckgo, required: false
+  end
+
+  describe "Parallel" do
+    include_examples "live search provider", :parallel, required: false
   end
 
   describe "Bing" do
