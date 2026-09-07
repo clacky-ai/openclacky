@@ -53,7 +53,7 @@ module Clacky
     attr_reader :product_name, :package_name, :license_key, :license_activated_at,
                 :license_expires_at, :license_last_heartbeat, :device_id,
                 :logo_url, :support_contact, :license_user_id,
-                :support_qr_url, :theme_color, :homepage_url,
+                :support_qr_url, :theme_color,
                 :distribution_last_refreshed_at, :license_last_heartbeat_failure
 
     def initialize(attrs = {})
@@ -1649,6 +1649,17 @@ module Clacky
       # Non-fatal — metadata write failure should not break the upload flow
     end
 
+    # Vendors may configure a bare domain ("example.com"). Without a scheme the
+    # browser treats it as a relative path and resolves it against the local
+    # server, so normalize on read to cover every consumer at once.
+    def homepage_url
+      raw = @homepage_url.to_s.strip
+      return nil if raw.empty?
+      return raw if raw.match?(%r{\A[a-z][a-z0-9+.\-]*:}i)
+
+      "https://#{raw}"
+    end
+
     # Returns a hash representation for JSON serialization (e.g. /api/brand).
     def to_h
       {
@@ -1658,7 +1669,7 @@ module Clacky
         support_contact:    @support_contact,
         support_qr_url:     @support_qr_url,
         theme_color:        @theme_color,
-        homepage_url:       @homepage_url,
+        homepage_url:       homepage_url,
         branded:            branded?,
         activated:          activated?,
         expired:            expired?,
