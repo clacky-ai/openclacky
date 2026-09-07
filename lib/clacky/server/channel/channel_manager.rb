@@ -272,7 +272,7 @@ module Clacky
         end
 
         # Handle built-in commands
-        if text&.match?(KNOWN_COMMAND) || text&.match?(/\A([\?h]|help)\z/i)
+        if text&.match?(KNOWN_COMMAND)
           handle_command(adapter, event, text)
           return
         end
@@ -366,7 +366,7 @@ module Clacky
         key     = channel_key(event)
 
         case text
-        when /\A([\?h]|help)\z/i
+        when %r{\A/([?？]|h|help)\z}i
           adapter.send_text(chat_id, COMMAND_HELP)
 
         when "/new", "/clear"
@@ -506,15 +506,18 @@ module Clacky
           list_sessions(adapter, chat_id)
 
         else
-          adapter.send_text(chat_id, "Unknown command. Type ? for help.")
+          adapter.send_text(chat_id, "Unknown command. Type /? for help.")
         end
       end
 
-      KNOWN_COMMAND = %r{\A/(new|clear|model|skills|bind|stop|unbind|status|list)\b}i
+      # "/?" is anchored with \z instead of \b because \b never matches after
+      # "?" (not a word character), which would let "/?extra" through.
+      # "？" is accepted too since Chinese IMEs produce the full-width form.
+      KNOWN_COMMAND = %r{\A/(?:[?？]\z|(?:h|help|new|clear|model|skills|bind|stop|unbind|status|list)\b)}i
 
       COMMAND_HELP = <<~HELP.strip
         Commands:
-          ? / h / help - show this help
+          /? / /h / /help - show this help
           /new / /clear - start a new session
           /model - show current model, cards & quick-switch list
           /model <n> - switch card by number
