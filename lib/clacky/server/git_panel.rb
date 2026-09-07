@@ -2,6 +2,8 @@
 
 require "open3"
 
+require_relative "../utils/encoding"
+
 module Clacky
   module Server
     # Read-mostly git operations scoped to a session's working directory, backing
@@ -14,9 +16,15 @@ module Clacky
 
       # Run a git subcommand in `dir` with argv-style args (no shell). Returns
       # [stdout, stderr, success_bool]. Never raises on git failure.
+      #
+      # `core.quotePath=false` keeps git from octal-escaping non-ASCII paths, so
+      # the parsers below (and the path comparisons in `restore`) see the same
+      # bytes the caller passed in. Output is then normalised to UTF-8 because
+      # git inherits the locale, and under a non-UTF-8 locale the raw bytes come
+      # back tagged US-ASCII, where String#split would raise on multibyte paths.
       def git(dir, *args)
-        out, err, status = Open3.capture3("git", "-C", dir.to_s, *args)
-        [out, err, status.success?]
+        out, err, status = Open3.capture3("git", "-C", dir.to_s, "-c", "core.quotePath=false", *args)
+        [Utils::Encoding.to_utf8(out), Utils::Encoding.to_utf8(err), status.success?]
       rescue StandardError => e
         ["", e.message, false]
       end
