@@ -3303,6 +3303,56 @@ body {
   background: var(--color-bg-primary);
 }
 
+/* CSV/TSV: read-only table view; edit the original via "Open ▾" */
+.wv-pane--table {
+  flex-direction: column;
+  background: var(--color-bg-primary);
+  overflow: hidden;
+}
+.wv-table-scroll {
+  flex: 1;
+  overflow: auto;
+}
+.wv-table-scroll table {
+  /* Padding must live on the table, not the scroller: a sticky header stops at the
+     scroller's padding box, so scroller padding leaves a transparent gap that rows
+     scroll through. `separate` keeps cell borders from detaching while stuck. */
+  margin: 0.5rem;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 0.8125rem;
+  font-family: var(--font-mono, ui-monospace, monospace);
+}
+.wv-table-scroll th,
+.wv-table-scroll td {
+  border-right: 1px solid var(--color-border-primary);
+  border-bottom: 1px solid var(--color-border-primary);
+  padding: 0.25rem 0.5rem;
+  text-align: left;
+  white-space: pre;
+  vertical-align: top;
+}
+.wv-table-scroll tr > :first-child { border-left: 1px solid var(--color-border-primary); }
+.wv-table-scroll thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  border-top: 1px solid var(--color-border-primary);
+  background: var(--color-bg-secondary);
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+.wv-table-scroll tbody td { color: var(--color-text-secondary); }
+.wv-table-scroll tbody tr:hover td { background: var(--color-bg-hover); }
+.wv-table-note {
+  flex-shrink: 0;
+  padding: 0.375rem 0.75rem;
+  border-top: 1px solid var(--color-border-primary);
+  font-size: 0.75rem;
+  color: var(--color-text-tertiary);
+  background: var(--color-bg-secondary);
+}
+
 /* Binary fallback: file icon + name + hints; "Open ▾" lives in the tabbar */
 .wv-pane--fallback {
   flex-direction: column;
