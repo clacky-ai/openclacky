@@ -13460,6 +13460,23 @@ body.setup-mode[data-theme="dark"] {
 .billing-trend-svg:hover .billing-trend-dot {
   opacity: 1;
 }
+.billing-trend-svg .billing-trend-dot.is-active {
+  opacity: 1;
+  transform-box: fill-box;
+  transform-origin: center;
+  transform: scale(1.5);
+  transition: none;
+}
+.billing-trend-crosshair {
+  stroke: var(--color-accent-primary);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+  opacity: 0;
+  pointer-events: none;
+}
+.billing-trend-crosshair.is-visible {
+  opacity: 0.5;
+}
 
 /* ── Chart Card base ─────────────────────────────────────────────────── */
 .billing-chart-row { width: 100%; }
@@ -13598,6 +13615,13 @@ body.setup-mode[data-theme="dark"] {
   z-index: 1000;
   min-width: 200px;
   pointer-events: none;
+}
+/* 200px is wider than half the chart on a phone; let it shrink to fit. */
+@media (max-width: 768px) {
+  .billing-chart-tooltip {
+    min-width: 0;
+    max-width: calc(100vw - 16px);
+  }
 }
 .tooltip-header {
   display: flex;
