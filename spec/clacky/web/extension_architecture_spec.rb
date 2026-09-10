@@ -257,12 +257,40 @@ RSpec.describe "WebUI extension architecture" do
       "Workspace"      => "features/workspace/store.js",
       "WorkspaceStore" => "features/workspace/store.js",
       "Backup"         => "features/backup/store.js",
+      "Aside"          => "core/aside.js",
     }.each do |name, rel|
       it "exposes Clacky.#{name} in #{rel}" do
         src = File.read(File.join(web_dir, rel))
         expect(src).to include("Clacky.#{name} = "),
           "#{rel} must assign `Clacky.#{name} = #{name};` so extensions can reach it via the Clacky namespace"
       end
+    end
+  end
+
+  describe "aside temporary width contract" do
+    let(:aside_js) { File.read(File.join(web_dir, "core", "aside.js")) }
+    let(:workspace_view_js) { File.read(File.join(web_dir, "features", "workspace", "view.js")) }
+    let(:git_view_js) do
+      File.read(File.expand_path("../../../lib/clacky/default_extensions/git/panels/git/view.js", __dir__))
+    end
+
+    it "keeps temporary width ownership in the host facade" do
+      expect(aside_js).to include("requestWidth: requestWidth")
+      expect(aside_js).to include("const widthRequests = new Map()")
+      expect(aside_js).to include("widthRequests.delete(id)")
+      expect(aside_js).to include('window.matchMedia("(max-width: 768px)").matches')
+    end
+
+    it "makes Files release its borrowed width after the final tab and on teardown" do
+      expect(workspace_view_js).to include("Clacky.Aside.requestWidth(VIEWER_ASIDE_WIDTH)")
+      expect(workspace_view_js).to include("if (tabs.length === 0) restoreAsideWidth()")
+      expect(workspace_view_js).to match(/function destroy\(\) \{\s*restoreAsideWidth\(\)/)
+      expect(workspace_view_js).not_to include("requestWidth(VIEWER_ASIDE_WIDTH, { persist: true })")
+    end
+
+    it "keeps the Git diff on the same host-managed contract" do
+      expect(git_view_js).to include("Clacky.Aside.requestWidth(DIFF_ASIDE_WIDTH)")
+      expect(git_view_js).to include("const release = releaseAsideWidth")
     end
   end
 end
