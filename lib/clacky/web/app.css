@@ -3261,6 +3261,7 @@ body {
 .wv-action:hover { background: var(--color-bg-hover); color: var(--color-text-primary); }
 .wv-action.active { background: var(--color-bg-hover); color: var(--color-accent-primary); }
 .wv-action.dirty { color: var(--color-accent-primary); }
+.wv-mobile-back { display: none; }
 
 .wv-content { flex: 1; min-height: 0; position: relative; }
 .wv-pane { position: absolute; inset: 0; display: none; }
@@ -15549,21 +15550,43 @@ body.setup-mode[data-theme="dark"] {
   #session-aside {
     position: fixed;
     top: 0;
+    left: 0;
     right: 0;
     height: 100%;
     z-index: 200;
     box-shadow: -4px 0 24px rgba(0,0,0,0.18);
     transition: transform 0.3s ease, background-color 0.3s ease;
     transform: translateX(0);
-    width: var(--session-aside-width);
+    width: auto;
   }
   #session-aside.collapsed {
     transform: translateX(100%);
-    width: var(--session-aside-width);
+    width: auto;
     border-left: 1px solid var(--color-border-primary);
   }
   #session-aside-resize { display: none; }
   .aside-tabbar-actions #btn-aside-fullscreen { display: none; }
+
+  /* The mobile workspace is a list/detail flow, not a compressed desktop split. */
+  .wv-tree-resize,
+  .wv-root.has-open-files .wv-tree-resize,
+  .wv-toggle-tree {
+    display: none;
+  }
+  .wv-mobile-back { display: inline-flex; }
+  .wv-root.has-open-files:not(.mobile-tree-visible) .wv-tree-pane {
+    display: none;
+  }
+  .wv-root.has-open-files.mobile-tree-visible .wv-tree-pane {
+    display: flex;
+    flex: 1 1 auto;
+    width: 100%;
+    min-width: 0;
+    max-width: none;
+  }
+  .wv-root.has-open-files.mobile-tree-visible .wv-viewer {
+    display: none;
+  }
 
   #workspace-overlay {
     display: none;
