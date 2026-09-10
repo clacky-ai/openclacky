@@ -13616,13 +13616,6 @@ body.setup-mode[data-theme="dark"] {
   min-width: 200px;
   pointer-events: none;
 }
-/* 200px is wider than half the chart on a phone; let it shrink to fit. */
-@media (max-width: 768px) {
-  .billing-chart-tooltip {
-    min-width: 0;
-    max-width: calc(100vw - 16px);
-  }
-}
 .tooltip-header {
   display: flex;
   justify-content: space-between;
@@ -15622,6 +15615,12 @@ body.setup-mode[data-theme="dark"] {
   #ns-skill-autocomplete {
     left: 16px;
     right: 16px;
+  }
+
+  /* 200px is wider than half the chart on a phone; let it shrink to fit. */
+  .billing-chart-tooltip {
+    min-width: 0;
+    max-width: calc(100vw - 16px);
   }
 }
 
