@@ -15371,6 +15371,26 @@ body.setup-mode[data-theme="dark"] {
     padding: 0.75rem 1rem;
     font-size: 0.9375rem;
   }
+  #settings-tabs {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding: 0 0.5rem;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  #settings-tabs::-webkit-scrollbar {
+    display: none;
+  }
+  #settings-tabs .settings-tab {
+    flex: 0 0 auto;
+    padding: 0.625rem 0.875rem;
+    white-space: nowrap;
+  }
+  #ext-slot-settings-tabs,
+  #ext-slot-settings-tabs > div {
+    display: contents;
+  }
   #settings-body {
     padding: 1rem 1rem 5rem;
     gap: 1.5rem;
@@ -15389,8 +15409,35 @@ body.setup-mode[data-theme="dark"] {
     flex-wrap: wrap;
     gap: 0.5rem;
   }
+  .settings-tab-content[data-tab-content="models"] .settings-section-title {
+    align-items: stretch;
+  }
+  .settings-tab-content[data-tab-content="models"] .settings-section-title > span {
+    width: 100%;
+  }
+  .models-header-actions {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(7rem, 7.5rem);
+    align-items: center;
+    flex: 1 0 100%;
+    width: 100%;
+  }
+  .model-search-box {
+    width: 100%;
+    max-width: none;
+  }
+  .model-provider-filter {
+    width: 100%;
+    max-width: none;
+  }
+  .model-provider-filter .custom-select-dropdown {
+    right: 0;
+    left: auto;
+    max-width: calc(100vw - 2rem);
+  }
   /* Add Model button: full width on mobile */
   .btn-settings-add {
+    grid-column: 1 / -1;
     width: 100%;
     justify-content: center;
   }
