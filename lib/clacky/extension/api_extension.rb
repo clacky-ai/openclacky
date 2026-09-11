@@ -272,9 +272,10 @@ module Clacky
     # controls the user-facing bubble shown in place of the raw prompt.
     # When `project_id` is given, the project's working_dir is inherited
     # (unless an explicit working_dir overrides it) and the session is
-    # associated with the project.
+    # associated with the project. `model_id` selects a configured model by
+    # its stable id; omitting it keeps the current default model.
     def create_session(name: nil, prompt: nil, working_dir: nil, profile: "general",
-                       source: :manual, display_message: nil, project_id: nil)
+                       source: :manual, display_message: nil, project_id: nil, model_id: nil)
       error!("server not ready", status: 503) unless @http_server
 
       src = source.to_s
@@ -290,6 +291,14 @@ module Clacky
       project = project_id ? project_manager&.find(project_id) : nil
       error!("Project not found", status: 404) if project_id && project.nil?
 
+      if model_id
+        model_id = model_id.to_s.strip
+        model_id = nil if model_id.empty?
+      end
+      if model_id && !agent_config.models.any? { |model| model["id"] == model_id }
+        error!("Model not found in configuration", status: 400)
+      end
+
       working_dir = File.expand_path(project[:working_dir]) if working_dir.nil? && project && project[:working_dir].to_s.strip != ""
 
       session_id = @http_server.send(
@@ -297,7 +306,8 @@ module Clacky
         name: name,
         working_dir: working_dir,
         profile: profile,
-        source: source
+        source: source,
+        model_id: model_id
       )
 
       if project_id
@@ -309,9 +319,11 @@ module Clacky
         end
       end
 
-      submit_task(session_id, prompt, display_message: display_message) if prompt && !prompt.strip.empty?
+      # Announce creation only after identity/placement metadata is persisted,
+      # and before submit_task can emit ordinary running-state updates.
+      @http_server.send(:broadcast_session_update, session_id, created: true)
 
-      @http_server.send(:broadcast_session_update, session_id)
+      submit_task(session_id, prompt, display_message: display_message) if prompt && !prompt.strip.empty?
 
       session_id
     end

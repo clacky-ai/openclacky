@@ -1045,7 +1045,7 @@ module Clacky
           end
         end
 
-        broadcast_session_update(session_id)
+        broadcast_session_update(session_id, created: true)
         summary = @registry.session_summary(session_id)
         json_response(res, 201, { session: summary })
       end
@@ -4965,6 +4965,7 @@ module Clacky
 
         session_id = build_session(name: session_name, working_dir: working_dir, permission_mode: :auto_approve)
         @registry.update(session_id, pending_task: prompt, pending_working_dir: working_dir)
+        broadcast_session_update(session_id, created: true)
 
         json_response(res, 202, { ok: true, session: @registry.session_summary(session_id) })
       rescue => e
@@ -7315,7 +7316,7 @@ module Clacky
         return json_response(res, 404, { error: "Session not found" }) unless fork_data
 
         fork_id = fork_data[:session_id]
-        broadcast_session_update(fork_id)
+        broadcast_session_update(fork_id, created: true)
         json_response(res, 201, { session: @registry.snapshot(fork_id) })
       end
 
@@ -8036,12 +8037,16 @@ module Clacky
       end
 
       # Broadcast a session_update event to all clients so they can patch their
-      # local session list without needing a full session_list refresh.
-      def broadcast_session_update(session_id)
+      # local session list without needing a full session_list refresh. Creation
+      # paths set created: true after the initial snapshot is fully persisted so
+      # clients can insert the session without treating later updates as new rows.
+      def broadcast_session_update(session_id, created: false)
         session = @registry.snapshot(session_id)
         return unless session
 
-        broadcast_all(type: "session_update", session: session)
+        event = { type: "session_update", session: session }
+        event[:created] = true if created
+        broadcast_all(event)
       end
 
       # ── Helpers ───────────────────────────────────────────────────────────────
