@@ -56,3 +56,25 @@ RSpec.describe "ExtStudioExt API handler" do
     expect(File.read(manifest_path)).to eq(original)
   end
 end
+
+RSpec.describe "ExtStudioExt creator navigation" do
+  let(:view_source) do
+    File.read(File.expand_path(
+      "../../lib/clacky/default_extensions/ext-studio/panels/studio/view.js",
+      __dir__
+    ))
+  end
+
+  it "hides the creator center for branded non-owners using the existing permission flags" do
+    expect(view_source).to include(
+      'const brandNonAdmin = typeof Brand !== "undefined" && Brand.branded && !Brand.userLicensed;'
+    )
+    expect(view_source).to include("creatorNavItem.hidden = !brandStatusReady || brandNonAdmin;")
+  end
+
+  it "updates the navigation after brand status is resolved" do
+    expect(view_source).to include('Brand.on("brand:status", function () {')
+    expect(view_source).to include("brandStatusReady = true;")
+    expect(view_source).to include("syncCreatorNavVisibility();")
+  end
+end
