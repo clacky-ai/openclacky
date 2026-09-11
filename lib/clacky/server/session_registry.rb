@@ -40,6 +40,10 @@ module Clacky
 
       # Create a new (empty) session entry and return its id.
       # agent/ui/thread are set later via with_session once they are constructed.
+      def agent_config_input_behavior
+        @agent_config.input_behavior
+      end
+
       def create(session_id:)
         raise ArgumentError, "session_id is required" if session_id.nil? || session_id.empty?
 

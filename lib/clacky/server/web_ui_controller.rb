@@ -16,6 +16,10 @@ module Clacky
     class WebUIController
       include Clacky::UIInterface
 
+      def show_input_queue(entries)
+        @broadcaster.call(@session_id, { type: "input_queue", session_id: @session_id, entries: entries })
+      end
+
       attr_reader :session_id
 
       def initialize(session_id, broadcaster)
@@ -66,8 +70,9 @@ module Clacky
 
       # === Output display ===
 
-      def show_user_message(content, created_at: nil, files: [], source: :web, skill_command: nil, skill_command_display: nil)
+      def show_user_message(content, created_at: nil, files: [], source: :web, skill_command: nil, skill_command_display: nil, steering: false)
         data = { content: content }
+        data[:steering] = true if steering
         data[:created_at] = created_at if created_at
         data[:skill_command] = skill_command if skill_command
         data[:skill_command_display] = skill_command_display if skill_command_display

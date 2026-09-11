@@ -107,6 +107,8 @@ module Clacky
       @reasoning_effort = nil  # Per-session reasoning effort override; nil = provider default
       @ui = ui  # UIController for direct UI interaction
       @debug_logs = []  # Debug logs for troubleshooting
+      @input_mutex = Mutex.new
+      @input_queue = []
       @pending_injections = []     # Pending inline skill injections to flush after observe()
       @pending_subagent_transcripts = {} # tool_call_id => [subagent trails], attached by observe()
       @subagent_transcripts_mutex = Mutex.new # fan-out collects from worker threads
@@ -567,167 +569,11 @@ module Clacky
       # Inject chunk index card if archived chunks exist and index is stale
       inject_chunk_index_if_needed
 
-      # Split files into vision images and disk files; downgrade oversized images to disk
-      image_files, disk_files = partition_files(Array(files))
-      vision_images, downgraded = resolve_vision_images(image_files)
-      all_disk_files = disk_files + downgraded
-
-      # Format user message — text + inline vision images
-      # Store the tmp path and original name alongside the data_url: the path supports
-      # normal replay, while the name becomes the lightweight badge after compression.
-      user_content = format_user_content(
-        user_input,
-        vision_images.map { |v| { url: v[:url], path: v[:path], name: v[:name] } }
-      )
-
-      # Parse disk files — agent's responsibility, not the upload layer.
-      # process_path runs the parser script and returns a FileRef with preview_path or parse_error.
-      all_disk_files = all_disk_files.map do |f|
-        path = f[:path] || f["path"]
-        name = f[:name] || f["name"]
-        next f unless path && File.exist?(path.to_s)
-        # Preserve the downgrade_reason tag across the remap (process_path
-        # returns a fresh FileRef that doesn't know about it). Without this,
-        # the file_prompt builder can't emit the "not supported by model" /
-        # "too large" note for downgraded images.
-        downgrade_reason = f[:downgrade_reason] || f["downgrade_reason"]
-        ocr_text         = f[:ocr_text]         || f["ocr_text"]
-        reference        = f[:reference]        || f["reference"]
-
-        # Directory references: capture only the path so the LLM can explore
-        # on demand with the read/shell tools.
-        if File.directory?(path.to_s)
-          next { name: name || File.basename(path.to_s), type: "directory", path: path.to_s,
-                 reference: reference }
-        end
-
-        ref = Utils::FileProcessor.process_path(path, name: name)
-        { name: ref.name, type: ref.type.to_s, path: ref.original_path,
-          preview_path: ref.preview_path, parse_error: ref.parse_error, parser_path: ref.parser_path,
-          downgrade_reason: downgrade_reason, ocr_text: ocr_text, reference: reference }
-      end
-
-      # Build display_files for replay: lightweight metadata so the UI can reconstruct
-      # file badges (PDF, doc, etc.) on page refresh. Vision-inlined images are NOT
-      # stored here — they recover from image_url blocks in user_content. Downgraded
-      # images (provider has no vision / too large / OCR'd) DO need path here so the
-      # UI can re-render them from the on-disk copy across session switches.
-      display_files = all_disk_files.filter_map do |f|
-        # @mention file/directory references are replayed from display_references
-        # (with mention badges), so skip them here to avoid double-rendering as
-        # plain attachment badges.
-        next if f[:reference] || f["reference"]
-        name = f[:name] || f["name"]
-        next unless name
-        { name: name, type: f[:type] || f["type"] || "file",
-          path: f[:path] || f["path"],
-          preview_path: f[:preview_path] || f["preview_path"] }
-      end
-
-      # Resolved once here (not after append) so the user message can carry the
-      # confirmed skill name: only a skill that actually dispatches gets marked,
-      # so the UI never highlights a typo'd or unavailable command. The display
-      # name is resolved against the client's language (Thread.current[:lang],
-      # seeded from the WS message / X-Lang header) so the Web UI and third-party
-      # clients can render a localized label without re-resolving the skill.
-      skill_command = parse_skill_command(user_input)
-      skill_command_display = if skill_command[:found] && skill_command[:skill]
-                                skill_command[:skill].display_name(Thread.current[:lang])
-                              end
-
-      created_at ||= Time.now.to_f
-      @history.append({ role: "user", content: user_content, task_id: task_id, created_at: created_at,
-                        display_text: display_text,
-                        skill_command: skill_command[:found] ? skill_command[:skill_name] : nil,
-                        skill_command_display: skill_command_display,
-                        display_files: display_files.empty? ? nil : display_files,
-                        display_references: Array(references_display).empty? ? nil : references_display })
+      append_user_input(user_input, files: files, reference_contexts: reference_contexts,
+                        display_text: display_text, created_at: created_at,
+                        references_display: references_display, task_id: task_id)
       @total_tasks += 1
-
-      # Inject disk file references as a system_injected message so:
-      #   - LLM sees the file info (system_injected is NOT stripped from to_api)
-      #   - replay_history skips it (next if ev[:system_injected]), keeping the user bubble clean
-      #
-      # Images: also injected here (alongside vision inline) so LLM knows filename + size.
-      all_meta_files = vision_images.map { |v|
-        { name: v[:name], type: "image", size_bytes: v[:size_bytes], path: v[:path] }
-      } + all_disk_files
-
-      unless all_meta_files.empty?
-        file_prompt = all_meta_files.filter_map do |f|
-          name             = f[:name]             || f["name"]
-          type             = f[:type]             || f["type"]
-          path             = f[:path]             || f["path"]
-          preview_path     = f[:preview_path]     || f["preview_path"]
-          size_bytes       = f[:size_bytes]       || f["size_bytes"]
-          parse_error      = f[:parse_error]      || f["parse_error"]
-          parser_path      = f[:parser_path]      || f["parser_path"]
-          downgrade_reason = f[:downgrade_reason] || f["downgrade_reason"]
-          ocr_text         = f[:ocr_text]         || f["ocr_text"]
-
-          next unless name
-
-          # Directory reference: emit only the path so the LLM can explore on
-          # demand with the read/shell tools.
-          if type == "directory"
-            next ["[Directory: #{name}]", "Path: #{path}"].join("\n")
-          end
-
-          lines = ["[File: #{name}]", "Type: #{type || "file"}"]
-          lines << "Size: #{format_size(size_bytes)}" if size_bytes
-          lines << "Original: #{path}" if path
-          lines << "Preview (Markdown): #{preview_path}" if preview_path
-
-          # Inline note explaining why an image was *not* sent as vision
-          # content. Colocated with the file info (not in system prompt) so
-          # it reflects the exact reason for *this* upload under *this*
-          # model — switching models later won't leave stale warnings.
-          note = downgrade_note_for(downgrade_reason)
-          lines << "Note: #{note}" if note
-
-          # OCR transcription (when an OCR sidecar successfully described
-          # an image the primary model couldn't see). Embedded inline so
-          # the LLM has the description colocated with the file entry.
-          if ocr_text && !ocr_text.strip.empty?
-            lines << "OCR description:"
-            lines << ocr_text.strip
-          end
-
-          # Parser failed — instruct LLM to fix and re-run
-          if preview_path.nil? && parse_error
-            lines << "Parse failed: #{parse_error}"
-            if parser_path
-              expected_preview = "#{path}.preview.md"
-              interp = Utils::ParserManager.interpreter_for(File.basename(parser_path))
-              lines << "Action required: fix the parser at #{parser_path}, then run:"
-              lines << "  #{interp} #{parser_path} #{path} > #{expected_preview}"
-              lines << "Once done, read #{expected_preview} to continue helping the user."
-            end
-          end
-
-          lines.join("\n")
-        end.join("\n\n")
-
-        unless file_prompt.empty?
-          @history.append({ role: "user", content: file_prompt, system_injected: true, task_id: task_id })
-        end
-      end
-
-      # Inject referenced past chats (the @mention "send as reference" behavior)
-      # as a system_injected message — same mechanism as file references: the LLM
-      # sees the context, but replay_history skips it and no user bubble renders.
-      Array(reference_contexts).each do |ctx|
-        next if ctx.to_s.strip.empty?
-        @history.append({ role: "user", content: ctx, system_injected: true, task_id: task_id })
-      end
-
       run_turn_started = true
-      # If the user typed a slash command targeting a skill with disable-model-invocation: true,
-      # inject the skill content as a synthetic assistant message so the LLM can act on it.
-      # Skills already in the system prompt (model_invocation_allowed?) are skipped.
-      # Covered by run's method-level ensure so a fork_subagent failure (e.g.
-      # skill-declared model not found) still stops the progress spinner.
-      inject_skill_command_as_assistant_message(skill_command, task_id)
 
       @hooks.trigger(:on_start, user_input)
 
@@ -745,6 +591,8 @@ module Clacky
         Clacky::Shutdown.checkpoint!
         @iterations += 1
         @hooks.trigger(:on_iteration, @iterations)
+
+        consume_pending_inputs
 
         # Think: LLM reasoning with tool support
         response = think
@@ -863,6 +711,10 @@ module Clacky
           # and skip skill evolution — the task isn't truly complete yet.
           turn_unfinished = true if ends_with_question
 
+          if consume_pending_inputs
+            turn_unfinished = false
+            next
+          end
           break
         end
 
@@ -1002,6 +854,258 @@ module Clacky
       # Guarded by run_turn_started so goal control commands (which return
       # before the task turn) are not counted as agent runs.
       Clacky::Telemetry.task!(result: result) if run_turn_started
+    end
+
+    # Shared by initial input and steering; only the execution thread writes history.
+    private def append_user_input(user_input, files: nil, reference_contexts: nil,
+                                  display_text: nil, created_at: nil, references_display: nil,
+                                  task_id: @current_task_id)
+      # Split files into vision images and disk files; downgrade oversized images to disk
+      image_files, disk_files = partition_files(Array(files))
+      vision_images, downgraded = resolve_vision_images(image_files)
+      all_disk_files = disk_files + downgraded
+
+      # Format user message — text + inline vision images
+      # Store the tmp path and original name alongside the data_url: the path supports
+      # normal replay, while the name becomes the lightweight badge after compression.
+      user_content = format_user_content(
+        user_input,
+        vision_images.map { |v| { url: v[:url], path: v[:path], name: v[:name] } }
+      )
+
+      # Parse disk files — agent's responsibility, not the upload layer.
+      # process_path runs the parser script and returns a FileRef with preview_path or parse_error.
+      all_disk_files = all_disk_files.map do |f|
+        path = f[:path] || f["path"]
+        name = f[:name] || f["name"]
+        next f unless path && File.exist?(path.to_s)
+        # Preserve the downgrade_reason tag across the remap (process_path
+        # returns a fresh FileRef that doesn't know about it). Without this,
+        # the file_prompt builder can't emit the "not supported by model" /
+        # "too large" note for downgraded images.
+        downgrade_reason = f[:downgrade_reason] || f["downgrade_reason"]
+        ocr_text         = f[:ocr_text]         || f["ocr_text"]
+        reference        = f[:reference]        || f["reference"]
+
+        # Directory references: capture only the path so the LLM can explore
+        # on demand with the read/shell tools.
+        if File.directory?(path.to_s)
+          next { name: name || File.basename(path.to_s), type: "directory", path: path.to_s,
+                 reference: reference }
+        end
+
+        ref = Utils::FileProcessor.process_path(path, name: name)
+        { name: ref.name, type: ref.type.to_s, path: ref.original_path,
+          preview_path: ref.preview_path, parse_error: ref.parse_error, parser_path: ref.parser_path,
+          downgrade_reason: downgrade_reason, ocr_text: ocr_text, reference: reference }
+      end
+
+      # Build display_files for replay: lightweight metadata so the UI can reconstruct
+      # file badges (PDF, doc, etc.) on page refresh. Vision-inlined images are NOT
+      # stored here — they recover from image_url blocks in user_content. Downgraded
+      # images (provider has no vision / too large / OCR'd) DO need path here so the
+      # UI can re-render them from the on-disk copy across session switches.
+      display_files = all_disk_files.filter_map do |f|
+        # @mention file/directory references are replayed from display_references
+        # (with mention badges), so skip them here to avoid double-rendering as
+        # plain attachment badges.
+        next if f[:reference] || f["reference"]
+        name = f[:name] || f["name"]
+        next unless name
+        { name: name, type: f[:type] || f["type"] || "file",
+          path: f[:path] || f["path"],
+          preview_path: f[:preview_path] || f["preview_path"] }
+      end
+
+      # Resolved once here (not after append) so the user message can carry the
+      # confirmed skill name: only a skill that actually dispatches gets marked,
+      # so the UI never highlights a typo'd or unavailable command. The display
+      # name is resolved against the client's language (Thread.current[:lang],
+      # seeded from the WS message / X-Lang header) so the Web UI and third-party
+      # clients can render a localized label without re-resolving the skill.
+      skill_command = parse_skill_command(user_input)
+      skill_command_display = if skill_command[:found] && skill_command[:skill]
+                                skill_command[:skill].display_name(Thread.current[:lang])
+                              end
+
+      created_at ||= Time.now.to_f
+      @history.append({ role: "user", content: user_content, task_id: task_id, created_at: created_at,
+                        display_text: display_text,
+                        skill_command: skill_command[:found] ? skill_command[:skill_name] : nil,
+                        skill_command_display: skill_command_display,
+                        display_files: display_files.empty? ? nil : display_files,
+                        display_references: Array(references_display).empty? ? nil : references_display })
+
+      # Inject disk file references as a system_injected message so:
+      #   - LLM sees the file info (system_injected is NOT stripped from to_api)
+      #   - replay_history skips it (next if ev[:system_injected]), keeping the user bubble clean
+      #
+      # Images: also injected here (alongside vision inline) so LLM knows filename + size.
+      all_meta_files = vision_images.map { |v|
+        { name: v[:name], type: "image", size_bytes: v[:size_bytes], path: v[:path] }
+      } + all_disk_files
+
+      unless all_meta_files.empty?
+        file_prompt = all_meta_files.filter_map do |f|
+          name             = f[:name]             || f["name"]
+          type             = f[:type]             || f["type"]
+          path             = f[:path]             || f["path"]
+          preview_path     = f[:preview_path]     || f["preview_path"]
+          size_bytes       = f[:size_bytes]       || f["size_bytes"]
+          parse_error      = f[:parse_error]      || f["parse_error"]
+          parser_path      = f[:parser_path]      || f["parser_path"]
+          downgrade_reason = f[:downgrade_reason] || f["downgrade_reason"]
+          ocr_text         = f[:ocr_text]         || f["ocr_text"]
+
+          next unless name
+
+          # Directory reference: emit only the path so the LLM can explore on
+          # demand with the read/shell tools.
+          if type == "directory"
+            next ["[Directory: #{name}]", "Path: #{path}"].join("\n")
+          end
+
+          lines = ["[File: #{name}]", "Type: #{type || "file"}"]
+          lines << "Size: #{format_size(size_bytes)}" if size_bytes
+          lines << "Original: #{path}" if path
+          lines << "Preview (Markdown): #{preview_path}" if preview_path
+
+          # Inline note explaining why an image was *not* sent as vision
+          # content. Colocated with the file info (not in system prompt) so
+          # it reflects the exact reason for *this* upload under *this*
+          # model — switching models later won't leave stale warnings.
+          note = downgrade_note_for(downgrade_reason)
+          lines << "Note: #{note}" if note
+
+          # OCR transcription (when an OCR sidecar successfully described
+          # an image the primary model couldn't see). Embedded inline so
+          # the LLM has the description colocated with the file entry.
+          if ocr_text && !ocr_text.strip.empty?
+            lines << "OCR description:"
+            lines << ocr_text.strip
+          end
+
+          # Parser failed — instruct LLM to fix and re-run
+          if preview_path.nil? && parse_error
+            lines << "Parse failed: #{parse_error}"
+            if parser_path
+              expected_preview = "#{path}.preview.md"
+              interp = Utils::ParserManager.interpreter_for(File.basename(parser_path))
+              lines << "Action required: fix the parser at #{parser_path}, then run:"
+              lines << "  #{interp} #{parser_path} #{path} > #{expected_preview}"
+              lines << "Once done, read #{expected_preview} to continue helping the user."
+            end
+          end
+
+          lines.join("\n")
+        end.join("\n\n")
+
+        unless file_prompt.empty?
+          @history.append({ role: "user", content: file_prompt, system_injected: true, task_id: task_id })
+        end
+      end
+
+      # Inject referenced past chats (the @mention "send as reference" behavior)
+      # as a system_injected message — same mechanism as file references: the LLM
+      # sees the context, but replay_history skips it and no user bubble renders.
+      Array(reference_contexts).each do |ctx|
+        next if ctx.to_s.strip.empty?
+        @history.append({ role: "user", content: ctx, system_injected: true, task_id: task_id })
+      end
+
+      # If the user typed a slash command targeting a skill with disable-model-invocation: true,
+      # inject the skill content as a synthetic assistant message so the LLM can act on it.
+      # Skills already in the system prompt (model_invocation_allowed?) are skipped.
+      # Covered by run's method-level ensure so a fork_subagent failure (e.g.
+      # skill-declared model not found) still stops the progress spinner.
+      inject_skill_command_as_assistant_message(skill_command, task_id)
+
+    end
+
+    def enqueue_input(content, **options)
+      entry = { id: SecureRandom.uuid, content: content, options: options }
+      @input_mutex.synchronize { @input_queue << entry }
+      notify_input_queue
+      entry[:id]
+    end
+
+    def pending_inputs
+      @input_mutex.synchronize { Marshal.load(Marshal.dump(@input_queue)) }
+    end
+
+    def take_pending_input
+      @input_mutex.synchronize { @input_queue.shift }
+    end
+
+    def edit_pending_input(id, content)
+      updated = @input_mutex.synchronize do
+        entry = @input_queue.find { |item| item[:id] == id }
+        if entry
+          entry[:content] = content
+          entry[:options][:display_text] = content if entry[:options][:display_text]
+          true
+        end
+      end
+      notify_input_queue
+      !!updated
+    end
+
+    def remove_pending_input(id)
+      removed = @input_mutex.synchronize do
+        index = @input_queue.index { |entry| entry[:id] == id }
+        @input_queue.delete_at(index) if index
+      end
+      notify_input_queue
+      removed
+    end
+
+    def run_pending_input(entry)
+      options = entry[:options].dup
+      source = options.delete(:source) || :web
+      notify_input_queue
+      @ui.show_user_message(options[:display_text] || entry[:content], created_at: options[:created_at],
+                            files: options[:files] || [], source: source, steering: true) if @ui&.respond_to?(:show_user_message)
+      run(entry[:content], **options)
+    end
+
+    def notify_input_queue
+      @ui.show_input_queue(pending_inputs) if @ui&.respond_to?(:show_input_queue)
+    end
+
+    private def consume_pending_inputs
+      # Claim a bounded batch so continuous typing cannot starve the model.
+      # Slash commands retain run-level dispatch and wait until this run finishes.
+      entries = @input_mutex.synchronize do
+        count = @input_queue.index { |entry| entry[:content].to_s.lstrip.start_with?("/") } || @input_queue.length
+        @input_queue.shift(count)
+      end
+      committed = 0
+      unless entries.empty?
+        @history.append(role: "user", system_injected: true, task_id: @current_task_id,
+                        content: "The following user messages were queued while you worked. Use them to guide the current task; retain its original objective and completed progress unless the user explicitly changes or cancels it.")
+      end
+      entries.each do |entry|
+        options = entry[:options].dup
+        source = options.delete(:source) || :web
+        history_size = @history.size
+        begin
+          append_user_input(entry[:content], **options)
+        rescue Exception
+          @history.truncate_from(history_size)
+          raise
+        end
+        committed += 1
+        @ui&.show_user_message(options[:display_text] || entry[:content],
+                               created_at: options[:created_at], files: options[:files] || [], source: source, steering: true) if @ui&.respond_to?(:show_user_message)
+      end
+      notify_input_queue unless entries.empty?
+      !entries.empty?
+    rescue Exception
+      # Includes explicit interruption during file parsing or UI delivery.
+      # Never replay committed input; preserve every unprocessed entry.
+      remaining = (entries || []).drop(committed || 0)
+      @input_mutex.synchronize { @input_queue.unshift(*remaining) }
+      raise
     end
 
     private def think

@@ -838,7 +838,7 @@ body {
 }
 #ext-slot-sidebar-nav {
   margin-top: 10px;
-  padding: 10px 0 0px; 
+  padding: 10px 0 0px;
   border-top: 1px solid var(--color-border-secondary);
 }
 #ext-slot-sidebar-nav-bottom {
@@ -4178,6 +4178,7 @@ body {
 .msg-assistant strong { font-weight: 500; color: var(--color-text-primary); }
 .msg-assistant em { font-style: italic; color: var(--color-text-secondary); }
 .msg-tool      { background: var(--color-bg-primary); border: 1px solid var(--color-border-primary); font-family: monospace; font-size: 0.75rem; color: var(--color-text-secondary); align-self: flex-start; }
+.msg-stopped { color: var(--color-text-secondary); font-size: 0.75rem; align-self: center; font-style: normal; }
 .msg-info      { color: var(--color-text-secondary); font-size: 0.75rem; align-self: center; font-style: italic; }
 .msg-info.msg-info-main { font-style: normal; }
 .msg-info-sub  { color: var(--color-text-secondary); font-size: 0.6875rem; align-self: center; opacity: 0.7; margin-top: -1.6875rem; }
@@ -5674,7 +5675,7 @@ body {
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
-  padding: 0px 24px 20px;
+  padding: 0px 24px 12px;
 }
 
 /* Hide top border when skill autocomplete is visible */
@@ -16294,3 +16295,38 @@ body.setup-mode[data-theme="dark"] {
 .quote-select-btn:active {
   background: #000;
 }
+
+/* Running-task input behavior menu. */
+#input-behavior-control { position: relative; flex-shrink: 0; align-self: center; }
+#input-behavior-control[hidden], #input-behavior-menu[hidden] { display: none; }
+#input-behavior-toggle { display: grid; place-items: center; width: 26px; height: 34px; padding: 0; border: none; border-radius: 7px; background: transparent; color: var(--color-text-secondary); cursor: pointer; }
+#input-behavior-toggle:hover, #input-behavior-toggle[aria-expanded="true"] { background: var(--color-bg-hover); color: var(--color-text-primary); }
+#input-behavior-menu { position: absolute; bottom: calc(100% + 12px); right: 0; width: min(280px, calc(100vw - 48px)); padding: 6px; border: 1px solid var(--color-border-primary); border-radius: 12px; background: var(--color-bg-primary); box-shadow: 0 8px 30px rgba(0,0,0,.14); z-index: 1000; }
+.input-behavior-heading { padding: 6px 10px 8px; font-size: 11px; color: var(--color-text-tertiary); }
+#input-behavior-menu button { display: flex; gap: 9px; align-items: flex-start; width: 100%; padding: 10px 8px; border: 0; border-radius: 7px; text-align: left; font-family: inherit; background: transparent; color: var(--color-text-primary); cursor: pointer; }
+#input-behavior-menu button:hover { background: var(--color-bg-hover); }
+#input-behavior-menu button:focus-visible, #input-behavior-toggle:focus-visible { outline: 2px solid var(--color-accent-primary); outline-offset: 2px; }
+#input-behavior-menu strong { display: block; font-size: 13px; font-weight: 500; line-height: 1.5; }
+#input-behavior-menu small { display: block; margin-top: 2px; font-size: 11px; line-height: 1.5; color: var(--color-text-secondary); }
+.input-behavior-check { width: 15px; flex-shrink: 0; line-height: 20px; color: var(--color-accent-primary); visibility: hidden; }
+#input-behavior-menu [aria-checked="true"] .input-behavior-check { visibility: visible; }
+@media (max-width: 768px) { #input-behavior-toggle { width: 28px; height: 38px; } #input-behavior-menu button { min-height: 56px; } }
+
+/* Pending guidance: single-line previews and always-visible actions. */
+#input-queue[hidden] { display: none; }
+#input-queue { max-height: 220px; overflow-y: auto; padding: 0 0 8px; }
+.input-queue-row { display: flex; align-items: center; gap: 8px; margin-top: 4px; padding: 6px 10px; border: 1px solid var(--color-border-primary); border-radius: 10px; background: var(--color-bg-primary); }
+.input-queue-body { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; }
+.input-queue-status { flex-shrink: 0; white-space: nowrap; font-size: 11px; line-height: 1.5; color: var(--color-text-tertiary); }
+.input-queue-content { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: 13px; line-height: 1.6; color: var(--color-text-secondary); white-space: nowrap; }
+.input-queue-files { flex-shrink: 1; max-width: 35%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; color: var(--color-text-tertiary); overflow-wrap: anywhere; }
+.input-queue-actions { display: flex; gap: 4px; flex-shrink: 0; }
+.input-queue-actions[hidden] { display: none; }
+.input-queue-actions .btn-icon-sm { width: 28px; height: 28px; }
+.input-queue-actions .input-queue-remove:hover { color: var(--color-error); background: color-mix(in srgb, var(--color-error) 8%, transparent); }
+.input-queue-row.editing { border-color: var(--color-accent-primary); }
+.input-queue-row .msg-user-edit-textarea { flex: 1; min-width: 0; height: 24px; min-height: 24px; line-height: 24px; overflow: auto; white-space: pre; }
+.input-queue-row .msg-user-edit-actions { flex-shrink: 0; margin: 0; }
+.input-queue-row.editing .input-queue-status, .input-queue-row.editing .input-queue-files { display: none; }
+.input-queue-row button:focus-visible { outline: 2px solid var(--color-accent-primary); outline-offset: 2px; }
+@media (hover: none), (pointer: coarse) { .input-queue-actions .btn-icon-sm { width: 36px; height: 36px; } }

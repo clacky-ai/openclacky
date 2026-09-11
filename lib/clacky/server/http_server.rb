@@ -7489,6 +7489,9 @@ module Clacky
             conn.session_id = session_id
             subscribe(session_id, conn)
             conn.send_json(type: "subscribed", session_id: session_id)
+            conn.send_json(type: "input_behavior", value: @agent_config.input_behavior)
+            queued_agent = @registry.get(session_id)&.dig(:agent)
+            conn.send_json(type: "input_queue", session_id: session_id, entries: queued_agent.pending_inputs) if queued_agent
             # Push a fresh snapshot so a reconnecting tab sees the true current
             # status (it may have missed session_update events while offline).
             if (snap = @registry.snapshot(session_id))
@@ -7500,6 +7503,26 @@ module Clacky
           else
             conn.send_json(type: "error", message: "Session not found: #{session_id}")
           end
+
+        when "input_behavior"
+          mode = msg["value"]
+          raise ArgumentError, "Invalid input behavior" unless %w[interrupt steer].include?(mode)
+          @agent_config.input_behavior = mode
+          @agent_config.save
+          broadcast_all(type: "input_behavior", value: mode)
+
+        when "edit_pending_input"
+          session_id = msg["session_id"] || conn.session_id
+          @registry.get(session_id)&.dig(:agent)&.edit_pending_input(msg["id"], msg["content"].to_s)
+
+        when "remove_pending_input"
+          session_id = msg["session_id"] || conn.session_id
+          @registry.get(session_id)&.dig(:agent)&.remove_pending_input(msg["id"])
+
+        when "send_pending_input"
+          session_id = msg["session_id"] || conn.session_id
+          Thread.current[:lang] = msg["lang"].to_s.strip.then { |l| l.empty? ? nil : l }
+          send_pending_input(session_id, msg["id"])
 
         when "edit_message"
           session_id = msg["session_id"] || conn.session_id
@@ -7588,14 +7611,45 @@ module Clacky
         handle_user_message(session_id, content)
       end
 
+      private def send_pending_input(session_id, id)
+        session = @registry.get(session_id)
+        agent = session&.dig(:agent)
+        # Claim before interrupting: an already consumed or double-clicked ID is a no-op.
+        entry = agent&.remove_pending_input(id)
+        return unless entry
+
+        started = false
+        begin
+          if session[:status] == :running
+            interrupt_session(session_id, reason: :replacement)
+            session[:thread]&.join(2)
+          end
+          started = run_agent_task(session_id, agent) { agent.run_pending_input(entry) }
+        ensure
+          # A concurrency-limit rejection must not discard the user's input.
+          agent.enqueue_input(entry[:content], **entry[:options]) unless started
+        end
+      end
+
       def handle_user_message(session_id, content, files = [], references: [])
         return unless @registry.exist?(session_id)
 
         session = @registry.get(session_id)
         
+        mode = @agent_config.input_behavior
+        queued = false
+        @registry.with_session(session_id) do |s|
+          if s[:status] == :running && mode == "steer"
+            s[:agent].enqueue_input(content, files: files, references_display: references,
+                                    reference_contexts: build_reference_contexts(references), created_at: Time.now.to_f)
+            queued = true
+          end
+        end
+        return if queued
+
         # If session is running, interrupt it first (mimics CLI behavior)
         if session[:status] == :running
-          interrupt_session(session_id)
+          interrupt_session(session_id, reason: :replacement)
 
           # Give the old thread a short window to exit cleanly.
           # In the common case it returns within milliseconds (Thread#raise
@@ -7644,7 +7698,7 @@ module Clacky
         # "need to refresh several times before the image appears" bug).
         web_ui&.show_user_message(content, created_at: msg_created_at, source: :web, files: Array(files),
                                   skill_command: skill_command[:found] ? skill_command[:skill_name] : nil,
-                                  skill_command_display: skill_command_display)
+                                  skill_command_display: skill_command_display, **(mode == "steer" ? { steering: true } : {}))
 
         # File references are now handled inside agent.run — injected as a system_injected
         # message after the user message, so replay_history skips them automatically.
@@ -7698,7 +7752,7 @@ module Clacky
       # by that epoch. A stale thread that lingers in a syscall is harmless — it
       # self-terminates at the next check_stale! checkpoint, or when the syscall
       # returns; either way it can no longer touch the live session.
-      def interrupt_session(session_id)
+      def interrupt_session(session_id, reason: :user)
         @registry.with_session(session_id) do |s|
           s[:idle_timer]&.cancel
           thread = s[:thread]
@@ -7706,6 +7760,7 @@ module Clacky
 
           Clacky::Logger.info("[interrupt] session=#{session_id} raise")
           begin
+            thread[:interrupt_reason] = reason
             thread.raise(Clacky::AgentInterrupted, "Interrupted by user")
           rescue ThreadError => e
             Clacky::Logger.warn("[interrupt] raise failed: #{e.message}")
@@ -7842,10 +7897,24 @@ module Clacky
           Thread.current[:lang] = locale
           Thread.current[:task_epoch] = epoch
           run_result = task.call
-          awaiting = run_result.is_a?(Hash) && run_result[:awaiting_user_feedback]
-          next unless @registry.update_if_epoch(session_id, epoch,
-                                                status: awaiting ? :awaiting_feedback : :idle,
-                                                error: nil)
+          awaiting = false
+          owns_epoch = true
+          loop do
+            pending = nil
+            @registry.with_session(session_id) do |s|
+              owns_epoch = s[:epoch].to_i == epoch.to_i
+              next unless owns_epoch
+              pending = agent.take_pending_input
+              unless pending
+                awaiting = run_result.is_a?(Hash) && run_result[:awaiting_user_feedback]
+                s[:status] = awaiting ? :awaiting_feedback : :idle
+                s[:error] = nil
+              end
+            end
+            break unless owns_epoch && pending
+            run_result = agent.run_pending_input(pending)
+          end
+          next unless owns_epoch
           broadcast_session_update(session_id)
           # Transient global signal for the optional task-complete sound. Sent to
           # all clients (broadcast_all) so a browser viewing another session — or
@@ -7868,7 +7937,8 @@ module Clacky
           # or push UI events, they belong to the new epoch now.
           next unless @registry.update_if_epoch(session_id, epoch, status: :idle)
           broadcast_session_update(session_id)
-          broadcast(session_id, { type: "interrupted", session_id: session_id })
+          broadcast(session_id, { type: "interrupted", session_id: session_id,
+                                  reason: Thread.current[:interrupt_reason] || :user })
         rescue => e
           # Route error through web_ui so channel subscribers (飞书/企微) receive it too.
           web_ui = nil
@@ -7889,6 +7959,7 @@ module Clacky
         # Register the thread only if we still own the epoch; a faster
         # superseding task may have already replaced it.
         @registry.with_session(session_id) { |s| s[:thread] = thread if s[:epoch].to_i == epoch.to_i }
+        thread
       end
 
       # ── WebSocket subscription management ─────────────────────────────────────

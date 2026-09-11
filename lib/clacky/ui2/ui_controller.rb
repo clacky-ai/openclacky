@@ -10,12 +10,14 @@ require_relative "components/welcome_banner"
 require_relative "components/inline_input"
 require_relative "thinking_verbs"
 require_relative "../ui_interface"
+require_relative "../cli_guidance"
 
 module Clacky
   module UI2
     # UIController is the MVC controller layer that coordinates UI state and user interactions
     class UIController
       include Clacky::UIInterface
+      include Clacky::CliGuidance
 
       attr_reader :layout, :renderer, :running, :inline_input, :input_area
       attr_accessor :config, :available_models
@@ -135,6 +137,16 @@ module Clacky
         @layout.render_input
       end
 
+      def refresh_guidance
+        return unless @running
+        @layout.recalculate_layout
+        @layout.render_input
+      end
+
+      def show_user_message(content, created_at: nil, files: [], source: :web, steering: false)
+        append_output(@renderer.render_user_message(content, files: files)) if steering
+      end
+
       def show_goal_status(goal)
         @input_area.set_goal(goal)
         @layout.render_input
@@ -186,6 +198,8 @@ module Clacky
 
       # Set callback for user input
       # @param block [Proc] Callback to execute with user input
+      attr_accessor :queue_input_while_running
+
       def on_input(&block)
         @input_callback = block
       end
@@ -1274,6 +1288,7 @@ module Clacky
           "",
           theme.format_text("Commands:", :info),
           "  #{theme.format_text("/model", :success)}       - Quickly switch the current model",
+          "  #{theme.format_text("/input-mode", :success)} - View or set steer / interrupt behavior",
           "  #{theme.format_text("/think", :success)}       - Set the thinking (reasoning) effort level",
           "  #{theme.format_text("/config", :success)}      - Configure models, API keys, settings",
           "  #{theme.format_text("/goal", :success)}        - Set a standing goal for autonomous work",
@@ -1708,6 +1723,11 @@ module Clacky
           intervene_feedback_countdown
         end
 
+        if !@feedback_countdown && [:ctrl_d, :ctrl_g].include?(key)
+          action = key == :ctrl_d ? :remove : :send_now
+          return if request_guidance_action(action)
+        end
+
         result = @input_area.handle_key(key)
 
         # Handle height change first
@@ -1821,15 +1841,18 @@ module Clacky
         # so no ticker thread is left writing into the buffer while we render
         # the new user message. Each handle's finish() renders its own final
         # frame with elapsed time, so the user still sees a summary.
-        interrupt_all_progress if progress_active?
+        queuing = guidance_deferred?(data[:text])
+        interrupt_all_progress if progress_active? && !queuing
 
         # Also clear stdout buffer used by Ctrl+O (unrelated to progress, but
         # we don't want stale command output carried across user turns).
-        @stdout_lines = nil
-        @stdout_partial_tail = false
+        unless queuing
+          @stdout_lines = nil
+          @stdout_partial_tail = false
+        end
 
         # Render user message immediately before running agent
-        unless data[:text].empty? && data[:files].empty?
+        unless queuing || (data[:text].empty? && data[:files].empty?)
           output = @renderer.render_user_message(data[:text], files: data[:files])
           append_output(output)
         end

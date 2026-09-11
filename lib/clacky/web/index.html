@@ -537,6 +537,7 @@
           <div id="skill-autocomplete-list"></div>
         </div>
         <!-- Image preview strip (hidden when empty) -->
+        <div id="input-queue" aria-live="polite" hidden></div>
         <div id="image-preview-strip" style="display:none"></div>
         <!-- @ mention menu (Files & Folders / Past Chats) -->
         <div id="mention-autocomplete" class="mention-autocomplete" style="display:none" role="listbox" aria-label="Mention"></div>
@@ -557,6 +558,21 @@
                aria-multiline="true"
                data-i18n-placeholder="chat.input.placeholder"
                data-placeholder="Message… (Enter to send, Shift-Enter for newline)"></div>
+          <input id="input-behavior" type="hidden" value="interrupt">
+          <div id="input-behavior-control" hidden>
+            <button id="input-behavior-toggle" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="input-behavior-menu" data-i18n-title="chat.input.behaviorTitle" title="Messages while working">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg>
+            </button>
+            <div id="input-behavior-menu" role="menu" data-i18n-aria-label="chat.input.behaviorTitle" aria-label="Messages while working" hidden>
+              <div class="input-behavior-heading" data-i18n="chat.input.behaviorTitle">Messages while working</div>
+              <button type="button" role="menuitemradio" aria-checked="true" data-input-behavior="interrupt">
+                <span class="input-behavior-check" aria-hidden="true">✓</span><span><strong data-i18n="chat.input.interruptMode">Interrupt and add</strong><small data-i18n="chat.input.interruptDescription">Stop the current step and accept your message.</small></span>
+              </button>
+              <button type="button" role="menuitemradio" aria-checked="false" data-input-behavior="steer">
+                <span class="input-behavior-check" aria-hidden="true">✓</span><span><strong data-i18n="chat.input.steerMode">Guide current task</strong><small data-i18n="chat.input.steerDescription">Accept your message after the current step.</small></span>
+              </button>
+            </div>
+          </div>
           <button id="btn-send" title="Send message"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"></polyline></svg></button>
           <button id="btn-interrupt" style="display:none" title="Stop"><svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="1.5"/></svg></button>
         </div>

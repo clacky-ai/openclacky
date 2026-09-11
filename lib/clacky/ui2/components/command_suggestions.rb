@@ -14,6 +14,7 @@ module Clacky
         # System commands available by default
         SYSTEM_COMMANDS = [
           { command: "/clear", description: "Clear chat history and restart session" },
+          { command: "/input-mode", description: "Input behavior: steer or interrupt" },
           { command: "/config", description: "Open configuration (models, API keys, settings)" },
           { command: "/model", description: "Quickly switch the current model" },
           { command: "/think", description: "Set the thinking (reasoning) effort level" },

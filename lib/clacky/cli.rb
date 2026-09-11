@@ -913,6 +913,7 @@ module Clacky
 
         # Track current working thread (agent or idle compression that can be interrupted)
         current_task_thread = nil
+        input_submission_mutex = Mutex.new
         shutting_down = false
 
         # Idle compression timer - triggers compression after 180s of inactivity
@@ -1012,7 +1013,26 @@ module Clacky
         end
 
         # Set up input handler
-        ui_controller.on_input do |input, files, display: nil|
+        if ui_controller.respond_to?(:queue_input_while_running=)
+          ui_controller.queue_input_while_running = -> { current_task_thread&.alive? && agent_config.input_behavior == "steer" }
+        end
+        if ui_controller.respond_to?(:input_area)
+          ui_controller.input_area.guidance_lines_provider = -> { ui_controller.guidance_lines }
+        end
+        ui_controller.show_input_queue(agent.pending_inputs) if ui_controller.respond_to?(:show_input_queue)
+        handle_input = lambda do |input, files, display: nil, force_interrupt: false|
+          if input.to_s.match?(%r{\A/input-mode(?:\s|\z)})
+            mode = input.split[1]
+            if %w[interrupt steer].include?(mode)
+              agent_config.input_behavior = mode
+              agent_config.save
+              ui_controller.show_info("Input mode: #{mode == 'steer' ? 'guide current task' : 'interrupt and add'}")
+            else
+              ui_controller.show_info("Current input mode: #{agent_config.input_behavior}\n/input-mode steer · /input-mode interrupt")
+            end
+            next
+          end
+
           # Handle commands
           case input.downcase.strip
           when "/config"
@@ -1067,11 +1087,23 @@ module Clacky
             next
           end
 
+          queued = input_submission_mutex.synchronize do
+            if !force_interrupt && current_task_thread&.alive? && agent_config.input_behavior == "steer"
+              agent.enqueue_input(input, files: files, created_at: Time.now.to_f)
+              true
+            end
+          end
+          next if queued
+
           # If any task thread is running, interrupt it first
           if current_task_thread&.alive?
             current_task_thread.raise(Clacky::AgentInterrupted, "New input received")
             current_task_thread.join(2) # Wait up to 2 seconds for graceful shutdown
             ui_controller.set_idle_status
+          end
+
+          if force_interrupt
+            ui_controller.show_user_message(input, files: files, steering: true)
           end
 
           # Cancel idle timer if running (new input means user is active)
@@ -1088,14 +1120,19 @@ module Clacky
               # Run agent (Agent will call @ui methods directly)
               # Agent internally tracks total_tasks and total_cost
               result = agent.run(input, files: files)
-
-              # Save session after each task
-              if session_manager
-                session_manager.save(agent.to_session_data(status: :success, updated_at: Time.now))
+              loop do
+                if session_manager
+                  session_manager.save(agent.to_session_data(status: :success, updated_at: Time.now))
+                end
+                ui_controller.update_sessionbar(tasks: agent.total_tasks, cost: agent.total_cost)
+                pending = input_submission_mutex.synchronize do
+                  entry = agent.take_pending_input
+                  current_task_thread = nil unless entry
+                  entry
+                end
+                break unless pending
+                result = agent.run_pending_input(pending)
               end
-
-              # Update session bar with agent's cumulative stats
-              ui_controller.update_sessionbar(tasks: agent.total_tasks, cost: agent.total_cost)
             rescue Clacky::AgentInterrupted, StandardError => e
               begin
                 handle_agent_exception(ui_controller, agent, session_manager, e)
@@ -1105,12 +1142,24 @@ module Clacky
                 $stderr.puts "[cli] handle_agent_exception failed: #{ex.class}: #{ex.message}"
               end
             ensure
-              current_task_thread = nil
-              # Start idle timer after agent completes
-              idle_timer.start unless shutting_down
+              input_submission_mutex.synchronize do
+                current_task_thread = nil if current_task_thread == Thread.current
+                idle_timer.start unless shutting_down || current_task_thread&.alive?
+              end
             end
           end
         end
+
+        ui_controller.on_input do |input, files, display: nil|
+          handle_input.call(input, files, display: display)
+        end
+        ui_controller.on_guidance_action do |action, id|
+          # Claim the displayed message once; an already-consumed ID is a no-op.
+          entry = agent.remove_pending_input(id)
+          if entry && action == :send_now
+            handle_input.call(entry[:content], entry.dig(:options, :files) || [], force_interrupt: true)
+          end
+        end if ui_controller.respond_to?(:on_guidance_action)
 
         # Initialize UI screen first
         if is_session_load

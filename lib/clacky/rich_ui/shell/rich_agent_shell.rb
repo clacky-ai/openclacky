@@ -4,6 +4,7 @@ require "ruby_rich"
 require_relative "../components/sidebar"
 require_relative "../components/thinking_live_view"
 require_relative "../components/status_view"
+require_relative "../components/composer_guidance"
 
 module Clacky
   class RichAgentShell < RubyRich::AgentShell
@@ -80,6 +81,8 @@ module Clacky
 
     def attach_agent_controls
       @composer.instance_variable_set(:@on_interrupt, nil)
+      @composer.singleton_class.prepend(RichUI::ComposerGuidance)
+      @composer.guidance_lines_provider = -> { @clacky_controller&.guidance_lines || [] }
       # Register /model command
       shell_ref = self
       @composer.register_command(name: "/model", description: "Switch LLM model",
@@ -95,6 +98,16 @@ module Clacky
         handled ? nil : native_escape.call
       end
       # Clear Ctrl+C warning as soon as the user starts typing
+      native_ctrl_d = @composer.method(:ctrl_d)
+      @composer.define_singleton_method(:ctrl_d) do |live|
+        handled = shell.clacky_controller&.request_guidance_action(:remove)
+        native_ctrl_d.call(live) unless handled
+      end
+      @layout.key(:ctrl_g, 250) do |_event, _live|
+        @clacky_controller&.request_guidance_action(:send_now) if @composer.focused?
+        false
+      end
+
       native_insert = @composer.method(:insert_text)
       @composer.define_singleton_method(:insert_text) do |text|
         shell.callbacks[:clear_ctrlc]&.call

@@ -90,6 +90,10 @@ module Clacky
           "#{theme.symbol(:user)} "
         end
 
+        def guidance_lines
+          @guidance_lines_provider&.call || []
+        end
+
         def required_height
           # When paused (InlineInput active), don't take up any space
           return 0 if @paused
@@ -104,6 +108,7 @@ module Clacky
           
           # Images
           height += @files.size
+          height += guidance_lines.size
           
           # Calculate height considering wrapped lines
           # Use effective content width (respecting MAX_CONTENT_WIDTH_RATIO)
@@ -152,6 +157,8 @@ module Clacky
         # @param cost [Float] Total cost
         # @param cost_source [Symbol, nil] :api / :price / :default — :default renders as N/A
         # @param status [String] Workspace status ('idle' or 'working')
+        attr_accessor :guidance_lines_provider
+
         def update_sessionbar(session_id: nil, working_dir: nil, mode: nil, model: nil, reasoning_effort: :_unset, tasks: nil, cost: nil, cost_source: nil, status: nil)
           @sessionbar_info[:session_id] = session_id if session_id
           @sessionbar_info[:working_dir] = working_dir if working_dir
@@ -328,6 +335,12 @@ module Clacky
             current_row += 1
           end
 
+          guidance_lines.each do |line|
+            move_cursor(current_row, 0)
+            print_with_padding(@pastel.dim(line))
+            current_row += 1
+          end
+
           # Input lines with auto-wrap support
           current_row = render_input_lines(current_row)
 
@@ -365,7 +378,7 @@ module Clacky
 
         def position_cursor(start_row)
           # Calculate which wrapped line the cursor is on
-          cursor_row = start_row + 2 + @files.size  # session_bar + separator + images
+          cursor_row = start_row + 2 + guidance_lines.size + @files.size  # session_bar + separator + images
           # Use effective content width (respecting MAX_CONTENT_WIDTH_RATIO)
           content_width = effective_content_width(@width)
           
@@ -437,7 +450,7 @@ module Clacky
             # Clear tips from state and screen
             @tips_message = nil
             # Tips row: start_row + session_bar(1) + separator(1) + images + lines + separator(1)
-            tips_row = @last_render_row + 2 + @files.size + @lines.size + 1
+            tips_row = @last_render_row + 2 + guidance_lines.size + @files.size + @lines.size + 1
             move_cursor(tips_row, 0)
             clear_line
             flush

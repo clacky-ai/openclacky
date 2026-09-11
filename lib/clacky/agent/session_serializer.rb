@@ -18,6 +18,7 @@ module Clacky
         @name = session_data[:name] || ""
         @pinned = session_data[:pinned] || false
         @history = MessageHistory.new(session_data[:messages] || [])
+        @input_queue = session_data[:pending_inputs] || []
         @todos = session_data[:todos] || []  # Restore todos from session
         @iterations = session_data.dig(:stats, :total_iterations) || 0
         @total_cost = session_data.dig(:stats, :total_cost_usd) || 0.0
@@ -236,6 +237,7 @@ module Clacky
           working_dir: @working_dir,
           source: @source.to_s,                      # "manual" | "cron" | "channel" | "setup"
           agent_profile: @agent_profile&.name || "", # "general" | "coding" | custom
+          pending_inputs: pending_inputs,
           todos: @todos,  # Include todos in session data
           time_machine: {  # Include Time Machine state
             task_parents: @task_parents || {},

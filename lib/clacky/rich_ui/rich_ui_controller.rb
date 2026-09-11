@@ -6,6 +6,7 @@ require "base64"
 require "set"
 require "ruby_rich"
 require_relative "../ui_interface"
+require_relative "../cli_guidance"
 require_relative "../providers"
 require_relative "../ui2/components/welcome_banner"
 require_relative "shell/rich_agent_shell"
@@ -22,6 +23,7 @@ require_relative "components/dialogs/approval_dialog"
 module Clacky
   class RichUIController
     include Clacky::UIInterface
+      include Clacky::CliGuidance
     include Clacky::RichUI::ViewRenderer
 
     STREAMING_MARKDOWN_THRESHOLD = 240
@@ -151,6 +153,7 @@ module Clacky
     def set_skill_loader(skill_loader, agent_profile = nil)
       return unless skill_loader
 
+      @shell.composer.register_command(name: "/input-mode", description: "Input behavior: steer or interrupt")
       skills = skill_loader.user_invocable_skills(agent_profile)
 
       skills.each do |skill|
@@ -165,6 +168,8 @@ module Clacky
     end
 
     def set_agent(_agent, _agent_profile = nil); end
+
+    attr_accessor :queue_input_while_running
 
     def on_input(&block)
       @input_callback = block
@@ -457,6 +462,20 @@ module Clacky
       { model: selected, persist: persist_choice }
     end
 
+    def dispatch_guidance_action(action, id)
+      run_callback_async { @guidance_action&.call(action, id) }
+    end
+
+    def refresh_guidance
+      @shell.live&.refresh
+    end
+
+    def show_user_message(content, created_at: nil, files: [], source: :web, steering: false)
+      return unless steering
+      @shell.add_user_message(content)
+      add_file_summary(files) unless files.empty?
+    end
+
     def clear_input
       @shell.composer.editor.clear
     end
@@ -470,6 +489,7 @@ module Clacky
         Commands:
           /clear - Clear output and restart session
           /exit - Exit application
+          /input-mode [steer|interrupt] - View or change input behavior
 
         Input:
           Shift+Enter - New line
@@ -628,10 +648,10 @@ module Clacky
 
     def wire_shell_callbacks
       @shell.on_submit do |text, attachments|
-        reset_task_sidebar_tracking
+        reset_task_sidebar_tracking unless guidance_deferred?(text)
         @ctrl_c_warning = nil
         files = Array(attachments).map { |attachment| attachment.respond_to?(:to_h) ? attachment.to_h : attachment }
-        @shell.add_user_message(text)
+        @shell.add_user_message(text) unless guidance_deferred?(text)
         run_callback_async { @input_callback&.call(text, files, display: text) }
       end
 
