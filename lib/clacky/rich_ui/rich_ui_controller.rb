@@ -250,7 +250,7 @@ module Clacky
       end
     end
 
-    def show_tool_result(result)
+    def show_tool_result(result, ui: nil)
       if (id = @tracker.pop_tool_id)
         @shell.finish_tool_call(id, status: :done, output: format_tool_output(result.to_s, :done))
         update_tool_activity(id, :done)

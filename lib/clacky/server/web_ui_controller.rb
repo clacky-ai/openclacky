@@ -149,10 +149,10 @@ module Clacky
         forward_to_subscribers { |sub| sub.show_tool_call(name, args_data) }
       end
 
-      def show_tool_result(result)
+      def show_tool_result(result, ui: nil)
         @live_tool_call = nil   # tool finished — no longer in-flight
-        emit("tool_result", result: result)
-        forward_to_subscribers { |sub| sub.show_tool_result(result) }
+        emit("tool_result", result: result, ui: ui)
+        forward_to_subscribers { |sub| sub.show_tool_result(result, ui: ui) }
       end
 
       def show_tool_error(error)

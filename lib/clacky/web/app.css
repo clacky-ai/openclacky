@@ -4718,6 +4718,14 @@ body {
 .tool-item-stdout .ansi-black   { color: #5c6370; }
 .tool-item-stdout .ansi-bold    { font-weight: 700; }
 
+.search-results { display: grid; gap: 10px; }
+.search-results-meta, .search-result-url { color: var(--color-text-secondary); font-size: 0.75rem; }
+.search-result { display: grid; grid-template-columns: 22px 1fr; gap: 8px; }
+.search-result-index { color: var(--color-text-tertiary); font-size: 0.75rem; padding-top: 2px; }
+.search-result a { color: var(--color-accent, #6ea8fe); font-weight: 600; text-decoration: none; }
+.search-result a:hover { text-decoration: underline; }
+.search-result-snippet { margin-top: 3px; color: var(--color-text-primary); white-space: normal; }
+
 /* ── Diff block (rendered inline within edit/write tool-item) ─────────────── */
 .tool-item-diff {
   margin: 0.375rem 0 0.375rem 1.25rem;

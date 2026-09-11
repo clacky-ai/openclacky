@@ -599,7 +599,7 @@ module Clacky
 
       # Show tool result
       # @param result [String] Formatted tool result
-      def show_tool_result(result)
+      def show_tool_result(result, ui: nil)
         output = @renderer.render_tool_result(result: result)
         append_output(output)
       end

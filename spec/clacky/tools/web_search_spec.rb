@@ -65,4 +65,31 @@ RSpec.describe Clacky::Tools::WebSearch do
       expect(definition[:function][:parameters][:properties]).to have_key(:max_results)
     end
   end
+
+  describe "#format_result" do
+    it "keeps the existing compact result summary" do
+      result = {
+        count: 2,
+        provider: "tavily",
+        results: [
+          { title: "First result", url: "https://example.com/one", snippet: "A useful result." },
+          { title: "Second result", url: "https://example.com/two", snippet: "Another useful result." }
+        ]
+      }
+
+      expect(tool.format_result(result)).to eq("[OK] Found 2 results via tavily")
+    end
+
+    it "shows a search failure directly" do
+      expect(tool.format_result(error: "All search providers failed.")).to eq("[Error] All search providers failed.")
+    end
+
+    it "provides structured data for compatible UI renderers" do
+      payload = tool.ui_result(query: "ruby", count: 1, provider: "tavily", results: [{ title: "Ruby", url: "https://ruby-lang.org", snippet: "Programming language" }], error: nil)
+
+      expect(payload).to include(type: "web_search", query: "ruby", count: 1, provider: "tavily")
+      expect(payload[:results].first[:url]).to eq("https://ruby-lang.org")
+    end
+
+  end
 end

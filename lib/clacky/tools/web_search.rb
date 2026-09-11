@@ -417,6 +417,18 @@ module Clacky
           "[OK] Found #{count} results#{provider}"
         end
       end
+
+      def ui_result(result)
+        {
+          type: "web_search",
+          query: result[:query],
+          count: result[:count],
+          provider: result[:provider],
+          results: result[:results],
+          error: result[:error]
+        }
+      end
+
     end
   end
 end

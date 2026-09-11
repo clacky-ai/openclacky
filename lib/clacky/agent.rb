@@ -1528,7 +1528,12 @@ module Clacky
           else
             # Use tool's format_result method to get display-friendly string
             formatted_result = tool.respond_to?(:format_result) ? tool.format_result(result) : result.to_s
-            @ui&.show_tool_result(redact_tool_args(formatted_result))
+            ui_result = tool.respond_to?(:ui_result) ? tool.ui_result(result) : nil
+            if ui_result
+              @ui&.show_tool_result(redact_tool_args(formatted_result), ui: redact_tool_args(ui_result))
+            else
+              @ui&.show_tool_result(redact_tool_args(formatted_result))
+            end
           end
 
           results << build_success_result(call, result)

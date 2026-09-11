@@ -41,8 +41,10 @@ module Clacky
       emit("tool_call", name: name, args: args_data)
     end
 
-    def show_tool_result(result)
-      emit("tool_result", result: result)
+    def show_tool_result(result, ui: nil)
+      data = { result: result }
+      data[:ui] = ui if ui
+      emit("tool_result", **data)
     end
 
     def show_tool_error(error)

@@ -125,8 +125,10 @@ module Clacky
         nil
       end
 
-      def show_tool_result(result)
-        @events << stamp({ type: "tool_result", session_id: @session_id, result: result })
+      def show_tool_result(result, ui: nil)
+        event = { type: "tool_result", session_id: @session_id, result: result }
+        event[:ui] = ui if ui
+        @events << stamp(event)
       end
 
       def show_token_usage(token_data)

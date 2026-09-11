@@ -14,7 +14,7 @@ module Clacky
     def show_subagent_start(skill: nil, iterations: nil, cost_usd: nil); end
     def show_subagent_end; end
     def show_tool_call(name, args); end
-    def show_tool_result(result); end
+    def show_tool_result(result, ui: nil); end
     def show_tool_stdout(lines); end
     def show_tool_error(error); end
     def show_tool_args(formatted_args); end

@@ -56,7 +56,7 @@ module Clacky
       puts_line("[tool] #{display}")
     end
 
-    def show_tool_result(result)
+    def show_tool_result(result, ui: nil)
       text = result.to_s.strip
       return if text.empty?
 

@@ -111,7 +111,7 @@ module Clacky
         end
       end
 
-      def show_tool_result(result)
+      def show_tool_result(result, ui: nil)
         # Suppress — too noisy for IM
       end
 
