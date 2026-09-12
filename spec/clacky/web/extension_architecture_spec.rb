@@ -133,6 +133,7 @@ RSpec.describe "WebUI extension architecture" do
 
   describe "ws-dispatcher session_update bridge normalization" do
     let(:ws_js) { File.read(File.join(web_dir, "ws-dispatcher.js")) }
+    let(:sessions_js) { File.read(File.join(web_dir, "sessions.js")) }
 
     it "normalizes session_update shape (1) (nested ev.session) by lifting session_id and status to the top level" do
       # http_server broadcast_session_update sends { type, session: { id, status, ... } }
@@ -156,6 +157,20 @@ RSpec.describe "WebUI extension architecture" do
       # so sessionId is never undefined for session_update subscribers.
       expect(ws_js).to match(/payload\.session_id\s*\|\|\s*\(ev\.session\s*&&\s*ev\.session\.id\)/),
         "bridge must fall back to ev.session.id when top-level session_id is absent"
+    end
+
+    it "adds persisted creation snapshots while ordinary updates remain patches" do
+      expect(ws_js).to match(/if\s*\(ev\.created\s*&&\s*ev\.session\)\s*\{\s*Sessions\.add\(ev\.session\)/m),
+        "created session_update snapshots must enter the canonical session list"
+      expect(ws_js).to match(/else\s*\{\s*Sessions\.patch\(sid,\s*patch\)/m),
+        "ordinary session_update snapshots must preserve pagination-safe patch behavior"
+    end
+
+    it "promotes a creation snapshot out of the extra-session cache" do
+      expect(sessions_js).to match(/_extraSessions\.findIndex\(s\s*=>\s*s\.id\s*===\s*session\.id\)/),
+        "Sessions.add must locate a matching cached extra session"
+      expect(sessions_js).to match(/_extraSessions\.splice\(extraIdx,\s*1\)/),
+        "Sessions.add must remove a promoted session from the extra cache"
     end
   end
 

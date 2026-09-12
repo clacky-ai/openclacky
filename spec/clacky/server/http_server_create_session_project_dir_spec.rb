@@ -53,11 +53,18 @@ RSpec.describe Clacky::Server::HttpServer, "POST /api/sessions with a project" d
     with_server(agent_config: agent_config) do |server|
       project_dir = File.join(tmproot, "proj_ws")
       project = create_project(server, working_dir: project_dir)
+      events = []
+      allow(server).to receive(:broadcast_all) { |event| events << event }
 
       status, body = create_session(server, { name: "s1", project_id: project[:id] })
 
-      expect(status).to eq(201)
+      expect(status).to eq(201), body.inspect
       expect(body["session"]["working_dir"]).to eq(project_dir)
+      expect(events).to include(hash_including(
+        type: "session_update",
+        created: true,
+        session: hash_including(project_id: project[:id])
+      ))
     end
   end
 
@@ -69,7 +76,7 @@ RSpec.describe Clacky::Server::HttpServer, "POST /api/sessions with a project" d
       status, body = create_session(server,
         { name: "s2", project_id: project[:id], working_dir: explicit_dir })
 
-      expect(status).to eq(201)
+      expect(status).to eq(201), body.inspect
       expect(body["session"]["working_dir"]).to eq(explicit_dir)
     end
   end
@@ -83,7 +90,7 @@ RSpec.describe Clacky::Server::HttpServer, "POST /api/sessions with a project" d
 
       status, body = create_session(server, { name: "s3", project_id: project[:id] })
 
-      expect(status).to eq(201)
+      expect(status).to eq(201), body.inspect
       expect(body["session"]["working_dir"]).to eq(custom_default)
     end
   end

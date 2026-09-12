@@ -133,12 +133,14 @@ RSpec.describe "ApiExtension#create_session with project_id" do
   let(:project_manager) { double("project_manager") }
   let(:registry) { double("registry") }
   let(:session_manager) { double("session_manager") }
+  let(:agent_config) { double("agent_config", models: []) }
   let(:agent) { double("agent") }
   let(:http_server) do
     server = double("http_server")
     allow(server).to receive(:instance_variable_get).with(:@registry).and_return(registry)
     allow(server).to receive(:instance_variable_get).with(:@session_manager).and_return(session_manager)
     allow(server).to receive(:instance_variable_get).with(:@project_manager).and_return(project_manager)
+    allow(server).to receive(:instance_variable_get).with(:@agent_config).and_return(agent_config)
     server
   end
 
@@ -155,17 +157,16 @@ RSpec.describe "ApiExtension#create_session with project_id" do
   it "inherits the project working_dir and persists agent.project_id" do
     project = { id: "p1", name: "Proj", working_dir: "/tmp/proj" }
     allow(project_manager).to receive(:find).with("p1").and_return(project)
-    allow(http_server).to receive(:send).with(:build_session, name: nil, working_dir: File.expand_path("/tmp/proj"), profile: "general", source: :manual).and_return("sess-1")
+    allow(http_server).to receive(:send).with(:build_session, name: nil, working_dir: File.expand_path("/tmp/proj"), profile: "general", source: :manual, model_id: nil).and_return("sess-1")
     allow(registry).to receive(:with_session).with("sess-1").and_yield({ agent: agent })
     allow(agent).to receive(:project_id=).with("p1")
     allow(agent).to receive(:to_session_data).and_return({ id: "sess-1" })
-    allow(session_manager).to receive(:save)
-    allow(http_server).to receive(:send).with(:broadcast_session_update, "sess-1")
+    expect(session_manager).to receive(:save).ordered
+    expect(http_server).to receive(:send).with(:broadcast_session_update, "sess-1", created: true).ordered
 
     result = instance.create_session(project_id: "p1")
     expect(result).to eq("sess-1")
     expect(agent).to have_received(:project_id=).with("p1")
-    expect(session_manager).to have_received(:save)
   end
 
   it "raises 404 when the project does not exist" do
@@ -181,12 +182,12 @@ RSpec.describe "ApiExtension#create_session with project_id" do
   it "does not override an explicit working_dir with the project's" do
     project = { id: "p1", name: "Proj", working_dir: "/tmp/proj" }
     allow(project_manager).to receive(:find).with("p1").and_return(project)
-    allow(http_server).to receive(:send).with(:build_session, name: nil, working_dir: "/custom/dir", profile: "general", source: :manual).and_return("sess-2")
+    allow(http_server).to receive(:send).with(:build_session, name: nil, working_dir: "/custom/dir", profile: "general", source: :manual, model_id: nil).and_return("sess-2")
     allow(registry).to receive(:with_session).with("sess-2").and_yield({ agent: agent })
     allow(agent).to receive(:project_id=).with("p1")
     allow(agent).to receive(:to_session_data).and_return({ id: "sess-2" })
     allow(session_manager).to receive(:save)
-    allow(http_server).to receive(:send).with(:broadcast_session_update, "sess-2")
+    allow(http_server).to receive(:send).with(:broadcast_session_update, "sess-2", created: true)
 
     result = instance.create_session(project_id: "p1", working_dir: "/custom/dir")
     expect(result).to eq("sess-2")
@@ -194,10 +195,36 @@ RSpec.describe "ApiExtension#create_session with project_id" do
   end
 
   it "accepts 'ext' so extension sessions land in the folded sidebar group" do
-    allow(http_server).to receive(:send).with(:build_session, name: nil, working_dir: nil, profile: "general", source: :ext).and_return("sess-3")
-    allow(http_server).to receive(:send).with(:broadcast_session_update, "sess-3")
+    allow(http_server).to receive(:send).with(:build_session, name: nil, working_dir: nil, profile: "general", source: :ext, model_id: nil).and_return("sess-3")
+    allow(http_server).to receive(:send).with(:broadcast_session_update, "sess-3", created: true)
 
     expect(instance.create_session(source: :ext)).to eq("sess-3")
+  end
+
+  it "broadcasts persisted creation before submitting the first task" do
+    allow(http_server).to receive(:send).with(:build_session, name: nil, working_dir: nil, profile: "general", source: :manual, model_id: nil).and_return("sess-4")
+    expect(http_server).to receive(:send).with(:broadcast_session_update, "sess-4", created: true).ordered
+    expect(instance).to receive(:submit_task).with("sess-4", "start", display_message: "Starting").ordered
+
+    expect(instance.create_session(prompt: "start", display_message: "Starting")).to eq("sess-4")
+  end
+
+  it "passes a configured model_id through the public creation lifecycle" do
+    allow(agent_config).to receive(:models).and_return([{ "id" => "model-1" }])
+    allow(http_server).to receive(:send).with(:build_session, name: nil, working_dir: nil, profile: "general", source: :manual, model_id: "model-1").and_return("sess-5")
+    allow(http_server).to receive(:send).with(:broadcast_session_update, "sess-5", created: true)
+
+    expect(instance.create_session(model_id: "model-1")).to eq("sess-5")
+  end
+
+  it "rejects a model_id that is not configured" do
+    allow(agent_config).to receive(:models).and_return([{ "id" => "model-1" }])
+
+    expect {
+      instance.create_session(model_id: "missing")
+    }.to raise_error(Clacky::ApiExtension::Halt) { |halt|
+      expect(halt.status).to eq(400)
+    }
   end
 
   it "rejects sources outside the allowed list" do
