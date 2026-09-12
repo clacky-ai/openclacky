@@ -2,6 +2,7 @@
 
 require "faraday"
 require "json"
+require "resolv"
 
 module Clacky
   class Client
@@ -671,6 +672,28 @@ module Clacky
       end
     end
 
+    # Pre-resolve hostname to IP using Ruby's Resolv::DNS, bypassing the
+    # system getaddrinfo(3) resolver. On macOS, long-running processes can
+    # develop a stale resolver context after network configuration changes
+    # (WiFi reconnect, VPN, DHCP renew), causing getaddrinfo(3) to return
+    # EAI_NONAME intermittently. Resolv::DNS speaks DNS protocol directly
+    # over UDP, independent of the system resolver daemon (mDNSResponder).
+    #
+    # Returns the resolved IP string, or nil on failure (caller falls back
+    # to system resolver via Net::HTTP's default behaviour).
+    private def resolve_host_ip(url)
+      uri = URI.parse(url.to_s)
+      hostname = uri.host
+      return nil unless hostname && !hostname.match?(/\A\d+\.\d+\.\d+\.\d+\z/)
+
+      Resolv::DNS.open { |dns| dns.getaddress(hostname).to_s }
+    rescue Resolv::ResolvError, Resolv::ResolvTimeout => e
+      if defined?(Clacky::Logger)
+        Clacky::Logger.warn("[dns] #{hostname}: #{e.message}, falling back to system resolver")
+      end
+      nil
+    end
+
     def reset_connections!
       @bedrock_connection = nil
       @openai_connection = nil
@@ -681,13 +704,20 @@ module Clacky
       current_epoch = Clacky::ProxyConfig.epoch
       if @bedrock_connection.nil? ||
          (!@bedrock_connection_epoch.nil? && @bedrock_connection_epoch != current_epoch)
+        resolved_ip = resolve_host_ip(@base_url)
         @bedrock_connection = Faraday.new(url: @base_url) do |conn|
           conn.headers["Content-Type"]  = "application/json"
           conn.headers["Authorization"] = "Bearer #{@api_key}"
           conn.options.timeout      = @read_timeout || 300
           conn.options.open_timeout = 10
           conn.ssl.verify           = false
-          conn.adapter Faraday.default_adapter
+          if resolved_ip
+            conn.adapter :net_http do |http|
+              http.ipaddr = resolved_ip
+            end
+          else
+            conn.adapter Faraday.default_adapter
+          end
         end
         @bedrock_connection_epoch = current_epoch
       end
@@ -698,13 +728,20 @@ module Clacky
       current_epoch = Clacky::ProxyConfig.epoch
       if @openai_connection.nil? ||
          (!@openai_connection_epoch.nil? && @openai_connection_epoch != current_epoch)
+        resolved_ip = resolve_host_ip(@base_url)
         @openai_connection = Faraday.new(url: @base_url) do |conn|
           conn.headers["Content-Type"]  = "application/json"
           conn.headers["Authorization"] = "Bearer #{@api_key}"
           conn.options.timeout      = @read_timeout || 300
           conn.options.open_timeout = 10
           conn.ssl.verify           = false
-          conn.adapter Faraday.default_adapter
+          if resolved_ip
+            conn.adapter :net_http do |http|
+              http.ipaddr = resolved_ip
+            end
+          else
+            conn.adapter Faraday.default_adapter
+          end
         end
         @openai_connection_epoch = current_epoch
       end
@@ -715,6 +752,7 @@ module Clacky
       current_epoch = Clacky::ProxyConfig.epoch
       if @anthropic_connection.nil? ||
          (!@anthropic_connection_epoch.nil? && @anthropic_connection_epoch != current_epoch)
+        resolved_ip = resolve_host_ip(@base_url)
         @anthropic_connection = Faraday.new(url: @base_url) do |conn|
           conn.headers["Content-Type"]   = "application/json"
           conn.headers["x-api-key"]      = @api_key
@@ -731,7 +769,13 @@ module Clacky
           conn.options.timeout      = @read_timeout || 300
           conn.options.open_timeout = 10
           conn.ssl.verify           = false
-          conn.adapter Faraday.default_adapter
+          if resolved_ip
+            conn.adapter :net_http do |http|
+              http.ipaddr = resolved_ip
+            end
+          else
+            conn.adapter Faraday.default_adapter
+          end
         end
         @anthropic_connection_epoch = current_epoch
       end
