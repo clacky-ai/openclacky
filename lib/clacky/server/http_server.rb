@@ -712,6 +712,7 @@ module Clacky
         when ["POST",   "/api/store/extension/enable"]  then api_store_extension_enable(req, res)
         when ["DELETE", "/api/store/extension"]         then api_store_extension_uninstall(req, res)
         when ["GET",    "/api/brand/status"]      then api_brand_status(res)
+        when ["GET",    "/api/enterprise/license"] then api_enterprise_license(res)
         when ["POST",   "/api/brand/activate"]    then api_brand_activate(req, res)
         when ["DELETE", "/api/brand/license"]     then api_brand_deactivate(res)
         when ["GET",    "/api/brand/skills"]      then api_brand_skills(res)
@@ -1196,7 +1197,11 @@ module Clacky
       # device_code (held by the client for polling) plus the user-facing
       # verification URL the browser should open.
       def api_onboard_device_start(req, res)
-        client = Clacky::PlatformHttpClient.new
+        body = parse_json_body(req) || {}
+        platform_source, explicit_source = onboard_platform_source(body)
+        client = explicit_source ?
+          Clacky::PlatformHttpClient.new(host: platform_source) :
+          Clacky::PlatformHttpClient.new
         result = client.post("/api/v1/device/authorize", {
           device_id:   onboard_device_id,
           device_info: { os: RUBY_PLATFORM, hostname: Socket.gethostname, app_version: Clacky::VERSION }
@@ -1204,20 +1209,24 @@ module Clacky
 
         if result[:success]
           data = result[:data]
-          json_response(res, 200, {
+          response = {
             ok:                        true,
             device_code:               data["device_code"],
             user_code:                 data["user_code"],
             verification_uri:          data["verification_uri"],
             verification_uri_complete: data["verification_uri_complete"],
             interval:                  data["interval"] || 5
-          })
+          }
+          response[:platform_source] = platform_source if explicit_source
+          json_response(res, 200, response)
         else
           json_response(res, 502, { ok: false, error: result[:error] })
         end
+      rescue ArgumentError => e
+        json_response(res, 422, { ok: false, error: e.message })
       end
 
-      # POST /api/onboard/device/poll  { device_code }
+      # POST /api/onboard/device/poll  { device_code, platform_source? }
       # Polls the platform once. While pending, returns { status: "pending" }.
       # On approval, persists the issued key into agent_config and returns
       # { status: "approved" } so the frontend can proceed to the onboard session.
@@ -1228,28 +1237,57 @@ module Clacky
           return json_response(res, 422, { ok: false, error: "device_code is required" })
         end
 
-        client = Clacky::PlatformHttpClient.new
+        platform_source, explicit_source = onboard_platform_source(body)
+        client = explicit_source ?
+          Clacky::PlatformHttpClient.new(host: platform_source) :
+          Clacky::PlatformHttpClient.new
         result = client.post("/api/v1/device/token", { device_code: device_code })
         data   = result[:data] || {}
         status = data["status"]
 
         if result[:success] && status == "approved"
+          missing = %w[device_token user_id api_key base_url default_model].reject do |key|
+            !data[key].nil? && !data[key].to_s.strip.empty?
+          end
+          unless missing.empty?
+            return json_response(res, 502, {
+              ok: false,
+              status: "error",
+              error: "incomplete_device_approval",
+              missing: missing
+            })
+          end
+
+          managed_models = if explicit_source
+            normalize_managed_models(data["models"], default_model: data["default_model"])
+          end
+          source_changed = platform_source != effective_clacky_license_server
+          Clacky::Identity.load.bind!(
+            device_token: data["device_token"],
+            user_id:      data["user_id"],
+            platform_source: explicit_source ? platform_source : nil
+          )
           persist_onboard_model(
             api_key:  data["api_key"],
             base_url: data["base_url"],
-            model:    data["default_model"]
-          ) if data["api_key"]
-          if data["device_token"]
-            Clacky::Identity.load.bind!(
-              device_token: data["device_token"],
-              user_id:      data["user_id"]
-            )
-          end
+            model:    data["default_model"],
+            managed_models: managed_models,
+            enterprise_source: explicit_source ? platform_source : nil,
+            save:     false
+          )
+          @agent_config.clacky_license_server = platform_source
+          @agent_config.save
+          deactivate_brand! if source_changed
+
           json_response(res, 200, {
             ok:            true,
             status:        "approved",
-            default_model: data["default_model"]
+            default_model: data["default_model"],
+            platform_source: platform_source,
+            source_changed: source_changed,
+            restarting: source_changed
           })
+          schedule_restart if source_changed
         elsif status == "pending"
           json_response(res, 200, { ok: true, status: "pending" })
         else
@@ -1260,6 +1298,17 @@ module Clacky
             error:  result[:error]
           })
         end
+      rescue ArgumentError => e
+        json_response(res, 422, { ok: false, status: "error", error: e.message })
+      end
+
+      # Resolves an optional staged platform source without persisting it. The
+      # returned boolean lets legacy callers keep the existing public failover
+      # behavior when they omit platform_source entirely.
+      private def onboard_platform_source(body)
+        explicit = body.key?("platform_source") && !body["platform_source"].to_s.strip.empty?
+        raw = explicit ? body["platform_source"] : effective_clacky_license_server
+        [normalize_http_origin(raw), explicit]
       end
 
       # Stable per-machine id for the onboarding device flow. Independent of the
@@ -1270,7 +1319,14 @@ module Clacky
       end
 
       # Persist a device-flow-issued model as the default and re-anchor current_*.
-      private def persist_onboard_model(api_key:, base_url:, model:)
+      private def persist_onboard_model(api_key:, base_url:, model:, managed_models: nil,
+                                        enterprise_source: nil, save: true)
+        if enterprise_source
+          @agent_config.models.reject! do |entry|
+            entry["enterprise_managed"] &&
+              entry["enterprise_source"] == enterprise_source
+          end
+        end
         @agent_config.models.each { |m| m.delete("type") if m["type"] == "default" }
         entry = {
           "id"               => SecureRandom.uuid,
@@ -1280,10 +1336,28 @@ module Clacky
           "anthropic_format" => false,
           "type"             => "default"
         }
+        if enterprise_source
+          entry["enterprise_managed"] = true
+          entry["enterprise_source"] = enterprise_source
+          entry["managed_models"] = normalize_managed_models(managed_models, default_model: model)
+        end
         @agent_config.models << entry
         @agent_config.current_model_id    = entry["id"]
         @agent_config.current_model_index = @agent_config.models.length - 1
-        @agent_config.save
+        @agent_config.save if save
+      end
+
+      private def normalize_managed_models(value, default_model:)
+        model_id_pattern = /\A[A-Za-z0-9][A-Za-z0-9._:\/-]{0,199}\z/
+        unless default_model.to_s.match?(model_id_pattern)
+          raise ArgumentError, "invalid enterprise default model"
+        end
+        models = Array(value).each_with_object([]) do |candidate, result|
+          model_id = candidate.to_s
+          result << model_id if model_id.match?(model_id_pattern)
+        end.uniq
+        models.unshift(default_model) unless models.include?(default_model)
+        models.uniq.first(200)
       end
 
       # Build the full <script> payload injected at {{EXT_SCRIPTS}}:
@@ -2498,6 +2572,34 @@ module Clacky
         end
       end
 
+      private def api_enterprise_license(res)
+        json_response(res, 200, enterprise_license_status)
+      end
+
+      private def enterprise_license_status
+        identity = Clacky::Identity.load
+        source = effective_clacky_license_server
+        unless identity.bound? && identity.platform_source == source
+          return { bound: false }
+        end
+
+        result = Clacky::PlatformHttpClient.new(host: source).get(
+          "/api/v1/device/license",
+          headers: { "Authorization" => "Bearer #{identity.device_token}" }
+        )
+        unless result[:success]
+          return { bound: true, active: false, reason: "unreachable" }
+        end
+
+        data = result[:data] || {}
+        {
+          bound: true, active: data["active"] == true,
+          reason: data["reason"], product_name: data["product_name"],
+          expires_at: data["expires_at"], device_limit: data["device_limit"],
+          devices_used: data["devices_used"]
+        }
+      end
+
       # GET /api/brand/status
       # Returns whether brand activation is needed.
       # Mirrors the onboard/status pattern so the frontend can gate on it.
@@ -2510,6 +2612,23 @@ module Clacky
       #     product_name: "JohnAI", warning: "..." }     → activated, possible warning
       def api_brand_status(res)
         brand = Clacky::BrandConfig.load
+        enterprise = enterprise_license_status
+        if enterprise[:bound]
+          refresh_pending = false
+          if !brand.branded? && brand.distribution_refresh_due?
+            trigger_async_distribution_refresh!
+            refresh_pending = true
+          end
+          return json_response(res, 200, {
+            branded: brand.branded?, needs_activation: false,
+            enterprise_licensed: enterprise[:active],
+            product_name: enterprise[:product_name] || brand.product_name,
+            user_licensed: false,
+            license_user_id: nil,
+            enterprise_license: enterprise,
+            distribution_refresh_pending: refresh_pending
+          })
+        end
 
         unless brand.branded?
           refresh_pending = false
@@ -7165,7 +7284,11 @@ module Clacky
           # Prefer explicitly saved provider_id, fall back to base_url lookup
           provider_id = info&.dig(:provider_id).to_s.strip.then { |v| v.empty? ? nil : v }
           provider_id ||= (info && Clacky::Providers.find_by_base_url(info[:base_url]))
-          allowed = provider_id ? Clacky::Providers.models(provider_id) : []
+          allowed = if info&.dig(:enterprise_managed)
+            Array(info[:managed_models])
+          else
+            provider_id ? Clacky::Providers.models(provider_id) : []
+          end
           if allowed.empty?
             return json_response(res, 400, { error: "Current model has no provider preset; sub-model switching unavailable" })
           end

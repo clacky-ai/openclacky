@@ -610,6 +610,93 @@ RSpec.describe Clacky::Server::HttpServer do
     end
   end
 
+  describe "enterprise-managed session models" do
+    let(:managed_model_config) do
+      cfg = Clacky::AgentConfig.new(models: [{
+        "model" => "or-gemini-3-8-flash",
+        "api_key" => "clacky-dt-enterprise-device",
+        "base_url" => "https://models.enterprise.example.com",
+        "anthropic_format" => false,
+        "enterprise_managed" => true,
+        "managed_models" => %w[
+          or-gemini-3-8-flash
+          abs-claude-sonnet-5
+          dsk-deepseek-v4-pro
+        ],
+        "type" => "default"
+      }])
+      stub_const("Clacky::AgentConfig::CONFIG_FILE", config_file)
+      cfg
+    end
+
+    it "offers and switches only the models authorized by the enterprise" do
+      with_server(agent_config: managed_model_config) do |server|
+        create_req = fake_req(method: "POST", path: "/api/sessions", body: { name: "managed" })
+        create_res = fake_res
+        dispatch(server, create_req, create_res)
+        session_id = parsed_body(create_res).dig("session", "id")
+
+        list_req = fake_req(method: "GET", path: "/api/sessions")
+        list_res = fake_res
+        dispatch(server, list_req, list_res)
+        session = parsed_body(list_res).fetch("sessions").find { |row| row["id"] == session_id }
+        expect(session["sub_model_options"]).to eq(%w[
+          or-gemini-3-8-flash
+          abs-claude-sonnet-5
+          dsk-deepseek-v4-pro
+        ])
+
+        switch_req = fake_req(
+          method: "PATCH",
+          path: "/api/sessions/#{session_id}/submodel",
+          body: { model_name: "abs-claude-sonnet-5" }
+        )
+        switch_res = fake_res
+        dispatch(server, switch_req, switch_res)
+
+        expect(switch_res.status).to eq(200)
+        expect(parsed_body(switch_res)["sub_model"]).to eq("abs-claude-sonnet-5")
+
+        registry = server.instance_variable_get(:@registry)
+        agent = nil
+        registry.with_session(session_id) { |state| agent = state[:agent] }
+        expect(agent.current_model_info[:model]).to eq("abs-claude-sonnet-5")
+        expect(agent.instance_variable_get(:@client)).to be_bedrock
+
+        openai_req = fake_req(
+          method: "PATCH",
+          path: "/api/sessions/#{session_id}/submodel",
+          body: { model_name: "dsk-deepseek-v4-pro" }
+        )
+        openai_res = fake_res
+        dispatch(server, openai_req, openai_res)
+
+        expect(openai_res.status).to eq(200)
+        expect(agent.current_model_info[:model]).to eq("dsk-deepseek-v4-pro")
+        expect(agent.instance_variable_get(:@client)).not_to be_bedrock
+      end
+    end
+
+    it "rejects a model outside the enterprise allowlist" do
+      with_server(agent_config: managed_model_config) do |server|
+        create_req = fake_req(method: "POST", path: "/api/sessions", body: { name: "managed" })
+        create_res = fake_res
+        dispatch(server, create_req, create_res)
+        session_id = parsed_body(create_res).dig("session", "id")
+
+        switch_req = fake_req(
+          method: "PATCH",
+          path: "/api/sessions/#{session_id}/submodel",
+          body: { model_name: "or-not-authorized" }
+        )
+        switch_res = fake_res
+        dispatch(server, switch_req, switch_res)
+
+        expect(switch_res.status).to eq(400)
+      end
+    end
+  end
+
   # ── DELETE /api/sessions/:id ──────────────────────────────────────────────
 
   describe "DELETE /api/sessions/:id" do

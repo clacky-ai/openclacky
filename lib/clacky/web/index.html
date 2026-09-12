@@ -1241,6 +1241,15 @@
             </div>
 
             <!-- Current brand status (shown when already activated) -->
+            <div id="enterprise-license-card" class="brand-status-card" style="display:none">
+              <div class="brand-status-fields">
+                <div class="brand-status-row"><span class="brand-status-label" data-i18n="settings.enterprise.title">Enterprise license</span><span id="enterprise-license-name" class="brand-status-value"></span></div>
+                <div class="brand-status-row"><span class="brand-status-label" data-i18n="settings.brand.label.status">Status</span><span id="enterprise-license-state" class="brand-status-value"></span></div>
+                <div class="brand-status-row"><span class="brand-status-label" data-i18n="settings.brand.label.expires">Expires</span><span id="enterprise-license-expires" class="brand-status-value"></span></div>
+                <div class="brand-status-row"><span class="brand-status-label" data-i18n="settings.enterprise.devices">Devices</span><span id="enterprise-license-devices" class="brand-status-value"></span></div>
+                <p data-i18n="settings.enterprise.description">Managed through enterprise device login. No serial number is required.</p>
+              </div>
+            </div>
             <div id="brand-status-card" class="brand-status-card" style="display:none">
               <div class="brand-status-main">
                 <div class="brand-status-fields">
@@ -1582,6 +1591,23 @@
           </button>
         </div>
 
+        <!-- Enterprise path: stage a private platform origin before authorization -->
+        <div id="setup-enterprise-form" class="setup-enterprise-form" style="display:none">
+          <div class="setup-field">
+            <label class="setup-label" for="setup-enterprise-source" data-i18n="onboard.enterprise.source.label">Enterprise website address</label>
+            <input id="setup-enterprise-source" type="url" class="setup-input"
+                   value="https://www.openclacky.com"
+                   data-i18n-placeholder="onboard.enterprise.source.placeholder"
+                   placeholder="https://www.openclacky.com"
+                   autocomplete="url" spellcheck="false">
+          </div>
+          <p class="setup-enterprise-source-hint" data-i18n="onboard.enterprise.source.hint">Enter the website root address provided by your administrator.</p>
+          <div class="setup-enterprise-actions">
+            <button id="setup-enterprise-cancel" type="button" class="setup-back-btn" data-i18n="onboard.enterprise.cancel">Cancel</button>
+            <button id="setup-enterprise-submit" type="button" class="setup-submit-btn" data-i18n="onboard.enterprise.continue">Continue to login →</button>
+          </div>
+        </div>
+
         <!-- Pending state: shown while waiting for browser approval -->
         <div id="setup-device-pending" style="display:none">
           <div class="setup-device-spinner"></div>
@@ -1600,17 +1626,17 @@
             <span class="setup-device-success-icon">✓</span>
             <span class="setup-device-success-title" data-i18n="onboard.device.success.title">You're in!</span>
           </div>
-          <p class="setup-device-success-lead" data-i18n="onboard.device.success.lead">Your account is connected. Here's what you got:</p>
+          <p id="setup-device-success-lead" class="setup-device-success-lead" data-i18n="onboard.device.success.lead">Your account is connected. Here's what you got:</p>
           <ul class="setup-device-success-points">
-            <li>
+            <li id="setup-device-success-credit">
               <strong data-i18n="onboard.device.success.credit.label">Free trial credit:</strong>
               <span data-i18n="onboard.device.success.credit.value">$1.00 (one-time, on us)</span>
             </li>
             <li>
-              <strong data-i18n="onboard.device.success.model.label">Trial model:</strong>
+              <strong id="setup-device-success-model-label" data-i18n="onboard.device.success.model.label">Trial model:</strong>
               <span id="setup-device-success-model">or-gemini-3-8-flash</span>
             </li>
-            <li class="setup-device-success-note" data-i18n="onboard.device.success.note">During the trial only Gemini 3.8 Flash is available — top up any amount to unlock all frontier models on this same key.</li>
+            <li id="setup-device-success-note" class="setup-device-success-note" data-i18n="onboard.device.success.note">During the trial only Gemini 3.8 Flash is available — top up any amount to unlock all frontier models on this same key.</li>
           </ul>
           <button id="setup-btn-device-continue" class="setup-submit-btn" data-i18n="onboard.device.success.btn">Start using Clacky →</button>
         </div>
@@ -1687,6 +1713,10 @@
         <button id="setup-btn-test" class="setup-submit-btn" data-i18n="onboard.key.btn.test">Test & Continue →</button>
       </div>
       </div>
+
+      <button id="setup-btn-enterprise-login" type="button" class="setup-enterprise-link">
+        <span data-i18n="onboard.enterprise.btn">Enterprise user? Sign in →</span>
+      </button>
     </div>
 
   </div>

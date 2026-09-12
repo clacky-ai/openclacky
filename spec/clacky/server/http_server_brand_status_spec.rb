@@ -50,7 +50,10 @@ RSpec.describe Clacky::Server::HttpServer, "GET /api/brand/status" do
 
   let(:server) { build_server }
 
-  before { server } # construct before stubbing BrandConfig.load
+  before do
+    server # construct before stubbing BrandConfig.load
+    allow(server).to receive(:enterprise_license_status).and_return(bound: false)
+  end
 
   context "when not branded" do
     it "returns branded: false without brand fields" do

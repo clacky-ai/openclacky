@@ -13,6 +13,7 @@ AGENTS.md
 # rspec failure tracking
 .rspec_status
 *.gem
+.wiki
 .DS_Store
 .history
 coscli*

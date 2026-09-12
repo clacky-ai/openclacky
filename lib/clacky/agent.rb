@@ -272,7 +272,9 @@ module Clacky
         provider_id: model["provider_id"],
         remark: model["remark"],
         card_model: base_entry&.dig("model"),
-        sub_model: sub_model
+        sub_model: sub_model,
+        enterprise_managed: base_entry&.dig("enterprise_managed") == true,
+        managed_models: base_entry&.dig("managed_models")
       }
     end
 
