@@ -59,6 +59,7 @@ RSpec.describe Clacky::BrandConfig, "brand extensions" do
       expect(fake_client).to receive(:post) do |path, payload|
         expect(path).to eq("/api/v1/licenses/extensions")
         expect(payload[:signature]).to be_a(String)
+        expect(payload[:sort]).to eq("updated")
         { success: true, data: {
           "status"     => "success",
           "extensions" => [{ "name" => "meeting", "latest_version" => { "version" => "1.0.0" } }],
@@ -66,7 +67,7 @@ RSpec.describe Clacky::BrandConfig, "brand extensions" do
         } }
       end
 
-      result = config.fetch_brand_extensions!
+      result = config.fetch_brand_extensions!(sort: "updated")
       expect(result[:success]).to be true
       ext = result[:extensions].first
       expect(ext["name"]).to eq("meeting")

@@ -701,7 +701,7 @@ module Clacky
         when ["POST",   "/api/onboard/skip-soul"] then api_onboard_skip_soul(req, res)
         when ["GET",    "/api/store/skills"]          then api_store_skills(res)
         when ["GET",    "/api/store/extensions"]          then api_store_extensions(req, res)
-        when ["GET",    "/api/store/extensions/brand"]   then api_store_extensions_brand(res)
+        when ["GET",    "/api/store/extensions/brand"]   then api_store_extensions_brand(req, res)
         when ["GET",    "/api/store/extensions/system"]   then api_store_extensions_system(res)
         when ["GET",    "/api/store/extensions/installed"] then api_store_extensions_installed(res)
         when ["GET",    "/api/store/extension"]       then api_store_extension_detail(req, res)
@@ -2712,7 +2712,7 @@ module Clacky
       # activated brand license. Returns extensions belonging to this brand via
       # BrandConfig#fetch_brand_extensions!.
       # Returns 403 when the license is not activated.
-      def api_store_extensions_brand(res)
+      def api_store_extensions_brand(req, res)
         brand = Clacky::BrandConfig.load
 
         unless brand.activated?
@@ -2720,7 +2720,9 @@ module Clacky
           return
         end
 
-        result = brand.fetch_brand_extensions!
+        sort = req.query["sort"].to_s
+        sort = "downloads" unless %w[downloads newest updated].include?(sort)
+        result = brand.fetch_brand_extensions!(sort: sort)
 
         if result[:success]
           installed = installed_extension_containers

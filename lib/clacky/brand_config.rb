@@ -856,7 +856,7 @@ module Clacky
     # Requires an activated license. Returns { success:, extensions: [], error: }.
     # Each extension carries name + latest_version.download_url so
     # install_brand_extension! can consume it directly.
-    def fetch_brand_extensions!
+    def fetch_brand_extensions!(sort: nil)
       return { success: false, error: "License not activated", extensions: [] } unless activated?
 
       user_id   = parse_user_id_from_key(@license_key)
@@ -872,6 +872,7 @@ module Clacky
         nonce:     nonce,
         signature: OpenSSL::HMAC.hexdigest("SHA256", @license_key, message)
       }
+      payload[:sort] = sort if sort
 
       response = api_post("/api/v1/licenses/extensions", payload)
 
