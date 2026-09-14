@@ -417,10 +417,14 @@ module Clacky
     # in-memory config is left untouched rather than wiped.
     def reload!(config_file = CONFIG_FILE)
       fresh = self.class.load(config_file)
+      reused_ids = {}
 
       fresh.models.each do |m|
-        previous = find_model_by_name_and_url(m["model"], m["base_url"])
-        m["id"] = previous["id"] if previous
+        previous = find_reload_model(m, reused_ids)
+        next unless previous
+
+        m["id"] = previous["id"]
+        reused_ids[previous["id"]] = true
       end
 
       @models.replace(fresh.models)
@@ -448,7 +452,9 @@ module Clacky
     # they are regenerated at load time from the provider preset.
     # Runtime-only fields (id, auto_injected) are stripped before writing so
     # config.yml remains backward compatible with users on older versions.
-    RUNTIME_ONLY_FIELDS = %w[id auto_injected].freeze
+    RUNTIME_MODEL_MARKER = "_runtime_model"
+    RUNTIME_MODEL_FIELDS = %w[provider_id type runtime_id display_model remark].freeze
+    RUNTIME_ONLY_FIELDS = ["id", "auto_injected", RUNTIME_MODEL_MARKER].freeze
 
     # Settings keys that are persisted to config.yml.
     # These map directly to AgentConfig accessors.
@@ -465,8 +471,15 @@ module Clacky
     # Outputs a hash with "settings" and "models" keys (new format).
     # Backward compatibility: old flat-array format is still readable by .load.
     def to_yaml
-      persistable_models = @models.reject { |m| m["auto_injected"] }.map do |m|
+      persistable_models = @models.reject do |m|
+        m["auto_injected"] || runtime_model_entry?(m)
+      end.map do |m|
         m.reject { |k, _| RUNTIME_ONLY_FIELDS.include?(k) }
+      end
+      persistable_runtime_models = @models.select { |m| runtime_model_entry?(m) }.map do |m|
+        RUNTIME_MODEL_FIELDS.each_with_object({}) do |field, persisted|
+          persisted[field] = m[field] if m.key?(field)
+        end
       end
       settings = {
         "input_behavior" => @input_behavior,
@@ -483,7 +496,9 @@ module Clacky
         "proxy_url" => @proxy_url,
         "clacky_license_server" => @clacky_license_server
       }
-      YAML.dump("settings" => settings, "models" => persistable_models)
+      data = { "settings" => settings, "models" => persistable_models }
+      data["runtime_models"] = persistable_runtime_models unless persistable_runtime_models.empty?
+      YAML.dump(data)
     end
 
     # Check if any model is configured
@@ -692,7 +707,7 @@ module Clacky
     def find_model_by_type(type)
       kind = type.to_s
       if Clacky::Providers::MEDIA_KINDS.include?(kind)
-        entry = @models.find { |m| m["type"] == kind }
+        entry = find_api_model_by_type(kind)
         return nil if entry && entry["disabled"]
         if entry && entry["base_url"].to_s.strip != "" && entry["api_key"].to_s.strip != ""
           return entry
@@ -700,13 +715,15 @@ module Clacky
         return derive_media_model(kind, model_override: entry && entry["model"])
       end
       if kind == "ocr"
-        entry = @models.find { |m| m["type"] == "ocr" }
+        entry = find_api_model_by_type("ocr")
         return nil if entry && entry["disabled"]
         if entry && entry["base_url"].to_s.strip != "" && entry["api_key"].to_s.strip != ""
           return entry
         end
         return derive_ocr_model(model_override: entry && entry["model"])
       end
+      return find_api_model_by_type(kind) if kind == "lite"
+
       @models.find { |m| m["type"] == type }
     end
 
@@ -716,6 +733,7 @@ module Clacky
     # capabilities) without the URL having to match the preset exactly.
     def provider_id_for(entry)
       return nil unless entry
+      return nil if runtime_model_entry?(entry)
 
       pid = entry["provider_id"]
       return pid if Clacky::Providers.preset?(pid)
@@ -729,6 +747,7 @@ module Clacky
     private def derive_media_model(kind, model_override: nil)
       anchor = current_model || find_model_by_type("default")
       return nil unless anchor
+      return nil if runtime_model_entry?(anchor)
 
       provider_id = provider_id_for(anchor)
       return nil unless provider_id
@@ -773,7 +792,7 @@ module Clacky
 
     def effective_media_entry(kind)
       kind = kind.to_s
-      raw_entry = @models.find { |m| m["type"] == kind }
+      raw_entry = find_api_model_by_type(kind)
       return nil if sidecar_off?(raw_entry)
 
       is_custom = sidecar_custom?(raw_entry)
@@ -783,7 +802,7 @@ module Clacky
     end
 
     def effective_ocr_entry
-      raw_entry = @models.find { |m| m["type"] == "ocr" }
+      raw_entry = find_api_model_by_type("ocr")
       return nil if sidecar_off?(raw_entry)
 
       is_custom = sidecar_custom?(raw_entry)
@@ -806,6 +825,7 @@ module Clacky
       # switches model mid-session (e.g. opus → deepseek).
       anchor = current_model || find_model_by_type("default")
       return nil unless anchor
+      return nil if runtime_model_entry?(anchor)
 
       provider_id = provider_id_for(anchor)
       return nil unless provider_id
@@ -850,7 +870,7 @@ module Clacky
     #   "available"  [Array<String>]      — auto-source candidates from preset
     def media_state(kind)
       kind = kind.to_s
-      raw_entry = @models.find { |m| m["type"] == kind }
+      raw_entry = find_api_model_by_type(kind)
 
       if sidecar_off?(raw_entry)
         default = find_model_by_type("default")
@@ -915,7 +935,7 @@ module Clacky
     #                  (no sidecar call needed)
     #   "model"/"base_url"/"provider"/"available"
     def ocr_state
-      raw_entry = @models.find { |m| m["type"] == "ocr" }
+      raw_entry = find_api_model_by_type("ocr")
 
       default = find_model_by_type("default")
       default_provider = default && provider_id_for(default)
@@ -983,7 +1003,8 @@ module Clacky
     # @return [Hash, nil] the matching model entry or nil
     def find_model_by_name_and_url(model_name, base_url = nil)
       @models.find do |m|
-        m["model"] == model_name &&
+        !runtime_model_entry?(m) &&
+          m["model"] == model_name &&
           (base_url.nil? || m["base_url"] == base_url)
       end
     end
@@ -1039,6 +1060,7 @@ module Clacky
 
       # 2) Provider preset derivation
       primary = current_model
+      return nil if runtime_model_entry?(primary)
       return nil unless primary && primary["base_url"] && primary["model"]
 
       # Resolve provider via explicit provider_id first, then base_url and
@@ -1412,6 +1434,33 @@ module Clacky
       mode
     end
 
+    private def runtime_model_entry?(entry)
+      entry.is_a?(Hash) &&
+        (entry[RUNTIME_MODEL_MARKER] == true || !entry["runtime_id"].to_s.empty?)
+    end
+
+    private def find_reload_model(entry, reused_ids)
+      @models.find do |model|
+        next false if reused_ids[model["id"]]
+
+        if runtime_model_entry?(entry)
+          runtime_model_entry?(model) &&
+            model["runtime_id"] == entry["runtime_id"] &&
+            model["provider_id"] == entry["provider_id"]
+        else
+          !runtime_model_entry?(model) &&
+            model["model"] == entry["model"] &&
+            model["base_url"] == entry["base_url"]
+        end
+      end
+    end
+
+    private def find_api_model_by_type(type)
+      @models.find do |model|
+        !runtime_model_entry?(model) && model["type"].to_s == type.to_s
+      end
+    end
+
     # Parse models from config data
     private_class_method def self.parse_models(data)
       models = []
@@ -1460,6 +1509,23 @@ module Clacky
           "model" => data["model"] || CLAUDE_DEFAULT_MODEL,
           "anthropic_format" => data["anthropic_format"] || false
         }
+      end
+
+      if data.is_a?(Hash) && data["runtime_models"].is_a?(Array)
+        data["runtime_models"].each do |runtime_model|
+          next unless runtime_model.is_a?(Hash)
+
+          sanitized = RUNTIME_MODEL_FIELDS.each_with_object({}) do |field, model|
+            model[field] = runtime_model[field] if runtime_model.key?(field)
+          end
+          if sanitized["provider_id"] == "codex" &&
+             sanitized["runtime_id"] == "codex" &&
+             sanitized["display_model"] == "Codex default"
+            sanitized["display_model"] = "ChatGPT default"
+          end
+          sanitized[RUNTIME_MODEL_MARKER] = true
+          models << sanitized
+        end
       end
 
       # Inject a runtime-only stable id for each model. Ids are NOT written

@@ -93,6 +93,21 @@ RSpec.describe Clacky::Server::WebUIController, "#show_complete" do
   end
 end
 
+RSpec.describe Clacky::Server::WebUIController, "#show_token_usage" do
+  it "keeps the browser event type authoritative" do
+    events = []
+    controller = described_class.new(
+      "test-session", ->(_sid, event) { events << event }
+    )
+
+    controller.show_token_usage(type: :usage, used: 10, size: 100)
+
+    expect(events.last).to eq(
+      type: "token_usage", session_id: "test-session", used: 10, size: 100
+    )
+  end
+end
+
 RSpec.describe Clacky::Server::WebUIController, "#show_tool_call" do
   let(:events) { [] }
   let(:controller) do
@@ -113,5 +128,101 @@ RSpec.describe Clacky::Server::WebUIController, "#show_tool_call" do
     ev = events.find { |e| e[:type] == "request_feedback" }
     expect(ev[:question]).to eq("Pick one?")
     expect(ev[:options]).to eq(%w[a b])
+  end
+end
+
+RSpec.describe Clacky::Server::WebUIController, "runtime event metadata" do
+  let(:events) { [] }
+  let(:controller) do
+    described_class.new("test-session", ->(_sid, event) { events << event })
+  end
+
+  it "emits keyed assistant deltas and finalizes the same browser stream" do
+    controller.show_assistant_delta("assistant-1", "Hello ")
+    controller.show_assistant_delta("assistant-2", "world")
+    controller.finish_assistant_stream(
+      "assistant-1",
+      "Hello world",
+      files: [],
+      created_at: 12.5,
+      message_ids: %w[assistant-1 assistant-2]
+    )
+
+    expect(events).to eq([
+      {
+        type: "assistant_message", session_id: "test-session",
+        message_id: "assistant-1", content: "Hello ", files: [],
+        interim: true, delta: true
+      },
+      {
+        type: "assistant_message", session_id: "test-session",
+        message_id: "assistant-2", content: "world", files: [],
+        interim: true, delta: true
+      },
+      {
+        type: "assistant_message", session_id: "test-session",
+        message_id: "assistant-1", content: "Hello world", files: [],
+        message_ids: %w[assistant-1 assistant-2], created_at: 12.5,
+        interim: false, delta: false
+      }
+    ])
+  end
+
+  it "keeps tool call ids on browser call and result events" do
+    controller.show_keyed_tool_call(
+      "terminal", { "command" => "pwd" }, tool_call_id: "tool-1"
+    )
+    controller.show_keyed_tool_result(
+      "command failed",
+      tool_call_id: "tool-1",
+      status: "failed",
+      exit_code: 2
+    )
+
+    expect(events[0]).to include(
+      type: "tool_call", tool_call_id: "tool-1", name: "terminal"
+    )
+    expect(events[1]).to include(
+      type: "tool_result", tool_call_id: "tool-1", result: "command failed",
+      status: "failed", exit_code: 2
+    )
+  end
+end
+
+RSpec.describe Clacky::Server::WebUIController, "#cancel_pending_confirmations" do
+  it "unblocks every permission waiter with the supplied safe default" do
+    emitted = Queue.new
+    result = Queue.new
+    controller = described_class.new(
+      "test-session", ->(_sid, event) { emitted << event }
+    )
+    waiter = Thread.new do
+      result << controller.request_confirmation("Allow action?", default: true)
+    end
+    expect(emitted.pop).to include(type: "request_confirmation")
+
+    expect(controller.cancel_pending_confirmations(result: false)).to eq(1)
+
+    expect(result.pop).to be(false)
+    expect(waiter.join(1)).not_to be_nil
+  ensure
+    waiter&.kill if waiter&.alive?
+  end
+
+
+  it "does not lose an answer delivered synchronously while emitting the prompt" do
+    controller = nil
+    controller = described_class.new(
+      "test-session",
+      lambda do |_sid, event|
+        controller.deliver_confirmation(event[:id], true)
+      end
+    )
+
+    answer = Timeout.timeout(0.2) do
+      controller.request_confirmation("Allow action?", default: false)
+    end
+
+    expect(answer).to be(true)
   end
 end

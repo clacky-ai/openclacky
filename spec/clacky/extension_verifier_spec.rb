@@ -115,6 +115,178 @@ RSpec.describe Clacky::ExtensionVerifier do
     expect(issues.map(&:code)).to include("schema.unknown_contributes")
   end
 
+  it "accepts provider and agent runtime schemas without warnings" do
+    manifest = <<~YAML
+      id: runtime-pack
+      origin: self
+      contributes:
+        providers:
+          - id: acme-agent
+            name: Acme Agent
+            name_key: provider.name.acme
+            runtime_id: acme-agent
+            auth_mode: runtime
+            credential_fields: []
+            dynamic_models: session
+            display_model: Acme default
+            capabilities:
+              vision: true
+            website_url: https://example.com/acme
+        agent_runtimes:
+          - id: acme-agent
+            adapter: runtime.rb
+            class: Acme::AgentRuntime
+    YAML
+    make_ext(local, "runtime-pack", manifest, "runtime.rb" => "# runtime")
+    result = reload_layers
+
+    issues = described_class.verify(result)
+
+    expect(issues).to be_empty
+  end
+
+  it "flags unknown fields on a provider unit" do
+    manifest = <<~YAML
+      id: provider-typo
+      origin: self
+      contributes:
+        providers:
+          - id: acme-agent
+            name: Acme Agent
+            runtime_id: acme-agent
+            api_key: must-not-be-declared
+        agent_runtimes:
+          - id: acme-agent
+            adapter: runtime.rb
+            class: Acme::AgentRuntime
+    YAML
+    make_ext(local, "provider-typo", manifest, "runtime.rb" => "# runtime")
+    result = reload_layers
+
+    issues = described_class.verify(result)
+
+    issue = issues.find { |item| item.code == "schema.unknown_field" && item.unit == "acme-agent" }
+    expect(issue).not_to be_nil
+    expect(issue.message).to include("api_key")
+  end
+
+  it "flags unknown fields on an agent runtime unit" do
+    manifest = <<~YAML
+      id: runtime-typo
+      origin: self
+      contributes:
+        agent_runtimes:
+          - id: acme-agent
+            adapter: runtime.rb
+            class: Acme::AgentRuntime
+            command: acme-agent
+    YAML
+    make_ext(local, "runtime-typo", manifest, "runtime.rb" => "# runtime")
+    result = reload_layers
+
+    issues = described_class.verify(result)
+
+    issue = issues.find { |item| item.code == "schema.unknown_field" && item.unit == "acme-agent" }
+    expect(issue).not_to be_nil
+    expect(issue.message).to include("command")
+  end
+
+  it "reports a provider whose agent runtime does not exist" do
+    manifest = <<~YAML
+      id: missing-provider-runtime
+      origin: self
+      contributes:
+        providers:
+          - id: acme-agent
+            name: Acme Agent
+            runtime_id: missing-runtime
+    YAML
+    make_ext(local, "missing-provider-runtime", manifest)
+    result = reload_layers
+
+    issues = described_class.verify(result)
+
+    issue = issues.find { |item| item.code == "ref.missing_agent_runtime" }
+    expect(issue).not_to be_nil
+    expect(issue.level).to eq(:error)
+    expect(issue.unit).to eq("acme-agent")
+  end
+
+  it "reports a provider id that collides with a built-in preset" do
+    manifest = <<~YAML
+      id: openai-runtime-pack
+      origin: self
+      contributes:
+        providers:
+          - id: openai
+            name: Replacement OpenAI
+            runtime_id: acme-agent
+        agent_runtimes:
+          - id: acme-agent
+            adapter: runtime.rb
+            class: Acme::AgentRuntime
+    YAML
+    make_ext(local, "openai-runtime-pack", manifest, "runtime.rb" => "# runtime")
+    result = reload_layers
+
+    issues = described_class.verify(result)
+
+    issue = issues.find { |item| item.code == "provider.collision" }
+    expect(issue).not_to be_nil
+    expect(issue.level).to eq(:error)
+    expect(issue.unit).to eq("openai")
+  end
+
+  it "reports duplicate provider ids across extensions" do
+    manifest = lambda do |ext_id, runtime_id|
+      <<~YAML
+        id: #{ext_id}
+        origin: self
+        contributes:
+          providers:
+            - id: shared-provider
+              name: Shared Provider
+              runtime_id: #{runtime_id}
+          agent_runtimes:
+            - id: #{runtime_id}
+              adapter: runtime.rb
+              class: Acme::AgentRuntime
+      YAML
+    end
+    make_ext(local, "provider-one", manifest.call("provider-one", "runtime-one"), "runtime.rb" => "# runtime")
+    make_ext(local, "provider-two", manifest.call("provider-two", "runtime-two"), "runtime.rb" => "# runtime")
+    result = reload_layers
+
+    issues = described_class.verify(result)
+
+    collisions = issues.select { |item| item.code == "provider.collision" }
+    expect(collisions.size).to eq(2)
+    expect(collisions.map(&:ext)).to contain_exactly("provider-one", "provider-two")
+  end
+
+  it "reports duplicate agent runtime ids across extensions" do
+    manifest = lambda do |ext_id|
+      <<~YAML
+        id: #{ext_id}
+        origin: self
+        contributes:
+          agent_runtimes:
+            - id: shared-runtime
+              adapter: runtime.rb
+              class: Acme::AgentRuntime
+      YAML
+    end
+    make_ext(local, "runtime-one", manifest.call("runtime-one"), "runtime.rb" => "# runtime")
+    make_ext(local, "runtime-two", manifest.call("runtime-two"), "runtime.rb" => "# runtime")
+    result = reload_layers
+
+    issues = described_class.verify(result)
+
+    collisions = issues.select { |item| item.code == "agent_runtime.collision" }
+    expect(collisions.size).to eq(2)
+    expect(collisions.map(&:ext)).to contain_exactly("runtime-one", "runtime-two")
+  end
+
   it "flags unknown unit-level fields" do
     manifest = <<~YAML
       id: typo-pack

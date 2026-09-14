@@ -101,6 +101,14 @@ RSpec.describe Clacky::ApiExtension do
         expect(halt.content_type).to start_with("text/plain")
       end
     end
+
+    it "lets an extension request the host's atomic restart boundary" do
+      host = double("http server")
+      expect(host).to receive(:schedule_restart)
+      instance.instance_variable_set(:@http_server, host)
+
+      expect(instance.restart_host!).to be(true)
+    end
   end
 
   describe "inheritance tracking" do

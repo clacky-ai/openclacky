@@ -60,4 +60,38 @@ RSpec.describe Clacky::CLI do
       end
     end
   end
+
+  describe "agent runtime model guard" do
+    let(:cli) { described_class.new }
+
+    it "directs runtime-provider users to the Web UI instead of building an API client" do
+      config = Clacky::AgentConfig.new(models: [
+        {
+          "id" => "codex-card",
+          "provider_id" => "codex",
+          "runtime_id" => "codex",
+          Clacky::AgentConfig::RUNTIME_MODEL_MARKER => true,
+          "type" => "default"
+        }
+      ])
+
+      expect do
+        cli.send(:ensure_cli_model_supported!, config)
+      end.to raise_error(Thor::Error, /clacky server.*ChatGPT/i)
+    end
+
+    it "continues to accept ordinary API model cards" do
+      config = Clacky::AgentConfig.new(models: [
+        {
+          "id" => "api-card",
+          "model" => "gpt-test",
+          "base_url" => "https://example.invalid",
+          "api_key" => "secret",
+          "type" => "default"
+        }
+      ])
+
+      expect(cli.send(:ensure_cli_model_supported!, config)).to be_nil
+    end
+  end
 end

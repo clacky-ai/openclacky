@@ -33,6 +33,22 @@ RSpec.describe Clacky::Server::HttpServer do
     cfg
   end
 
+  let(:codex_provider_registry) do
+    presets = Clacky::Providers::PRESETS.merge(
+      "codex" => {
+        "name"              => "Codex (ChatGPT)",
+        "name_key"          => "provider.name.codex",
+        "runtime_id"        => "codex",
+        "auth_mode"         => "runtime",
+        "credential_fields" => [],
+        "dynamic_models"    => "session",
+        "display_model"     => "Codex default",
+        "capabilities"       => { "vision" => true }
+      }
+    )
+    Clacky::ProviderRegistry.new(presets: presets, extension_units: [])
+  end
+
   after { FileUtils.rm_rf(tmpdir) }
 
   # ── Initialization ────────────────────────────────────────────────────────
@@ -55,6 +71,187 @@ RSpec.describe Clacky::Server::HttpServer do
         agent_config: agent_config, client_factory: -> {}, sessions_dir: tmpdir
       )
       expect(server.instance_variable_get(:@registry).list).to eq([])
+    end
+
+    it "skips colliding extension registries without preventing server startup" do
+      provider_units = [
+        Clacky::ExtensionLoader::Unit.new(
+          kind: :provider, id: "openai", ext_id: "bad-provider",
+          layer: :local, origin: "self", dir: "/tmp/bad-provider",
+          spec: { "name" => "Replacement" }
+        ),
+        Clacky::ExtensionLoader::Unit.new(
+          kind: :provider, id: "safe-provider", ext_id: "safe-extension",
+          layer: :local, origin: "self", dir: "/tmp/safe-extension",
+          spec: { "name" => "Safe", "runtime_id" => "safe-runtime" }
+        ),
+        Clacky::ExtensionLoader::Unit.new(
+          kind: :provider, id: "dangling-provider", ext_id: "dangling-extension",
+          layer: :local, origin: "self", dir: "/tmp/dangling-extension",
+          spec: { "name" => "Dangling", "runtime_id" => "duplicate-runtime" }
+        )
+      ]
+      runtime_units = 2.times.map do |index|
+        Clacky::ExtensionLoader::Unit.new(
+          kind: :agent_runtime, id: "duplicate-runtime",
+          ext_id: "duplicate-#{index}", layer: :local, origin: "self",
+          dir: "/tmp/duplicate-#{index}",
+          spec: { "adapter_abs" => "/tmp/adapter.rb", "class" => "Adapter" }
+        )
+      end
+      runtime_units << Clacky::ExtensionLoader::Unit.new(
+        kind: :agent_runtime, id: "safe-runtime", ext_id: "safe-extension",
+        layer: :local, origin: "self", dir: "/tmp/safe-extension",
+        spec: { "adapter_abs" => "/tmp/safe.rb", "class" => "SafeAdapter" }
+      )
+      allow(Clacky::ExtensionLoader).to receive(:last_result).and_return(
+        Clacky::ExtensionLoader::Result.new(
+          providers: provider_units,
+          agent_runtimes: runtime_units
+        )
+      )
+
+      server = described_class.new(
+        host: "127.0.0.1", port: 0,
+        agent_config: agent_config,
+        client_factory: -> { double("client") },
+        sessions_dir: tmpdir,
+        projects_file: File.join(tmpdir, "projects.json")
+      )
+
+      providers = server.instance_variable_get(:@provider_registry)
+      runtimes = server.instance_variable_get(:@runtime_registry)
+      expect(providers["openai"]["name"]).not_to eq("Replacement")
+      expect(providers["safe-provider"]).to include(
+        "extension_id" => "safe-extension"
+      )
+      expect(providers["dangling-provider"]).to be_nil
+      expect(runtimes.registered?("duplicate-runtime")).to be(false)
+      expect(runtimes.registered?("safe-runtime")).to be(true)
+    end
+  end
+
+  describe "sensitive extension routes" do
+    it "rejects a cross-origin request before invoking the extension" do
+      with_server(agent_config: agent_config) do |server|
+        allow(Clacky::Server::ApiExtensionDispatcher)
+          .to receive(:same_origin_path?).and_return(true)
+        expect(Clacky::Server::ApiExtensionDispatcher).not_to receive(:handle)
+        req = fake_req(
+          method: "POST",
+          path: "/api/ext/codex/authenticate",
+          headers: {
+            "Origin" => "https://evil.example",
+            "Host" => "127.0.0.1:7070"
+          }
+        )
+        res = fake_res
+
+        dispatch(server, req, res)
+
+        expect(res.status).to eq(403)
+        expect(parsed_body(res)["error"]).to eq("Same-origin request required")
+      end
+    end
+  end
+
+  describe "local control-plane same-origin checks" do
+    let(:evil_headers) do
+      {
+        "Origin" => "https://evil.example",
+        "Host" => "127.0.0.1:7070"
+      }
+    end
+
+    it "rejects cross-origin reads and session creation" do
+      with_server(agent_config: agent_config) do |server|
+        [
+          fake_req(method: "GET", path: "/api/config", headers: evil_headers),
+          fake_req(method: "POST", path: "/api/sessions", body: {}, headers: evil_headers)
+        ].each do |req|
+          res = fake_res
+          dispatch(server, req, res)
+
+          expect(res.status).to eq(403)
+          expect(parsed_body(res)["error"]).to eq("Same-origin request required")
+        end
+
+        expect(server.instance_variable_get(:@registry).list).to be_empty
+      end
+    end
+
+    it "rejects a cross-origin WebSocket before the handshake" do
+      with_server(agent_config: agent_config) do |server|
+        expect(server).not_to receive(:handle_websocket)
+        req = fake_req(
+          method: "GET",
+          path: "/ws",
+          headers: evil_headers.merge("Upgrade" => "websocket")
+        )
+        res = fake_res
+
+        dispatch(server, req, res)
+
+        expect(res.status).to eq(403)
+        expect(parsed_body(res)["error"]).to eq("Same-origin request required")
+      end
+    end
+
+    it "accepts an IPv6 loopback origin for HTTP control-plane requests" do
+      with_server(agent_config: agent_config) do |server|
+        req = fake_req(
+          method: "GET",
+          path: "/api/config",
+          headers: {
+            "Origin" => "http://[::1]:7070",
+            "Host" => "[::1]:7070"
+          }
+        )
+        res = fake_res
+
+        dispatch(server, req, res)
+
+        expect(res.status).to eq(200)
+      end
+    end
+
+    it "accepts an IPv6 loopback origin for WebSocket upgrades" do
+      with_server(agent_config: agent_config) do |server|
+        expect(server).to receive(:handle_websocket)
+        req = fake_req(
+          method: "GET",
+          path: "/ws",
+          headers: {
+            "Origin" => "http://[::1]:7070",
+            "Host" => "[::1]:7070",
+            "Upgrade" => "websocket"
+          }
+        )
+        res = fake_res
+
+        dispatch(server, req, res)
+
+        expect(res.status).not_to eq(403)
+      end
+    end
+
+    it "allows credential-free cross-origin preflight before guarding the real request" do
+      with_server(agent_config: agent_config) do |server|
+        req = fake_req(
+          method: "OPTIONS",
+          path: "/api/sessions",
+          headers: evil_headers.merge(
+            "Access-Control-Request-Method" => "POST",
+            "Access-Control-Request-Headers" => "Content-Type, Authorization"
+          )
+        )
+        res = fake_res
+
+        dispatch(server, req, res)
+
+        expect(res.status).to eq(204)
+        expect(res.body).to eq("")
+      end
     end
   end
 
@@ -641,6 +838,44 @@ RSpec.describe Clacky::Server::HttpServer do
         expect(res.status).to eq(404)
       end
     end
+
+    it "does not route an empty session id to the delete handler" do
+      with_server(agent_config: agent_config) do |server|
+        expect(server).not_to receive(:api_delete_session)
+        res = fake_res
+        dispatch(
+          server,
+          fake_req(method: "DELETE", path: "/api/sessions/"),
+          res
+        )
+
+        expect(res.status).to eq(404)
+      end
+    end
+
+    it "does not accept a unique session-id prefix for deletion" do
+      with_server(agent_config: agent_config, sessions_dir: tmpdir) do |server|
+        create_res = fake_res
+        dispatch(
+          server,
+          fake_req(method: "POST", path: "/api/sessions", body: { name: "keep-me" }),
+          create_res
+        )
+        session_id = parsed_body(create_res).dig("session", "id")
+        short_id = session_id[0, 8]
+
+        delete_res = fake_res
+        dispatch(
+          server,
+          fake_req(method: "DELETE", path: "/api/sessions/#{short_id}"),
+          delete_res
+        )
+
+        expect(delete_res.status).to eq(404)
+        manager = server.instance_variable_get(:@session_manager)
+        expect(manager.load(session_id)).not_to be_nil
+      end
+    end
   end
 
   # ── GET /api/config ───────────────────────────────────────────────────────
@@ -691,6 +926,71 @@ RSpec.describe Clacky::Server::HttpServer do
         expect(m["api_format"]).to eq("openai-completions")
       end
     end
+
+    it "exposes runtime identity and display fields without credential fields" do
+      agent_config.models << {
+        "id"             => "codex-card",
+        "provider_id"    => "codex",
+        "runtime_id"     => "codex",
+        "display_model"  => "Codex default",
+        "remark"         => "Shared login",
+        "_runtime_model" => true,
+        "api_key"          => "must-not-leak",
+        "token"            => "must-not-leak"
+      }
+
+      empty_runtime_registry = Clacky::AgentRuntimeRegistry.new(
+        extension_units: [], factories: {}
+      )
+      with_server(
+        agent_config: agent_config,
+        provider_registry: Clacky::ProviderRegistry.new(
+          presets: {}, extension_units: []
+        ),
+        runtime_registry: empty_runtime_registry
+      ) do |server|
+        req = fake_req(method: "GET", path: "/api/config")
+        res = fake_res
+        dispatch(server, req, res)
+
+        expect(res.status).to eq(200)
+        runtime_card = parsed_body(res)["models"].find { |model| model["id"] == "codex-card" }
+        expect(runtime_card).to include(
+          "provider_id" => "codex",
+          "runtime_id" => "codex",
+          "display_model" => "Codex default",
+          "remark" => "Shared login",
+          "runtime_available" => false
+        )
+        expect(runtime_card.keys).not_to include(
+          "api_key", "api_key_masked", "token", "auth", "_runtime_model"
+        )
+      end
+    end
+
+    it "reports provider-declared image input for the active runtime card" do
+      runtime_config = Clacky::AgentConfig.new(models: [{
+        "id" => "codex-card",
+        "provider_id" => "codex",
+        "runtime_id" => "codex",
+        "display_model" => "Codex default",
+        "type" => "default"
+      }])
+
+      with_server(
+        agent_config: runtime_config,
+        provider_registry: codex_provider_registry
+      ) do |server|
+        res = fake_res
+        dispatch(server, fake_req(method: "GET", path: "/api/config"), res)
+
+        expect(parsed_body(res).dig("media_capabilities", "vision")).to eq(
+          "configured" => true,
+          "primary" => true,
+          "model" => "Codex default"
+        )
+      end
+    end
   end
 
   # ── Single-item model CRUD APIs ───────────────────────────────────────────
@@ -711,9 +1011,187 @@ RSpec.describe Clacky::Server::HttpServer do
         providers.each { |p| expect(p).to have_key("api") }
       end
     end
+
+    it "lists runtime providers through the registry while preserving legacy fields" do
+      with_server(agent_config: agent_config, provider_registry: codex_provider_registry) do |server|
+        req = fake_req(method: "GET", path: "/api/providers")
+        res = fake_res
+        dispatch(server, req, res)
+
+        expect(res.status).to eq(200)
+        providers = parsed_body(res)["providers"]
+        codex = providers.find { |provider| provider["id"] == "codex" }
+
+        expect(codex).to include(
+          "name" => "Codex (ChatGPT)",
+          "name_key" => "provider.name.codex",
+          "runtime_id" => "codex",
+          "auth_mode" => "runtime",
+          "credential_fields" => [],
+          "dynamic_models" => "session",
+          "display_model" => "Codex default",
+          "capabilities" => { "vision" => true }
+        )
+        expect(codex.keys).to include(
+          "base_url", "default_model", "api", "models", "endpoint_variants", "website_url"
+        )
+        expect(codex["models"]).to eq([])
+
+        openai = providers.find { |provider| provider["id"] == "openai" }
+        expect(openai.keys).to include(
+          "name", "name_key", "base_url", "default_model", "api", "models",
+          "endpoint_variants", "website_url"
+        )
+      end
+    end
+
+    it "publishes the contributing extension id independently of provider and runtime ids" do
+      unit = Clacky::ExtensionLoader::Unit.new(
+        kind: :provider,
+        id: "provider-id",
+        ext_id: "extension-id",
+        layer: :builtin,
+        origin: "self",
+        dir: "/tmp/extension-id",
+        spec: {
+          "name" => "Runtime",
+          "runtime_id" => "adapter-id",
+          "auth_mode" => "runtime"
+        }
+      )
+      registry = Clacky::ProviderRegistry.new(
+        presets: {}, extension_units: [unit]
+      )
+
+      with_server(agent_config: agent_config, provider_registry: registry) do |server|
+        res = fake_res
+        dispatch(server, fake_req(method: "GET", path: "/api/providers"), res)
+
+        expect(parsed_body(res)["providers"].first).to include(
+          "id" => "provider-id",
+          "runtime_id" => "adapter-id",
+          "extension_id" => "extension-id"
+        )
+      end
+    end
   end
 
   describe "POST /api/config/models" do
+    it "creates a credentialless runtime card and derives its runtime id" do
+      with_server(agent_config: agent_config, provider_registry: codex_provider_registry) do |server|
+        payload = { provider_id: "codex", type: "default", remark: "Shared login" }
+        req = fake_req(method: "POST", path: "/api/config/models", body: payload)
+        res = fake_res
+        dispatch(server, req, res)
+
+        expect(res.status).to eq(200)
+        created = agent_config.models.find { |model| model["id"] == parsed_body(res)["id"] }
+        expect(created).to include(
+          "provider_id" => "codex",
+          "runtime_id" => "codex",
+          "display_model" => "Codex default",
+          "remark" => "Shared login",
+          "type" => "default"
+        )
+        expect(created.keys).not_to include("model", "base_url", "api_key")
+        expect(agent_config.models.first).not_to have_key("type")
+        expect(agent_config.current_model_id).to eq(created["id"])
+      end
+    end
+
+    it "rejects a duplicate card for the same runtime provider" do
+      with_server(agent_config: agent_config, provider_registry: codex_provider_registry) do |server|
+        first = fake_res
+        dispatch(
+          server,
+          fake_req(
+            method: "POST",
+            path: "/api/config/models",
+            body: { provider_id: "codex" }
+          ),
+          first
+        )
+        expect(first.status).to eq(200)
+
+        duplicate = fake_res
+        dispatch(
+          server,
+          fake_req(
+            method: "POST",
+            path: "/api/config/models",
+            body: { provider_id: "codex" }
+          ),
+          duplicate
+        )
+
+        expect(duplicate.status).to eq(409)
+
+        expect(agent_config.models.count { |model| model["provider_id"] == "codex" })
+          .to eq(1)
+      end
+    end
+
+    it "rejects a spoofed runtime id instead of trusting the browser" do
+      with_server(agent_config: agent_config, provider_registry: codex_provider_registry) do |server|
+        payload = { provider_id: "codex", runtime_id: "arbitrary-ruby-runtime" }
+        req = fake_req(method: "POST", path: "/api/config/models", body: payload)
+        res = fake_res
+        dispatch(server, req, res)
+
+        expect(res.status).to eq(422)
+        expect(agent_config.models.none? { |model| model["provider_id"] == "codex" }).to be true
+      end
+    end
+
+    it "rejects API credential fields on a runtime provider card" do
+      with_server(agent_config: agent_config, provider_registry: codex_provider_registry) do |server|
+        payload = {
+          provider_id: "codex",
+          api_key: "must-not-be-stored",
+          base_url: "https://example.invalid",
+          model: "fake-codex-model"
+        }
+        req = fake_req(method: "POST", path: "/api/config/models", body: payload)
+        res = fake_res
+        dispatch(server, req, res)
+
+        expect(res.status).to eq(422)
+        expect(agent_config.models.none? { |model| model["provider_id"] == "codex" }).to be true
+      end
+    end
+
+    it "rejects non-chat types on a runtime provider card" do
+      with_server(agent_config: agent_config, provider_registry: codex_provider_registry) do |server|
+        res = fake_res
+        dispatch(
+          server,
+          fake_req(
+            method: "POST",
+            path: "/api/config/models",
+            body: { provider_id: "codex", type: "image" }
+          ),
+          res
+        )
+
+        expect(res.status).to eq(422)
+        expect(parsed_body(res)["error"]).to match(/type/i)
+        expect(agent_config.models.none? { |model| model["provider_id"] == "codex" })
+          .to be(true)
+      end
+    end
+
+    it "rejects an unknown credentialless provider as a runtime card" do
+      with_server(agent_config: agent_config, provider_registry: codex_provider_registry) do |server|
+        payload = { provider_id: "unknown-runtime" }
+        req = fake_req(method: "POST", path: "/api/config/models", body: payload)
+        res = fake_res
+        dispatch(server, req, res)
+
+        expect(res.status).to eq(422)
+        expect(parsed_body(res)["error"]).to match(/provider|runtime/i)
+      end
+    end
+
     it "creates a new model and returns its id" do
       with_server(agent_config: agent_config) do |server|
         payload = {
@@ -872,6 +1350,127 @@ RSpec.describe Clacky::Server::HttpServer do
   end
 
   describe "PATCH /api/config/models/:id" do
+    it "updates only remark and type on a runtime card" do
+      agent_config.models << {
+        "id" => "codex-card", "provider_id" => "codex",
+        "runtime_id" => "codex", "display_model" => "Codex default",
+        "remark" => "Old label", "_runtime_model" => true
+      }
+
+      with_server(agent_config: agent_config) do |server|
+        payload = { remark: "New label", type: "default" }
+        req = fake_req(method: "PATCH", path: "/api/config/models/codex-card", body: payload)
+        res = fake_res
+        dispatch(server, req, res)
+
+        expect(res.status).to eq(200)
+        runtime_card = agent_config.models.find { |model| model["id"] == "codex-card" }
+        expect(runtime_card["remark"]).to eq("New label")
+        expect(runtime_card["type"]).to eq("default")
+        expect(agent_config.models.first).not_to have_key("type")
+        expect(agent_config.current_model_id).to eq("codex-card")
+      end
+    end
+
+    it "does not clear the only default marker from a runtime card" do
+      agent_config.models.first.delete("type")
+      agent_config.models << {
+        "id" => "codex-card", "provider_id" => "codex",
+        "runtime_id" => "codex", "display_model" => "Codex default",
+        "type" => "default", "_runtime_model" => true
+      }
+      agent_config.current_model_id = "codex-card"
+      agent_config.current_model_index = 1
+
+      with_server(agent_config: agent_config) do |server|
+        req = fake_req(
+          method: "PATCH",
+          path: "/api/config/models/codex-card",
+          body: { remark: "Must not partially persist", type: nil }
+        )
+        res = fake_res
+        dispatch(server, req, res)
+
+        expect(res.status).to eq(422)
+        expect(parsed_body(res)["error"]).to match(/another model.*default/i)
+        runtime_card = agent_config.models.find { |model| model["id"] == "codex-card" }
+        expect(runtime_card).to include("type" => "default")
+        expect(runtime_card).not_to have_key("remark")
+        expect(agent_config.current_model_id).to eq("codex-card")
+      end
+    end
+
+    it "does not clear the only default marker from an API card" do
+      agent_config.models << {
+        "id" => "model-2-id", "model" => "second-model",
+        "api_key" => "sk-second", "base_url" => "https://second.example"
+      }
+
+      with_server(agent_config: agent_config) do |server|
+        id = agent_config.models.first["id"]
+        req = fake_req(
+          method: "PATCH",
+          path: "/api/config/models/#{id}",
+          body: { model: "must-not-persist", type: nil }
+        )
+        res = fake_res
+        dispatch(server, req, res)
+
+        expect(res.status).to eq(422)
+        expect(parsed_body(res)["error"]).to match(/another model.*default/i)
+        expect(agent_config.models.first).to include(
+          "model" => "test-model", "type" => "default"
+        )
+        expect(agent_config.current_model_id).to eq(id)
+      end
+    end
+
+    it "rejects immutable fields on a runtime card without partial writes" do
+      agent_config.models << {
+        "id" => "codex-card", "provider_id" => "codex",
+        "runtime_id" => "codex", "display_model" => "Codex default",
+        "remark" => "Original", "_runtime_model" => true
+      }
+
+      with_server(agent_config: agent_config) do |server|
+        payload = { remark: "Must not persist", runtime_id: "arbitrary-ruby-runtime" }
+        req = fake_req(method: "PATCH", path: "/api/config/models/codex-card", body: payload)
+        res = fake_res
+        dispatch(server, req, res)
+
+        expect(res.status).to eq(422)
+        runtime_card = agent_config.models.find { |model| model["id"] == "codex-card" }
+        expect(runtime_card["remark"]).to eq("Original")
+        expect(runtime_card["runtime_id"]).to eq("codex")
+      end
+    end
+
+    it "rejects an invalid runtime type before changing any card fields" do
+      agent_config.models << {
+        "id" => "codex-card", "provider_id" => "codex",
+        "runtime_id" => "codex", "display_model" => "Codex default",
+        "remark" => "Original", "_runtime_model" => true
+      }
+
+      with_server(agent_config: agent_config) do |server|
+        res = fake_res
+        dispatch(
+          server,
+          fake_req(
+            method: "PATCH",
+            path: "/api/config/models/codex-card",
+            body: { remark: "Must not persist", type: "video" }
+          ),
+          res
+        )
+
+        expect(res.status).to eq(422)
+        runtime_card = agent_config.models.find { |model| model["id"] == "codex-card" }
+        expect(runtime_card["remark"]).to eq("Original")
+        expect(runtime_card).not_to have_key("type")
+      end
+    end
+
     it "updates only the specified fields" do
       with_server(agent_config: agent_config) do |server|
         id = agent_config.models[0]["id"]
@@ -1108,6 +1707,138 @@ RSpec.describe Clacky::Server::HttpServer do
   # ── POST /api/config/test ─────────────────────────────────────────────────
 
   describe "POST /api/config/test" do
+    it "allows enough time for a cold runtime provider bootstrap" do
+      runtime = double(
+        "runtime",
+        health: { ok: true, status: "connected", authenticated: true },
+        close: nil
+      )
+      runtime_registry = Clacky::AgentRuntimeRegistry.new(
+        extension_units: [],
+        factories: { "codex" => lambda { |**_options| runtime } }
+      )
+
+      expect(Timeout).to receive(:timeout).with(330).and_yield
+      with_server(
+        agent_config: agent_config,
+        provider_registry: codex_provider_registry,
+        runtime_registry: runtime_registry
+      ) do |server|
+        res = fake_res
+        dispatch(
+          server,
+          fake_req(
+            method: "POST",
+            path: "/api/config/test",
+            body: { provider_id: "codex" }
+          ),
+          res
+        )
+
+        expect(res.status).to eq(200)
+      end
+    end
+
+    it "rejects cross-origin runtime probes before starting the runtime" do
+      runtime_factory = double("runtime factory")
+      expect(runtime_factory).not_to receive(:call)
+      runtime_registry = Clacky::AgentRuntimeRegistry.new(
+        extension_units: [], factories: { "codex" => runtime_factory }
+      )
+
+      with_server(
+        agent_config: agent_config,
+        provider_registry: codex_provider_registry,
+        runtime_registry: runtime_registry
+      ) do |server|
+        req = fake_req(
+          method: "POST",
+          path: "/api/config/test",
+          body: { provider_id: "codex" },
+          headers: {
+            "Origin" => "https://evil.example",
+            "Host" => "127.0.0.1:7070"
+          }
+        )
+        res = fake_res
+
+        dispatch(server, req, res)
+
+        expect(res.status).to eq(403)
+        expect(parsed_body(res)["error"]).to eq("Same-origin request required")
+      end
+    end
+
+    it "uses the runtime health probe without constructing an API client" do
+      calls = []
+      runtime = double(
+        "runtime",
+        health: { ok: true, status: "connected", authenticated: true }
+      )
+      expect(runtime).to receive(:close)
+      runtime_registry = Clacky::AgentRuntimeRegistry.new(
+        extension_units: [],
+        factories: {
+          "codex" => lambda do |**options|
+            calls << options
+            runtime
+          end
+        }
+      )
+
+      expect(Clacky::Client).not_to receive(:new)
+      with_server(
+        agent_config: agent_config,
+        provider_registry: codex_provider_registry,
+        runtime_registry: runtime_registry
+      ) do |server|
+        req = fake_req(
+          method: "POST", path: "/api/config/test", body: { provider_id: "codex" }
+        )
+        res = fake_res
+        dispatch(server, req, res)
+
+        expect(res.status).to eq(200)
+        expect(parsed_body(res)).to include(
+          "ok" => true, "status" => "connected", "authenticated" => true
+        )
+        expect(calls).to eq([{ purpose: :health }])
+      end
+    end
+
+    it "treats health as an optional runtime SPI method" do
+      runtime = double("minimal-runtime", close: nil)
+      runtime_registry = Clacky::AgentRuntimeRegistry.new(
+        extension_units: [],
+        factories: { "codex" => lambda { |**_options| runtime } }
+      )
+
+      with_server(
+        agent_config: agent_config,
+        provider_registry: codex_provider_registry,
+        runtime_registry: runtime_registry
+      ) do |server|
+        res = fake_res
+        dispatch(
+          server,
+          fake_req(
+            method: "POST",
+            path: "/api/config/test",
+            body: { provider_id: "codex" }
+          ),
+          res
+        )
+
+        expect(res.status).to eq(200)
+        expect(parsed_body(res)).to include(
+          "ok" => true,
+          "available" => true,
+          "authenticated" => true,
+          "status" => "connected"
+        )
+      end
+    end
+
     it "returns ok: true when connection succeeds" do
       test_client = double("client")
       allow(test_client).to receive(:test_connection).and_return({ success: true })
@@ -1354,6 +2085,90 @@ RSpec.describe Clacky::Server::HttpServer do
         dispatch(server, req, res)
 
         expect(res.status).to eq(404)
+      end
+    end
+  end
+
+  describe "extension enable/disable" do
+    it "restarts after changing extension contributions so all registries refresh" do
+      with_server(agent_config: agent_config) do |server|
+        allow(server).to receive(:extension_container).with("runtime-extension")
+          .and_return(
+            ext_id: "runtime-extension",
+            contributes: {
+              "providers" => [{ "id" => "runtime-provider" }],
+              "agent_runtimes" => [{ "id" => "runtime-adapter" }]
+            }
+          )
+        allow(Clacky::ExtensionLoader).to receive(:disable!)
+          .with("runtime-extension")
+        expect(server).to receive(:schedule_restart)
+        res = fake_res
+
+        server.send(
+          :toggle_extension,
+          fake_req(
+            method: "POST",
+            path: "/api/store/extension/disable",
+            body: { id: "runtime-extension" }
+          ),
+          res,
+          :disable
+        )
+
+        expect(res.status).to eq(200)
+        expect(parsed_body(res)).to include(
+          "ok" => true,
+          "disabled" => true,
+          "restart_required" => true
+        )
+      end
+    end
+
+
+    it "restarts after an extension install job succeeds" do
+      with_server(agent_config: agent_config) do |server|
+        allow(Clacky::ThreadRegistry).to receive(:spawn) do |**_options, &block|
+          block.call
+        end
+        expect(server).to receive(:schedule_restart)
+
+        job_id = server.send(:spawn_extension_job, "downloading") do |_progress|
+          true
+        end
+        job = server.instance_variable_get(:@install_jobs)[job_id]
+
+        expect(job).to include(
+          stage: "done",
+          done: true,
+          restart_required: true
+        )
+      end
+    end
+
+    it "restarts after uninstalling an extension" do
+      with_server(agent_config: agent_config) do |server|
+        allow(server).to receive(:extension_container).with("runtime-extension")
+          .and_return(layer: :installed)
+        allow(Clacky::ExtensionLoader).to receive(:uninstall!)
+          .with("runtime-extension", purge_data: false).and_return(true)
+        expect(server).to receive(:schedule_restart)
+        res = fake_res
+
+        server.send(
+          :api_store_extension_uninstall,
+          fake_req(
+            method: "DELETE",
+            path: "/api/store/extension",
+            body: { id: "runtime-extension" }
+          ),
+          res
+        )
+
+        expect(parsed_body(res)).to include(
+          "ok" => true,
+          "restart_required" => true
+        )
       end
     end
   end

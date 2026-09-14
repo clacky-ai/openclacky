@@ -98,6 +98,8 @@ module Clacky
         return
       end
 
+      ensure_cli_model_supported!(agent_config)
+
       # Handle Ctrl+C gracefully - raise exception to be caught in the loop
       Signal.trap("INT") do
         Thread.main.raise(Clacky::AgentInterrupted, "Interrupted by user")
@@ -240,6 +242,12 @@ module Clacky
         result = ui_controller.show_config_modal(config, test_callback: test_callback)
         return if result.nil?
 
+        if %i[switch add edit].include?(result[:action]) &&
+           cli_runtime_model?(config, result[:model_id])
+          ui_controller.show_error(cli_runtime_model_message)
+          return
+        end
+
         case result[:action]
         when :switch, :add
           # CLI is a single-session context: picking (or adding) a model
@@ -326,6 +334,11 @@ module Clacky
         target_id = result[:model_id]
         sub_model = result[:model_name]
 
+        if cli_runtime_model?(config, target_id)
+          ui_controller.show_error(cli_runtime_model_message)
+          return
+        end
+
         agent.switch_model_by_id(target_id)
         config.set_default_model_by_id(target_id)
         config.save
@@ -366,6 +379,25 @@ module Clacky
         current = agent.reasoning_effort
         message = current ? "Thinking level set to #{current}" : "Thinking level: off (provider default)"
         ui_controller.show_success(message)
+      end
+
+      private def ensure_cli_model_supported!(config)
+        return unless cli_runtime_model?(config)
+
+        raise Thor::Error, cli_runtime_model_message
+      end
+
+      private def cli_runtime_model?(config, model_id = nil)
+        entry = if model_id
+                  config.models.find { |model| model["id"].to_s == model_id.to_s }
+                else
+                  config.current_model
+                end
+        entry.is_a?(Hash) && !entry["runtime_id"].to_s.empty?
+      end
+
+      private def cli_runtime_model_message
+        "Agent runtime providers are available in the Web UI. Run `clacky server` and open the client to use ChatGPT."
       end
 
       private def handle_time_machine_command(ui_controller, agent, session_manager)

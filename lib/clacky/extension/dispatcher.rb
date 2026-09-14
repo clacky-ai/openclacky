@@ -55,6 +55,24 @@ module Clacky
           klass.public_paths.include?(route.pattern)
         end
 
+        # Sensitive local-control routes can opt into browser same-origin
+        # enforcement even when the server otherwise allows cross-origin API
+        # clients. This is intended for actions such as launching a local
+        # process or starting an account login flow.
+        def same_origin_path?(path, method)
+          mount_id, sub_path = parse_path(path)
+          return false unless mount_id
+
+          Clacky::ApiExtensionLoader.ensure_fresh(mount_id)
+          klass = Clacky::ApiExtension.registry[mount_id]
+          return false unless klass
+
+          route, = find_route(klass, method.to_s.downcase.to_sym, sub_path)
+          route && route.options[:same_origin] == true
+        rescue StandardError
+          false
+        end
+
         # Local-app convenience: see ApiExtensionLoader.ensure_fresh — that is
         # the single source of truth for per-request hot reload.
 

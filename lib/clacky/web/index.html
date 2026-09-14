@@ -1441,7 +1441,7 @@
             <div id="model-modal-promo-hint" class="provider-promo-hint" data-index="modal"></div>
           </label>
 
-          <label class="model-field">
+          <label class="model-field" id="model-modal-model-field">
             <span class="field-label" data-i18n="settings.models.field.model">Model</span>
             <div class="model-name-combobox" id="model-modal-model-combobox">
               <input type="text" id="model-modal-model" class="field-input model-name-input" placeholder="gpt-4o" autocomplete="off">
@@ -1453,6 +1453,8 @@
               <div class="model-name-dropdown" id="model-modal-model-dropdown" style="display:none"></div>
             </div>
           </label>
+
+          <div id="model-modal-api-fields" class="runtime-api-fields">
 
           <label class="model-field">
             <span class="field-label" data-i18n="settings.models.field.baseurl">Base URL</span>
@@ -1499,6 +1501,19 @@
               </div>
             </div>
           </label>
+          </div>
+
+          <div id="model-modal-runtime-panel" class="runtime-provider-panel" style="display:none">
+            <div class="runtime-provider-status-row">
+              <span class="runtime-provider-status-label" data-i18n="runtime.provider.status.label">Connection</span>
+              <span id="model-modal-runtime-status" class="runtime-provider-status is-checking" data-i18n="runtime.provider.status.checking">Checking…</span>
+            </div>
+            <p class="runtime-provider-hint" data-i18n="runtime.provider.dynamicHint">The actual model and reasoning effort are selected when the session starts.</p>
+            <div class="runtime-provider-actions">
+              <button type="button" id="model-modal-runtime-login" class="btn-primary" data-i18n="runtime.provider.connect">Connect with account</button>
+              <button type="button" id="model-modal-runtime-recheck" class="btn-secondary" data-i18n="runtime.provider.recheck">Check again</button>
+            </div>
+          </div>
 
           <label class="model-field">
             <span class="field-label" data-i18n="settings.models.field.remark">Remark</span>
@@ -1618,8 +1633,8 @@
         <div id="setup-device-error" class="setup-test-result" style="min-height:0;"></div>
       </div>
 
-      <!-- Secondary path: manual key entry, collapsed by default -->
-      <button id="setup-manual-toggle" class="setup-manual-toggle-btn" data-i18n="onboard.manual.toggle">Configure manually with your own API key</button>
+      <!-- Secondary path: choose any registered provider, collapsed by default -->
+      <button id="setup-manual-toggle" class="setup-manual-toggle-btn" data-i18n="onboard.manual.toggle">Choose another provider (API or ChatGPT)</button>
 
       <div id="setup-manual-section" style="display:none">
       <div class="setup-field">
@@ -1637,7 +1652,7 @@
         </div>
       </div>
 
-      <div class="setup-field">
+      <div class="setup-field" id="setup-model-field">
         <label class="setup-label" data-i18n="onboard.key.model">Model</label>
         <div class="model-name-combobox">
           <input id="setup-model" type="text" class="setup-input model-name-input" data-i18n-placeholder="settings.models.placeholder.model" placeholder="e.g. claude-sonnet-4-5">
@@ -1647,6 +1662,8 @@
           <div id="setup-model-dropdown" class="model-name-dropdown" style="display:none"></div>
         </div>
       </div>
+
+      <div id="setup-api-fields" class="runtime-api-fields">
 
       <div class="setup-field">
         <label class="setup-label" data-i18n="onboard.key.baseurl">Base URL</label>
@@ -1678,6 +1695,19 @@
       <div class="setup-docs-hint" style="font-size:0.75rem;margin-top:8px;margin-bottom:10px;text-align:left;">
         <span style="color:var(--muted,#6b7280);" data-i18n="onboard.key.docsGuide.question">New to AI keys?</span>
         <a id="setup-docs-link" href="https://www.openclacky.com/docs/ai-key-guide" target="_blank" rel="noopener" style="margin-left:0.25rem;color:var(--accent,#6366f1);text-decoration:none;" data-i18n="onboard.key.docsGuide.cta">See the guide →</a>
+      </div>
+      </div>
+
+      <div id="setup-runtime-panel" class="runtime-provider-panel" style="display:none">
+        <div class="runtime-provider-status-row">
+          <span class="runtime-provider-status-label" data-i18n="runtime.provider.status.label">Connection</span>
+          <span id="setup-runtime-status" class="runtime-provider-status is-checking" data-i18n="runtime.provider.status.checking">Checking…</span>
+        </div>
+        <p class="runtime-provider-hint" data-i18n="runtime.provider.dynamicHint">The actual model and reasoning effort are selected when the session starts.</p>
+        <div class="runtime-provider-actions">
+          <button type="button" id="setup-runtime-login" class="setup-submit-btn" data-i18n="runtime.provider.connect">Connect with account</button>
+          <button type="button" id="setup-runtime-recheck" class="setup-back-btn" data-i18n="runtime.provider.recheck">Check again</button>
+        </div>
       </div>
 
       <div id="setup-test-result" class="setup-test-result" style="min-height:0;"></div>
@@ -1759,6 +1789,7 @@
 <script src="/components/composer.js"></script>
 <script src="/components/mentions.js"></script>
 <script src="/i18n.js"></script>
+<script src="/features/model-tester/store.js"></script>
 <script src="/components/model-picker.js"></script>
 <script src="/auth.js"></script>
 <script src="/theme.js"></script>
@@ -1787,7 +1818,6 @@
 <script src="/features/backup/view.js"></script>
 <script src="/features/new-session/store.js"></script>
 <script src="/features/new-session/view.js"></script>
-<script src="/features/model-tester/store.js"></script>
 <script src="/features/model-tester/view.js"></script>
 <script src="/settings.js"></script>
 <script src="/features/billing/store.js"></script>

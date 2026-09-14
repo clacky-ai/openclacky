@@ -28,6 +28,7 @@ require_relative "../brand_config"
 require_relative "channel"
 require_relative "../banner"
 require_relative "../utils/file_processor"
+require_relative "../runtime_session"
 
 module Clacky
   module Server
@@ -67,7 +68,7 @@ module Clacky
         event
       end
 
-      def show_user_message(content, task_id: nil, created_at: nil, files: [], editable: true, skill_command: nil, skill_command_display: nil, references: [])
+      def show_user_message(content, task_id: nil, created_at: nil, files: [], editable: true, skill_command: nil, skill_command_display: nil, references: [], source: nil, steering: false)
         ev = { type: "history_user_message", session_id: @session_id, content: content }
         ev[:task_id] = task_id if task_id
         ev[:created_at] = created_at if created_at
@@ -128,6 +129,31 @@ module Clacky
       def show_tool_result(result, ui: nil)
         event = { type: "tool_result", session_id: @session_id, result: result }
         event[:ui] = ui if ui
+        @events << stamp(event)
+      end
+
+      def show_keyed_tool_call(name, args, tool_call_id:)
+        args_data = args.is_a?(String) ? (JSON.parse(args) rescue args) : args
+        summary = tool_call_summary(name, args_data)
+        @events << stamp({
+          type: "tool_call",
+          session_id: @session_id,
+          tool_call_id: tool_call_id,
+          name: name,
+          args: args_data,
+          summary: summary
+        })
+      end
+
+      def show_keyed_tool_result(result, tool_call_id:, status: nil, exit_code: nil)
+        event = {
+          type: "tool_result",
+          session_id: @session_id,
+          tool_call_id: tool_call_id,
+          result: result
+        }
+        event[:status] = status if status
+        event[:exit_code] = exit_code unless exit_code.nil?
         @events << stamp(event)
       end
 
@@ -226,11 +252,13 @@ module Clacky
         - 将大目标拆解为可执行的小步骤
       MD
 
-      def initialize(host: "127.0.0.1", port: 7070, agent_config:, client_factory:, brand_test: false, sessions_dir: nil, projects_file: nil, socket: nil, master_pid: nil)
+      def initialize(host: "127.0.0.1", port: 7070, agent_config:, client_factory:, brand_test: false, sessions_dir: nil, projects_file: nil, socket: nil, master_pid: nil, provider_registry: nil, runtime_registry: nil)
         @host           = host
         @port           = port
         @agent_config   = agent_config
         @client_factory = client_factory  # callable: -> { Clacky::Client.new(...) }
+        @provider_registry = provider_registry || build_provider_registry
+        @runtime_registry  = runtime_registry || build_runtime_registry
         @brand_test     = brand_test      # when true, skip remote API calls for license activation
         @inherited_socket  = socket        # TCPServer socket passed from Master (nil = standalone mode)
         @master_pid        = master_pid    # Master PID so we can send USR1 on upgrade/restart
@@ -570,6 +598,11 @@ module Clacky
           return handle_cors_preflight(req, res)
         end
 
+        if same_origin_required?(req, path, method) &&
+           !trusted_same_origin_request?(req)
+          return reject_cross_origin_request(res)
+        end
+
         # Access key guard (skip for WebSocket upgrades)
         return unless check_access_key(req, res)
 
@@ -597,6 +630,11 @@ module Clacky
           30
         elsif path == "/api/exchange-rate"
           20
+        elsif path == "/api/config/test"
+          # Runtime providers may need to download and resolve a pinned local
+          # adapter on first use. Codex ACP permits up to five minutes for that
+          # cold start; keep the outer HTTP guard slightly larger.
+          330
         elsif path.end_with?("/benchmark")
           20
         elsif path == "/api/media/image"
@@ -871,7 +909,7 @@ module Clacky
           elsif method == "POST" && path.match?(%r{^/api/sessions/[^/]+/fork$})
             session_id = path.sub("/api/sessions/", "").sub("/fork", "")
             api_fork_session(session_id, req, res)
-          elsif method == "DELETE" && path.start_with?("/api/sessions/")
+          elsif method == "DELETE" && path.match?(%r{\A/api/sessions/[^/]+\z})
             session_id = path.sub("/api/sessions/", "")
             api_delete_session(session_id, res)
           elsif method == "DELETE" && path.match?(%r{^/api/trash/sessions/[^/]+$})
@@ -1016,6 +1054,26 @@ module Clacky
           return json_response(res, 400, { error: "Model not found in configuration" })
         end
 
+        selected_card = if model_id_override
+                          @agent_config.models.find { |model| model["id"] == model_id_override }
+                        else
+                          @agent_config.current_model
+                        end
+        if runtime_model_entry?(selected_card)
+          unless runtime_available?(
+            selected_card["runtime_id"], selected_card["provider_id"]
+          )
+            return json_response(res, 422, {
+              error: "Agent runtime is unavailable; enable its extension or choose another model"
+            })
+          end
+          unless runtime_source_supported?(source)
+            return json_response(res, 422, {
+              error: "Agent runtimes are available only for manual or setup sessions"
+            })
+          end
+        end
+
         # Optional project association — validate the project exists if provided
         project_id_override = body["project_id"].to_s.strip
         project_id_override = nil if project_id_override.empty?
@@ -1074,7 +1132,11 @@ module Clacky
         unless @registry.list(limit: 1).any?
           working_dir = default_working_dir
           FileUtils.mkdir_p(working_dir) unless Dir.exist?(working_dir)
-          build_session(name: "Session 1", working_dir: working_dir)
+          build_session(
+            name: "Session 1",
+            working_dir: working_dir,
+            allow_unavailable_runtime: true
+          )
         end
       end
 
@@ -2174,6 +2236,8 @@ module Clacky
       # in shape so the UI can render OCR with the same row component.
       def api_get_ocr_config(res)
         state = @agent_config.ocr_state
+        runtime_vision = runtime_vision_payload(@agent_config, nil)
+        state = runtime_vision if runtime_vision && state["source"] != "custom"
         entry = @agent_config.find_model_by_type("ocr")
 
         out = {
@@ -2993,7 +3057,17 @@ module Clacky
         end
 
         action == :disable ? Clacky::ExtensionLoader.disable!(id) : Clacky::ExtensionLoader.enable!(id)
-        json_response(res, 200, { ok: true, id: id, disabled: action == :disable })
+        # Provider/runtime/API registries are process-lifetime snapshots. A
+        # restart is the single atomic boundary that prevents old routes or
+        # runtime factories from surviving a disable (and makes newly enabled
+        # contributions visible together).
+        json_response(res, 200, {
+          ok: true,
+          id: id,
+          disabled: action == :disable,
+          restart_required: true
+        })
+        schedule_restart
       rescue StandardError => e
         json_response(res, 500, { ok: false, error: e.message })
       end
@@ -3056,8 +3130,12 @@ module Clacky
             work.call(on_progress)
             Clacky::ExtensionLoader.invalidate_cache!
             @install_jobs_mutex.synchronize do
-              @install_jobs[job_id] = { stage: "done", progress: 100, error: nil, done: true, updated_at: Time.now }
+              @install_jobs[job_id] = {
+                stage: "done", progress: 100, error: nil, done: true,
+                restart_required: true, updated_at: Time.now
+              }
             end
+            schedule_restart
           rescue StandardError => e
             @install_jobs_mutex.synchronize do
               @install_jobs[job_id] = { stage: "error", progress: 0, error: e.message, done: true, updated_at: Time.now }
@@ -3121,7 +3199,12 @@ module Clacky
         end
 
         if Clacky::ExtensionLoader.uninstall!(id, purge_data: purge_data)
-          json_response(res, 200, { ok: true, id: id })
+          json_response(res, 200, {
+            ok: true,
+            id: id,
+            restart_required: true
+          })
+          schedule_restart
         else
           json_response(res, 404, { ok: false, error: "Not installed." })
         end
@@ -3579,6 +3662,71 @@ module Clacky
         s.start_with?("127.") || s == "::ffff:127.0.0.1"
       end
 
+      private def trusted_same_origin_request?(req)
+        origin = req["Origin"].to_s.strip
+        if origin.empty?
+          return false if req["Sec-Fetch-Site"].to_s.strip.downcase == "cross-site"
+          return true
+        end
+
+        # A public server may intentionally serve an API client hosted on a
+        # different origin. A bearer/query access key is an explicit credential,
+        # unlike a browser cookie, so it is sufficient even when origins differ.
+        return true if !@localhost_only && valid_explicit_access_key?(req)
+
+        uri = URI.parse(origin)
+        origin_host = normalized_uri_host(uri)
+        return false unless %w[http https].include?(uri.scheme) && !origin_host.empty?
+
+        host_header = req["Host"].to_s.strip
+        return false if host_header.empty?
+        request_authority = URI.parse("#{uri.scheme}://#{host_header}")
+        request_host = normalized_uri_host(request_authority)
+        return false unless request_host == origin_host
+        return false unless request_authority.port == uri.port
+
+        # Local-only mode accepts only literal loopback origins, preventing DNS
+        # rebinding where an attacker-controlled hostname resolves to 127.0.0.1.
+        return loopback_origin_host?(origin_host) if @localhost_only
+        return true if loopback_origin_host?(origin_host)
+
+        candidate = extract_key(req)
+        !@access_key.to_s.empty? && !candidate.to_s.empty? &&
+          secure_compare(@access_key, candidate)
+      rescue URI::InvalidURIError
+        false
+      end
+
+      private def normalized_uri_host(uri)
+        uri.hostname.to_s.strip.downcase
+      end
+
+      private def same_origin_required?(req, path, method)
+        return false if method.to_s.upcase == "OPTIONS"
+        return true if websocket_upgrade?(req)
+
+        extension_requires = Clacky::Server::ApiExtensionDispatcher.same_origin_path?(
+          path,
+          method
+        )
+        return true if extension_requires
+        return false unless path.to_s.start_with?("/api/")
+
+        !Clacky::Server::ApiExtensionDispatcher.public_path?(path, method)
+      end
+
+      private def loopback_origin_host?(host)
+        value = host.to_s.strip.downcase
+        value == "localhost" || loopback_ip?(value)
+      end
+
+      private def reject_cross_origin_request(res)
+        res.status = 403
+        res.content_type = "application/json; charset=utf-8"
+        res["Cache-Control"] = "no-store"
+        res.body = JSON.generate(error: "Same-origin request required")
+      end
+
       # Resolve access key from ~/.clacky/access_key, falling back to the
       # CLACKY_ACCESS_KEY env var.
       private def resolve_access_key
@@ -3592,6 +3740,17 @@ module Clacky
       # including the web UI (via a fetch interceptor in auth.js) — use the
       # Authorization header.
       private def extract_key(req)
+        explicit = extract_explicit_key(req)
+        return explicit unless explicit.nil?
+
+        req.cookies.each do |c|
+          return c.value if c.name == "clacky_access_key" && !c.value.to_s.empty?
+        end
+
+        nil
+      end
+
+      private def extract_explicit_key(req)
         auth = req["Authorization"].to_s.strip
         if auth.start_with?("Bearer ")
           token = auth.sub(/\ABearer\s+/i, "").strip
@@ -3602,11 +3761,13 @@ module Clacky
         token = query["access_key"].to_s.strip
         return token unless token.empty?
 
-        req.cookies.each do |c|
-          return c.value if c.name == "clacky_access_key" && !c.value.to_s.empty?
-        end
-
         nil
+      end
+
+      private def valid_explicit_access_key?(req)
+        candidate = extract_explicit_key(req)
+        !@access_key.to_s.empty? && !candidate.to_s.empty? &&
+          secure_compare(@access_key, candidate)
       end
 
       # Constant-time string comparison to prevent timing attacks.
@@ -4967,7 +5128,12 @@ module Clacky
         working_dir  = File.expand_path("~/clacky_workspace")
         FileUtils.mkdir_p(working_dir)
 
-        session_id = build_session(name: session_name, working_dir: working_dir, permission_mode: :auto_approve)
+        session_id = build_session(
+          name: session_name,
+          working_dir: working_dir,
+          permission_mode: :auto_approve,
+          source: :cron
+        )
         @registry.update(session_id, pending_task: prompt, pending_working_dir: working_dir)
         broadcast_session_update(session_id, created: true)
 
@@ -5065,6 +5231,7 @@ module Clacky
           json_response(res, 404, { error: "Agent not found" })
           return
         end
+        return unless runtime_capability_available?(agent, :skills, res, "skills")
 
         agent.skill_loader.load_all
         skills = agent.skill_loader.user_invocable_skills(agent.agent_profile)
@@ -5253,6 +5420,9 @@ module Clacky
           json_response(res, 404, { error: "Session not found" })
           return nil
         end
+        return nil unless runtime_capability_available?(
+          agent, :time_machine, res, "Time Machine"
+        )
         agent
       end
 
@@ -6277,19 +6447,31 @@ module Clacky
       # GET /api/config — return current model configurations
       def api_get_config(req, res)
         models = @agent_config.models.map.with_index do |m, i|
-          {
-            id:               m["id"],   # Stable runtime id — use this for switching
-            index:            i,
-            model:            m["model"],
-            base_url:         m["base_url"],
-            api_key_masked:   mask_api_key(m["api_key"]),
-            anthropic_format: m["anthropic_format"] || false,
-            api_format:       m["api_format"],
-            provider_id:      m["provider_id"],
-            capabilities:     m["capabilities"],
-            remark:           m["remark"],
-            type:             m["type"]
+          common = {
+            id:          m["id"],   # Stable runtime id — use this for switching
+            index:       i,
+            provider_id: m["provider_id"],
+            remark:      m["remark"],
+            type:        m["type"]
           }
+          if runtime_model_entry?(m)
+            common.merge(
+              runtime_id:    m["runtime_id"],
+              display_model: m["display_model"],
+              runtime_available: runtime_available?(
+                m["runtime_id"], m["provider_id"]
+              )
+            )
+          else
+            common.merge(
+              model:             m["model"],
+              base_url:          m["base_url"],
+              api_key_masked:    mask_api_key(m["api_key"]),
+              anthropic_format:  m["anthropic_format"] || false,
+              api_format:        m["api_format"],
+              capabilities:      m["capabilities"]
+            )
+          end
         end
         # Filter out auto-injected models (lite, derived media) AND media
         # entries (image/video/audio/ocr) — those are managed via the dedicated
@@ -6303,13 +6485,44 @@ module Clacky
         # Capabilities follow the model the *session* is actually running on
         # (it may differ from the global default after a per-session switch).
         query   = URI.decode_www_form(req.query_string.to_s).to_h
-        cfg     = config_for_session(query["session_id"]) || @agent_config
-        json_response(res, 200, {
+        session_agent = agent_for_session(query["session_id"])
+        cfg     = session_agent&.config || @agent_config
+        payload = {
           models: models,
           current_index: @agent_config.current_model_index,
           current_id: @agent_config.current_model&.dig("id"),
-          media_capabilities: media_capabilities_payload(cfg)
-        })
+          media_capabilities: media_capabilities_payload(
+            cfg,
+            runtime_session: session_agent
+          )
+        }
+        session_model = runtime_session_model_payload(session_agent)
+        payload[:session_model] = session_model if session_model
+        json_response(res, 200, payload)
+      end
+
+      # Return only the session-owned runtime model fields needed by the model
+      # picker. A restored runtime card may be private to this session and must
+      # not be inferred from, or inserted into, the global model collection.
+      private def runtime_session_model_payload(agent)
+        return nil unless runtime_session?(agent)
+
+        info = agent.current_model_info
+        return nil unless info.is_a?(Hash)
+
+        card_model = indifferent_value(info, :card_model).to_s
+        model = indifferent_value(info, :model).to_s
+        {
+          id: indifferent_value(info, :id),
+          provider_id: indifferent_value(info, :provider_id),
+          runtime_id: indifferent_value(info, :runtime_id),
+          display_model: card_model.empty? ? model : card_model,
+          model: model,
+          remark: indifferent_value(info, :remark),
+          card_model: card_model,
+          sub_model: indifferent_value(info, :sub_model),
+          sub_model_options: Array(indifferent_value(info, :sub_model_options))
+        }
       end
 
       # POST /api/backup/restore — accept a tar.gz upload, extract over ~/.clacky, hot-restart
@@ -6377,12 +6590,16 @@ module Clacky
       # Resolve the AgentConfig for a given session, falling back to nil when
       # the session isn't live so callers can use the global config instead.
       def config_for_session(session_id)
+        agent_for_session(session_id)&.config
+      end
+
+      def agent_for_session(session_id)
         return nil if session_id.to_s.strip.empty?
         return nil unless @registry.ensure(session_id)
 
         agent = nil
         @registry.with_session(session_id) { |s| agent = s[:agent] }
-        agent&.config
+        agent
       end
 
       # Capability summary for the model dropdown's footer.
@@ -6390,8 +6607,8 @@ module Clacky
       #            OR a vision sidecar is configured (ocr_state covers both).
       #   image/video/audio — true only when a dedicated sidecar is configured;
       #            the chat model can never generate these on its own.
-      def media_capabilities_payload(cfg = @agent_config)
-        ocr = cfg.ocr_state
+      def media_capabilities_payload(cfg = @agent_config, runtime_session: nil)
+        ocr = runtime_vision_payload(cfg, runtime_session) || cfg.ocr_state
         out = {
           vision: {
             configured: !!ocr["configured"],
@@ -6404,6 +6621,33 @@ module Clacky
           out[t] = { configured: !!state["configured"], model: state["model"] }
         end
         out
+      end
+
+      def runtime_vision_payload(cfg, runtime_session)
+        card = cfg&.current_model
+        return nil unless runtime_model_entry?(card)
+
+        supported = if runtime_session&.respond_to?(:runtime?) && runtime_session.runtime?
+                      runtime_session.respond_to?(:capability?) &&
+                        runtime_session.capability?(:image_input)
+                    else
+                      provider = @provider_registry[card["provider_id"]]
+                      provider&.dig("capabilities", "vision") == true
+                    end
+        return nil unless supported
+
+        effective_model = if runtime_session&.respond_to?(:current_model_info)
+                            runtime_session.current_model_info&.dig(:model)
+                          end
+        effective_model ||= card["display_model"]
+        {
+          "configured" => true,
+          "source" => "auto",
+          "provider" => card["provider_id"],
+          "primary" => true,
+          "model" => effective_model,
+          "available" => []
+        }
       end
 
       # GET /api/config/settings — return advanced settings
@@ -6550,6 +6794,15 @@ module Clacky
         :invalid
       end
 
+      private def runtime_model_entry?(entry)
+        entry.is_a?(Hash) && !entry["runtime_id"].to_s.strip.empty?
+      end
+
+      private def runtime_only_request?(body)
+        allowed = %w[provider_id runtime_id display_model type remark]
+        !body["provider_id"].to_s.strip.empty? && (body.keys - allowed).empty?
+      end
+
       # POST /api/config/models
       # Body: { model, base_url, api_key, anthropic_format, api_format?, type? }
       # Creates a new model entry, returns { ok:true, id, index } so the
@@ -6557,6 +6810,26 @@ module Clacky
       def api_add_model(req, res)
         body = parse_json_body(req)
         return json_response(res, 400, { error: "Invalid JSON" }) unless body
+
+        provider_id = body["provider_id"].to_s.strip
+        runtime_id = @provider_registry.runtime_id_for(provider_id)
+        if runtime_id
+          unless runtime_only_request?(body)
+            return json_response(res, 422, {
+              error: "runtime models only allow provider_id, runtime_id, display_model, type, and remark"
+            })
+          end
+          if body.key?("runtime_id") && body["runtime_id"].to_s.strip != runtime_id.to_s
+            return json_response(res, 422, { error: "runtime_id must be derived from provider_id" })
+          end
+          return api_add_runtime_model(body, res, provider_id, runtime_id.to_s)
+        end
+        if body.key?("runtime_id") && !body["runtime_id"].to_s.strip.empty?
+          return json_response(res, 422, { error: "unknown runtime provider" })
+        end
+        if runtime_only_request?(body) && @provider_registry[provider_id].nil?
+          return json_response(res, 422, { error: "unknown runtime provider" })
+        end
 
         api_format = normalize_api_format(body["api_format"])
         return json_response(res, 422, { error: "invalid api_format" }) if api_format == :invalid
@@ -6583,7 +6856,7 @@ module Clacky
           "base_url"         => base_url,
           "api_key"          => api_key,
           "anthropic_format" => body["anthropic_format"] || false,
-          "provider_id"      => body["provider_id"].to_s.strip.then { |v| v.empty? ? nil : v }
+          "provider_id"      => provider_id.empty? ? nil : provider_id
         }
         caps = body["capabilities"]
         if caps.is_a?(Hash) && !caps.empty?
@@ -6624,6 +6897,72 @@ module Clacky
         json_response(res, 422, { error: e.message })
       end
 
+      private def api_add_runtime_model(body, res, provider_id, runtime_id)
+        type = normalize_runtime_model_type(body["type"])
+        if type == :invalid
+          return json_response(res, 422, {
+            error: "runtime model type must be default or empty"
+          })
+        end
+        duplicate = @agent_config.models.any? do |model|
+          runtime_model_entry?(model) &&
+            model["provider_id"].to_s == provider_id &&
+            model["runtime_id"].to_s == runtime_id
+        end
+        if duplicate
+          return json_response(res, 409, {
+            error: "a model card for this agent runtime provider already exists"
+          })
+        end
+
+        descriptor = @provider_registry.fetch(provider_id)
+        display_model = if discovery_runtime_provider?(descriptor)
+                          validate_runtime_display_model(
+                            runtime_id, body["display_model"]
+                          )
+                        else
+                          body["display_model"].to_s.strip
+                        end
+        if display_model.empty?
+          display_model = descriptor["display_model"].to_s.strip
+          display_model = descriptor["name"].to_s.strip if display_model.empty?
+          display_model = provider_id if display_model.empty?
+        end
+        entry = {
+          "id" => SecureRandom.uuid,
+          Clacky::AgentConfig::RUNTIME_MODEL_MARKER => true,
+          "provider_id" => provider_id,
+          "runtime_id" => runtime_id,
+          "display_model" => display_model
+        }
+
+        remark = body["remark"].to_s.strip
+        entry["remark"] = remark unless remark.empty?
+        unless type.nil?
+          if type == "default"
+            @agent_config.models.each { |model| model.delete("type") if model["type"] == "default" }
+          end
+          entry["type"] = type
+        end
+
+        @agent_config.models << entry
+        if @agent_config.models.none? { |model| model["type"] == "default" }
+          entry["type"] = "default"
+          @agent_config.current_model_id = entry["id"]
+          @agent_config.current_model_index = @agent_config.models.length - 1
+        elsif type == "default"
+          @agent_config.current_model_id = entry["id"]
+          @agent_config.current_model_index = @agent_config.models.length - 1
+        end
+
+        @agent_config.save
+        json_response(res, 200, {
+          ok: true,
+          id: entry["id"],
+          index: @agent_config.models.length - 1
+        })
+      end
+
       # PATCH /api/config/models/:id
       # Body: any subset of { model, base_url, api_key, anthropic_format, type }
       #                       provider_id, capabilities, remark }
@@ -6643,6 +6982,16 @@ module Clacky
 
         target = @agent_config.models.find { |m| m["id"] == id }
         return json_response(res, 404, { error: "model not found" }) unless target
+        return api_update_runtime_model(target, body, res) if runtime_model_entry?(target)
+
+        if body.key?("provider_id")
+          provider_id = body["provider_id"].to_s.strip
+          if @provider_registry.runtime_id_for(provider_id)
+            return json_response(res, 422, {
+              error: "an API model card cannot be changed to an agent runtime provider"
+            })
+          end
+        end
 
         # Validate before any mutation: target is a live reference inside
         # @agent_config.models, so an early 422 return after partial writes
@@ -6651,6 +7000,11 @@ module Clacky
         if body.key?("api_format")
           api_format = normalize_api_format(body["api_format"])
           return json_response(res, 422, { error: "invalid api_format" }) if api_format == :invalid
+        end
+        if clearing_current_default?(target, body)
+          return json_response(res, 422, {
+            error: "select another model as default before clearing the current default"
+          })
         end
 
         if body.key?("model")
@@ -6728,11 +7082,138 @@ module Clacky
         json_response(res, 422, { error: e.message })
       end
 
+      private def api_update_runtime_model(target, body, res)
+        invalid_fields = body.keys - %w[display_model remark type]
+        unless invalid_fields.empty?
+          return json_response(res, 422, {
+            error: "runtime models only allow display_model, remark, and type updates"
+          })
+        end
+
+        type = body.key?("type") ? normalize_runtime_model_type(body["type"]) : nil
+        if type == :invalid
+          return json_response(res, 422, {
+            error: "runtime model type must be default or empty"
+          })
+        end
+        if clearing_current_default?(target, body)
+          return json_response(res, 422, {
+            error: "select another model as default before clearing the current default"
+          })
+        end
+
+        display_model = nil
+        if body.key?("display_model")
+          descriptor = @provider_registry.fetch(target["provider_id"])
+          unless discovery_runtime_provider?(descriptor)
+            return json_response(res, 422, {
+              error: "this runtime provider does not support default-model discovery"
+            })
+          end
+          display_model = validate_runtime_display_model(
+            target["runtime_id"], body["display_model"]
+          )
+        end
+
+        target["display_model"] = display_model if display_model
+
+        if body.key?("remark")
+          remark = body["remark"].to_s.strip
+          if remark.empty?
+            target.delete("remark")
+          else
+            target["remark"] = remark
+          end
+        end
+
+        if body.key?("type")
+          if type == "default"
+            @agent_config.models.each do |model|
+              next if model["id"] == target["id"]
+              model.delete("type") if model["type"] == "default"
+            end
+            target["type"] = "default"
+            @agent_config.current_model_id = target["id"]
+            @agent_config.current_model_index =
+              @agent_config.models.find_index { |model| model["id"] == target["id"] } || 0
+          elsif type.nil?
+            target.delete("type")
+          else
+            target["type"] = type
+          end
+        end
+
+        @agent_config.save
+        json_response(res, 200, { ok: true })
+      end
+
+      private def normalize_runtime_model_type(value)
+        normalized = value.is_a?(String) ? value.strip : value
+        return nil if normalized.nil? || normalized == ""
+        return "default" if normalized == "default"
+
+        :invalid
+      end
+
+      private def discovery_runtime_provider?(descriptor)
+        descriptor && descriptor["dynamic_models"].to_s == "discovery"
+      end
+
+      private def validate_runtime_display_model(runtime_id, value)
+        selected = value.to_s.strip
+        raise ArgumentError, "display_model is required" if selected.empty?
+
+        runtime = @runtime_registry.build(
+          runtime_id,
+          purpose: :discovery,
+          context: { working_dir: Dir.pwd }
+        )
+        begin
+          unless runtime.respond_to?(:discover_models)
+            raise ArgumentError,
+                  "this runtime provider does not support default-model discovery"
+          end
+          discovery = runtime.discover_models(working_dir: Dir.pwd)
+          unless discovery.is_a?(Hash) && (discovery[:ok] || discovery["ok"])
+            message = discovery.is_a?(Hash) &&
+              (discovery[:message] || discovery["message"])
+            raise ArgumentError,
+                  message.to_s.empty? ?
+                    "runtime model discovery failed" : message.to_s
+          end
+          models = discovery[:models] || discovery["models"]
+          advertised = Array(models).filter_map do |model|
+            normalized = model.to_s.strip
+            normalized unless normalized.empty?
+          end.uniq
+          unless advertised.include?(selected)
+            raise ArgumentError,
+                  "display_model was not advertised by the runtime provider"
+          end
+          selected
+        ensure
+          runtime.close if runtime.respond_to?(:close)
+        end
+      end
+
+      private def clearing_current_default?(target, body)
+        return false unless body.key?("type") && target["type"] == "default"
+
+        value = body["type"]
+        value = value.strip if value.is_a?(String)
+        value.nil? || value == ""
+      end
+
       # DELETE /api/config/models/:id
       def api_delete_model(id, res)
         models = @agent_config.models
         return json_response(res, 404, { error: "model not found" }) unless models.any? { |m| m["id"] == id }
         return json_response(res, 422, { error: "cannot delete the last model" }) if models.length <= 1
+        if @registry.model_in_use?(id)
+          return json_response(res, 409, {
+            error: "model is in use by a live session; close that session before deleting it"
+          })
+        end
 
         index = models.find_index { |m| m["id"] == id }
         removed = models.delete_at(index)
@@ -6778,6 +7259,32 @@ module Clacky
         body = parse_json_body(req)
         return json_response(res, 400, { error: "Invalid JSON" }) unless body
 
+        runtime_probe = resolve_runtime_probe(body)
+        if runtime_probe[:error]
+          return json_response(res, 422, { error: runtime_probe[:error] })
+        end
+        if runtime_probe[:runtime_id]
+          return reject_cross_origin_request(res) unless trusted_same_origin_request?(req)
+
+          runtime = @runtime_registry.build(runtime_probe[:runtime_id], purpose: :health)
+          begin
+            health = if runtime.respond_to?(:health)
+                       runtime.health
+                     else
+                       {
+                         ok: true,
+                         available: true,
+                         authenticated: true,
+                         status: "connected"
+                       }
+                     end
+            payload = health.is_a?(Hash) ? health.dup : { ok: !!health }
+            return json_response(res, 200, payload)
+          ensure
+            runtime.close if runtime.respond_to?(:close)
+          end
+        end
+
         api_key = body["api_key"].to_s
         if api_key.include?("****")
           model_id = body["id"].to_s
@@ -6815,6 +7322,39 @@ module Clacky
         json_response(res, 200, { ok: false, message: e.message })
       end
 
+      private def resolve_runtime_probe(body)
+        entry = nil
+        model_id = body["id"].to_s
+        entry = @agent_config.models.find { |model| model["id"] == model_id } unless model_id.empty?
+        if entry.nil? && body.key?("index")
+          entry = @agent_config.models[body["index"].to_i]
+        end
+
+        runtime_id = nil
+        if entry
+          if runtime_model_entry?(entry)
+            provider_id = entry["provider_id"].to_s
+            runtime_id = @provider_registry.runtime_id_for(provider_id)
+            return { error: "unknown runtime provider" } unless runtime_id
+            if entry["runtime_id"].to_s != runtime_id.to_s
+              return { error: "configured runtime_id does not match provider_id" }
+            end
+            if body.key?("provider_id") && body["provider_id"].to_s.strip != provider_id
+              return { error: "provider_id does not match configured runtime model" }
+            end
+          end
+        else
+          provider_id = body["provider_id"].to_s.strip
+          runtime_id = @provider_registry.runtime_id_for(provider_id) unless provider_id.empty?
+        end
+
+        if body.key?("runtime_id") && body["runtime_id"].to_s.strip != runtime_id.to_s
+          return { error: "runtime_id must be derived from provider_id" }
+        end
+
+        { runtime_id: runtime_id && runtime_id.to_s }
+      end
+
       private def try_test_with_base_url(api_key, base_url, model, anthropic_format, api_format)
         result = run_test_connection(api_key, base_url, model, anthropic_format, api_format)
         return [result, base_url] if result[:success]
@@ -6837,9 +7377,9 @@ module Clacky
         client.test_connection(model: model)
       end
 
-      # GET /api/providers — return built-in provider presets for quick setup
+      # GET /api/providers — return registered providers for quick setup
       def api_list_providers(res)
-        providers = Clacky::Providers::PRESETS.map do |id, preset|
+        providers = @provider_registry.all.map do |id, preset|
           {
             id:                id,
             name:              preset["name"],
@@ -6856,7 +7396,14 @@ module Clacky
             # billing-plan variants) when present. Absent for single-endpoint
             # providers — UI renders a plain text input in that case.
             endpoint_variants: preset["endpoint_variants"],
-            website_url:       preset["website_url"]
+            website_url:       preset["website_url"],
+            runtime_id:        preset["runtime_id"],
+            auth_mode:         preset["auth_mode"],
+            credential_fields: preset["credential_fields"],
+            dynamic_models:    preset["dynamic_models"],
+            display_model:     preset["display_model"],
+            extension_id:      preset["extension_id"],
+            capabilities:      preset["capabilities"]
           }
         end
         json_response(res, 200, { providers: providers })
@@ -6891,6 +7438,17 @@ module Clacky
             return json_response(res, 409, { error: "History location is no longer available" })
           end
           return json_response(res, 200, { events: [], has_more: false })
+        end
+
+        history_navigation_requested = query["navigation"] == "1" ||
+                                       query.key?("previews") ||
+                                       query.key?("preview") ||
+                                       (query["window"] == "1" &&
+                                        !runtime_session?(agent))
+        if history_navigation_requested
+          return unless runtime_capability_available?(
+            agent, :time_machine, res, "history navigation"
+          )
         end
 
         # Collect events emitted by replay_history via a lightweight collector UI
@@ -7097,15 +7655,29 @@ module Clacky
         agent = nil
         @registry.with_session(session_id) { |s| agent = s[:agent] }
 
-        # With Plan B (shared @models reference), every session's AgentConfig
-        # points at the same @models array as the global @agent_config. So
-        # resolving the model by stable id here and in agent.switch_model_by_id
-        # will always agree — no more index divergence after add/delete.
         target_model = @agent_config.models.find { |m| m["id"] == model_id }
         if target_model.nil?
           return json_response(res, 400, { error: "Model not found in configuration" })
         end
 
+        source_is_runtime = runtime_session?(agent)
+        target_is_runtime = runtime_model_entry?(target_model)
+        if source_is_runtime != target_is_runtime
+          return json_response(res, 409, {
+            error: "Sessions do not support switching between API and agent runtime providers; start a new session"
+          })
+        end
+
+        if source_is_runtime && agent.current_model_info[:id].to_s != model_id
+          return json_response(res, 409, {
+            error: "Agent runtime sessions do not support switching provider cards"
+          })
+        end
+
+        # With Plan B (shared @models reference), every session's AgentConfig
+        # points at the same @models array as the global @agent_config. So
+        # resolving the model by stable id here and in agent.switch_model_by_id
+        # will always agree — no more index divergence after add/delete.
         # Switch to the model by id (unified interface with CLI)
         # Handles: config.switch_model_by_id + client rebuild + message_compressor rebuild
         success = agent.switch_model_by_id(model_id)
@@ -7135,6 +7707,9 @@ module Clacky
         agent = nil
         @registry.with_session(session_id) { |s| agent = s[:agent] }
         return json_response(res, 404, { error: "Session not found" }) unless agent
+        return unless runtime_capability_available?(
+          agent, :reasoning_effort, res, "reasoning-effort changes"
+        )
 
         agent.reasoning_effort = raw
         @session_manager.save(agent.to_session_data(updated_at: Time.now))
@@ -7160,30 +7735,62 @@ module Clacky
         return json_response(res, 404, { error: "Session not found" }) unless @registry.ensure(session_id)
 
         agent = nil
-        @registry.with_session(session_id) { |s| agent = s[:agent] }
+        session_status = nil
+        @registry.with_session(session_id) do |s|
+          agent = s[:agent]
+          session_status = s[:status]
+        end
         return json_response(res, 404, { error: "Session not found" }) unless agent
 
-        if model_name && !model_name.empty?
-          info = agent.current_model_info
-          # Prefer explicitly saved provider_id, fall back to base_url lookup
-          provider_id = info&.dig(:provider_id).to_s.strip.then { |v| v.empty? ? nil : v }
-          provider_id ||= (info && Clacky::Providers.find_by_base_url(info[:base_url]))
-          allowed = provider_id ? Clacky::Providers.models(provider_id) : []
-          if allowed.empty?
-            return json_response(res, 400, { error: "Current model has no provider preset; sub-model switching unavailable" })
+        info = agent.current_model_info
+        runtime_model_selection = agent.respond_to?(:runtime?) && agent.runtime?
+        if runtime_model_selection
+          return unless runtime_capability_available?(
+            agent, :model_selection, res, "model selection"
+          )
+          if session_status.to_s == "running"
+            return json_response(res, 409, { error: "Model cannot change while the session is running" })
           end
+          if model_name.nil? || model_name.empty?
+            return json_response(res, 400, { error: "Select a model advertised by the runtime" })
+          end
+
+          allowed = Array(info&.dig(:sub_model_options))
           unless allowed.include?(model_name)
-            return json_response(res, 400, { error: "Sub-model '#{model_name}' not listed under provider '#{provider_id}'" })
+            return json_response(res, 400, { error: "Model '#{model_name}' is not advertised by the runtime" })
           end
         else
-          model_name = nil
+          return unless runtime_capability_available?(
+            agent, :sub_model, res, "sub-model overlays"
+          )
+
+          if model_name && !model_name.empty?
+            # Prefer explicitly saved provider_id, fall back to base_url lookup
+            provider_id = info&.dig(:provider_id).to_s.strip.then { |v| v.empty? ? nil : v }
+            provider_id ||= (info && Clacky::Providers.find_by_base_url(info[:base_url]))
+            allowed = provider_id ? Clacky::Providers.models(provider_id) : []
+            if allowed.empty?
+              return json_response(res, 400, { error: "Current model has no provider preset; sub-model switching unavailable" })
+            end
+            unless allowed.include?(model_name)
+              return json_response(res, 400, { error: "Sub-model '#{model_name}' not listed under provider '#{provider_id}'" })
+            end
+          else
+            model_name = nil
+          end
         end
 
-        agent.set_session_sub_model(model_name)
+        success = agent.set_session_sub_model(model_name)
+        unless success
+          return json_response(res, 500, { error: "Failed to switch session model" })
+        end
+
         @session_manager.save(agent.to_session_data(updated_at: Time.now))
         broadcast_session_update(session_id)
 
         json_response(res, 200, { ok: true, sub_model: agent.current_model_info[:sub_model] })
+      rescue Clacky::RuntimeSession::BusyError => e
+        json_response(res, 409, { error: e.message })
       rescue => e
         json_response(res, 500, { error: e.message })
       end
@@ -7212,10 +7819,16 @@ module Clacky
       def api_benchmark_session_models(session_id, _req, res)
         return json_response(res, 404, { error: "Session not found" }) unless @registry.ensure(session_id)
 
+        agent = nil
+        @registry.with_session(session_id) { |session| agent = session[:agent] }
+        return unless runtime_capability_available?(
+          agent, :model_benchmark, res, "model benchmarks"
+        )
+
         # Snapshot the models list — @agent_config.models is a shared reference
         # that the user might mutate from the settings panel during the test;
         # a shallow dup is enough since we only read string fields below.
-        models = Array(@agent_config.models).dup
+        models = Array(@agent_config.models).reject { |model| runtime_model_entry?(model) }
         return json_response(res, 200, { ok: true, results: [] }) if models.empty?
 
         # Kick off one thread per model. We deliberately cap per-request wall
@@ -7292,15 +7905,19 @@ module Clacky
         return json_response(res, 400, { error: "working_dir is required" }) if new_dir.empty?
         return json_response(res, 404, { error: "Session not found" }) unless @registry.ensure(session_id)
 
+        agent = nil
+        @registry.with_session(session_id) { |s| agent = s[:agent] }
+        return json_response(res, 404, { error: "Session not found" }) unless agent
+        return unless runtime_capability_available?(
+          agent, :working_directory, res, "working-directory changes"
+        )
+
         # Expand ~ to home directory
         expanded_dir = File.expand_path(new_dir)
 
         # Auto-create the directory if it doesn't exist yet.
         FileUtils.mkdir_p(expanded_dir)
 
-        agent = nil
-        @registry.with_session(session_id) { |s| agent = s[:agent] }
-        
         # Change the agent's working directory
         agent.change_working_dir(expanded_dir)
         
@@ -7316,6 +7933,14 @@ module Clacky
       end
 
       def api_fork_session(session_id, req, res)
+        source = @session_manager.load(session_id)
+        runtime = indifferent_value(source, :runtime)
+        unless indifferent_value(runtime, :id).to_s.empty?
+          return json_response(res, 409, {
+            error: "Agent runtime sessions cannot be forked"
+          })
+        end
+
         fork_data = @session_manager.fork(session_id)
         return json_response(res, 404, { error: "Session not found" }) unless fork_data
 
@@ -7332,7 +7957,8 @@ module Clacky
         # consulted @registry and returned 404 for disk-only sessions,
         # causing the "can't delete old sessions" bug.
         in_registry = @registry.exist?(session_id)
-        on_disk     = !@session_manager.load(session_id).nil?
+        loaded      = @session_manager.load(session_id)
+        on_disk     = loaded && indifferent_value(loaded, :session_id).to_s == session_id.to_s
 
         unless in_registry || on_disk
           return json_response(res, 404, { error: "Session not found" })
@@ -7345,7 +7971,10 @@ module Clacky
         @registry.delete(session_id) if in_registry
 
         # Soft-delete: move session to trash instead of permanently destroying it.
-        @session_manager.soft_delete(session_id) if on_disk
+        deleted_on_disk = @session_manager.soft_delete(session_id) if on_disk
+        unless in_registry || deleted_on_disk
+          return json_response(res, 404, { error: "Session not found" })
+        end
 
         # Notify any still-connected clients (mainly matters when the
         # session was live, but harmless otherwise).
@@ -7626,6 +8255,15 @@ module Clacky
         started = false
         begin
           if session[:status] == :running
+            if runtime_session?(agent)
+              # ACP sessions are single-flight. Put the claimed entry back at
+              # the head and let the current worker consume it only after the
+              # cancelled prompt has actually returned.
+              agent.restore_pending_input(entry)
+              interrupt_session(session_id, reason: :replacement)
+              started = true
+              return
+            end
             interrupt_session(session_id, reason: :replacement)
             session[:thread]&.join(2)
           end
@@ -7640,8 +8278,33 @@ module Clacky
         return unless @registry.exist?(session_id)
 
         session = @registry.get(session_id)
-        
         mode = @agent_config.input_behavior
+
+        # ACP v1 has no standard steering method and each provider session is
+        # single-flight. Queue a replacement on the existing worker, then send
+        # protocol cancellation; the worker drains it only after the original
+        # session/prompt response has crossed the true completion barrier.
+        if runtime_session?(session[:agent])
+          runtime_queued = false
+          @registry.with_session(session_id) do |live|
+            next unless live[:status] == :running
+
+            live[:agent].enqueue_input(
+              content,
+              files: files,
+              references_display: references,
+              reference_contexts: build_reference_contexts(references),
+              created_at: Time.now.to_f,
+              steering: mode == "steer"
+            )
+            runtime_queued = true
+          end
+          if runtime_queued
+            interrupt_session(session_id, reason: :replacement) unless mode == "steer"
+            return
+          end
+        end
+
         queued = false
         @registry.with_session(session_id) do |s|
           if s[:status] == :running && mode == "steer"
@@ -7676,7 +8339,7 @@ module Clacky
         if agent.history.empty? && agent.name.match?(/\ASession \d+\z/)
           auto_name = content.gsub(/\s+/, " ").strip[0, 30]
           auto_name += "…" if content.strip.length > 30
-          agent.rename(auto_name)
+          agent.rename(auto_name, automatic: true)
           broadcast(session_id, { type: "session_renamed", session_id: session_id, name: auto_name })
         end
 
@@ -7708,7 +8371,37 @@ module Clacky
         # File references are now handled inside agent.run — injected as a system_injected
         # message after the user message, so replay_history skips them automatically.
         reference_contexts = build_reference_contexts(references)
-        run_agent_task(session_id, agent) { agent.run(content, files: files, reference_contexts: reference_contexts, created_at: msg_created_at, references_display: references) }
+        queued_after_idle_race = false
+        runtime_busy_handler = if runtime_session?(agent)
+                                 lambda do |live|
+                                   live[:agent].enqueue_input(
+                                     content,
+                                     files: files,
+                                     references_display: references,
+                                     reference_contexts: reference_contexts,
+                                     created_at: msg_created_at,
+                                     show_user_message: false
+                                   )
+                                   queued_after_idle_race = true
+                                 end
+                               end
+        worker = run_agent_task(
+          session_id,
+          agent,
+          on_already_running: runtime_busy_handler
+        ) do
+          agent.run(
+            content,
+            files: files,
+            reference_contexts: reference_contexts,
+            created_at: msg_created_at,
+            references_display: references
+          )
+        end
+        if queued_after_idle_race && mode != "steer"
+          interrupt_session(session_id, reason: :replacement)
+        end
+        worker
       end
 
       # Build context blocks for non-file @mention references. Each reference is
@@ -7758,20 +8451,33 @@ module Clacky
       # self-terminates at the next check_stale! checkpoint, or when the syscall
       # returns; either way it can no longer touch the live session.
       def interrupt_session(session_id, reason: :user)
+        agent = nil
+        thread = nil
+        runtime = false
         @registry.with_session(session_id) do |s|
           s[:idle_timer]&.cancel
+          agent = s[:agent]
           thread = s[:thread]
           next unless thread&.alive?
 
-          Clacky::Logger.info("[interrupt] session=#{session_id} raise")
-          begin
-            thread[:interrupt_reason] = reason
-            thread.raise(Clacky::AgentInterrupted, "Interrupted by user")
-          rescue ThreadError => e
-            Clacky::Logger.warn("[interrupt] raise failed: #{e.message}")
-          end
+          thread[:interrupt_reason] = reason
+          runtime = runtime_session?(agent)
+          thread[:runtime_cancel_requested] = true if runtime
         end
-      end      # Run a task in a session immediately in the background, without waiting
+        return unless thread&.alive?
+
+        if runtime
+          Clacky::Logger.info("[interrupt] session=#{session_id} runtime_cancel")
+          agent.cancel(reason: reason)
+        else
+          Clacky::Logger.info("[interrupt] session=#{session_id} raise")
+          thread.raise(Clacky::AgentInterrupted, "Interrupted by user")
+        end
+      rescue ThreadError => e
+        Clacky::Logger.warn("[interrupt] failed: #{e.message}")
+      end
+
+      # Run a task in a session immediately in the background, without waiting
       # for the client to subscribe. The user bubble is persisted via
       # display_text (Agent#run → history → replay_history), so the frontend
       # only needs to navigate over and load history — no realtime broadcast,
@@ -7840,10 +8546,18 @@ module Clacky
         # covers all of them — serial joins would multiply the shutdown time
         # by the number of concurrent tasks.
         live = []
+        attached = []
         @registry.each_live_agent do |id, agent, thread|
+          attached << [id, agent, thread]
           next unless thread&.alive?
           begin
-            thread.raise(Clacky::AgentInterrupted, "Worker shutting down")
+            if runtime_session?(agent)
+              thread[:interrupt_reason] = :shutdown
+              thread[:runtime_cancel_requested] = true
+              agent.cancel(reason: :shutdown)
+            else
+              thread.raise(Clacky::AgentInterrupted, "Worker shutting down")
+            end
             live << [id, agent, thread]
             Clacky::Logger.info("[shutdown] interrupted session=#{id}")
           rescue => e
@@ -7854,17 +8568,45 @@ module Clacky
         live.each do |id, agent, _thread|
           @session_manager.save(agent.to_session_data(status: :interrupted, updated_at: Time.now))
         end
+        @runtime_registry.shutdown if @runtime_registry.respond_to?(:shutdown)
+        attached.each do |_id, agent, _thread|
+          agent.close if runtime_session?(agent)
+        rescue StandardError => e
+          Clacky::Logger.warn("[shutdown] runtime close failed: #{e.message}")
+        end
+      end
+
+      private def runtime_session?(agent)
+        agent.respond_to?(:runtime?) && agent.runtime?
+      rescue StandardError
+        false
+      end
+
+      private def runtime_capability_available?(agent, capability, res, label)
+        return true unless runtime_session?(agent)
+        return true if agent.capability?(capability)
+
+        json_response(res, 409, {
+          error: "This agent runtime does not support #{label}"
+        })
+        false
       end
 
       # Run an agent task in a background thread, handling status updates,
       # session persistence, and idle compression timer lifecycle.
       # Yields to the caller to perform the actual agent.run call.
-      private def run_agent_task(session_id, agent, &task)
-        if @registry.running_full?
+      private def run_agent_task(session_id, agent, on_already_running: nil, &task)
+        claim = @registry.claim_task(
+          session_id,
+          require_idle: runtime_session?(agent),
+          &on_already_running
+        )
+        if claim[:status] == :full
           broadcast(session_id, { type: "error", session_id: session_id,
                                   message: "Too many concurrent tasks (max #{@registry.max_running_agents}), please try again later" })
           return
         end
+        return unless claim[:status] == :claimed
 
         idle_timer = nil
         @registry.with_session(session_id) { |s| idle_timer = s[:idle_timer] }
@@ -7884,8 +8626,7 @@ module Clacky
         # other idle agents, breaking subsequent status updates and any
         # follow-up handle_user_message (which would early-return on
         # @registry.exist? == false).
-        epoch = @registry.claim_epoch(session_id)
-        @registry.update(session_id, status: :running)
+        epoch = claim[:epoch]
 
         # evict_excess_idle! serializes + writes 1 file per evicted session
         # (can be 5+ on first message after a restart when restore_from_disk
@@ -7903,18 +8644,27 @@ module Clacky
           Thread.current[:task_epoch] = epoch
           run_result = task.call
           awaiting = false
-          owns_epoch = true
+          owns_epoch = false
           loop do
             pending = nil
+            cancelled_without_replacement = false
+            owns_epoch = false
             @registry.with_session(session_id) do |s|
               owns_epoch = s[:epoch].to_i == epoch.to_i
               next unless owns_epoch
               pending = agent.take_pending_input
-              unless pending
+              if pending && runtime_session?(agent)
+                Thread.current[:runtime_cancel_requested] = false
+              elsif !pending && Thread.current[:runtime_cancel_requested]
+                cancelled_without_replacement = true
+              elsif !pending
                 awaiting = run_result.is_a?(Hash) && run_result[:awaiting_user_feedback]
                 s[:status] = awaiting ? :awaiting_feedback : :idle
                 s[:error] = nil
               end
+            end
+            if owns_epoch && cancelled_without_replacement
+              raise Clacky::AgentInterrupted, "Runtime turn cancelled"
             end
             break unless owns_epoch && pending
             run_result = agent.run_pending_input(pending)
@@ -8059,6 +8809,61 @@ module Clacky
         @agent_config&.default_working_dir || File.expand_path("~/clacky_workspace")
       end
 
+      # Invalid extension contributions are reported by the extension verifier,
+      # but they must not prevent the HTTP server from starting. Keep the
+      # registry classes strict for direct callers while filtering only the
+      # process-level view assembled by the server.
+      private def build_provider_registry
+        units = safe_registry_units(
+          :providers,
+          reserved_ids: Clacky::Providers::PRESETS.keys
+        )
+        runtime_ids = safe_registry_units(:agent_runtimes).map { |unit| unit.id.to_s }
+        units = units.reject do |unit|
+          runtime_id = unit.spec["runtime_id"].to_s
+          dangling = !runtime_id.empty? && !runtime_ids.include?(runtime_id)
+          if dangling
+            Clacky::Logger.warn(
+              "[HttpServer] skipped provider '#{unit.id}' with unavailable runtime '#{runtime_id}'"
+            )
+          end
+          dangling
+        end
+        Clacky::ProviderRegistry.new(extension_units: units)
+      end
+
+      private def build_runtime_registry
+        units = safe_registry_units(:agent_runtimes)
+        Clacky::AgentRuntimeRegistry.new(extension_units: units)
+      end
+
+      private def safe_registry_units(kind, reserved_ids: [])
+        result = Clacky::ExtensionLoader.last_result
+        units = result.respond_to?(kind) ? Array(result.public_send(kind)) : []
+        counts = units.each_with_object(Hash.new(0)) do |unit, memo|
+          memo[unit.id.to_s] += 1 if unit.respond_to?(:id)
+        end
+        reserved = Array(reserved_ids).map(&:to_s)
+        accepted, rejected = units.partition do |unit|
+          id = unit.respond_to?(:id) ? unit.id.to_s : ""
+          spec = unit.respond_to?(:spec) ? unit.spec : nil
+          !id.empty? && spec.is_a?(Hash) && counts[id] == 1 &&
+            !reserved.include?(id)
+        end
+        unless rejected.empty?
+          ids = rejected.map { |unit| unit.respond_to?(:id) ? unit.id.to_s : "?" }
+          Clacky::Logger.warn(
+            "[HttpServer] skipped invalid #{kind}: #{ids.uniq.join(', ')}"
+          )
+        end
+        accepted
+      rescue StandardError => e
+        Clacky::Logger.warn(
+          "[HttpServer] failed to assemble #{kind}: #{e.class}: #{e.message}"
+        )
+        []
+      end
+
       # Create a session in the registry and wire up Agent + WebUIController.
       # Returns the new session_id.
       # Build a new agent session.
@@ -8066,12 +8871,10 @@ module Clacky
       # @param working_dir [String] working directory for the agent
       # @param permission_mode [Symbol] :confirm_all (default, human present) or
       #   :auto_approve (unattended — suppresses ask_user waits)
-      def build_session(name:, working_dir: nil, permission_mode: :confirm_all, profile: "general", source: :manual, model_id: nil)
+      def build_session(name:, working_dir: nil, permission_mode: :confirm_all, profile: "general", source: :manual, model_id: nil, allow_unavailable_runtime: false)
         working_dir ||= default_working_dir
         FileUtils.mkdir_p(working_dir) unless Dir.exist?(working_dir)
         session_id = Clacky::SessionManager.generate_id
-        @registry.create(session_id: session_id)
-
         config = @agent_config.deep_copy
         config.permission_mode = permission_mode
 
@@ -8091,23 +8894,43 @@ module Clacky
         #      AND corrupted the on-disk config at next save.
         config.switch_model_by_id(model_id) if model_id
 
-        # Build client from the (possibly overridden) config so api format
-        # detection (Bedrock vs OpenAI vs Anthropic) uses the correct model.
-        client = Clacky::Client.new(
-          config.api_key,
-          base_url: config.base_url,
-          model: config.model_name,
-          anthropic_format: config.anthropic_format?,
-          api_format: config.api_format
-        )
-
         broadcaster = method(:broadcast)
         ui = WebUIController.new(session_id, broadcaster)
-        agent = Clacky::Agent.new(client, config, working_dir: working_dir, ui: ui, profile: profile,
-                                  session_id: session_id, source: source)
+        runtime = resolve_runtime_card(
+          config.current_model,
+          allow_unavailable: allow_unavailable_runtime
+        )
+        if runtime && !runtime_source_supported?(source)
+          raise ArgumentError,
+                "Agent runtimes are available only for manual or setup sessions"
+        end
+        if runtime
+          factory = if runtime[:available]
+                      runtime_factory(runtime[:runtime_id])
+                    else
+                      unavailable_runtime_factory(runtime[:runtime_id])
+                    end
+          agent = Clacky::RuntimeSession.new(
+            runtime_id: runtime[:runtime_id],
+            runtime_factory: factory,
+            config: config,
+            working_dir: working_dir,
+            ui: ui,
+            profile: Clacky::AgentProfile.load(profile),
+            session_id: session_id,
+            source: source
+          )
+        else
+          # Build client from the (possibly overridden) config so api format
+          # detection (Bedrock vs OpenAI vs Anthropic) uses the correct model.
+          client = build_api_client(config)
+          agent = Clacky::Agent.new(client, config, working_dir: working_dir, ui: ui, profile: profile,
+                                    session_id: session_id, source: source)
+        end
         agent.rename(name) unless name.nil? || name.empty?
-        idle_timer = build_idle_timer(session_id, agent)
+        idle_timer = agent.respond_to?(:runtime?) && agent.runtime? ? nil : build_idle_timer(session_id, agent)
 
+        @registry.create(session_id: session_id)
         @registry.with_session(session_id) do |s|
           s[:agent]      = agent
           s[:ui]         = ui
@@ -8127,7 +8950,6 @@ module Clacky
       def build_session_from_data(session_data, permission_mode: :confirm_all)
         original_id = session_data[:session_id]
 
-        client = @client_factory.call
         config = @agent_config.deep_copy
         config.permission_mode = permission_mode
         broadcaster = method(:broadcast)
@@ -8136,8 +8958,30 @@ module Clacky
         # for sessions saved before the agent_profile field was introduced.
         profile = session_data[:agent_profile].to_s
         profile = "general" if profile.empty?
-        agent = Clacky::Agent.from_session(client, config, session_data, ui: ui, profile: profile)
-        idle_timer = build_idle_timer(original_id, agent)
+        runtime_data = indifferent_value(session_data, :runtime)
+        runtime_id = indifferent_value(runtime_data, :id).to_s
+        if runtime_id.empty?
+          ensure_restored_api_card(config, session_data)
+          client = build_api_client(config)
+          agent = Clacky::Agent.from_session(client, config, session_data, ui: ui, profile: profile)
+          idle_timer = build_idle_timer(original_id, agent)
+        else
+          provider_id = indifferent_value(
+            indifferent_value(session_data, :config), :provider_id
+          ).to_s
+          select_restored_runtime_card(config, runtime_id, provider_id)
+          available = runtime_available?(runtime_id, provider_id)
+          factory = available ? restored_runtime_factory(runtime_id) :
+                                unavailable_runtime_factory(runtime_id)
+          agent = Clacky::RuntimeSession.from_session(
+            runtime_factory: factory,
+            config: config,
+            session_data: session_data,
+            ui: ui,
+            profile: Clacky::AgentProfile.load(profile)
+          )
+          idle_timer = nil
+        end
 
         # Register session atomically with a fully-built agent so no concurrent
         # caller ever sees agent=nil for this session. The duplicate-restore guard
@@ -8150,6 +8994,172 @@ module Clacky
         end
 
         original_id
+      end
+
+      private def resolve_runtime_card(card, allow_unavailable: false)
+        return nil unless runtime_model_entry?(card)
+
+        provider_id = card["provider_id"].to_s
+        saved_runtime_id = card["runtime_id"].to_s
+        mapped_runtime_id = @provider_registry.runtime_id_for(provider_id).to_s
+        available = !provider_id.empty? && !saved_runtime_id.empty? &&
+                    mapped_runtime_id == saved_runtime_id &&
+                    @runtime_registry.registered?(saved_runtime_id)
+        if !available && allow_unavailable && !saved_runtime_id.empty?
+          return {
+            provider_id: provider_id,
+            runtime_id: saved_runtime_id,
+            available: false
+          }
+        end
+        if provider_id.empty? || mapped_runtime_id.empty?
+          raise Clacky::AgentRuntimeRegistry::UnknownRuntimeError,
+                "unknown runtime provider: #{provider_id}"
+        end
+        if saved_runtime_id != mapped_runtime_id
+          raise Clacky::AgentRuntimeRegistry::UnknownRuntimeError,
+                "configured runtime_id does not match provider_id"
+        end
+        unless @runtime_registry.registered?(mapped_runtime_id)
+          raise Clacky::AgentRuntimeRegistry::UnknownRuntimeError,
+                "unknown agent runtime id: #{mapped_runtime_id}"
+        end
+
+        {
+          provider_id: provider_id,
+          runtime_id: mapped_runtime_id,
+          available: true
+        }
+      end
+
+      private def build_api_client(config)
+        entry = config.current_model
+        Clacky::Client.new(
+          config.api_key,
+          base_url: config.base_url,
+          model: config.model_name,
+          anthropic_format: config.anthropic_format?,
+          api_format: config.api_format,
+          provider_id: config.provider_id_for(entry),
+          capabilities: entry && entry["capabilities"]
+        )
+      end
+
+      private def select_restored_api_card(config, session_data)
+        saved_config = indifferent_value(session_data, :config)
+        saved_name = indifferent_value(saved_config, :model_name).to_s
+        saved_url = indifferent_value(saved_config, :model_base_url).to_s
+        card = config.models.find do |model|
+          !runtime_model_entry?(model) && model["model"].to_s == saved_name &&
+            (saved_url.empty? || model["base_url"].to_s == saved_url)
+        end
+        if card.nil? && !runtime_model_entry?(config.current_model)
+          card = config.current_model
+        end
+        if card.nil? && runtime_model_entry?(config.current_model)
+          card = config.models.find { |model| !runtime_model_entry?(model) }
+        end
+        config.switch_model_by_id(card["id"]) if card && card["id"]
+        card
+      end
+
+      private def ensure_restored_api_card(config, session_data)
+        card = select_restored_api_card(config, session_data)
+        return card if card
+
+        saved_config = indifferent_value(session_data, :config)
+        saved_name = indifferent_value(saved_config, :model_name).to_s
+        saved_url = indifferent_value(saved_config, :model_base_url).to_s
+        unavailable = {
+          "id" => SecureRandom.uuid,
+          "type" => "default",
+          "model" => saved_name.empty? ? "Unavailable API model" : saved_name,
+          "base_url" => saved_url.empty? ? nil : saved_url,
+          "api_key" => nil,
+          "anthropic_format" => false
+        }
+
+        # AgentConfig session copies normally share the global model array. A
+        # recovery-only placeholder must remain private to this restored
+        # session and must never leak into Settings or config.yml.
+        config.models = config.models.map(&:dup)
+        config.models << unavailable
+        config.switch_model_by_id(unavailable["id"])
+        unavailable
+      end
+
+      private def runtime_source_supported?(source)
+        %i[manual setup].include?(source.to_sym)
+      end
+
+      private def runtime_factory(runtime_id)
+        lambda do |**options|
+          @runtime_registry.build(runtime_id, **options)
+        end
+      end
+
+      private def restored_runtime_factory(runtime_id)
+        lambda do |persisted_state: nil, **options|
+          @runtime_registry.build(
+            runtime_id, persisted_state: persisted_state, **options
+          )
+        rescue ScriptError, StandardError => e
+          Clacky::Logger.warn(
+            "[runtime restore] #{runtime_id} unavailable: #{e.class}"
+          )
+          Clacky::RuntimeSession::UnavailableRuntime.new(
+            runtime_id: runtime_id,
+            persisted_state: persisted_state,
+            message: "Agent runtime '#{runtime_id}' is unavailable; the saved transcript remains readable"
+          )
+        end
+      end
+
+      private def unavailable_runtime_factory(runtime_id)
+        lambda do |persisted_state: nil, **_options|
+          Clacky::RuntimeSession::UnavailableRuntime.new(
+            runtime_id: runtime_id,
+            persisted_state: persisted_state,
+            message: "Agent runtime '#{runtime_id}' is unavailable; the saved transcript remains readable"
+          )
+        end
+      end
+
+      private def runtime_available?(runtime_id, provider_id)
+        return false unless @runtime_registry.registered?(runtime_id)
+
+        mapped = @provider_registry.runtime_id_for(provider_id)
+        !mapped.nil? && mapped.to_s == runtime_id.to_s
+      end
+
+      private def select_restored_runtime_card(config, runtime_id, provider_id)
+        card = config.models.find do |model|
+          runtime_model_entry?(model) &&
+            model["runtime_id"].to_s == runtime_id.to_s &&
+            (provider_id.empty? || model["provider_id"].to_s == provider_id)
+        end
+        unless card
+          descriptor = provider_id.empty? ? nil : @provider_registry[provider_id]
+          display_model = descriptor && descriptor["display_model"]
+          display_model = runtime_id if display_model.to_s.empty?
+          card = {
+            "id" => "restored-runtime:#{runtime_id}:#{provider_id}",
+            Clacky::AgentConfig::RUNTIME_MODEL_MARKER => true,
+            "provider_id" => provider_id,
+            "runtime_id" => runtime_id,
+            "display_model" => display_model
+          }
+          # A removed runtime card must not be inserted into the global shared
+          # model list merely because an old transcript was opened.
+          config.models = config.models.dup << card
+        end
+        config.switch_model_by_id(card["id"])
+      end
+
+      private def indifferent_value(hash, key)
+        return nil unless hash.is_a?(Hash)
+
+        hash[key] || hash[key.to_s]
       end
 
       # Build an IdleCompressionTimer for a session.

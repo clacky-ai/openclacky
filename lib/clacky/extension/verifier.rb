@@ -17,7 +17,9 @@ module Clacky
     Issue = Struct.new(:ext, :unit, :level, :code, :message, :file, :hint, keyword_init: true)
 
     KNOWN_TOP_KEYS    = %w[id name name_zh display_name display_name_zh title description description_zh emoji version origin author homepage license public license_required keywords config contributes].freeze
-    KNOWN_CONTRIBUTES = %w[panels api skills agents channels patches hooks tools].freeze
+    KNOWN_CONTRIBUTES = %w[
+      panels api skills agents channels patches hooks tools providers agent_runtimes
+    ].freeze
 
     PANEL_KEYS   = %w[id title title_zh description description_zh view order attach entry_points].freeze
     API_KEYS     = %w[id handler].freeze
@@ -27,6 +29,11 @@ module Clacky
     PATCH_KEYS   = %w[target file fingerprint on_mismatch].freeze
     HOOK_KEYS    = %w[event file].freeze
     TOOL_KEYS    = %w[id file].freeze
+    PROVIDER_KEYS = %w[
+      id name name_key runtime_id auth_mode credential_fields dynamic_models
+      display_model capabilities website_url
+    ].freeze
+    AGENT_RUNTIME_KEYS = %w[id adapter class].freeze
 
     ATTACH_TOKEN_RE = /\A(\*|[\w\-]+)\z/.freeze
     VERSION_RE      = /\A[0-9]+\.[0-9]+\.[0-9]+\z/.freeze
@@ -41,6 +48,7 @@ module Clacky
         issues.concat(override_issues(result))
         issues.concat(manifest_schema_issues(result))
         issues.concat(reference_issues(result))
+        issues.concat(collision_issues(result))
         issues
       end
 
@@ -120,6 +128,8 @@ module Clacky
         check_unit_keys(issues, ext_id, manifest_path, contributes["patches"],  PATCH_KEYS,   "patch")
         check_unit_keys(issues, ext_id, manifest_path, contributes["hooks"],    HOOK_KEYS,    "hook")
         check_unit_keys(issues, ext_id, manifest_path, contributes["tools"],    TOOL_KEYS,    "tool")
+        check_unit_keys(issues, ext_id, manifest_path, contributes["providers"], PROVIDER_KEYS, "provider")
+        check_unit_keys(issues, ext_id, manifest_path, contributes["agent_runtimes"], AGENT_RUNTIME_KEYS, "agent runtime")
 
         Array(contributes["panels"]).each do |entry|
           next unless entry.is_a?(Hash)
@@ -156,6 +166,20 @@ module Clacky
         panel_ids   = result.panels.map { |u| "#{u.ext_id}/#{u.id}" }.to_set
         agent_ids   = result.agents.map { |u| u.id }.to_set
         skill_ids   = result.skills.map { |u| u.id }.to_set
+        runtime_ids = Array(result.agent_runtimes).map { |u| u.id }.to_set
+
+        Array(result.providers).each do |provider|
+          runtime_id = provider.spec && provider.spec["runtime_id"]
+          next if runtime_ids.include?(runtime_id)
+
+          issues << Issue.new(
+            ext: provider.ext_id, unit: provider.id, level: :error,
+            code: "ref.missing_agent_runtime",
+            message: "provider references agent runtime #{runtime_id.inspect} which does not exist",
+            file: File.join(provider.dir, "ext.yml"),
+            hint: "Define it under contributes.agent_runtimes or correct the runtime_id."
+          )
+        end
 
         result.agents.each do |agent|
           spec = agent.spec || {}
@@ -196,6 +220,58 @@ module Clacky
         end
 
         issues
+      end
+
+      private def collision_issues(result)
+        issues = []
+        built_in_provider_ids = if defined?(Clacky::Providers::PRESETS)
+                                  Clacky::Providers::PRESETS.keys.map(&:to_s).to_set
+                                else
+                                  Set.new
+                                end
+
+        Array(result.providers).group_by { |unit| unit.id }.each do |provider_id, units|
+          if built_in_provider_ids.include?(provider_id)
+            units.each do |unit|
+              issues << collision_issue(
+                unit, "provider.collision",
+                "provider id #{provider_id.inspect} conflicts with a built-in provider",
+                "Choose a provider id that is not reserved by a built-in preset."
+              )
+            end
+          elsif units.length > 1
+            owners = units.map { |unit| unit.ext_id }.uniq.join(", ")
+            units.each do |unit|
+              issues << collision_issue(
+                unit, "provider.collision",
+                "provider id #{provider_id.inspect} is contributed by multiple extensions: #{owners}",
+                "Use a unique provider id in each extension."
+              )
+            end
+          end
+        end
+
+        Array(result.agent_runtimes).group_by { |unit| unit.id }.each do |runtime_id, units|
+          next unless units.length > 1
+
+          owners = units.map { |unit| unit.ext_id }.uniq.join(", ")
+          units.each do |unit|
+            issues << collision_issue(
+              unit, "agent_runtime.collision",
+              "agent runtime id #{runtime_id.inspect} is contributed by multiple extensions: #{owners}",
+              "Use a unique agent runtime id in each extension."
+            )
+          end
+        end
+
+        issues
+      end
+
+      private def collision_issue(unit, code, message, hint)
+        Issue.new(
+          ext: unit.ext_id, unit: unit.id, level: :error, code: code,
+          message: message, file: File.join(unit.dir, "ext.yml"), hint: hint
+        )
       end
 
       private def read_manifest_safely(dir)

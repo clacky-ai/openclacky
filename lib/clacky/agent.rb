@@ -472,7 +472,8 @@ module Clacky
     end
 
     # Rename this session. Called by auto-naming (first message) or user explicit rename.
-    def rename(new_name)
+    def rename(new_name, automatic: false)
+      _ = automatic
       @name = new_name.to_s.strip
     end
 
@@ -1066,6 +1067,16 @@ module Clacky
       end
       notify_input_queue
       removed
+    end
+
+    def restore_pending_input(entry)
+      @input_mutex.synchronize do
+        @input_queue.unshift(entry) unless @input_queue.any? do |item|
+          item[:id] == entry[:id]
+        end
+      end
+      notify_input_queue
+      entry[:id]
     end
 
     def run_pending_input(entry)

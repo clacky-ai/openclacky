@@ -42,6 +42,23 @@ RSpec.describe "AgentConfig model id (Plan B)" do
         expect(config.current_model["model"]).to eq("b")
       end
     end
+
+    it "assigns distinct runtime-only ids to cards loaded from runtime_models" do
+      with_temp_config({
+        "models" => [],
+        "runtime_models" => [
+          { "provider_id" => "codex", "runtime_id" => "codex", "type" => "default" },
+          { "provider_id" => "other-agent", "runtime_id" => "other-runtime" }
+        ]
+      }) do |path|
+        config = Clacky::AgentConfig.load(path)
+        ids = config.models.map { |model| model["id"] }
+
+        expect(ids.length).to eq(2)
+        expect(ids.all? { |id| id && !id.empty? }).to be true
+        expect(ids.uniq.length).to eq(2)
+      end
+    end
   end
 
   describe "save (to_yaml) strips runtime-only fields" do

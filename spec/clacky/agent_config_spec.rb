@@ -103,6 +103,101 @@ RSpec.describe Clacky::AgentConfig do
 
     end
 
+    context "with runtime model cards" do
+      it "merges runtime_models into the in-memory list and selects a runtime default" do
+        with_temp_config({
+          "models" => [
+            {
+              "model" => "gpt-4o",
+              "api_key" => "sk-api",
+              "base_url" => "https://api.example.com"
+            }
+          ],
+          "runtime_models" => [
+            {
+              "provider_id" => "codex",
+              "runtime_id" => "codex",
+              "display_model" => "Codex default",
+              "remark" => "",
+              "type" => "default"
+            }
+          ]
+        }) do |config_file|
+          config = described_class.load(config_file)
+          runtime = config.models.find { |model| model["runtime_id"] == "codex" }
+
+          expect(config.models.length).to eq(2)
+          expect(runtime["_runtime_model"]).to be true
+          expect(runtime["id"]).to be_a(String)
+          expect(runtime["id"]).not_to be_empty
+          expect(runtime).to include(
+            "provider_id" => "codex",
+            "runtime_id" => "codex",
+            "display_model" => "ChatGPT default"
+          )
+          expect(config.current_model).to be(runtime)
+          expect(config.models_configured?).to be true
+        end
+      end
+
+      it "drops non-allowlisted and credential fields while loading runtime_models" do
+        with_temp_config({
+          "models" => [],
+          "runtime_models" => [
+            {
+              "provider_id" => "codex",
+              "runtime_id" => "codex",
+              "display_model" => "Codex default",
+              "type" => "default",
+              "remark" => "local",
+              "id" => "persisted-id",
+              "api_key" => "must-not-survive",
+              "base_url" => "https://fake.invalid",
+              "model" => "fake-codex-model",
+              "access_token" => "must-not-survive",
+              "auth_state" => { "authenticated" => true },
+              "unknown" => "must-not-survive"
+            }
+          ]
+        }) do |config_file|
+          runtime = described_class.load(config_file).current_model
+
+          expect(runtime["id"]).not_to eq("persisted-id")
+          expect(runtime.keys).to contain_exactly(
+            "provider_id", "runtime_id", "display_model", "type", "remark",
+            "_runtime_model", "id"
+          )
+        end
+      end
+
+      it "does not rewrite non-Codex runtime cards or custom display labels" do
+        runtime_models = [
+          {
+            "provider_id" => "other",
+            "runtime_id" => "codex",
+            "display_model" => "Codex default",
+            "type" => "default"
+          },
+          {
+            "provider_id" => "codex",
+            "runtime_id" => "other",
+            "display_model" => "Codex default"
+          },
+          {
+            "provider_id" => "codex",
+            "runtime_id" => "codex",
+            "display_model" => "My runtime"
+          }
+        ]
+
+        with_temp_config("models" => [], "runtime_models" => runtime_models) do |config_file|
+          displays = described_class.load(config_file).models.map { |model| model["display_model"] }
+
+          expect(displays).to eq(["Codex default", "Codex default", "My runtime"])
+        end
+      end
+    end
+
     context "backward compatibility with old hash format" do
       it "converts old tier-based hash to new array format" do
         with_temp_config({
@@ -185,6 +280,47 @@ RSpec.describe Clacky::AgentConfig do
         expect(sprintf("%o", stat.mode & 0o777)).to eq("600")
       end
     end
+
+    it "serializes runtime cards separately using only the runtime allowlist" do
+      with_temp_config({
+        "models" => [
+          {
+            "model" => "gpt-4o",
+            "api_key" => "sk-api",
+            "base_url" => "https://api.example.com"
+          }
+        ],
+        "runtime_models" => [
+          {
+            "provider_id" => "codex",
+            "runtime_id" => "codex",
+            "display_model" => "ChatGPT default",
+            "type" => "default",
+            "remark" => "local",
+            "api_key" => "must-not-survive",
+            "base_url" => "https://fake.invalid",
+            "model" => "fake-codex-model",
+            "access_token" => "must-not-survive"
+          }
+        ]
+      }) do |config_file|
+        config = described_class.load(config_file)
+        config.save(config_file)
+        saved = YAML.load_file(config_file)
+
+        expect(saved["models"].length).to eq(1)
+        expect(saved["models"].first["model"]).to eq("gpt-4o")
+        expect(saved["runtime_models"]).to eq([
+          {
+            "provider_id" => "codex",
+            "runtime_id" => "codex",
+            "display_model" => "ChatGPT default",
+            "type" => "default",
+            "remark" => "local"
+          }
+        ])
+      end
+    end
   end
 
   describe "#models_configured?" do
@@ -198,6 +334,30 @@ RSpec.describe Clacky::AgentConfig do
     it "returns false when models array is empty" do
       config = described_class.new(models: [])
       expect(config.models_configured?).to be false
+    end
+  end
+
+  describe "runtime models and API-derived companions" do
+    it "does not use a runtime card as the anchor for sidecar or lite derivation" do
+      with_temp_config({
+        "models" => [],
+        "runtime_models" => [
+          {
+            "provider_id" => "codex",
+            "runtime_id" => "codex",
+            "display_model" => "Codex default",
+            "type" => "default"
+          }
+        ]
+      }) do |config_file|
+        config = described_class.load(config_file)
+
+        expect(Clacky::Providers).not_to receive(:preset?)
+        expect(Clacky::Providers).not_to receive(:resolve_provider)
+        expect(config.lite_model_config_for_current).to be_nil
+        expect(config.effective_media_entry("image")).to be_nil
+        expect(config.effective_ocr_entry).to be_nil
+      end
     end
   end
 

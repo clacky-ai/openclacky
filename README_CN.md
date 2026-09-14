@@ -191,6 +191,21 @@ $ openclacky
 
 开箱即支持：**Claude (Anthropic) · GPT (OpenAI) · DeepSeek · Kimi (Moonshot) · MiniMax · OpenRouter · OrcaRouter**，或任意自定义端点。
 
+### ChatGPT — Web UI 原型
+
+ChatGPT 功能以客户端内置、默认启用的扩展随包交付，底层通过 Codex ACP 接入，不需要从扩展市场另行安装。本地 Web UI 可以把它作为 Agent 运行时使用。首次引导时点击**选择其他服务商（API 或 ChatGPT）**，或者进入**设置 → 模型 → 添加模型**，在原有服务商下拉框中选择 **ChatGPT**。OpenClacky 会立即连接，并通过一个临时 ACP 会话加载该账号可用的模型列表；保存前必须选择新会话平时默认使用的模型。Base URL、API Key 和 API Format 会保持隐藏，运行时配置卡只记录所选模型名，不保存 API 凭据。临时发现会话会立即关闭，也不会出现在会话列表中。进入具体会话后仍可在该会话的 ACP 候选列表中单独切换模型，不会改动卡片默认值。ChatGPT 为默认运行时时，设置页会把**视觉理解**显示为主模型自动提供；其他媒体配置保持原有行为。
+
+OpenClacky 通过 ACP 连接固定版本组合：`@agentclientprotocol/codex-acp@1.11.0` + `@openai/codex@0.153.4`。当前原型需要满足以下任一条件：
+
+- 已安装 Node.js 20+ 和 `npx`；回退方式会固定两个包的精确版本，依赖 npm 的包完整性校验，在首次使用时下载，之后使用 npm 缓存。平台包目前超过 100 MB，网络较慢时首次连接可能需要约五分钟。
+- 仅用于开发或受控打包：通过 `CLACKY_CODEX_ACP_PATH` 指定受信任适配器的实际入口文件；`CLACKY_CODEX_PATH` 是由运维方显式信任的覆盖项，且必须报告 Codex 0.153.4。程序不会自动执行 `PATH` 中偶然发现的全局 `codex-acp`。
+
+所有适配器路径（包括 `CLACKY_CODEX_ACP_PATH`）都会校验已发布适配器源码的 SHA-256、要求 Codex 包精确版本，并应用一个很小的兼容补丁，把会话工作区标记为不受信任，因此不会加载仓库内的 `.codex` 配置、Hook 和执行策略。精确版本校验不等于完整产物证明；正式打包还需要锁定并验证完整依赖树与平台二进制。
+
+OpenClacky 使用独立的 managed home：macOS 为 `~/Library/Application Support/OpenClacky/codex`，其他 POSIX 系统为 `${XDG_DATA_HOME:-~/.local/share}/openclacky/codex`，不会直接共用整套来源 Codex home。它可以链接 `$CODEX_HOME`（未设置时为 `~/.codex`）中当前用户拥有、权限私密且不是符号链接的普通 `auth.json`，并只从源配置中读取、校验后重建三个顶层偏好：`model`、`model_reasoning_effort` 和 `service_tier`。源配置本身不会被复制或链接，MCP、插件、Skill、Hook、规则、历史和数据库也不会被导入。强制权限配置还会屏蔽源认证目录、managed home 和常见本地秘密路径，并禁止登录 Shell 初始化。无法安全复用时，请走浏览器登录。删除模型配置卡不会退出 ChatGPT，也不会修改源认证文件。客户端内置的是该扩展；当前原型尚未把 Node/codex-acp 运行制品一起打包。
+
+当前限制：仅 Web UI 支持配置；普通 API 卡与 Agent 运行时卡不能在同一会话内热切换，需要新建会话。Codex ACP 会话建立后，可以在当前会话的模型选择器中切换运行时公布的模型。Codex 的思考等级会按 ACP 返回值显示，但此版本中只读；运行时会话会隐藏 OpenClacky 专属的 Skill、`/new` 初始化和 Fork 入口。仓库当前的 Docker 镜像尚未内置 Node/npm/npx 或适配器；远程/无头登录和 Windows 进程树托管仍属于发布前工作。连接面板里的 `missing_dependencies`、`incompatible_node`、`incompatible_codex_acp` 和 `untrusted_installed_codex_acp` 可定位常见启动问题。
+
 ## 代码开发场景
 
 OpenClacky 是一款通用 AI 编程助手——搭建全栈应用脚手架、添加功能，或快速探索陌生代码库：

@@ -12,6 +12,29 @@ require "clacky/server/session_registry"
 RSpec.describe Clacky::Server::SessionRegistry do
   let(:default_config) { Clacky::AgentConfig.new }
 
+  describe "runtime model options" do
+    it "prefers an explicitly supplied dynamic list, including an empty list" do
+      registry = described_class.new(agent_config: default_config)
+      allow(Clacky::Providers).to receive(:models).with("codex")
+        .and_return(["static-model"])
+
+      expect(registry.send(
+        :sub_model_options_for,
+        provider_id: "codex",
+        sub_model_options: ["gpt-5.6-sol", "gpt-5.6-terra"]
+      )).to eq(["gpt-5.6-sol", "gpt-5.6-terra"])
+      expect(registry.send(
+        :sub_model_options_for,
+        provider_id: "codex",
+        sub_model_options: []
+      )).to eq([])
+      expect(registry.send(
+        :sub_model_options_for,
+        provider_id: "codex"
+      )).to eq(["static-model"])
+    end
+  end
+
   def write_session_file(dir, session_id:, name:, created_at:, pinned: false,
                          source: "manual", project_id: nil)
     data = {
@@ -333,6 +356,67 @@ RSpec.describe Clacky::Server::SessionRegistry do
     end
   end
 
+  describe "runtime release lifecycle" do
+    def expect_mutex_available(registry)
+      mutex = registry.instance_variable_get(:@mutex)
+      acquired = mutex.try_lock
+      mutex.unlock if acquired
+      expect(acquired).to be(true)
+    end
+
+    it "cancels and closes a deleted runtime outside the registry mutex" do
+      registry = described_class.new(agent_config: default_config)
+      thread = double("runtime-thread", alive?: true, join: true)
+      runtime = double("runtime-session", runtime?: true)
+      expect(runtime).to receive(:cancel).with(reason: :delete) do
+        expect_mutex_available(registry)
+        true
+      end
+      expect(runtime).to receive(:close) do
+        expect_mutex_available(registry)
+      end
+      registry.create(session_id: "runtime")
+      registry.with_session("runtime") do |session|
+        session[:agent] = runtime
+        session[:thread] = thread
+      end
+
+      expect(registry.delete("runtime")).to be(true)
+      expect(registry.exist?("runtime")).to be(false)
+    end
+
+    it "persists and closes only runtime entries during mixed idle eviction" do
+      Dir.mktmpdir("clacky_runtime_evict_spec") do |dir|
+        config = Clacky::AgentConfig.new(max_idle_agents: 1)
+        manager = Clacky::SessionManager.new(sessions_dir: dir)
+        registry = described_class.new(
+          session_manager: manager, agent_config: config
+        )
+        data = {
+          session_id: "placeholder",
+          messages: [],
+          created_at: Time.now.iso8601
+        }
+        runtime = double(
+          "runtime-session", runtime?: true, to_session_data: data
+        )
+        legacy = double("legacy-agent", to_session_data: data)
+        expect(runtime).to receive(:close) { expect_mutex_available(registry) }
+
+        [["runtime", runtime], ["legacy", legacy]].each do |id, agent|
+          registry.create(session_id: id)
+          registry.with_session(id) { |session| session[:agent] = agent }
+          registry.update(id, status: :idle)
+        end
+
+        registry.evict_excess_idle!
+
+        expect(registry.exist?("runtime")).to be(false)
+        expect(registry.exist?("legacy")).to be(true)
+      end
+    end
+  end
+
   describe "epoch fencing" do
     let(:registry) { described_class.new(agent_config: default_config) }
 
@@ -368,6 +452,20 @@ RSpec.describe Clacky::Server::SessionRegistry do
       # The old task's late completion must not flip status back to :idle.
       expect(registry.update_if_epoch("s1", old_epoch, status: :idle)).to be(false)
       expect(registry.get("s1")[:status]).to eq(:running)
+    end
+
+    it "atomically claims an idle task and reports an already-running session" do
+      registry.create(session_id: "s1")
+      first = registry.claim_task("s1", require_idle: true)
+      yielded = nil
+      second = registry.claim_task("s1", require_idle: true) do |session|
+        yielded = session[:id]
+      end
+
+      expect(first).to eq(status: :claimed, epoch: 1)
+      expect(second).to eq(status: :already_running, epoch: nil)
+      expect(yielded).to eq("s1")
+      expect(registry.get("s1")).to include(status: :running, epoch: 1)
     end
   end
 

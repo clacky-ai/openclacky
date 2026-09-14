@@ -32,6 +32,7 @@ RSpec.describe "ExtensionLoader end-to-end with a kitchen-sink container" do
     FileUtils.mkdir_p(File.join(ext_dir, "channels"))
     FileUtils.mkdir_p(File.join(ext_dir, "patches"))
     FileUtils.mkdir_p(File.join(ext_dir, "hooks"))
+    FileUtils.mkdir_p(File.join(ext_dir, "runtime"))
 
     File.write(File.join(ext_dir, "ext.yml"), <<~YAML)
       id: #{ext_id}
@@ -64,6 +65,18 @@ RSpec.describe "ExtensionLoader end-to-end with a kitchen-sink container" do
         hooks:
           - event: before_tool_use
             file: hooks/audit.rb
+        providers:
+          - id: kitchen-provider
+            name: Kitchen Provider
+            runtime_id: kitchen-runtime
+            auth_mode: runtime
+            credential_fields: []
+            dynamic_models: session
+            display_model: Kitchen default
+        agent_runtimes:
+          - id: kitchen-runtime
+            adapter: runtime/noop.rb
+            class: ExtKitchenFixture::Runtime
     YAML
 
     File.write(File.join(ext_dir, "panels/dashboard.js"), "// dashboard panel\n")
@@ -110,6 +123,8 @@ RSpec.describe "ExtensionLoader end-to-end with a kitchen-sink container" do
         ExtKitchenFixture.const_set(:LAST_TOOL, tool) if defined?(ExtKitchenFixture)
       end
     RUBY
+
+    File.write(File.join(ext_dir, "runtime/noop.rb"), "# runtime adapter\n")
   end
 
   after do
@@ -123,7 +138,7 @@ RSpec.describe "ExtensionLoader end-to-end with a kitchen-sink container" do
       layers: { builtin: builtin, installed: installed, local: local }
     )
 
-    %i[panels api skills agents channels patches hooks].each do |kind|
+    %i[panels api skills agents channels patches hooks providers agent_runtimes].each do |kind|
       list = result.public_send(kind)
       expect(list).not_to be_empty, "expected #{kind} to be populated, got #{list.inspect}"
     end

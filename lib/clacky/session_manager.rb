@@ -21,18 +21,25 @@ module Clacky
 
     def initialize(sessions_dir: nil)
       @sessions_dir = sessions_dir || SESSIONS_DIR
+      @io_mutex = Mutex.new
+      @deleted_session_ids = Set.new
       ensure_sessions_dir
     end
 
     # Save a session. Returns the file path.
     def save(session_data)
-      filename = generate_filename(session_data[:session_id], session_data[:created_at])
-      filepath = File.join(@sessions_dir, filename)
+      filepath = @io_mutex.synchronize do
+        session_id = session_data[:session_id].to_s
+        next nil if deleted_session_id?(session_id)
 
-      File.write(filepath, JSON.pretty_generate(session_data))
-      FileUtils.chmod(0o600, filepath)
-
-      @last_saved_path = filepath
+        filename = generate_filename(session_id, session_data[:created_at])
+        path = File.join(@sessions_dir, filename)
+        File.write(path, JSON.pretty_generate(session_data))
+        FileUtils.chmod(0o600, path)
+        @last_saved_path = path
+        path
+      end
+      return nil unless filepath
 
       run_cleanup_async
 
@@ -393,13 +400,45 @@ module Clacky
     # Soft-delete: stamp deleted_at, move JSON + chunks to sessions-trash/.
     def soft_delete(session_id)
       require_relative "tools/trash_manager"
-      Clacky::Tools::TrashManager.soft_delete_session(session_id, sessions_dir: @sessions_dir)
+      target = session_id.to_s
+      return false if target.empty?
+
+      @io_mutex.synchronize do
+        exists = all_sessions.any? { |session| session[:session_id].to_s == target }
+        next false unless exists
+
+        @deleted_session_ids << target
+        begin
+          deleted = Clacky::Tools::TrashManager.soft_delete_session(
+            target, sessions_dir: @sessions_dir
+          )
+          @deleted_session_ids.delete(target) unless deleted
+          deleted
+        rescue StandardError
+          @deleted_session_ids.delete(target)
+          raise
+        end
+      end
     end
 
     # Restore a soft-deleted session back to the active sessions directory.
     def restore_session(session_id)
       require_relative "tools/trash_manager"
-      Clacky::Tools::TrashManager.restore_session(session_id, sessions_dir: @sessions_dir)
+      target = session_id.to_s
+      return false if target.empty?
+
+      @io_mutex.synchronize do
+        exists = Clacky::Tools::TrashManager
+          .list_trash_sessions(sessions_dir: @sessions_dir)
+          .any? { |session| session[:session_id].to_s == target }
+        next false unless exists
+
+        restored = Clacky::Tools::TrashManager.restore_session(
+          target, sessions_dir: @sessions_dir
+        )
+        @deleted_session_ids.delete(target) if restored
+        restored
+      end
     end
 
     # List all soft-deleted sessions (newest-first).
@@ -429,6 +468,10 @@ module Clacky
 
     def ensure_sessions_dir
       FileUtils.mkdir_p(@sessions_dir) unless Dir.exist?(@sessions_dir)
+    end
+
+    private def deleted_session_id?(session_id)
+      @deleted_session_ids.include?(session_id)
     end
 
     def generate_filename(session_id, created_at)

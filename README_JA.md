@@ -196,6 +196,21 @@ $ openclacky
 
 標準でサポート: **Claude (Anthropic) · GPT (OpenAI) · DeepSeek · Kimi (Moonshot) · MiniMax · OpenRouter · OrcaRouter** — または任意のカスタムエンドポイント。
 
+### ChatGPT — Web UI プロトタイプ
+
+ChatGPT 機能は Codex ACP を利用するクライアント同梱・既定有効の拡張として提供され、マーケットプレイスから別途インストールする必要はありません。ローカル Web UI では、ChatGPT を Agent ランタイムとして利用できます。初回セットアップで **Choose another provider (API or ChatGPT)** を選ぶか、**Settings → Models → Add Model** を開き、既存のプロバイダー一覧から **ChatGPT** を選択します。OpenClacky は直ちに接続し、一時 ACP セッションでアカウントが利用できるモデル一覧を読み込みます。保存前に、新しい会話で通常使う既定モデルを選ぶ必要があります。Base URL、API Key、API Format は非表示のままで、ランタイムカードには選択したモデル名だけが保存され、API 認証情報は保存されません。一時ディスカバリーセッションはすぐに閉じられ、会話一覧にも表示されません。各会話では、その ACP セッションが通知したモデルへ個別に切り替えられ、カードの既定値は変わりません。ChatGPT が既定のランタイムの場合、設定画面では **Visual Understanding** が主モデルによって自動的に提供されるものとして表示され、その他のメディア設定は従来どおりです。
+
+OpenClacky は ACP 経由で、バージョン固定ペア `@agentclientprotocol/codex-acp@1.11.0` + `@openai/codex@0.153.4` に接続します。このプロトタイプには次のいずれかが必要です。
+
+- Node.js 20+ と `npx`。フォールバックは両方のパッケージを厳密なバージョンで固定し、npm のパッケージ整合性検証を利用して初回に取得し、以後 npm キャッシュを使います。プラットフォームパッケージは現在 100 MB を超えるため、低速な回線では初回接続に最大約 5 分かかることがあります。
+- 開発または管理されたパッケージングに限り、`CLACKY_CODEX_ACP_PATH` で信頼済みアダプター本体を指定できます。`CLACKY_CODEX_PATH` は運用者が明示的に信頼する上書きで、Codex 0.153.4 を報告する必要があります。`PATH` で偶然見つかったグローバル `codex-acp` は自動実行しません。
+
+`CLACKY_CODEX_ACP_PATH` を含むすべてのアダプター経路で、公開済みアダプターソースの SHA-256 を検証し、Codex パッケージの厳密なバージョンを要求し、セッションルートを untrusted にする限定的な互換パッチを適用します。そのため、リポジトリ内の `.codex` 設定、Hook、実行ポリシーは読み込まれません。厳密なバージョン確認は完全なアーティファクト証明ではないため、本番バンドルでは依存関係ツリーとプラットフォームバイナリ全体の固定・検証が別途必要です。
+
+OpenClacky は独立した managed home を使います。macOS では `~/Library/Application Support/OpenClacky/codex`、その他の POSIX では `${XDG_DATA_HOME:-~/.local/share}/openclacky/codex` であり、元の Codex home 全体は共有しません。`$CODEX_HOME`（未設定時は `~/.codex`）の `auth.json` が現在のユーザー所有で、非公開権限の通常ファイルかつシンボリックリンクでない場合に限りリンクし、元の設定から検証済みのトップレベル設定 `model`、`model_reasoning_effort`、`service_tier` だけを再構築します。元の設定ファイル自体はコピーもリンクもせず、MCP、プラグイン、Skill、Hook、ルール、履歴、データベースも取り込みません。強制権限プロファイルは、認証元、managed home、一般的なローカル秘密情報のパスを遮断し、ログインシェル初期化も無効化します。安全に再利用できない場合はブラウザログインを利用してください。モデルカードを削除しても ChatGPT からログアウトせず、元の認証ファイルも変更しません。クライアントに同梱されるのは拡張であり、現在のプロトタイプには Node/codex-acp ランタイム成果物はまだ含まれません。
+
+現在の制限: 設定は Web UI のみです。通常の API カードと Agent ランタイムカードは同一セッション内で切り替えられないため、新しいセッションを作成してください。Codex ACP セッション確立後は、現在のセッションのモデル選択 UI からランタイムが通知したモデルへ切り替えられます。Codex の推論レベルは ACP の値を表示しますが、このバージョンでは読み取り専用です。ランタイムセッションでは OpenClacky 固有の Skill、`/new` 初期化、Fork の各操作を表示しません。現在の Docker イメージには Node/npm/npx とアダプターが同梱されていません。リモート/ヘッドレス認証と Windows のプロセスツリー管理はリリース前の追加作業です。接続パネルの `missing_dependencies`、`incompatible_node`、`incompatible_codex_acp`、`untrusted_installed_codex_acp` が一般的な起動失敗を示します。
+
 ## コーディングのユースケース
 
 OpenClacky は汎用 AI コーディングアシスタントとして機能します — フルスタックアプリの雛形作成、機能追加、あるいは未知のコードベースの探索が可能です:

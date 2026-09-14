@@ -8,8 +8,10 @@ RSpec.describe "Clacky::AgentConfig#reload!" do
 
   after { FileUtils.remove_entry(tmpdir) if Dir.exist?(tmpdir) }
 
-  def write_config(models, settings = {})
-    File.write(config_file, YAML.dump("settings" => settings, "models" => models))
+  def write_config(models, settings = {}, runtime_models = nil)
+    data = { "settings" => settings, "models" => models }
+    data["runtime_models"] = runtime_models unless runtime_models.nil?
+    File.write(config_file, YAML.dump(data))
   end
 
   let(:initial_models) do
@@ -60,6 +62,85 @@ RSpec.describe "Clacky::AgentConfig#reload!" do
     expect(config.models.find { |m| m["model"] == "gpt-5" }["id"]).to eq(original_id)
     expect(session.current_model).not_to be_nil
     expect(session.current_model["model"]).to eq("gpt-5")
+  end
+
+  it "preserves runtime model identity by runtime_id and provider_id" do
+    runtime_models = [
+      {
+        "provider_id" => "codex",
+        "runtime_id" => "codex",
+        "display_model" => "Codex default",
+        "type" => "default"
+      }
+    ]
+    write_config([], {}, runtime_models)
+    config = Clacky::AgentConfig.load(config_file)
+    original_id = config.current_model["id"]
+
+    updated = Marshal.load(Marshal.dump(runtime_models))
+    updated.first["remark"] = "renamed"
+    write_config([], {}, updated)
+
+    expect(config.reload!(config_file)).to be true
+    expect(config.current_model["id"]).to eq(original_id)
+    expect(config.current_model["remark"]).to eq("renamed")
+  end
+
+  it "does not collapse distinct credentialless runtime cards onto the same id" do
+    runtime_models = [
+      {
+        "provider_id" => "codex",
+        "runtime_id" => "codex",
+        "display_model" => "Codex default",
+        "type" => "default"
+      },
+      {
+        "provider_id" => "other-agent",
+        "runtime_id" => "other-runtime",
+        "display_model" => "Other runtime"
+      }
+    ]
+    write_config([], {}, runtime_models)
+    config = Clacky::AgentConfig.load(config_file)
+    original_ids = config.models.each_with_object({}) do |model, result|
+      result[[model["runtime_id"], model["provider_id"]]] = model["id"]
+    end
+
+    write_config([], {}, runtime_models.reverse)
+
+    expect(config.reload!(config_file)).to be true
+    expect(config.models.map { |model| model["id"] }.uniq.length).to eq(2)
+    config.models.each do |model|
+      identity = [model["runtime_id"], model["provider_id"]]
+      expect(model["id"]).to eq(original_ids[identity])
+    end
+  end
+
+  it "keeps duplicate legacy runtime cards on distinct ids during reload" do
+    runtime_models = [
+      {
+        "provider_id" => "codex",
+        "runtime_id" => "codex",
+        "display_model" => "Codex default",
+        "type" => "default",
+        "remark" => "first"
+      },
+      {
+        "provider_id" => "codex",
+        "runtime_id" => "codex",
+        "display_model" => "Codex default",
+        "remark" => "second"
+      }
+    ]
+    write_config([], {}, runtime_models)
+    config = Clacky::AgentConfig.load(config_file)
+    original_ids = config.models.map { |model| model["id"] }
+
+    write_config([], {}, runtime_models)
+
+    expect(config.reload!(config_file)).to be true
+    expect(config.models.map { |model| model["id"] }).to eq(original_ids)
+    expect(config.models.map { |model| model["id"] }.uniq.length).to eq(2)
   end
 
   it "falls back to the default model when the pinned model was deleted" do

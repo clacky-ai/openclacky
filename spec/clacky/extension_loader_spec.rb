@@ -385,6 +385,148 @@ RSpec.describe Clacky::ExtensionLoader do
       expect(result.errors.first.message).to match(/adapter file not found/)
     end
 
+    it "resolves a provider contribution as configuration-only metadata" do
+      manifest = <<~YAML
+        id: codex-pack
+        origin: self
+        contributes:
+          providers:
+            - id: codex
+              name: Codex (ChatGPT)
+              name_key: provider.name.codex
+              runtime_id: codex
+              auth_mode: runtime
+              credential_fields: []
+              dynamic_models: session
+              display_model: Codex default
+              capabilities:
+                vision: true
+              website_url: https://openai.com/codex
+              api_key: must-not-be-exposed
+      YAML
+      make_container(local, "codex-pack", manifest: manifest)
+
+      result = described_class.load_all(layers: layers)
+
+      expect(result.errors).to be_empty
+      expect(result.providers.size).to eq(1)
+      unit = result.providers.first
+      expect(unit.kind).to eq(:provider)
+      expect(unit.id).to eq("codex")
+      expect(unit.spec).to eq(
+        "name" => "Codex (ChatGPT)",
+        "name_key" => "provider.name.codex",
+        "runtime_id" => "codex",
+        "auth_mode" => "runtime",
+        "credential_fields" => [],
+        "dynamic_models" => "session",
+        "display_model" => "Codex default",
+        "capabilities" => { "vision" => true },
+        "website_url" => "https://openai.com/codex"
+      )
+      expect(result.units).to include(unit)
+    end
+
+    it "errors when a provider lacks required metadata" do
+      manifest = <<~YAML
+        id: incomplete-provider
+        origin: self
+        contributes:
+          providers:
+            - id: codex
+              name: Codex
+      YAML
+      make_container(local, "incomplete-provider", manifest: manifest)
+
+      result = described_class.load_all(layers: layers)
+
+      expect(result.providers).to be_empty
+      expect(result.errors.first.message).to match(/provider needs `id`, `name`, and `runtime_id`/)
+    end
+
+    it "resolves an agent runtime contribution with an absolute adapter path" do
+      manifest = <<~YAML
+        id: codex-runtime
+        origin: self
+        contributes:
+          agent_runtimes:
+            - id: codex
+              adapter: runtime/codex.rb
+              class: Clacky::Extensions::Codex::Runtime
+      YAML
+      make_container(local, "codex-runtime", manifest: manifest, files: {
+        "runtime/codex.rb" => "# runtime adapter",
+      })
+
+      result = described_class.load_all(layers: layers)
+
+      expect(result.errors).to be_empty
+      expect(result.agent_runtimes.size).to eq(1)
+      unit = result.agent_runtimes.first
+      expect(unit.kind).to eq(:agent_runtime)
+      expect(unit.id).to eq("codex")
+      expect(unit.spec["adapter"]).to eq("runtime/codex.rb")
+      expect(unit.spec["adapter_abs"]).to eq(File.join(unit.dir, "runtime/codex.rb"))
+      expect(unit.spec["class"]).to eq("Clacky::Extensions::Codex::Runtime")
+      expect(result.units).to include(unit)
+    end
+
+    it "errors when an agent runtime lacks required metadata" do
+      manifest = <<~YAML
+        id: incomplete-runtime
+        origin: self
+        contributes:
+          agent_runtimes:
+            - id: codex
+              adapter: runtime/codex.rb
+      YAML
+      make_container(local, "incomplete-runtime", manifest: manifest, files: {
+        "runtime/codex.rb" => "# runtime adapter",
+      })
+
+      result = described_class.load_all(layers: layers)
+
+      expect(result.agent_runtimes).to be_empty
+      expect(result.errors.first.message).to match(/agent runtime needs `id`, `adapter`, and `class`/)
+    end
+
+    it "errors when an agent runtime adapter file is missing" do
+      manifest = <<~YAML
+        id: missing-runtime
+        origin: self
+        contributes:
+          agent_runtimes:
+            - id: codex
+              adapter: runtime/missing.rb
+              class: Clacky::Extensions::Codex::Runtime
+      YAML
+      make_container(local, "missing-runtime", manifest: manifest)
+
+      result = described_class.load_all(layers: layers)
+
+      expect(result.agent_runtimes).to be_empty
+      expect(result.errors.first.message).to match(/adapter file not found/)
+    end
+
+    it "rejects an agent runtime adapter outside its extension directory" do
+      File.write(File.join(local, "outside.rb"), "# outside adapter")
+      manifest = <<~YAML
+        id: escaping-runtime
+        origin: self
+        contributes:
+          agent_runtimes:
+            - id: codex
+              adapter: ../outside.rb
+              class: Clacky::Extensions::Codex::Runtime
+      YAML
+      make_container(local, "escaping-runtime", manifest: manifest)
+
+      result = described_class.load_all(layers: layers)
+
+      expect(result.agent_runtimes).to be_empty
+      expect(result.errors.first.message).to match(/adapter path escapes extension directory/)
+    end
+
     it "resolves a patch unit pointing at a target and file" do
       manifest = <<~YAML
         id: patch-pack

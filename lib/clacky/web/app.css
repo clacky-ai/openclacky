@@ -2511,6 +2511,9 @@ body {
   cursor: pointer;
   transition: background .12s, color .12s;
 }
+#btn-slash[hidden], #ns-btn-slash[hidden] {
+  display: none;
+}
 .new-session-composer-btn:hover {
   color: var(--color-text-primary);
   background: var(--color-bg-hover);
@@ -5187,6 +5190,13 @@ body {
   opacity: 1 !important;
   color: var(--color-accent-primary);
 }
+.sib-reasoning-disabled {
+  cursor: default !important;
+}
+.sib-reasoning-disabled:hover {
+  background: transparent !important;
+  color: inherit !important;
+}
 .sib-reasoning-dropdown {
   position: fixed;
   min-width: 11rem;
@@ -5262,6 +5272,14 @@ body {
 .sib-model-option.current {
   background: var(--color-bg-hover);
   font-weight: 500;
+}
+.sib-model-option.is-disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+.sib-model-option.is-disabled:hover {
+  background: transparent;
+  color: var(--color-text-primary);
 }
 .sib-model-option .model-badge {
   font-size: 0.5625rem;
@@ -8112,6 +8130,53 @@ body {
 .result-ok      { color: var(--color-success); }
 .result-fail    { color: var(--color-error); }
 .result-testing { color: var(--color-text-secondary); }
+
+/* Runtime-backed providers reuse model forms without exposing API fields. */
+.runtime-api-fields {
+  display: contents;
+}
+.runtime-provider-panel {
+  border: 1px solid var(--color-border-primary);
+  border-radius: 8px;
+  background: var(--color-bg-tertiary);
+  padding: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+.runtime-provider-status-row,
+.runtime-provider-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.runtime-provider-status-row {
+  justify-content: space-between;
+}
+.runtime-provider-status-label {
+  color: var(--color-text-secondary);
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+.runtime-provider-status {
+  font-size: 0.75rem;
+}
+.runtime-provider-status.is-connected { color: var(--color-success); }
+.runtime-provider-status.is-unavailable { color: var(--color-error); }
+.runtime-provider-status.is-checking,
+.runtime-provider-status.is-starting,
+.runtime-provider-status.is-notConnected,
+.runtime-provider-status.is-timeout { color: var(--color-text-secondary); }
+.runtime-provider-hint {
+  color: var(--color-text-tertiary);
+  font-size: 0.75rem;
+  line-height: 1.5;
+  margin: 0.625rem 0;
+}
+.runtime-provider-actions {
+  justify-content: flex-end;
+}
+.runtime-provider-actions button {
+  width: auto;
+}
 .btn-save-model {
   font-size: 0.8125rem;
   padding: 0.375rem 1.125rem;

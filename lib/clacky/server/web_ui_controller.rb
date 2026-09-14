@@ -64,7 +64,22 @@ module Clacky
           return unless pending
 
           pending[:result] = result
+          pending[:resolved] = true
           pending[:cond].signal
+        end
+      end
+
+      # Resolve every outstanding confirmation without waiting for its normal
+      # browser timeout. Runtime cancellation uses this to ensure an ACP
+      # permission request cannot keep the cancelled turn alive.
+      def cancel_pending_confirmations(result: false)
+        @mutex.synchronize do
+          @pending_confirmations.each_value do |pending|
+            pending[:result] = result
+            pending[:resolved] = true
+            pending[:cond].signal
+          end
+          @pending_confirmations.length
         end
       end
 
@@ -114,6 +129,40 @@ module Clacky
         forward_to_subscribers { |sub| sub.show_assistant_message(content, files: files, interim: interim) }
       end
 
+      def show_assistant_delta(message_id, content)
+        return if content.nil? || content.to_s.empty?
+
+        web_content = Clacky::Utils::FileProcessor.rewrite_local_image_urls(content.to_s)
+        emit(
+          "assistant_message",
+          message_id: message_id.to_s,
+          content: web_content,
+          files: [],
+          interim: true,
+          delta: true
+        )
+      end
+
+      def finish_assistant_stream(message_id, content, files:, created_at: nil,
+                                  message_ids: nil)
+        return if (content.nil? || content.to_s.strip.empty?) && files.empty?
+
+        web_content = Clacky::Utils::FileProcessor.rewrite_local_image_urls(content.to_s)
+        emit(
+          "assistant_message",
+          message_id: message_id.to_s,
+          message_ids: Array(message_ids).map(&:to_s),
+          content: web_content,
+          files: files,
+          created_at: created_at,
+          interim: false,
+          delta: false
+        )
+        forward_to_subscribers do |sub|
+          sub.show_assistant_message(content, files: files, interim: false)
+        end
+      end
+
       def show_feedback_request(question, context, options, questions: nil)
         emit("request_feedback", question: question, context: context,
                                  options: options, questions: questions || [])
@@ -155,6 +204,39 @@ module Clacky
         forward_to_subscribers { |sub| sub.show_tool_result(result, ui: ui) }
       end
 
+      def show_keyed_tool_call(name, args, tool_call_id:)
+        return show_tool_call(name, args) if Clacky::Tools::AskUser.feedback_tool?(name)
+
+        args_data = args.is_a?(String) ? (JSON.parse(args) rescue args) : args
+        summary = tool_call_summary(name, args_data)
+        @live_tool_call = {
+          tool_call_id: tool_call_id.to_s,
+          name: name,
+          args: args_data,
+          summary: summary
+        }
+        emit(
+          "tool_call",
+          tool_call_id: tool_call_id.to_s,
+          name: name,
+          args: args_data,
+          summary: summary
+        )
+        forward_to_subscribers { |sub| sub.show_tool_call(name, args_data) }
+      end
+
+      def show_keyed_tool_result(result, tool_call_id:, status: nil, exit_code: nil)
+        @live_tool_call = nil
+        emit(
+          "tool_result",
+          tool_call_id: tool_call_id.to_s,
+          result: result,
+          status: status,
+          exit_code: exit_code
+        )
+        forward_to_subscribers { |sub| sub.show_tool_result(result) }
+      end
+
       def show_tool_error(error)
         error_msg = error.is_a?(Exception) ? error.message : error.to_s
         emit("tool_error", error: error_msg)
@@ -191,7 +273,12 @@ module Clacky
       end
 
       def show_token_usage(token_data)
-        emit("token_usage", **token_data)
+        data = token_data.is_a?(Hash) ? token_data.dup : {}
+        data.delete(:type)
+        data.delete("type")
+        data.delete(:session_id)
+        data.delete("session_id")
+        emit("token_usage", **data)
         # Token usage is internal detail — intentionally not forwarded
       end
 
@@ -399,7 +486,7 @@ module Clacky
         conf_id = "conf_#{SecureRandom.hex(4)}"
 
         cond    = ConditionVariable.new
-        pending = { cond: cond, result: nil }
+        pending = { cond: cond, result: nil, resolved: false }
 
         @mutex.synchronize { @pending_confirmations[conf_id] = pending }
 
@@ -411,12 +498,20 @@ module Clacky
 
         # Block until browser replies or timeout
         @mutex.synchronize do
-          cond.wait(@mutex, CONFIRMATION_TIMEOUT)
+          deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + CONFIRMATION_TIMEOUT
+          until pending[:resolved]
+            remaining = deadline - Process.clock_gettime(Process::CLOCK_MONOTONIC)
+            break if remaining <= 0
+
+            cond.wait(@mutex, remaining)
+          end
           @pending_confirmations.delete(conf_id)
           result = pending[:result]
 
           # Timed out — use default
           return default if result.nil?
+
+          return result if result == true || result == false
 
           case result.to_s.downcase
           when "yes", "y" then true

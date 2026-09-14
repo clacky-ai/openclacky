@@ -162,6 +162,18 @@ RSpec.describe "Web asset syntax" do
       end
     end
 
+    it "loads the runtime-provider helper before every UI consumer" do
+      index = File.read(File.join(web_dir, "index.html"))
+      helper_pos = index.index('/features/model-tester/store.js')
+
+      expect(helper_pos).not_to be_nil
+      %w[/components/model-picker.js /features/new-session/view.js /settings.js /components/onboard.js].each do |script|
+        consumer_pos = index.index(script)
+        expect(consumer_pos).not_to be_nil
+        expect(helper_pos).to be < consumer_pos
+      end
+    end
+
     context "with intentionally invalid JavaScript" do
       it "detects a missing closing parenthesis" do
         Dir.mktmpdir do |dir|

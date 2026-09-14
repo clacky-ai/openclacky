@@ -263,4 +263,73 @@ RSpec.describe "HttpServer access key authentication" do
       expect(res.status).to eq(401)
     end
   end
+
+  describe "sensitive extension same-origin checks" do
+    let(:server) { Clacky::Server::HttpServer.allocate }
+
+    before do
+      server.instance_variable_set(:@localhost_only, true)
+      server.instance_variable_set(:@access_key, nil)
+    end
+
+    def origin_req(origin:, host:, authorization: nil, query_string: "", fetch_site: nil)
+      headers = {
+        "Origin" => origin,
+        "Host" => host,
+        "Authorization" => authorization,
+        "Sec-Fetch-Site" => fetch_site
+      }
+      req = double("WEBrick::HTTPRequest")
+      allow(req).to receive(:[]) { |key| headers[key].to_s }
+      allow(req).to receive(:query_string).and_return(query_string)
+      allow(req).to receive(:cookies).and_return([])
+      req
+    end
+
+    it "accepts the local UI origin and non-browser local callers" do
+      local = origin_req(origin: "http://127.0.0.1:7070", host: "127.0.0.1:7070")
+      no_origin = origin_req(origin: "", host: "127.0.0.1:7070")
+
+      expect(server.send(:trusted_same_origin_request?, local)).to be(true)
+      expect(server.send(:trusted_same_origin_request?, no_origin)).to be(true)
+    end
+
+    it "rejects cross-origin and DNS-rebinding browser requests" do
+      cross_origin = origin_req(origin: "https://evil.example", host: "127.0.0.1:7070")
+      rebound = origin_req(origin: "http://evil.example:7070", host: "evil.example:7070")
+      originless_cross_site = origin_req(
+        origin: "", host: "127.0.0.1:7070", fetch_site: "cross-site"
+      )
+
+      expect(server.send(:trusted_same_origin_request?, cross_origin)).to be(false)
+      expect(server.send(:trusted_same_origin_request?, rebound)).to be(false)
+      expect(server.send(:trusted_same_origin_request?, originless_cross_site)).to be(false)
+    end
+
+    it "requires the configured access key for a non-loopback public origin" do
+      server.instance_variable_set(:@localhost_only, false)
+      server.instance_variable_set(:@access_key, "secret")
+      missing = origin_req(origin: "https://clacky.example", host: "clacky.example")
+      valid = origin_req(
+        origin: "https://clacky.example",
+        host: "clacky.example",
+        authorization: "Bearer secret"
+      )
+
+      expect(server.send(:trusted_same_origin_request?, missing)).to be(false)
+      expect(server.send(:trusted_same_origin_request?, valid)).to be(true)
+    end
+
+    it "accepts an explicitly authenticated cross-origin public client" do
+      server.instance_variable_set(:@localhost_only, false)
+      server.instance_variable_set(:@access_key, "secret")
+      request = origin_req(
+        origin: "https://integration.example",
+        host: "clacky.example",
+        authorization: "Bearer secret"
+      )
+
+      expect(server.send(:trusted_same_origin_request?, request)).to be(true)
+    end
+  end
 end

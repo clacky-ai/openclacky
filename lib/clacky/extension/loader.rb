@@ -5,7 +5,7 @@ require "json"
 
 module Clacky
   # Discovers extension containers across three source layers and resolves them
-  # into a flat list of capability units (panels, api, skills, agents) for the
+  # into a flat list of capability units for the
   # rest of the system to mount.
   #
   # A container is a directory holding an `ext.yml` manifest:
@@ -41,6 +41,8 @@ module Clacky
   #   - patch units   → PatchLoader.load_extension_patches (require at boot)
   #   - hook units    → ShellHookLoader.load_extension_hooks (register at boot)
   #   - tool units    → Agent#register_extension_tools (require + register at agent init)
+  #   - provider units → ProviderRegistry (configuration metadata only)
+  #   - runtime units  → AgentRuntimeRegistry (loaded lazily when selected)
   module ExtensionLoader
     BUILTIN_DIR   = File.expand_path("../default_extensions", __dir__)
     INSTALLED_DIR = File.expand_path("~/.clacky/ext/installed")
@@ -57,7 +59,7 @@ module Clacky
     LAYERS = %i[builtin installed local].freeze
     ORIGINS = %w[self marketplace enterprise].freeze
 
-    # One resolved capability unit. `kind` is :panel or :api.
+    # One resolved capability unit.
     Unit = Struct.new(
       :kind, :id, :ext_id, :layer, :origin, :dir, :spec,
       keyword_init: true
@@ -66,9 +68,15 @@ module Clacky
     # One resolution error, structured so an AI author can locate and fix it.
     Error = Struct.new(:ext_id, :layer, :unit, :message, :file, keyword_init: true)
 
-    Result = Struct.new(:panels, :api, :skills, :agents, :channels, :patches, :hooks, :tools, :errors, :overridden, :containers, keyword_init: true) do
+    Result = Struct.new(
+      :panels, :api, :skills, :agents, :channels, :patches, :hooks, :tools,
+      :providers, :agent_runtimes, :errors, :overridden, :containers,
+      keyword_init: true
+    ) do
       def units
-        panels + api + skills + agents + channels + patches + hooks + tools
+        Array(panels) + Array(api) + Array(skills) + Array(agents) +
+          Array(channels) + Array(patches) + Array(hooks) + Array(tools) +
+          Array(providers) + Array(agent_runtimes)
       end
     end
 
@@ -125,7 +133,11 @@ module Clacky
           end
         end
 
-        result = Result.new(panels: [], api: [], skills: [], agents: [], channels: [], patches: [], hooks: [], tools: [], errors: errors, overridden: overridden, containers: by_id)
+        result = Result.new(
+          panels: [], api: [], skills: [], agents: [], channels: [], patches: [],
+          hooks: [], tools: [], providers: [], agent_runtimes: [], errors: errors,
+          overridden: overridden, containers: by_id
+        )
         disabled = disabled_ids
         by_id.each_value do |container|
           container[:disabled] = disabled.include?(container[:ext_id])
@@ -307,6 +319,16 @@ module Clacky
         Array(contributes["tools"]).each do |spec|
           unit = build_tool_unit(container, spec, result.errors)
           result.tools << unit if unit
+        end
+
+        Array(contributes["providers"]).each do |spec|
+          unit = build_provider_unit(container, spec, result.errors)
+          result.providers << unit if unit
+        end
+
+        Array(contributes["agent_runtimes"]).each do |spec|
+          unit = build_agent_runtime_unit(container, spec, result.errors)
+          result.agent_runtimes << unit if unit
         end
       end
 
@@ -531,6 +553,95 @@ module Clacky
                    "file"    => spec["file"],
                    "file_abs" => file_abs,
                  })
+      end
+
+      private def build_provider_unit(container, spec, errors)
+        ext_id = container[:ext_id]
+        unless spec.is_a?(Hash) && spec["id"] && spec["name"] && spec["runtime_id"]
+          errors << Error.new(
+            ext_id: ext_id, layer: container[:layer].to_s, unit: "provider",
+            message: "provider needs `id`, `name`, and `runtime_id`"
+          )
+          return nil
+        end
+
+        Unit.new(
+          kind: :provider, id: spec["id"].to_s, ext_id: ext_id,
+          layer: container[:layer], origin: container[:origin], dir: container[:dir],
+          spec: {
+            "name" => spec["name"].to_s,
+            "name_key" => spec["name_key"],
+            "runtime_id" => spec["runtime_id"].to_s,
+            "auth_mode" => spec["auth_mode"],
+            "credential_fields" => Array(spec["credential_fields"]).map(&:to_s),
+            "dynamic_models" => spec["dynamic_models"],
+            "display_model" => spec["display_model"],
+            "capabilities" => spec["capabilities"],
+            "website_url" => spec["website_url"],
+          }
+        )
+      end
+
+      private def build_agent_runtime_unit(container, spec, errors)
+        ext_id = container[:ext_id]
+        unless spec.is_a?(Hash) && spec["id"] && spec["adapter"] && spec["class"]
+          errors << Error.new(
+            ext_id: ext_id, layer: container[:layer].to_s, unit: "agent_runtime",
+            message: "agent runtime needs `id`, `adapter`, and `class`"
+          )
+          return nil
+        end
+
+        adapter_rel = spec["adapter"].to_s
+        root_abs = File.expand_path(container[:dir])
+        adapter_abs = File.expand_path(adapter_rel, root_abs)
+        unless adapter_abs.start_with?(root_abs + File::SEPARATOR)
+          errors << Error.new(
+            ext_id: ext_id, layer: container[:layer].to_s,
+            unit: "agent_runtime/#{spec['id']}",
+            message: "adapter path escapes extension directory: #{adapter_rel}",
+            file: adapter_abs
+          )
+          return nil
+        end
+
+        unless File.file?(adapter_abs)
+          errors << Error.new(
+            ext_id: ext_id, layer: container[:layer].to_s,
+            unit: "agent_runtime/#{spec['id']}",
+            message: "adapter file not found: #{adapter_rel}", file: adapter_abs
+          )
+          return nil
+        end
+
+        real_root = File.realpath(root_abs)
+        real_adapter = File.realpath(adapter_abs)
+        unless real_adapter.start_with?(real_root + File::SEPARATOR)
+          errors << Error.new(
+            ext_id: ext_id, layer: container[:layer].to_s,
+            unit: "agent_runtime/#{spec['id']}",
+            message: "adapter path escapes extension directory: #{adapter_rel}",
+            file: adapter_abs
+          )
+          return nil
+        end
+
+        Unit.new(
+          kind: :agent_runtime, id: spec["id"].to_s, ext_id: ext_id,
+          layer: container[:layer], origin: container[:origin], dir: container[:dir],
+          spec: {
+            "adapter" => adapter_rel,
+            "adapter_abs" => adapter_abs,
+            "class" => spec["class"].to_s,
+          }
+        )
+      rescue StandardError => e
+        errors << Error.new(
+          ext_id: ext_id, layer: container[:layer].to_s,
+          unit: "agent_runtime/#{spec.is_a?(Hash) ? spec['id'] : nil}",
+          message: "failed to resolve runtime adapter: #{e.message}", file: adapter_abs
+        )
+        nil
       end
     end
   end

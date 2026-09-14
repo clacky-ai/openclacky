@@ -10,11 +10,29 @@ module Clacky
     # @param content [String] text portion of the assistant reply (file:// links stripped)
     # @param files   [Array<Hash>] extracted file refs: [{ name:, path:, inline: }]
     def show_assistant_message(content, files:, interim: false, created_at: nil); end
+    # Append one provider-owned text delta to a keyed assistant stream. UIs
+    # without incremental rendering can ignore deltas and receive the complete
+    # message through +finish_assistant_stream+ instead.
+    def show_assistant_delta(message_id, content); end
+    def finish_assistant_stream(message_id, content, files:, created_at: nil,
+                                message_ids: nil)
+      _ = message_ids
+      show_assistant_message(content, files: files, created_at: created_at)
+    end
     def show_feedback_request(question, context, options, questions: nil); end
     def show_subagent_start(skill: nil, iterations: nil, cost_usd: nil); end
     def show_subagent_end; end
     def show_tool_call(name, args); end
     def show_tool_result(result, ui: nil); end
+    # Keyed variants preserve an external runtime's call identity while
+    # degrading to the positional UI contract for legacy controllers.
+    def show_keyed_tool_call(name, args, tool_call_id:)
+      show_tool_call(name, args)
+    end
+    def show_keyed_tool_result(result, tool_call_id:, status: nil, exit_code: nil)
+      _ = [status, exit_code]
+      show_tool_result(result)
+    end
     def show_tool_stdout(lines); end
     def show_tool_error(error); end
     def show_tool_args(formatted_args); end

@@ -186,8 +186,8 @@ class ExtStudioExt < Clacky::ApiExtension
     error!("extension directory not found", status: 404) unless Dir.exist?(dir)
 
     FileUtils.rm_rf(dir)
-    Clacky::ExtensionLoader.load_all(force: true)
-    json(ok: true, ext_id: ext_id)
+    restart_host!
+    json(ok: true, ext_id: ext_id, restart_required: true)
   end
 
   # POST /api/ext/ext-studio/set_disabled
@@ -210,11 +210,8 @@ class ExtStudioExt < Clacky::ApiExtension
       Clacky::ExtensionLoader.enable!(ext_id)
     end
 
-    # Reload the API registry so a disabled extension's routes unmount (and an
-    # enabled one remounts) without restarting the server.
-    Clacky::ApiExtensionLoader.load_all
-
-    json(ok: true, ext_id: ext_id, disabled: disabled)
+    restart_host!
+    json(ok: true, ext_id: ext_id, disabled: disabled, restart_required: true)
   end
 
   # POST /api/ext/ext-studio/unpublish
@@ -386,6 +383,9 @@ class ExtStudioExt < Clacky::ApiExtension
     result    = Clacky::ExtensionLoader.load_all(force: false)
     container = Array(result.containers).find { |id, _| id == ext_id }&.last
     error!("extension not found: #{ext_id}", status: 404) unless container
+    unless container[:layer].to_s == "local"
+      error!("only local extensions can be renamed", status: 403)
+    end
 
     old_dir = container[:dir]
     new_dir = File.join(File.dirname(old_dir), new_id)
@@ -406,10 +406,12 @@ class ExtStudioExt < Clacky::ApiExtension
     # Rename the container directory.
     File.rename(old_dir, new_dir)
 
-    # Reload so the new id is visible immediately.
-    Clacky::ExtensionLoader.load_all(force: true)
+    # API mounts, provider registries, and runtime registries are process-owned.
+    # Restart so the old identity disappears at the same atomic boundary that
+    # exposes every contribution under the new identity.
+    restart_host!
 
-    json(ok: true, old_id: ext_id, new_id: new_id)
+    json(ok: true, old_id: ext_id, new_id: new_id, restart_required: true)
   end
 
   # body: { idea? }

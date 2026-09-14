@@ -63,6 +63,19 @@ RSpec.describe Clacky::Server::HttpServer, "input behavior routing" do
       expect(agent).to receive(:enqueue_input).with(entry[:content], **entry[:options])
       server.send(:send_pending_input, "s", "p1")
     end
+
+    it "lets the existing runtime worker drain the entry after its true completion barrier" do
+      runtime_agent = double("runtime-agent", runtime?: true)
+      registry.with_session("s") { |session| session[:agent] = runtime_agent }
+      expect(runtime_agent).to receive(:remove_pending_input).with("p1")
+        .ordered.and_return(entry)
+      expect(runtime_agent).to receive(:restore_pending_input).with(entry).ordered
+      expect(server).to receive(:interrupt_session)
+        .with("s", reason: :replacement).ordered
+      expect(server).not_to receive(:run_agent_task)
+
+      server.send(:send_pending_input, "s", "p1")
+    end
   end
 
   it "retains the existing interrupt path by default" do

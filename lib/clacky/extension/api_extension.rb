@@ -266,6 +266,16 @@ module Clacky
       @http_server&.instance_variable_get(:@project_manager)
     end
 
+    # Extension contributions are process-scoped registries. A restart is the
+    # atomic boundary that updates APIs, providers, runtimes, and UI metadata
+    # together after an extension is enabled, disabled, or removed.
+    def restart_host!
+      error!("server not ready", status: 503) unless @http_server
+
+      @http_server.send(:schedule_restart)
+      true
+    end
+
     # Create a brand-new session and optionally kick off its first task.
     # Returns the new session_id. When a prompt is given, the task is
     # submitted immediately (the session starts running); display_message

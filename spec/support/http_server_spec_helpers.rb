@@ -9,7 +9,8 @@ require "clacky/agent_config"
 module HttpServerSpecHelpers
   # Start the server in a background thread; yield a Net::HTTP instance.
   # The server is shut down after the block returns.
-  def with_server(agent_config:, client_factory: -> { double("client") }, sessions_dir: nil, projects_file: nil)
+  def with_server(agent_config:, client_factory: -> { double("client") }, sessions_dir: nil, projects_file: nil,
+                  provider_registry: nil, runtime_registry: nil)
     dir = sessions_dir || Dir.mktmpdir("clacky_http_spec_sessions")
     projects_dir = Dir.mktmpdir("clacky_http_spec_projects") unless projects_file
     server = Clacky::Server::HttpServer.new(
@@ -17,6 +18,8 @@ module HttpServerSpecHelpers
       port:           0,  # OS picks a free port
       agent_config:   agent_config,
       client_factory: client_factory,
+      provider_registry: provider_registry,
+      runtime_registry: runtime_registry,
       sessions_dir:   dir,
       projects_file:  projects_file || File.join(projects_dir, "projects.json")
     )
