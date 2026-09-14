@@ -15114,6 +15114,13 @@ body.setup-mode[data-theme="dark"] {
 #share-toggle-header svg { display: block; }
 
 @media (max-width: 768px) {
+  /* Soft keyboards shrink the visual viewport but leave the layout viewport
+     (and 100dvh) at full height, which parks the composer behind the keyboard.
+     --app-viewport-height tracks the visual viewport instead (see app.js). */
+  body {
+    height: var(--app-viewport-height, 100dvh);
+  }
+
   /* Sidebar becomes a fixed drawer on top of content */
   #sidebar {
     position: fixed;
