@@ -1344,6 +1344,266 @@ RSpec.describe Clacky::Server::HttpServer do
     end
   end
 
+  # ── POST /api/config/media/test (preflight regression) ───────────────────
+  #
+  # preflight_media_endpoint now delegates to the shared fetch_remote_model_ids
+  # helper; these pin the model-verification messages it maps onto.
+
+  def faraday_response(status: 200, body: "")
+    double("faraday_response", status: status, body: body, "success?": status.between?(200, 299))
+  end
+
+  def stub_models_fetch(result)
+    conn = double("faraday_connection")
+    allow(conn).to receive(:options).and_return(double("options").as_null_object)
+    if result.is_a?(Exception)
+      allow(conn).to receive(:get).and_raise(result)
+    else
+      allow(conn).to receive(:get).and_return(result)
+    end
+    allow(Faraday).to receive(:new).and_return(conn)
+    conn
+  end
+
+  describe "POST /api/config/media/test" do
+    def post_media_test(server, payload)
+      req = fake_req(method: "POST", path: "/api/config/media/test", body: payload)
+      res = fake_res
+      dispatch(server, req, res)
+      parsed_body(res)
+    end
+
+    it "confirms the requested model when the endpoint lists it" do
+      stub_models_fetch(faraday_response(body: '{"data":[{"id":"gpt-image-1"}]}'))
+
+      with_server(agent_config: agent_config) do |server|
+        payload = {
+          kind: "image",
+          model: "gpt-image-1",
+          base_url: "https://llm.example.com/v1",
+          api_key: "sk-real"
+        }
+        body = post_media_test(server, payload)
+
+        expect(body["ok"]).to be true
+        expect(body["message"]).to eq("Connected. Model 'gpt-image-1' is available.")
+      end
+    end
+
+    it "flags a model that the endpoint does not list" do
+      stub_models_fetch(faraday_response(body: '{"data":[{"id":"other-model"}]}'))
+
+      with_server(agent_config: agent_config) do |server|
+        payload = {
+          kind: "image",
+          model: "gpt-image-1",
+          base_url: "https://llm.example.com/v1",
+          api_key: "sk-real"
+        }
+        body = post_media_test(server, payload)
+
+        expect(body["ok"]).to be false
+        expect(body["message"]).to eq("Connected, but model 'gpt-image-1' not found on this endpoint.")
+      end
+    end
+
+    it "still reports connectivity when the endpoint exposes no model list" do
+      stub_models_fetch(faraday_response(body: '{"object":"list","data":[]}'))
+
+      with_server(agent_config: agent_config) do |server|
+        payload = {
+          kind: "image",
+          model: "gpt-image-1",
+          base_url: "https://llm.example.com/v1",
+          api_key: "sk-real"
+        }
+        body = post_media_test(server, payload)
+
+        expect(body["ok"]).to be true
+        expect(body["message"]).to eq("Connected (model list unavailable; cannot verify model id)")
+      end
+    end
+  end
+
+  # ── POST /api/config/models/list ──────────────────────────────────────────
+
+  describe "POST /api/config/models/list" do
+    def post_models_list(server, payload)
+      req = fake_req(method: "POST", path: "/api/config/models/list", body: payload)
+      res = fake_res
+      dispatch(server, req, res)
+      parsed_body(res)
+    end
+
+    it "returns model ids parsed from a { data: [{ id }] } body" do
+      stub_models_fetch(faraday_response(body: '{"data":[{"id":"deepseek-v3.2"},{"id":"qwen3-max"}]}'))
+
+      with_server(agent_config: agent_config) do |server|
+        body = post_models_list(server, { base_url: "https://llm.example.com/v1", api_key: "sk-real" })
+
+        expect(body["ok"]).to be true
+        expect(body["models"]).to eq(%w[deepseek-v3.2 qwen3-max])
+        expect(body["message"]).to eq("Found 2 models")
+      end
+    end
+
+    it "returns model ids parsed from a plain-array body" do
+      stub_models_fetch(faraday_response(body: '[{"id":"m1"},{"id":"m2"}]'))
+
+      with_server(agent_config: agent_config) do |server|
+        body = post_models_list(server, { base_url: "https://llm.example.com/v1", api_key: "sk-real" })
+
+        expect(body["ok"]).to be true
+        expect(body["models"]).to eq(%w[m1 m2])
+      end
+    end
+
+    it "requests <base_url>/models with the key as a Bearer header" do
+      requests = []
+      conn = double("faraday_connection")
+      allow(conn).to receive(:options).and_return(double("options").as_null_object)
+      allow(conn).to receive(:get) do |&blk|
+        req_headers = {}
+        blk&.call(double("req", headers: req_headers))
+        requests << req_headers
+        faraday_response(body: '{"data":[{"id":"m1"}]}')
+      end
+      seen_url = nil
+      allow(Faraday).to receive(:new) do |**kwargs|
+        seen_url = kwargs[:url]
+        conn
+      end
+
+      with_server(agent_config: agent_config) do |server|
+        post_models_list(server, { base_url: "https://llm.example.com/v1/", api_key: "sk-abc" })
+      end
+
+      expect(seen_url).to eq("https://llm.example.com/v1/models")
+      expect(requests.first["Authorization"]).to eq("Bearer sk-abc")
+      expect(requests.first["Accept"]).to eq("application/json")
+    end
+
+    it "returns an empty list when the endpoint exposes no model ids" do
+      stub_models_fetch(faraday_response(body: '{"object":"list","data":[]}'))
+
+      with_server(agent_config: agent_config) do |server|
+        body = post_models_list(server, { base_url: "https://llm.example.com/v1", api_key: "sk-real" })
+
+        expect(body["ok"]).to be true
+        expect(body["models"]).to eq([])
+        expect(body["message"]).to eq("Endpoint returned no models")
+      end
+    end
+
+    it "returns an empty list when the response body is not JSON" do
+      stub_models_fetch(faraday_response(body: "<html>nope</html>"))
+
+      with_server(agent_config: agent_config) do |server|
+        body = post_models_list(server, { base_url: "https://llm.example.com/v1", api_key: "sk-real" })
+
+        expect(body["ok"]).to be true
+        expect(body["models"]).to eq([])
+      end
+    end
+
+    it "reports auth failures with a key hint" do
+      stub_models_fetch(faraday_response(status: 401, body: "unauthorized"))
+
+      with_server(agent_config: agent_config) do |server|
+        body = post_models_list(server, { base_url: "https://llm.example.com/v1", api_key: "sk-bad" })
+
+        expect(body["ok"]).to be false
+        expect(body["message"]).to eq("Authentication failed (HTTP 401). Check API key.")
+      end
+    end
+
+    it "reports a 404 as a bad Base URL" do
+      stub_models_fetch(faraday_response(status: 404))
+
+      with_server(agent_config: agent_config) do |server|
+        body = post_models_list(server, { base_url: "https://llm.example.com", api_key: "sk-real" })
+
+        expect(body["ok"]).to be false
+        expect(body["message"]).to match(%r{Endpoint not found at https://llm\.example\.com/models})
+      end
+    end
+
+    it "reports other HTTP failures with the truncated body" do
+      stub_models_fetch(faraday_response(status: 500, body: "boom"))
+
+      with_server(agent_config: agent_config) do |server|
+        body = post_models_list(server, { base_url: "https://llm.example.com", api_key: "sk-real" })
+
+        expect(body["ok"]).to be false
+        expect(body["message"]).to eq("HTTP 500: boom")
+      end
+    end
+
+    it "reports network errors" do
+      stub_models_fetch(Faraday::ConnectionFailed.new("connection refused"))
+
+      with_server(agent_config: agent_config) do |server|
+        body = post_models_list(server, { base_url: "https://llm.example.com", api_key: "sk-real" })
+
+        expect(body["ok"]).to be false
+        expect(body["message"]).to match(/Network error: connection refused/)
+      end
+    end
+
+    it "resolves a masked api_key from the stored model by index" do
+      captured = {}
+      conn = double("faraday_connection")
+      allow(conn).to receive(:options).and_return(double("options").as_null_object)
+      allow(conn).to receive(:get) do |&blk|
+        blk&.call(double("req", headers: captured))
+        faraday_response(body: '{"data":[]}')
+      end
+      allow(Faraday).to receive(:new).and_return(conn)
+
+      with_server(agent_config: agent_config) do |server|
+        body = post_models_list(server, { base_url: "https://api.example.com", api_key: "****", index: 0 })
+        expect(body["ok"]).to be true
+      end
+
+      expect(captured["Authorization"]).to eq("Bearer sk-testkey1234567890abcd")
+    end
+
+    it "rejects a missing base_url with 422" do
+      with_server(agent_config: agent_config) do |server|
+        req = fake_req(method: "POST", path: "/api/config/models/list", body: { api_key: "sk-x" })
+        res = fake_res
+        dispatch(server, req, res)
+
+        expect(res.status).to eq(422)
+        expect(parsed_body(res)["error"]).to eq("base_url is required")
+      end
+    end
+
+    it "rejects an empty api_key with 422" do
+      with_server(agent_config: agent_config) do |server|
+        req = fake_req(method: "POST", path: "/api/config/models/list",
+                       body: { base_url: "https://llm.example.com", api_key: "" })
+        res = fake_res
+        dispatch(server, req, res)
+
+        expect(res.status).to eq(422)
+        expect(parsed_body(res)["error"]).to eq("api_key is required")
+      end
+    end
+
+    it "rejects an invalid api_format with 422" do
+      with_server(agent_config: agent_config) do |server|
+        req = fake_req(method: "POST", path: "/api/config/models/list",
+                       body: { base_url: "https://llm.example.com", api_key: "sk-x", api_format: "nope" })
+        res = fake_res
+        dispatch(server, req, res)
+
+        expect(res.status).to eq(422)
+        expect(parsed_body(res)["error"]).to eq("invalid api_format")
+      end
+    end
+  end
+
   # ── 404 for unknown routes ────────────────────────────────────────────────
 
   describe "unknown routes" do

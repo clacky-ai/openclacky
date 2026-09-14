@@ -671,6 +671,7 @@ module Clacky
         when ["PATCH",  "/api/config/settings"]  then api_update_settings(req, res)
         when ["POST",   "/api/config/models"] then api_add_model(req, res)
         when ["POST",   "/api/config/test"]   then api_test_config(req, res)
+        when ["POST",   "/api/config/models/list"] then api_list_models(req, res)
         when ["POST",   "/api/config/reload"] then api_config_reload(req, res)
         when ["POST",   "/api/access_key/reload"] then api_access_key_reload(req, res)
         when ["POST",   "/api/config/media/test"] then api_test_media_config(req, res)
@@ -2038,7 +2039,14 @@ module Clacky
         json_response(res, 200, { ok: false, message: e.message })
       end
 
-      private def preflight_media_endpoint(base_url:, api_key:, model:)
+      # Shared model-list fetch: GET <base_url>/models with Bearer auth. Used
+      # by the media preflight (POST /api/config/media/test) and model
+      # discovery (POST /api/config/models/list).
+      #
+      # Returns { ok: true, ids: [...] } when the endpoint answered — ids is []
+      # when the body exposes no model ids — or { ok: false, message: "..." }
+      # on network / auth / HTTP failures.
+      private def fetch_remote_model_ids(base_url:, api_key:)
         url = "#{base_url.chomp("/")}/models"
         conn = Faraday.new(url: url) do |f|
           f.options.timeout      = 10
@@ -2076,6 +2084,14 @@ module Clacky
             []
           end
 
+        { ok: true, ids: ids }
+      end
+
+      private def preflight_media_endpoint(base_url:, api_key:, model:)
+        fetch = fetch_remote_model_ids(base_url: base_url, api_key: api_key)
+        return { ok: false, message: fetch[:message] } unless fetch[:ok]
+
+        ids = fetch[:ids]
         if ids.empty?
           return { ok: true, message: "Connected (model list unavailable; cannot verify model id)" }
         end
@@ -6772,25 +6788,28 @@ module Clacky
         json_response(res, 422, { error: e.message })
       end
 
+      # The UI never sends a stored key back in cleartext: editing an existing
+      # model sends the masked placeholder. Resolve the real key by model id,
+      # then by index, then fall back to the current default entry.
+      private def resolve_masked_api_key(body)
+        api_key = body["api_key"].to_s
+        return api_key unless api_key.include?("****")
+
+        model_id = body["id"].to_s
+        entry = nil
+        entry = @agent_config.models.find { |m| m["id"] == model_id } unless model_id.empty?
+        entry = @agent_config.models[body["index"].to_i] if entry.nil? && body.key?("index")
+        entry ||= @agent_config.models[@agent_config.current_model_index]
+        entry ? entry["api_key"].to_s : ""
+      end
+
       # POST /api/config/test — test connection for a single model config
       # Body: { model, base_url, api_key, anthropic_format }
       def api_test_config(req, res)
         body = parse_json_body(req)
         return json_response(res, 400, { error: "Invalid JSON" }) unless body
 
-        api_key = body["api_key"].to_s
-        if api_key.include?("****")
-          model_id = body["id"].to_s
-          entry = nil
-          if !model_id.empty?
-            entry = @agent_config.models.find { |m| m["id"] == model_id }
-          end
-          if entry.nil? && body.key?("index")
-            entry = @agent_config.models[body["index"].to_i]
-          end
-          entry ||= @agent_config.models[@agent_config.current_model_index]
-          api_key = entry ? entry["api_key"].to_s : ""
-        end
+        api_key = resolve_masked_api_key(body)
 
         model            = body["model"].to_s
         base_url         = body["base_url"].to_s
@@ -6812,6 +6831,37 @@ module Clacky
           json_response(res, 200, { ok: false, message: result[:error].to_s, error_code: result[:error_code] })
         end
       rescue => e
+        json_response(res, 200, { ok: false, message: e.message })
+      end
+
+      # POST /api/config/models/list — discover the model ids a custom
+      # endpoint serves. Body: { base_url, api_key, api_format }
+      #
+      # The Model field of the "Add Model" modal can't fall back to a preset
+      # list for custom providers, so the frontend calls this to offer the ids
+      # the endpoint actually exposes (issue #559). api_format is accepted for
+      # parity with POST /api/config/test; the fetch itself is the OpenAI-style
+      # Bearer GET /models shared with the media preflight.
+      def api_list_models(req, res)
+        body = parse_json_body(req)
+        return json_response(res, 400, { error: "Invalid JSON" }) unless body
+
+        base_url = body["base_url"].to_s.strip
+        return json_response(res, 422, { error: "base_url is required" }) if base_url.empty?
+
+        api_key = resolve_masked_api_key(body)
+        return json_response(res, 422, { error: "api_key is required" }) if api_key.empty?
+
+        api_format = normalize_api_format(body["api_format"])
+        return json_response(res, 422, { error: "invalid api_format" }) if api_format == :invalid
+
+        result = fetch_remote_model_ids(base_url: base_url, api_key: api_key)
+        return json_response(res, 200, { ok: false, message: result[:message] }) unless result[:ok]
+
+        models  = result[:ids]
+        message = models.empty? ? "Endpoint returned no models" : "Found #{models.length} models"
+        json_response(res, 200, { ok: true, models: models, message: message })
+      rescue StandardError => e
         json_response(res, 200, { ok: false, message: e.message })
       end
 
