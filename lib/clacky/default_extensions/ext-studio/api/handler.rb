@@ -163,7 +163,8 @@ class ExtStudioExt < Clacky::ApiExtension
         id: ext["name"] || ext["slug"] || ext["id"],
         name: ext["display_name"] || ext["name"],
         version: (ext["latest_version"] || {})["version"] || ext["version"],
-        status: ext["status"] || "published"
+        status: ext["status"] || "published",
+        origin: ext["origin"]
       }
     end
     json(extensions: exts)

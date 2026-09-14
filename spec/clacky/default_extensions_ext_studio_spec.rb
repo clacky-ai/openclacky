@@ -86,6 +86,12 @@ RSpec.describe "ExtStudioExt brand owner publishing" do
       __dir__
     ))
   end
+  let(:handler_source) do
+    File.read(File.expand_path(
+      "../../lib/clacky/default_extensions/ext-studio/api/handler.rb",
+      __dir__
+    ))
+  end
 
   it "uses the existing brand owner flags to select the publishing experience" do
     expect(view_source).to include(
@@ -95,7 +101,10 @@ RSpec.describe "ExtStudioExt brand owner publishing" do
 
   it "shows only the matching publication channel in the session publish panel" do
     expect(view_source).to include(
-      'const exts = (data.extensions || []).filter((e) => brandOwner ? e.origin === "self" : e.origin !== "self");'
+      'const endpoint = brandOwner ? "/published_brand" : "/published";'
+    )
+    expect(view_source).to include(
+      ': (data.extensions || []).filter((e) => e.origin !== "self");'
     )
     expect(view_source).to include(
       'class: "studio-btn studio-btn-primary studio-publish-brand-btn"'
@@ -110,5 +119,22 @@ RSpec.describe "ExtStudioExt brand owner publishing" do
     expect(view_source).to include(
       'brandPub.addEventListener("click", () => doPublish(ext, brandEntry ? brandEntry.version : null, "self"));'
     )
+  end
+
+  it "lists the complete brand distribution for owners without exposing global unpublish for marketplace entries" do
+    expect(view_source).to include(
+      'brandPublished = isBrandOwner() ? brandCloud : cloud.filter((e) => e.origin === "self");'
+    )
+    expect(view_source).to include(
+      'const canUnpublish = !isBrandOwner() || ext.origin === "self";'
+    )
+    expect(view_source).to include('if (!brandOwner || e.origin === "self") {')
+  end
+
+  it "preserves extension origin in the brand distribution response" do
+    published_brand_route = handler_source.split('get "/published_brand" do', 2).last
+                                          .split('delete "/local" do', 2).first
+
+    expect(published_brand_route).to include('origin: ext["origin"]')
   end
 end
