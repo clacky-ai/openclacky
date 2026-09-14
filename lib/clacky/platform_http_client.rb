@@ -54,10 +54,17 @@ module Clacky
     ].freeze
 
     # Auto-detects the target host(s):
-    #   - When CLACKY_LICENSE_SERVER is set → single host (dev override, no failover)
-    #   - Otherwise                   → [PRIMARY_HOST, SECONDARY_HOST, FALLBACK_HOST]
-    def initialize
-      if (override = ENV["CLACKY_LICENSE_SERVER"]) && !override.empty?
+    #   - When +host+ is supplied             → that single normalized origin
+    #   - When CLACKY_LICENSE_SERVER is set    → single host (dev override, no failover)
+    #   - Otherwise                            → [PRIMARY_HOST, SECONDARY_HOST, FALLBACK_HOST]
+    #
+    # An explicit host is used for staged enterprise device authorization. It
+    # deliberately disables public-domain failover so an enterprise request can
+    # never be retried against an unrelated OpenClacky service.
+    def initialize(host: nil)
+      if host
+        @hosts = [normalize_http_origin(host)]
+      elsif (override = ENV["CLACKY_LICENSE_SERVER"]) && !override.empty?
         @hosts = [override]
       else
         @hosts = [PRIMARY_HOST, SECONDARY_HOST, FALLBACK_HOST]
@@ -300,6 +307,31 @@ module Clacky
 
       # All hosts / attempts exhausted
       { success: false, error: "Network error: #{last_error&.message || "unknown"}", data: {} }
+    end
+
+    private def normalize_http_origin(value)
+      uri = URI.parse(value.to_s.strip)
+      scheme = uri.scheme.to_s.downcase
+      host = uri.host.to_s.downcase
+      path = uri.path.to_s
+
+      valid = uri.is_a?(URI::HTTP) &&
+              %w[http https].include?(scheme) &&
+              !host.empty? &&
+              uri.userinfo.nil? &&
+              (path.empty? || path == "/") &&
+              uri.query.nil? &&
+              uri.fragment.nil?
+      unless valid
+        raise ArgumentError,
+              "host must be an HTTP/HTTPS origin without credentials, path, query, or fragment"
+      end
+
+      default_port = scheme == "https" ? 443 : 80
+      port_suffix = uri.port == default_port ? "" : ":#{uri.port}"
+      "#{scheme}://#{host}#{port_suffix}"
+    rescue URI::InvalidURIError
+      raise ArgumentError, "host is not a valid URL"
     end
 
     private def execute_request(method, base, path, payload, extra_headers, read_timeout_override: nil)

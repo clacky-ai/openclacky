@@ -17,12 +17,13 @@ module Clacky
     CONFIG_DIR    = File.join(Dir.home, ".clacky")
     IDENTITY_FILE = File.join(CONFIG_DIR, "identity.yml")
 
-    attr_reader :device_token, :user_id, :bound_at
+    attr_reader :device_token, :user_id, :bound_at, :platform_source
 
     def initialize(attrs = {})
       @device_token = attrs["device_token"]
       @user_id      = attrs["user_id"]
       @bound_at     = attrs["bound_at"]
+      @platform_source = attrs["platform_source"]
     end
 
     def self.load
@@ -38,10 +39,11 @@ module Clacky
     end
 
     # Persist a fresh binding from a device-authorization approval.
-    def bind!(device_token:, user_id:)
+    def bind!(device_token:, user_id:, platform_source: nil)
       @device_token = device_token
       @user_id      = user_id
       @bound_at     = Time.now.utc.iso8601
+      @platform_source = platform_source
       save
       self
     end
@@ -50,6 +52,7 @@ module Clacky
       @device_token = nil
       @user_id      = nil
       @bound_at     = nil
+      @platform_source = nil
       FileUtils.rm_f(IDENTITY_FILE)
     end
 
@@ -63,7 +66,8 @@ module Clacky
       {
         "device_token" => @device_token,
         "user_id"      => @user_id,
-        "bound_at"     => @bound_at
+        "bound_at"     => @bound_at,
+        "platform_source" => @platform_source
       }.compact.to_yaml
     end
   end

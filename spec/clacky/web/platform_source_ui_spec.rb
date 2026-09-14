@@ -63,6 +63,12 @@ RSpec.describe "Platform source WebUI" do
     )
   end
 
+  it "removes a stale activation banner after enterprise licensing becomes active" do
+    expect(brand_view).to match(
+      /if \(data\.needs_activation\).*?return;.*?const banner.*?banner\.remove\(\);.*?if \(data\.warning\)/m
+    )
+  end
+
   it "keeps the current brand while refresh is pending and restores defaults once settled" do
     expect(brand_view).to match(
       /!data\.branded.*?distribution_refresh_pending.*?_scheduleDistributionRefreshPoll\(\).*?return;.*?_applyBrandName\("OpenClacky"\).*?Brand\.clearBrandCache\(\).*?_applyHeaderLogo\(\)/m
