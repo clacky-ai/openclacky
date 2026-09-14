@@ -78,3 +78,37 @@ RSpec.describe "ExtStudioExt creator navigation" do
     expect(view_source).to include("syncCreatorNavVisibility();")
   end
 end
+
+RSpec.describe "ExtStudioExt brand owner publishing" do
+  let(:view_source) do
+    File.read(File.expand_path(
+      "../../lib/clacky/default_extensions/ext-studio/panels/studio/view.js",
+      __dir__
+    ))
+  end
+
+  it "uses the existing brand owner flags to select the publishing experience" do
+    expect(view_source).to include(
+      'return typeof Brand !== "undefined" && Brand.branded && Brand.userLicensed;'
+    )
+  end
+
+  it "shows only the matching publication channel in the session publish panel" do
+    expect(view_source).to include(
+      'const exts = (data.extensions || []).filter((e) => brandOwner ? e.origin === "self" : e.origin !== "self");'
+    )
+    expect(view_source).to include(
+      'class: "studio-btn studio-btn-primary studio-publish-brand-btn"'
+    )
+  end
+
+  it "hides the marketplace section and promotes brand publishing in the creator center" do
+    expect(view_source).to include('if (!isBrandOwner()) {')
+    expect(view_source).to include(
+      'text: brandEntry ? t("extlist.btn.updateBrand") : t("extlist.btn.publishBrand")'
+    )
+    expect(view_source).to include(
+      'brandPub.addEventListener("click", () => doPublish(ext, brandEntry ? brandEntry.version : null, "self"));'
+    )
+  end
+end
