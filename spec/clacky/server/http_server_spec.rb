@@ -1458,6 +1458,28 @@ RSpec.describe Clacky::Server::HttpServer do
       end
     end
 
+    it "accepts plain-string elements in the data array" do
+      stub_models_fetch(faraday_response(body: '{"data":["gpt-4","claude-3"]}'))
+
+      with_server(agent_config: agent_config) do |server|
+        body = post_models_list(server, { base_url: "https://llm.example.com/v1", api_key: "sk-real" })
+
+        expect(body["ok"]).to be true
+        expect(body["models"]).to eq(%w[gpt-4 claude-3])
+      end
+    end
+
+    it "drops entries without a usable id instead of offering blanks" do
+      stub_models_fetch(faraday_response(body: '{"data":[{"id":"m1"},{"name":"no-id"},"",{"id":"m2"}]}'))
+
+      with_server(agent_config: agent_config) do |server|
+        body = post_models_list(server, { base_url: "https://llm.example.com/v1", api_key: "sk-real" })
+
+        expect(body["ok"]).to be true
+        expect(body["models"]).to eq(%w[m1 m2])
+      end
+    end
+
     it "requests <base_url>/models with the key as a Bearer header" do
       requests = []
       conn = double("faraday_connection")

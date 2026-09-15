@@ -2075,14 +2075,18 @@ module Clacky
         end
 
         body = JSON.parse(response.body) rescue nil
+        # Elements are usually {"id"=>...} hashes, but some gateways serve
+        # plain string arrays; `String#[]` would be a substring search there,
+        # so dispatch on type and drop entries without a usable id.
         ids =
           if body.is_a?(Hash) && body["data"].is_a?(Array)
-            body["data"].map { |m| m["id"].to_s }
+            body["data"].map { |m| m.is_a?(Hash) ? m["id"].to_s : m.to_s }
           elsif body.is_a?(Array)
-            body.map { |m| m["id"].to_s }
+            body.map { |m| m.is_a?(Hash) ? m["id"].to_s : m.to_s }
           else
             []
           end
+        ids = ids.reject(&:empty?)
 
         { ok: true, ids: ids }
       end
