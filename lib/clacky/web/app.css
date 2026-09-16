@@ -7997,12 +7997,20 @@ body {
   z-index: 1000;
 }
 .model-dropdown-option {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
   padding: 0.5rem 0.75rem;
   font-size: 0.8125rem;
   color: var(--color-text-primary);
   cursor: pointer;
   transition: background-color 0.15s ease;
   font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Fira Code', 'Courier New', monospace;
+}
+.model-dropdown-option-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .model-dropdown-option:hover {
   background: var(--color-bg-hover);
@@ -13263,7 +13271,7 @@ body.setup-mode[data-theme="dark"] {
 }
 .billing-title-row {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   flex-wrap: wrap;
   gap: 0.75rem;
   min-width: 0;
@@ -13311,8 +13319,7 @@ body.setup-mode[data-theme="dark"] {
 
 /* ── Model Filter ────────────────────────────────────────────────────── */
 .billing-model-filter {
-  width: 16rem;
-  flex: 0 0 16rem;
+  width: 10.7rem;
   min-width: 0;
 }
 .billing-model-filter .custom-select-trigger {
