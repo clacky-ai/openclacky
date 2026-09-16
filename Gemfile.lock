@@ -27,6 +27,7 @@ GEM
     artii (2.1.2)
     ast (2.4.3)
     base64 (0.3.0)
+    cgi (0.5.2)
     chunky_png (1.4.0)
     climate_control (1.2.0)
     date (3.5.1)
@@ -57,6 +58,7 @@ GEM
       kramdown (~> 2.0)
     logger (1.7.0)
     multipart-post (2.4.1)
+    ostruct (0.6.3)
     parallel (1.24.0)
     parallel_tests (4.10.1)
       parallel
@@ -163,10 +165,12 @@ PLATFORMS
   x86_64-linux
 
 DEPENDENCIES
+  cgi
   climate_control
   debug
   irb
   openclacky!
+  ostruct
   parallel_tests (~> 4.7)
   rake (~> 13.0)
   rspec (~> 3.0)
