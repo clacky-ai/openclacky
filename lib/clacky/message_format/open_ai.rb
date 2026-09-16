@@ -46,6 +46,7 @@ module Clacky
       # @return [Hash]
       def build_request_body(messages, model, tools, max_tokens, caching_enabled, vision_supported: true, reasoning_effort: nil)
         api_messages = messages.map { |msg| normalize_message_content(msg, vision_supported: vision_supported) }
+        api_messages = append_signature_continuation(api_messages, model)
 
         body = { model: model, token_field_for(model) => max_tokens, messages: api_messages }
 
@@ -193,6 +194,33 @@ module Clacky
       end
 
       # ── Private helpers ───────────────────────────────────────────────────────
+
+      # Gemini 3 validates thought signatures only when the request continues
+      # a model turn (ends with tool results). Tool calls produced by a
+      # different model (e.g. DeepSeek economy tier before an auto upgrade) can
+      # never carry a valid signature — Google cryptographically verifies it —
+      # so such requests fail with 400 "Function call is missing a
+      # thought_signature". Appending a user turn turns the continuation into a
+      # fresh user request, which skips the signature check entirely. The extra
+      # turn is a send-time transformation and never enters stored history.
+      GEMINI3_CONTINUATION_PROMPT = "Continue with the tool results above."
+
+      private_class_method def self.append_signature_continuation(api_messages, model)
+        return api_messages unless model.to_s.match?(/gemini-3/i)
+        return api_messages unless api_messages.last.is_a?(Hash) && api_messages.last[:role] == "tool"
+        return api_messages unless api_messages.any? do |m|
+          m[:tool_calls].is_a?(Array) && m[:tool_calls].any? { |tc| signature_missing?(tc) }
+        end
+
+        api_messages + [{ role: "user", content: GEMINI3_CONTINUATION_PROMPT }]
+      end
+
+      private_class_method def self.signature_missing?(tool_call)
+        extra = tool_call[:extra_content]
+        google = extra.is_a?(Hash) ? extra[:google] : nil
+        sig = google.is_a?(Hash) ? google[:thought_signature] : nil
+        sig.nil? || sig.empty?
+      end
 
       # Returns the token-limit field name for the given model.
       # Most OpenAI-compatible APIs use :max_tokens; MiMo-V2.5 (Xiaomi) and

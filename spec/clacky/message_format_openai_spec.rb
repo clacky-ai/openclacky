@@ -148,6 +148,74 @@ RSpec.describe Clacky::MessageFormat::OpenAI do
       expect(result_content[1][:text]).to eq("Between images")
       expect(result_content[2][:text]).to include("Image content removed")
     end
+
+    context "Gemini 3 thought-signature continuation guard" do
+      let(:model) { "or-gemini-3-8-flash" }
+      let(:unsigned_calls) do
+        [{ id: "call_01", type: "function", name: "terminal", arguments: "{\"command\":\"ls\"}" }]
+      end
+
+      let(:messages) do
+        [
+          { role: "user", content: "check config" },
+          { role: "assistant", content: "", tool_calls: unsigned_calls },
+          { role: "tool", tool_call_id: "call_01", content: "{\"output\":\"done\"}" }
+        ]
+      end
+
+      it "appends a user turn after unsigned tool results for Gemini 3" do
+        body = described_class.build_request_body(messages, model, tools, max_tokens, false)
+        expect(body[:messages].length).to eq(4)
+        expect(body[:messages].last[:role]).to eq("user")
+        expect(body[:messages].last[:content]).to eq("Continue with the tool results above.")
+      end
+
+      it "does not mutate the input messages array" do
+        described_class.build_request_body(messages, model, tools, max_tokens, false)
+        expect(messages.length).to eq(3)
+      end
+
+      it "does not append when all tool_calls carry a thought_signature" do
+        signed = unsigned_calls.map do |tc|
+          tc.merge(extra_content: { google: { thought_signature: "AY89a1/KMWOq" } })
+        end
+        msgs = [
+          { role: "user", content: "check config" },
+          { role: "assistant", content: "", tool_calls: signed },
+          { role: "tool", tool_call_id: "call_01", content: "{\"output\":\"done\"}" }
+        ]
+
+        body = described_class.build_request_body(msgs, model, tools, max_tokens, false)
+        expect(body[:messages].length).to eq(3)
+      end
+
+      it "does not append when the request does not end with tool results" do
+        msgs = messages + [{ role: "user", content: "and now?" }]
+
+        body = described_class.build_request_body(msgs, model, tools, max_tokens, false)
+        expect(body[:messages].length).to eq(4)
+        expect(body[:messages].last[:content]).to eq("and now?")
+      end
+
+      it "does not append for non-Gemini-3 models" do
+        body = described_class.build_request_body(messages, "deepseek-v4-pro", tools, max_tokens, false)
+        expect(body[:messages].length).to eq(3)
+      end
+
+      it "treats an empty-string signature as missing" do
+        blank = unsigned_calls.map do |tc|
+          tc.merge(extra_content: { google: { thought_signature: "" } })
+        end
+        msgs = [
+          { role: "user", content: "check config" },
+          { role: "assistant", content: "", tool_calls: blank },
+          { role: "tool", tool_call_id: "call_01", content: "{\"output\":\"done\"}" }
+        ]
+
+        body = described_class.build_request_body(msgs, model, tools, max_tokens, false)
+        expect(body[:messages].length).to eq(4)
+      end
+    end
   end
 
   describe ".build_request_body reasoning_effort mapping" do
