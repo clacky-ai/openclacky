@@ -29,7 +29,7 @@ RSpec.describe Clacky::Client, "Ark payg model-id mapping keeps vision judgement
   def capture_request_body(api_model:, capability_model:)
     captured = nil
     fake_response = instance_double(
-      Faraday::Response, status: 200,
+      Faraday::Response, status: 200, headers: {},
       body: { "choices" => [{ "message" => { "content" => "ok" } }] }.to_json
     )
     fake_conn = instance_double(Faraday::Connection)

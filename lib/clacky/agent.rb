@@ -87,6 +87,7 @@ module Clacky
       @history = MessageHistory.new
       @todos = []  # Store todos in memory
       @iterations = 0
+      @consecutive_tool_failures = 0  # Auto-routing pressure signal: consecutive failed tool calls
       @total_cost = 0.0
       @cost_mutex = Mutex.new
       @cache_stats = {
@@ -529,6 +530,9 @@ module Clacky
         # Note: Do NOT reset @previous_total_tokens here - it should maintain the value from the last iteration
         # across tasks to correctly calculate delta tokens in each iteration
         @task_start_iterations = @iterations  # Track starting iterations for this task
+        @consecutive_tool_failures = 0  # New task: reset the auto-routing failure signal
+        @task_upstream_fails = 0  # New task: retry the cheap floor from scratch
+        @task_upgrade_fails = 0  # New task: retry the upgrade lane from scratch
         @task_start_cost = @total_cost  # Track starting cost for this task
         # Track cache stats for current task
         @task_cache_stats = {
@@ -1157,12 +1161,12 @@ module Clacky
         begin
           if @ui
             @ui.with_progress(message: "Compressing message history...", style: :quiet) do |handle|
-              response = call_llm
+              response = call_llm(agent_role: "compression")
               handle_compression_response(response, compression_context, progress: handle)
               compression_handled = true
             end
           else
-            response = call_llm
+            response = call_llm(agent_role: "compression")
             handle_compression_response(response, compression_context)
             compression_handled = true
           end
@@ -1187,7 +1191,12 @@ module Clacky
       # UI transitions cleanly to the assistant message that follows.
       response = nil
       begin
-        response = call_llm
+        response = call_llm(
+          agent_iteration: @iterations - (@task_start_iterations || @iterations),
+          agent_retries: @consecutive_tool_failures,
+          agent_upstream_fails: @task_upstream_fails,
+          agent_upgrade_fails: @task_upgrade_fails
+        )
       rescue
         # Ensure the spinner is stopped on any error path before it bubbles up.
         @ui&.show_progress(phase: "done")
@@ -1546,6 +1555,7 @@ module Clacky
           end
 
           results << build_success_result(call, result)
+          @consecutive_tool_failures = 0
         rescue StandardError => e
           # Log complete error information to debug_logs for troubleshooting
           @debug_logs << {
@@ -1561,6 +1571,7 @@ module Clacky
 
           @hooks.trigger(:on_tool_error, call, e)
           @ui&.show_tool_error(redact_tool_args(e.message))
+          @consecutive_tool_failures += 1
           # Use build_denied_result with system_injected=true so LLM knows it can retry
           results << build_denied_result(call, e.message, true)
         end

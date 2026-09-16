@@ -13,7 +13,7 @@ RSpec.describe Clacky::Client, "streaming truncation detection" do
   let(:on_chunk) { proc {} }
 
   def fake_200
-    Struct.new(:status, :body, :env).new(200, "", Struct.new(:body).new(""))
+    Struct.new(:status, :body, :env, :headers).new(200, "", Struct.new(:body).new(""), {})
   end
 
   # Stub the given connection so its on_data proc receives the supplied SSE

@@ -14,8 +14,8 @@ RSpec.describe Clacky::Client do
   let(:client) { described_class.new("test-key", base_url: "https://api.example.com", model: "gpt-4") }
 
   # Helper: build a fake Faraday response
-  def fake_response(status:, body:)
-    Struct.new(:status, :body).new(status, body)
+  def fake_response(status:, body:, headers: {})
+    Struct.new(:status, :body, :headers).new(status, body, headers)
   end
 
   # ── check_html_response ───────────────────────────────────────────────────

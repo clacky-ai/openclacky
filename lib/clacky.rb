@@ -202,7 +202,19 @@ module Clacky
       @provider_id = provider_id
     end
   end
-  class RetryableError < StandardError; end  # Transient errors that should be retried (5xx, HTML response, rate limit)
+  # Transient errors that should be retried (5xx, HTML response, rate limit).
+  # routed_tier: which auto-routing tier ("floor"/"upgrade") the failed call
+  # was routed to, echoed from the gateway's X-Clacky-Routed-Tier header. nil
+  # when the failure happened before the gateway answered (network layer) or
+  # outside the auto alias — such failures are not attributed to any tier.
+  class RetryableError < StandardError
+    attr_reader :routed_tier
+
+    def initialize(message = nil, routed_tier: nil)
+      super(message)
+      @routed_tier = routed_tier
+    end
+  end
   # Upstream (model/router like OpenRouter/Bedrock) returned finish_reason="stop" together with
   # one or more tool_calls whose `arguments` JSON was truncated (empty, "{}" placeholder, or
   # otherwise unparseable). Subclass of RetryableError so it flows through the existing

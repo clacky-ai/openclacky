@@ -45,7 +45,7 @@ module Clacky
       #   Inside call_llm we only *update in place* during retries, so the
       #   already-live progress slot shows meaningful transient status
       #   ("Network failed… attempt 2/10", etc.).
-      private def call_llm
+      private def call_llm(agent_role: nil, agent_iteration: nil, agent_retries: nil, agent_upstream_fails: nil, agent_upgrade_fails: nil)
         # Transition :fallback_active → :probing if cooling-off has expired.
         @config.maybe_start_probing
 
@@ -54,6 +54,12 @@ module Clacky
         max_retries = 10
         retry_delay = 5
         retries = 0
+        # Per-call tier attribution for auto routing: each retryable failure is
+        # charged to the tier the gateway actually routed that call to (echoed
+        # in X-Clacky-Routed-Tier). Failures without a tier (network layer,
+        # timeouts — the gateway never answered) are not attributed to either.
+        floor_fails = 0
+        upgrade_fails = 0
 
         # Track whether any of the retry/fallback branches below opened a
         # "retrying" progress slot via show_progress(progress_type:
@@ -111,7 +117,12 @@ module Clacky
             max_tokens: @config.max_tokens,
             enable_caching: @config.enable_prompt_caching,
             reasoning_effort: @reasoning_effort,
-            on_chunk: build_progress_on_chunk
+            on_chunk: build_progress_on_chunk,
+            agent_role: agent_role,
+            agent_iteration: agent_iteration,
+            agent_retries: (agent_retries || 0) + retries,
+            agent_upstream_fails: (agent_upstream_fails || 0) + floor_fails,
+            agent_upgrade_fails: (agent_upgrade_fails || 0) + upgrade_fails
           )
 
           # Successful response — if we were probing, confirm primary is healthy.
@@ -142,7 +153,7 @@ module Clacky
               finish_reason: response[:finish_reason].to_s,
               completion_tokens: response.dig(:token_usage, :completion_tokens)
             )
-            raise RetryableError, "[LLM] Model returned empty response (no content, no tool_calls), retrying..."
+            raise RetryableError.new("[LLM] Model returned empty response (no content, no tool_calls), retrying...", routed_tier: response[:routed_tier])
           end
 
           # Thinking-mode silent response detector. DeepSeek V4 / Kimi K2 /
@@ -164,7 +175,7 @@ module Clacky
               reasoning_tail: reasoning_str[-200, 200] || reasoning_str,
               completion_tokens: response.dig(:token_usage, :completion_tokens)
             )
-            raise RetryableError, "[LLM] Thinking-mode model produced reasoning but empty content/tool_calls, retrying..."
+            raise RetryableError.new("[LLM] Thinking-mode model produced reasoning but empty content/tool_calls, retrying...", routed_tier: response[:routed_tier])
           end
 
         rescue Faraday::TimeoutError => e
@@ -274,6 +285,11 @@ module Clacky
         rescue RetryableError => e
           Clacky::Shutdown.checkpoint!
           retries += 1
+
+          case e.routed_tier
+          when "floor"   then floor_fails += 1
+          when "upgrade" then upgrade_fails += 1
+          end
 
           # Probing failure: primary still down — renew cooling-off and retry with fallback.
           if @config.probing?
@@ -398,10 +414,21 @@ module Clacky
           raise
         end
 
+        # Fold this call's tier-attributed failures into the task-level tallies
+        # so later calls in the same task keep routing away from the failing
+        # lane — the per-call counters above reset to 0 once this call
+        # succeeds. A floor failure proves the floor lane is shaky for this
+        # task (route up); an upgrade failure proves the upgrade lane is shaky
+        # (route back down and stay on the floor until the task boundary).
+        @task_upstream_fails = (@task_upstream_fails || 0) + floor_fails if floor_fails > 0
+        @task_upgrade_fails = (@task_upgrade_fails || 0) + upgrade_fails if upgrade_fails > 0
+
         # Track cost and collect token usage data.
         # Pass the model name captured at API call time to ensure accurate billing
         # even if the user switched models during the (potentially long) API call.
-        token_data = track_cost(response[:usage], raw_api_usage: response[:raw_api_usage], model: api_call_model)
+        # For the "auto" alias the gateway reports the concrete model it routed
+        # to via X-Clacky-Routed-Model — bill under that so pricing resolves.
+        token_data = track_cost(response[:usage], raw_api_usage: response[:raw_api_usage], model: response[:routed_model] || api_call_model)
         response[:token_usage] = token_data
 
         # [DIAG] Log raw client response shape. Only emit when we see the
@@ -721,9 +748,11 @@ module Clacky
         # and the hint just sits in history without affecting behaviour.
         inject_upstream_truncation_hint_if_first(truncated)
 
-        raise Clacky::UpstreamTruncatedError,
+        raise Clacky::UpstreamTruncatedError.new(
           "[LLM] Upstream truncated tool_call `#{truncated[:name]}` " \
-          "(args=#{args_str[0, 40].inspect}). Retrying..."
+          "(args=#{args_str[0, 40].inspect}). Retrying...",
+          routed_tier: response[:routed_tier]
+        )
       end
 
       # True when a tool_call's arguments field is unusable — either empty

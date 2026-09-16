@@ -29,8 +29,13 @@ module Clacky
         "name" => "OpenClacky",
         "base_url" => "https://api.openclacky.com",
         "api" => "bedrock",
-        "default_model" => "or-gemini-3-8-flash",
+        # "auto" is a gateway-side virtual alias: the platform routes each
+        # call economy-first (DeepSeek Flash floor, Gemini Pro upgrade on
+        # long/complex requests) and reports the concrete model back via the
+        # X-Clacky-Routed-Model response header.
+        "default_model" => "auto",
         "models" => [
+          "auto",
           "abs-gpt-6-astra",
           "abs-gpt-5.6-sol",
           "abs-gpt-5.6-terra",
@@ -157,6 +162,7 @@ module Clacky
         # Responses API — their Chat Completions endpoint rejects function
         # tools for reasoning models (GPT-6 Astra).
         "model_api_overrides" => {
+          "auto"      => "openai-completions",
           /\Aabs-gpt-/ => "openai-responses"
         }.freeze,
         # Per-primary lite pairing: keys are "strong" primary models, values
@@ -166,6 +172,7 @@ module Clacky
         # themselves, so they're intentionally not listed here as keys —
         # no injection happens when the default model is already lite-class.
         "lite_models" => {
+          "auto"                 => "dsk-deepseek-flash",
           "abs-claude-fable-5-1"  => "abs-claude-haiku-4-5",
           "abs-claude-fable-5"    => "abs-claude-haiku-4-5",
           "abs-claude-opus-5"     => "abs-claude-haiku-4-5",

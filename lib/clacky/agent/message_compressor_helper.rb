@@ -45,7 +45,7 @@ module Clacky
 
         run_compression = lambda do |handle|
           begin
-            response = call_llm
+            response = call_llm(agent_role: "compression")
             handle_compression_response(response, compression_context, progress: handle)
             true
           rescue Clacky::AgentInterrupted => e
