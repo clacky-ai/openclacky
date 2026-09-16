@@ -575,6 +575,8 @@ module Clacky
       @total_tasks += 1
       run_turn_started = true
 
+      @input_mutex.synchronize { @accepting_steering = true }
+      notify_input_queue
       @hooks.trigger(:on_start, user_input)
 
       # Track if ask_user was called
@@ -592,7 +594,7 @@ module Clacky
         @iterations += 1
         @hooks.trigger(:on_iteration, @iterations)
 
-        consume_pending_inputs
+        consume_steering_inputs
 
         # Think: LLM reasoning with tool support
         response = think
@@ -711,7 +713,7 @@ module Clacky
           # and skip skill evolution — the task isn't truly complete yet.
           turn_unfinished = true if ends_with_question
 
-          if consume_pending_inputs
+          if consume_steering_inputs(finishing: true)
             turn_unfinished = false
             next
           end
@@ -767,7 +769,10 @@ module Clacky
         end
       end
 
+      @input_mutex.synchronize { @accepting_steering = false }
+      notify_input_queue
       result = build_result(awaiting_user_feedback: awaiting_user_feedback)
+      result[:queue_paused] = true if awaiting_user_feedback || task_interrupted
 
       # Run skill evolution hooks after main loop completes
       # Skip if task was interrupted by user (denied tool) or awaiting user feedback
@@ -805,14 +810,14 @@ module Clacky
       # Standing-goal loop: after a completed turn, ask the judge whether the
       # goal is met. If not (and budget/health allow), auto-run the next turn
       # in this same thread. Skipped for subagents and interrupts.
-      # awaiting_user_feedback (agent ended with '?') is intentionally not
-      # checked here - maybe_continue_goal is a no-op when no goal is active,
-      # and when one is active the judge decides done/continue, not punctuation.
-      unless @is_subagent || task_interrupted
+      # An explicit request for user feedback pauses the goal as well as the
+      # queue. Mere question punctuation still leaves the goal judge in charge.
+      unless @is_subagent || task_interrupted || awaiting_user_feedback
         continuation = maybe_continue_goal(result)
         return continuation if continuation
       end
 
+      result[:queue_paused] = true if @goal_manager&.state&.paused?
       result
     rescue Clacky::AgentInterrupted
       # A cancelled fan-out captured its subagents' progress but never reached
@@ -846,6 +851,13 @@ module Clacky
       result = build_result(:error, error: e.message)
       raise
     ensure
+      if run_turn_started && task_id == @current_task_id
+        @input_mutex.synchronize do
+          @accepting_steering = false
+          @input_queue.each { |entry| entry[:delivery] = "queue" }
+        end
+        notify_input_queue
+      end
       # Safety net: ensure any lingering progress spinner is stopped.
       @ui&.show_progress(phase: "done")
 
@@ -1031,15 +1043,48 @@ module Clacky
 
     end
 
-    def enqueue_input(content, **options)
-      entry = { id: SecureRandom.uuid, content: content, options: options }
-      @input_mutex.synchronize { @input_queue << entry }
+    def enqueue_input(content, delivery: :queue, **options)
+      entry = { id: SecureRandom.uuid, content: content, options: options, delivery: delivery.to_s }
+      @input_mutex.synchronize do
+        entry[:delivery] = "queue" if delivery.to_s == "steer" && !@accepting_steering
+        @input_queue << entry
+      end
       notify_input_queue
       entry[:id]
     end
 
     def pending_inputs
-      @input_mutex.synchronize { Marshal.load(Marshal.dump(@input_queue)) }
+      @input_mutex.synchronize do
+        Marshal.load(Marshal.dump(@input_queue)).map { |entry| entry.merge(steer_target: @accepting_steering ? @current_task_id : nil) }
+      end
+    end
+
+    # Conversion and closing the input window share the queue lock. A stale
+    # client can never steer a successor task or remove the original entry.
+    def steer_pending_input(id, expected_task_id:)
+      changed = @input_mutex.synchronize do
+        next false unless @accepting_steering && expected_task_id == @current_task_id
+        entry = @input_queue.find { |item| item[:id] == id }
+        next false unless entry && !entry[:content].to_s.lstrip.start_with?("/")
+        entry[:delivery] = "steer"
+        true
+      end
+      notify_input_queue
+      changed
+    end
+
+    def restore_pending_input(entry)
+      @input_mutex.synchronize do
+        index = entry.delete(:queue_position) || 0
+        @input_queue.insert([index, @input_queue.size].min, entry)
+      end
+      notify_input_queue
+    end
+
+    # Both Web and CLI use the same rule after the whole run has returned.
+    def self.task_completed?(result)
+      result.is_a?(Hash) && result[:status] == :success &&
+        !result[:awaiting_user_feedback] && !result[:queue_paused]
     end
 
     def take_pending_input
@@ -1059,16 +1104,22 @@ module Clacky
       !!updated
     end
 
-    def remove_pending_input(id)
+    def remove_pending_input(id, for_execution: false)
       removed = @input_mutex.synchronize do
         index = @input_queue.index { |entry| entry[:id] == id }
-        @input_queue.delete_at(index) if index
+        if index
+          entry = @input_queue.delete_at(index)
+          entry[:queue_position] = index if for_execution
+          entry
+        end
       end
       notify_input_queue
       removed
     end
 
     def run_pending_input(entry)
+      # A queued request always starts its own accounting, even after a stop.
+      @last_run_interrupted = false
       options = entry[:options].dup
       source = options.delete(:source) || :web
       notify_input_queue
@@ -1081,12 +1132,18 @@ module Clacky
       @ui.show_input_queue(pending_inputs) if @ui&.respond_to?(:show_input_queue)
     end
 
-    private def consume_pending_inputs
+    private def consume_steering_inputs(finishing: false)
       # Claim a bounded batch so continuous typing cannot starve the model.
       # Slash commands retain run-level dispatch and wait until this run finishes.
       entries = @input_mutex.synchronize do
-        count = @input_queue.index { |entry| entry[:content].to_s.lstrip.start_with?("/") } || @input_queue.length
-        @input_queue.shift(count)
+        selected, remaining = @input_queue.partition do |entry|
+          entry[:delivery] == "steer" && !entry[:content].to_s.lstrip.start_with?("/")
+        end
+        @input_queue = remaining
+        # Atomically close the input window only if no guidance was accepted.
+        # A concurrent click either joins this task or remains in the queue.
+        @accepting_steering = false if finishing && selected.empty?
+        selected
       end
       committed = 0
       unless entries.empty?

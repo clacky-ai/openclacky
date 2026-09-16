@@ -170,7 +170,7 @@ module Clacky
 
     def initialize(options = {})
       @permission_mode = validate_permission_mode(options[:permission_mode])
-      @input_behavior = options[:input_behavior].to_s == "steer" ? "steer" : "interrupt"
+      @input_behavior = %w[queue steer interrupt].include?(options[:input_behavior].to_s) ? options[:input_behavior].to_s : "queue"
       @max_tokens = options[:max_tokens] || 16384
       @verbose = options[:verbose] || false
       @enable_compression = options[:enable_compression].nil? ? true : options[:enable_compression]

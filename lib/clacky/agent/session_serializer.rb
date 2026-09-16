@@ -18,7 +18,10 @@ module Clacky
         @name = session_data[:name] || ""
         @pinned = session_data[:pinned] || false
         @history = MessageHistory.new(session_data[:messages] || [])
-        @input_queue = session_data[:pending_inputs] || []
+        @input_queue = (session_data[:pending_inputs] || []).map do |entry|
+          entry.reject { |key, _| key == :steer_target }.merge(delivery: "queue")
+        end
+        @accepting_steering = false
         @todos = session_data[:todos] || []  # Restore todos from session
         @iterations = session_data.dig(:stats, :total_iterations) || 0
         @total_cost = session_data.dig(:stats, :total_cost_usd) || 0.0

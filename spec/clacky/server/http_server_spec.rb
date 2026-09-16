@@ -1680,7 +1680,8 @@ RSpec.describe Clacky::Server::HttpServer do
           source: :web,
           files: [],
           skill_command: "slides",
-          skill_command_display: "幻灯片"
+          skill_command_display: "幻灯片",
+          steering: true
         )
         expect(skill).to have_received(:display_name).with("zh")
       end
@@ -1689,6 +1690,25 @@ RSpec.describe Clacky::Server::HttpServer do
     it "passes the identifier as display for non-zh clients" do
       with_server(agent_config: agent_config) do |server|
         sid, _agent, _skill, ui = seed_session(server, "sid-broadcast-2", display: "slides")
+
+        server.send(:handle_user_message, sid, "/slides")
+
+        expect(ui).to have_received(:show_user_message).with(
+          "/slides",
+          created_at: kind_of(Float),
+          source: :web,
+          files: [],
+          skill_command: "slides",
+          skill_command_display: "slides",
+          steering: true
+        )
+      end
+    end
+
+    it "does not request a second bubble when interrupt mode already renders it optimistically" do
+      agent_config.input_behavior = "interrupt"
+      with_server(agent_config: agent_config) do |server|
+        sid, _agent, _skill, ui = seed_session(server, "sid-broadcast-interrupt", display: "slides")
 
         server.send(:handle_user_message, sid, "/slides")
 

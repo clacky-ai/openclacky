@@ -7511,7 +7511,7 @@ module Clacky
 
         when "input_behavior"
           mode = msg["value"]
-          raise ArgumentError, "Invalid input behavior" unless %w[interrupt steer].include?(mode)
+          raise ArgumentError, "Invalid input behavior" unless %w[queue interrupt steer].include?(mode)
           @agent_config.input_behavior = mode
           @agent_config.save
           broadcast_all(type: "input_behavior", value: mode)
@@ -7523,6 +7523,13 @@ module Clacky
         when "remove_pending_input"
           session_id = msg["session_id"] || conn.session_id
           @registry.get(session_id)&.dig(:agent)&.remove_pending_input(msg["id"])
+
+        when "steer_pending_input"
+          session_id = msg["session_id"] || conn.session_id
+          agent = @registry.get(session_id)&.dig(:agent)
+          unless agent&.steer_pending_input(msg["id"], expected_task_id: msg["task_id"])
+            broadcast(session_id, { type: "input_queue_notice", session_id: session_id, key: "chat.input.guidanceRejected" })
+          end
 
         when "send_pending_input"
           session_id = msg["session_id"] || conn.session_id
@@ -7620,19 +7627,23 @@ module Clacky
         session = @registry.get(session_id)
         agent = session&.dig(:agent)
         # Claim before interrupting: an already consumed or double-clicked ID is a no-op.
-        entry = agent&.remove_pending_input(id)
+        entry = agent&.remove_pending_input(id, for_execution: true)
         return unless entry
 
         started = false
         begin
           if session[:status] == :running
             interrupt_session(session_id, reason: :replacement)
-            session[:thread]&.join(2)
+            worker = session[:thread]
+            if worker && !worker.join(2)
+              broadcast(session_id, { type: "input_queue_notice", session_id: session_id, key: "chat.input.stoppingDelayed" })
+              return
+            end
           end
           started = run_agent_task(session_id, agent) { agent.run_pending_input(entry) }
         ensure
           # A concurrency-limit rejection must not discard the user's input.
-          agent.enqueue_input(entry[:content], **entry[:options]) unless started
+          agent.restore_pending_input(entry) unless started
         end
       end
 
@@ -7644,8 +7655,8 @@ module Clacky
         mode = @agent_config.input_behavior
         queued = false
         @registry.with_session(session_id) do |s|
-          if s[:status] == :running && mode == "steer"
-            s[:agent].enqueue_input(content, files: files, references_display: references,
+          if s[:status] == :running && %w[queue steer].include?(mode)
+            s[:agent].enqueue_input(content, delivery: mode.to_sym, files: files, references_display: references,
                                     reference_contexts: build_reference_contexts(references), created_at: Time.now.to_f)
             queued = true
           end
@@ -7656,15 +7667,16 @@ module Clacky
         if session[:status] == :running
           interrupt_session(session_id, reason: :replacement)
 
-          # Give the old thread a short window to exit cleanly.
-          # In the common case it returns within milliseconds (Thread#raise
-          # lands on a tight loop or LLM read). If it can't be reached in
-          # time (e.g. blocked in a slow subagent syscall), we proceed anyway:
-          # the agent's check_stale! checkpoints will refuse to mutate
-          # history once the new thread takes over.
+          # A replacement must not race the old worker on shared history or
+          # tool execution. Retain the input if cooperative shutdown is slow.
           old_thread = nil
           @registry.with_session(session_id) { |s| old_thread = s[:thread] }
-          old_thread&.join(2)
+          if old_thread && !old_thread.join(2)
+            session[:agent].enqueue_input(content, files: files, references_display: references,
+                                          reference_contexts: build_reference_contexts(references), created_at: Time.now.to_f)
+            broadcast(session_id, { type: "input_queue_notice", session_id: session_id, key: "chat.input.stoppingDelayed" })
+            return
+          end
         end
 
         agent = nil
@@ -7701,9 +7713,11 @@ module Clacky
         # processing finishes, which can take seconds. Without the preview here, a
         # page refresh inside that window shows the message without its image (the
         # "need to refresh several times before the image appears" bug).
+        # `steering` tells the frontend to render a bubble it did not add
+        # optimistically in queue/steer mode; it does not select task routing.
         web_ui&.show_user_message(content, created_at: msg_created_at, source: :web, files: Array(files),
                                   skill_command: skill_command[:found] ? skill_command[:skill_name] : nil,
-                                  skill_command_display: skill_command_display, **(mode == "steer" ? { steering: true } : {}))
+                                  skill_command_display: skill_command_display, **(%w[queue steer].include?(mode) ? { steering: true } : {}))
 
         # File references are now handled inside agent.run — injected as a system_injected
         # message after the user message, so replay_history skips them automatically.
@@ -7751,12 +7765,9 @@ module Clacky
       # Faraday reads, but can't reach a thread stuck in a C-extension syscall
       # until that syscall returns. We raise once and return immediately.
       #
-      # Correctness of the *takeover* does not depend on the old thread dying
-      # promptly: each new task claims a fresh epoch (see run_agent_task), and
-      # any status write or UI broadcast from a superseded thread is fenced off
-      # by that epoch. A stale thread that lingers in a syscall is harmless — it
-      # self-terminates at the next check_stale! checkpoint, or when the syscall
-      # returns; either way it can no longer touch the live session.
+      # Replacement callers must wait for the old worker to exit before
+      # starting more work. Epoch fencing remains a secondary guard against
+      # stale status updates; it cannot undo a tool's filesystem side effects.
       def interrupt_session(session_id, reason: :user)
         @registry.with_session(session_id) do |s|
           s[:idle_timer]&.cancel
@@ -7905,13 +7916,16 @@ module Clacky
           awaiting = false
           owns_epoch = true
           loop do
+            owns_epoch = @registry.current_epoch(session_id).to_i == epoch.to_i
+            break unless owns_epoch
+            @session_manager.save(agent.to_session_data(status: :success, updated_at: Time.now))
             pending = nil
             @registry.with_session(session_id) do |s|
               owns_epoch = s[:epoch].to_i == epoch.to_i
               next unless owns_epoch
-              pending = agent.take_pending_input
+              awaiting = run_result.is_a?(Hash) && run_result[:awaiting_user_feedback]
+              pending = agent.take_pending_input if Agent.task_completed?(run_result)
               unless pending
-                awaiting = run_result.is_a?(Hash) && run_result[:awaiting_user_feedback]
                 s[:status] = awaiting ? :awaiting_feedback : :idle
                 s[:error] = nil
               end

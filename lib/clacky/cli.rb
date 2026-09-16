@@ -1014,7 +1014,7 @@ module Clacky
 
         # Set up input handler
         if ui_controller.respond_to?(:queue_input_while_running=)
-          ui_controller.queue_input_while_running = -> { current_task_thread&.alive? && agent_config.input_behavior == "steer" }
+          ui_controller.queue_input_while_running = -> { current_task_thread&.alive? && %w[queue steer].include?(agent_config.input_behavior) }
         end
         if ui_controller.respond_to?(:input_area)
           ui_controller.input_area.guidance_lines_provider = -> { ui_controller.guidance_lines }
@@ -1023,12 +1023,12 @@ module Clacky
         handle_input = lambda do |input, files, display: nil, force_interrupt: false|
           if input.to_s.match?(%r{\A/input-mode(?:\s|\z)})
             mode = input.split[1]
-            if %w[interrupt steer].include?(mode)
+            if %w[queue interrupt steer].include?(mode)
               agent_config.input_behavior = mode
               agent_config.save
-              ui_controller.show_info("Input mode: #{mode == 'steer' ? 'guide current task' : 'interrupt and add'}")
+              ui_controller.show_info("Input mode: #{mode}")
             else
-              ui_controller.show_info("Current input mode: #{agent_config.input_behavior}\n/input-mode steer · /input-mode interrupt")
+              ui_controller.show_info("Current input mode: #{agent_config.input_behavior}\n/input-mode queue · /input-mode steer · /input-mode interrupt")
             end
             next
           end
@@ -1088,8 +1088,8 @@ module Clacky
           end
 
           queued = input_submission_mutex.synchronize do
-            if !force_interrupt && current_task_thread&.alive? && agent_config.input_behavior == "steer"
-              agent.enqueue_input(input, files: files, created_at: Time.now.to_f)
+            if !force_interrupt && current_task_thread&.alive? && %w[queue steer].include?(agent_config.input_behavior)
+              agent.enqueue_input(input, delivery: agent_config.input_behavior.to_sym, files: files, created_at: Time.now.to_f)
               true
             end
           end
@@ -1098,7 +1098,11 @@ module Clacky
           # If any task thread is running, interrupt it first
           if current_task_thread&.alive?
             current_task_thread.raise(Clacky::AgentInterrupted, "New input received")
-            current_task_thread.join(2) # Wait up to 2 seconds for graceful shutdown
+            unless current_task_thread.join(2)
+              agent.enqueue_input(input, files: files, created_at: Time.now.to_f)
+              ui_controller.show_info("Current task is still stopping. Your message remains queued.")
+              next
+            end
             ui_controller.set_idle_status
           end
 
@@ -1126,7 +1130,7 @@ module Clacky
                 end
                 ui_controller.update_sessionbar(tasks: agent.total_tasks, cost: agent.total_cost)
                 pending = input_submission_mutex.synchronize do
-                  entry = agent.take_pending_input
+                  entry = agent.take_pending_input if Agent.task_completed?(result)
                   current_task_thread = nil unless entry
                   entry
                 end

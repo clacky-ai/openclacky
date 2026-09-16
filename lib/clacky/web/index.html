@@ -558,14 +558,17 @@
                aria-multiline="true"
                data-i18n-placeholder="chat.input.placeholder"
                data-placeholder="Message… (Enter to send, Shift-Enter for newline)"></div>
-          <input id="input-behavior" type="hidden" value="interrupt">
+          <input id="input-behavior" type="hidden" value="queue">
           <div id="input-behavior-control" hidden>
             <button id="input-behavior-toggle" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="input-behavior-menu" data-i18n-title="chat.input.behaviorTitle" title="Messages while working">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg>
             </button>
             <div id="input-behavior-menu" role="menu" data-i18n-aria-label="chat.input.behaviorTitle" aria-label="Messages while working" hidden>
               <div class="input-behavior-heading" data-i18n="chat.input.behaviorTitle">Messages while working</div>
-              <button type="button" role="menuitemradio" aria-checked="true" data-input-behavior="interrupt">
+              <button type="button" role="menuitemradio" aria-checked="true" data-input-behavior="queue">
+                <span class="input-behavior-check" aria-hidden="true">✓</span><span><strong data-i18n="chat.input.queueMode">Queue task</strong><small data-i18n="chat.input.queueDescription">Run after the current task completes.</small></span>
+              </button>
+              <button type="button" role="menuitemradio" aria-checked="false" data-input-behavior="interrupt">
                 <span class="input-behavior-check" aria-hidden="true">✓</span><span><strong data-i18n="chat.input.interruptMode">Interrupt and add</strong><small data-i18n="chat.input.interruptDescription">Stop the current step and accept your message.</small></span>
               </button>
               <button type="button" role="menuitemradio" aria-checked="false" data-input-behavior="steer">
