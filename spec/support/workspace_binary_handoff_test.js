@@ -1,14 +1,9 @@
 "use strict";
 
-// Regression harness for the workspace viewer's binary handoff.
-//
-// Clicking a .docx link used to open a pane that reads "this file type can't be
-// previewed here" and leave the user to find and press Open themselves. The
-// viewer now hands such files to the OS default application on that first
-// click, except for formats the system would run or mount rather than display.
+// Regression harness for file-link handoff and Files viewer boundaries.
 //
 // The real store.js / code-editor.js / view.js run against a DOM stub, so the
-// assertions read the fetch calls a click actually produced.
+// assertions cover both network calls and viewer side effects.
 
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
@@ -76,19 +71,22 @@ function boot(opts = {}) {
   const fetches = [];
   const toasts = [];
   const nodes = {};
+  const ui = { asideOpens: 0, filesTabClicks: 0 };
+  const filesTab = new Element("button");
+  filesTab.click = () => { ui.filesTabClicks += 1; };
 
   const document = {
     createElement: tag => new Element(tag),
     createDocumentFragment: () => new Element("fragment"),
     getElementById: id => nodes[id] || (nodes[id] = new Element()),
     addEventListener() {},
-    querySelector: () => null,
+    querySelector: selector => selector === '.aside-tab[data-tab="files"]' ? filesTab : null,
     querySelectorAll: () => [],
     body: new Element("body"),
   };
 
   const context = {
-    console, Date, Map, Set, Math, JSON, Promise, URL, URLSearchParams,
+    console, Date, Map, Set, Math, JSON, Promise, URL, URLSearchParams, Blob,
     setTimeout, clearTimeout, requestAnimationFrame: fn => setTimeout(fn, 0),
     CSS: { escape: s => String(s) },
     navigator: { platform: "MacIntel", clipboard: { writeText: async () => {} } },
@@ -96,7 +94,10 @@ function boot(opts = {}) {
     localStorage: { getItem: () => null, setItem() {}, removeItem() {} },
     I18n: { t: key => key, lang: () => "en" },
     Modal: { toast: (...args) => toasts.push(args) },
-    Clacky: { ext: { emit() {}, ui: { mountBuiltin() {} } } },
+    Clacky: {
+      Aside: { open: () => { ui.asideOpens += 1; } },
+      ext: { emit() {}, ui: { mountBuiltin() {} } },
+    },
     fetch: async (url, options) => {
       fetches.push({ url: String(url), options });
       if (String(url).includes("/files")) {
@@ -106,7 +107,13 @@ function boot(opts = {}) {
       if (opts.failOpen && body.action === "open") {
         return { ok: false, status: 500, json: async () => ({ error: "no handler" }) };
       }
-      return { ok: true, status: 200, json: async () => ({ ok: true }) };
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ ok: true }),
+        text: async () => opts.fileText || "hello",
+        blob: async () => new Blob(["image"]),
+      };
     },
   };
   context.window = context;
@@ -123,7 +130,7 @@ function boot(opts = {}) {
   const container = new Element("div");
   WorkspaceView.mount(container, {});
 
-  return { WorkspaceView, Workspace, container, fetches, toasts };
+  return { WorkspaceView, Workspace, container, fetches, toasts, ui };
 }
 
 const settle = () => new Promise(resolve => setTimeout(resolve, 0));
@@ -139,8 +146,6 @@ const subhintOf = w => {
 };
 
 async function tests() {
-  // 1. Policy: formats with no in-browser renderer go to the OS; anything the
-  //    system would run or mount instead keeps the manual page.
   {
     const { WorkspaceView } = boot();
     ["report.docx", "sheet.xlsx", "deck.pptx", "clip.mp4", "song.mp3", "bundle.zip", "poster.psd"]
@@ -149,50 +154,70 @@ async function tests() {
       .forEach(name => assert.equal(WorkspaceView.autoOpenWithSystem(name), false, `${name} stays manual`));
   }
 
-  // 2. The reported flow: one click on a .docx launches the default app, and
-  //    the pane says so instead of asking for a second click.
-  {
+  for (const name of ["report.docx", "sheet.xlsx", "deck.pptx", "clip.mp4"]) {
     const w = boot();
-    w.WorkspaceView.openFile("/wd/report.docx");
-    await settle();
+    assert.equal(await w.WorkspaceView.openLinkedFile(`/wd/${name}`), true);
 
     const opens = systemOpens(w);
-    assert.equal(opens.length, 1, "the click launched the default application once");
-    assert.equal(JSON.parse(opens[0].options.body).path, "/wd/report.docx", "the clicked path is handed over");
-    assert.equal(subhintOf(w), "workspace.openedInSystem", "the pane reports the handoff");
+    assert.equal(opens.length, 1, `${name} launches the default application once`);
+    assert.equal(JSON.parse(opens[0].options.body).path, `/wd/${name}`);
+    assert.equal(w.ui.asideOpens, 0, `${name} does not open the aside`);
+    assert.equal(w.ui.filesTabClicks, 0, `${name} does not select Files`);
+    assert.equal(subhintOf(w), null, `${name} does not create a fallback tab`);
   }
 
-  // 3. Executable formats are never launched by a link click.
-  {
-    const w = boot();
-    w.WorkspaceView.openFile("/wd/lib.jar");
-    await settle();
-
-    assert.equal(systemOpens(w).length, 0, "no program is started");
-    assert.equal(subhintOf(w), "workspace.fallbackSubHint", "the manual page still explains itself");
-  }
-
-  // 4. Re-opening the same file just re-selects its tab.
-  {
-    const w = boot();
-    w.WorkspaceView.openFile("/wd/report.docx");
-    await settle();
-    w.WorkspaceView.openFile("/wd/report.docx");
-    await settle();
-
-    assert.equal(systemOpens(w).length, 1, "the application is launched once");
-  }
-
-  // 5. A machine with no handler for the format keeps the manual fallback.
   {
     const w = boot({ failOpen: true });
-    w.WorkspaceView.openFile("/wd/report.docx");
+    assert.equal(await w.WorkspaceView.openLinkedFile("/wd/report.docx"), true);
     await settle();
 
-    assert.equal(systemOpens(w).length, 1, "the handoff was attempted");
+    assert.equal(systemOpens(w).length, 1, "the handoff is attempted once");
     assert.equal(w.toasts.length, 1, "the failure surfaces as a toast");
     assert.match(w.toasts[0][0], /workspace\.openWithFailed/);
-    assert.equal(subhintOf(w), "workspace.fallbackSubHint", "the pane does not claim it opened");
+    assert.equal(w.ui.asideOpens, 1, "the failure opens the aside fallback");
+    assert.equal(w.ui.filesTabClicks, 1, "the failure selects Files");
+    assert.equal(subhintOf(w), "workspace.fallbackSubHint");
+  }
+
+  for (const name of ["setup.exe", "installer.dmg", "run.sh", "build.command"]) {
+    const w = boot();
+    assert.equal(await w.WorkspaceView.openLinkedFile(`/wd/${name}`), true);
+    await settle();
+
+    assert.equal(systemOpens(w).length, 0, `${name} is not launched`);
+    assert.equal(w.ui.asideOpens, 1, `${name} opens the safe fallback`);
+    assert.equal(subhintOf(w), "workspace.fallbackSubHint");
+  }
+
+  for (const name of ["notes.md", "image.png", "paper.pdf", "data.csv"]) {
+    const w = boot();
+    assert.equal(await w.WorkspaceView.openLinkedFile(`/wd/${name}`), true);
+    await settle();
+
+    assert.equal(systemOpens(w).length, 0, `${name} stays in the viewer`);
+    assert.equal(w.ui.asideOpens, 1, `${name} opens the aside preview`);
+    assert.equal(w.ui.filesTabClicks, 1, `${name} selects Files`);
+    assert.equal(subhintOf(w), null, `${name} does not create a fallback`);
+  }
+
+  {
+    const w = boot({ fileText: "private\u0000payload" });
+    assert.equal(await w.WorkspaceView.openLinkedFile("/wd/private.unknown"), true);
+    await settle();
+
+    assert.equal(systemOpens(w).length, 0, "unknown binary content is not launched");
+    assert.equal(subhintOf(w), "workspace.fallbackSubHint");
+  }
+
+  {
+    const w = boot();
+    assert.equal(w.WorkspaceView.openFile("/wd/report.docx"), true);
+    await settle();
+
+    assert.equal(systemOpens(w).length, 0, "the Files viewer never launches an external app");
+    assert.equal(w.ui.asideOpens, 1);
+    assert.equal(w.ui.filesTabClicks, 1);
+    assert.equal(subhintOf(w), "workspace.fallbackSubHint");
   }
 }
 
