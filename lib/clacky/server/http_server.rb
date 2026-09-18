@@ -7777,6 +7777,7 @@ module Clacky
         # `steering` tells the frontend to render a bubble it did not add
         # optimistically in queue/steer mode; it does not select task routing.
         web_ui&.show_user_message(content, created_at: msg_created_at, source: :web, files: Array(files),
+                                  references: Array(references),
                                   skill_command: skill_command[:found] ? skill_command[:skill_name] : nil,
                                   skill_command_display: skill_command_display, **(%w[queue steer].include?(mode) ? { steering: true } : {}))
 

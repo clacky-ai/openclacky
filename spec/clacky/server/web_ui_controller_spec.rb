@@ -76,6 +76,21 @@ RSpec.describe Clacky::Server::WebUIController, "#show_user_message" do
     ev = events.find { |e| e[:type] == "history_user_message" }
     expect(ev.key?(:skill_command_display)).to be(false)
   end
+
+  it "passes references through so live bubbles can render mention badges" do
+    events.clear
+    refs = [{ "type" => "file", "name" => "app.rb", "path" => "/tmp/app.rb" }]
+    controller.show_user_message("check this", references: refs)
+    ev = events.find { |e| e[:type] == "history_user_message" }
+    expect(ev[:references]).to eq(refs)
+  end
+
+  it "omits references when none are given" do
+    events.clear
+    controller.show_user_message("hello")
+    ev = events.find { |e| e[:type] == "history_user_message" }
+    expect(ev.key?(:references)).to be(false)
+  end
 end
 
 RSpec.describe Clacky::Server::WebUIController, "#show_complete" do
