@@ -5194,6 +5194,10 @@ body {
   width: 0.5625rem;
   height: 0.5625rem;
 }
+.sib-model-clickable .sib-vendor-badge.is-brand svg {
+  width: 0.625rem;
+  height: 0.625rem;
+}
 .sib-model-clickable:hover {
   background: var(--color-bg-hover);
   opacity: 1 !important;
@@ -5693,6 +5697,17 @@ body {
   height: 0.6875rem;
   fill: currentColor;
   display: block;
+}
+/* Official brand artwork carries its own colors, so the tile only provides
+   contrast behind it — several marks include white shapes that vanish on a
+   light background. */
+.sib-vendor-badge.is-light {
+  border-color: transparent;
+}
+.sib-vendor-badge.is-brand svg {
+  width: 0.75rem;
+  height: 0.75rem;
+  fill: initial;
 }
 .sib-model-option .sib-model-name-sub {
   font-size: 0.6875rem;
