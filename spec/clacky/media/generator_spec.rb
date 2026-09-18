@@ -81,6 +81,24 @@ RSpec.describe Clacky::Media::Generator do
     end
   end
 
+  describe "#understand_video" do
+    it "honors an explicitly disabled sidecar" do
+      config = Clacky::AgentConfig.new(models: [{
+        "model" => "or-gemini-3-8-flash", "type" => "video_understanding",
+        "base_url" => "https://api.openclacky.com", "api_key" => "test-key",
+        "mode" => "off"
+      }])
+
+      expect(Clacky::Media::OpenAICompat).not_to receive(:new)
+      result = described_class.new(config).understand_video(
+        video_base64: "encoded", mime_type: "video/mp4"
+      )
+
+      expect(result["success"]).to be false
+      expect(result["error_type"]).to eq("not_configured")
+    end
+  end
+
   describe "video provider routing" do
     it "routes a volces.com base_url to Volcengine" do
       video_entry = {

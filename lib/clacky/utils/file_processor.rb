@@ -81,6 +81,7 @@ module Clacky
       ".zip"  => :zip, ".gz" => :zip, ".tgz" => :zip, ".tar" => :zip, ".rar" => :zip, ".7z" => :zip,
       ".png"  => :image, ".jpg" => :image, ".jpeg" => :image,
       ".gif"  => :image, ".webp" => :image,
+      ".mp4"  => :video, ".webm" => :video, ".mov" => :video,
       ".csv"  => :csv,
       ".md"   => :text, ".markdown" => :text, ".txt" => :text, ".log" => :text
     }.freeze
@@ -152,6 +153,9 @@ module Clacky
 
       when ".png", ".jpg", ".jpeg", ".gif", ".webp"
         FileRef.new(name: name, type: :image, original_path: path)
+
+      when ".mp4", ".webm", ".mov"
+        FileRef.new(name: name, type: :video, original_path: path)
 
       when ".csv"
         # CSV is plain text — the file itself IS the preview. No parser, no copy.

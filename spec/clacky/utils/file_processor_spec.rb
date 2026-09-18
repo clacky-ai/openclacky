@@ -47,6 +47,21 @@ RSpec.describe Clacky::Utils::FileProcessor do
   # .process_path — parse an already-saved file
   # ---------------------------------------------------------------------------
   describe ".process_path" do
+    it "classifies supported video attachments without invoking a document parser" do
+      Dir.mktmpdir do |dir|
+        %w[clip.mp4 clip.webm clip.mov].each do |name|
+          path = File.join(dir, name)
+          File.binwrite(path, "video")
+          expect(Clacky::Utils::ParserManager).not_to receive(:parse).with(path)
+
+          ref = described_class.process_path(path)
+          expect(ref.type).to eq(:video)
+          expect(ref.original_path).to eq(path)
+          expect(ref.preview_path).to be_nil
+        end
+      end
+    end
+
     context "when parser succeeds" do
       it "returns FileRef with preview_path written to disk" do
         Dir.mktmpdir do |dir|
