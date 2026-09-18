@@ -257,7 +257,7 @@ RSpec.describe "Agent file processing" do
       end
     end
 
-    it "keeps the video as a normal attachment when no sidecar is available" do
+    it "tells the model video is unreadable when no sidecar is available" do
       Dir.mktmpdir do |dir|
         path = File.join(dir, "clip.webm")
         File.binwrite(path, "VIDEO_BYTES")
@@ -274,7 +274,8 @@ RSpec.describe "Agent file processing" do
         expect(injected[:content]).to include("## clip.webm: #{path}")
         expect(injected[:content]).to include("Type: video")
         expect(injected[:content]).not_to include("Video description (")
-        expect(injected[:content]).not_to include("ffmpeg")
+        expect(injected[:content]).to include("no video understanding sidecar is configured")
+        expect(injected[:content]).to include("do not install or run local video processing tools unless the user asks")
       end
     end
 
@@ -299,6 +300,8 @@ RSpec.describe "Agent file processing" do
         injected = agent.history.to_a.select { |event| event[:system_injected] }.last
         expect(injected[:content]).to include("## large.mp4: #{path}")
         expect(injected[:content]).not_to include("Video description (")
+        expect(injected[:content]).to include("too large to send to the video sidecar")
+        expect(injected[:content]).to include("do not install or run local video processing tools unless the user asks")
       end
     end
 
@@ -325,6 +328,7 @@ RSpec.describe "Agent file processing" do
         injected = agent.history.to_a.select { |event| event[:system_injected] }.last
         expect(injected[:content]).to include("## expanded.mp4: #{path}")
         expect(injected[:content]).not_to include("Video description (")
+        expect(injected[:content]).to include("too large to send to the video sidecar")
       end
     end
 
@@ -413,6 +417,52 @@ RSpec.describe "Agent file processing" do
         expect(injected[:content]).to include("## clip.mov: #{path}")
         expect(injected[:content]).not_to include("Video description (")
         expect(injected[:content]).not_to include("upstream failed")
+        expect(injected[:content]).to include("video sidecar call failed")
+        expect(injected[:content]).to include("do not install or run local video processing tools unless the user asks")
+      end
+    end
+
+    it "tells the model the sidecar returned no description instead of staying silent" do
+      Dir.mktmpdir do |dir|
+        path = File.join(dir, "blank.mp4")
+        File.binwrite(path, "VIDEO_BYTES")
+        entry = {
+          "model" => "or-gemini-3-8-flash", "type" => "video_understanding",
+          "base_url" => "https://api.openclacky.com", "api_key" => "test-key"
+        }
+        allow(config).to receive(:effective_media_entry).and_call_original
+        allow(config).to receive(:effective_media_entry).with("video_understanding").and_return(entry)
+
+        generator = instance_double(Clacky::Media::Generator)
+        allow(Clacky::Media::Generator).to receive(:new).and_return(generator)
+        allow(generator).to receive(:understand_video)
+          .and_return({ "success" => true, "analysis" => "   " })
+
+        stub_llm_reply("Done")
+        agent.run("Inspect this", files: [{ name: "blank.mp4", path: path, mime_type: "video/mp4" }])
+
+        injected = agent.history.to_a.select { |event| event[:system_injected] }.last
+        expect(injected[:content]).not_to include("Video description (")
+        expect(injected[:content]).to include("returned no description")
+        expect(injected[:content]).to include("Do not guess what the video shows")
+        expect(injected[:content]).to include("do not install or run local video processing tools unless the user asks")
+      end
+    end
+
+    it "never leaves the model guessing when the sidecar is explicitly disabled" do
+      Dir.mktmpdir do |dir|
+        path = File.join(dir, "clip.mp4")
+        File.binwrite(path, "VIDEO_BYTES")
+        allow(config).to receive(:effective_media_entry).and_call_original
+        allow(config).to receive(:effective_media_entry).with("video_understanding").and_return(nil)
+
+        stub_llm_reply("Done")
+        agent.run("Inspect this", files: [{ name: "clip.mp4", path: path, mime_type: "video/mp4" }])
+
+        injected = agent.history.to_a.select { |event| event[:system_injected] }.last
+        expect(injected[:content]).to include("Note:")
+        expect(injected[:content]).to include("Settings → Media → Video")
+        expect(injected[:content]).to include("Do not guess what the video shows")
       end
     end
   end
