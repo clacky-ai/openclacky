@@ -215,4 +215,42 @@ RSpec.describe Clacky::Media::Generator do
       end
     end
   end
+
+  describe "#generate_transcription" do
+    it "honors an explicitly disabled STT sidecar" do
+      config = Clacky::AgentConfig.new(models: [
+        { "model" => "dsk-deepseek-v4", "type" => "default",
+          "base_url" => "https://api.openclacky.com", "api_key" => "k" },
+        { "type" => "stt", "mode" => "off" }
+      ])
+      expect(Clacky::Media::OpenAICompat).not_to receive(:new)
+
+      result = described_class.new(config).generate_transcription(
+        audio_base64: "AAAA", mime_type: "audio/wav"
+      )
+
+      expect(result["success"]).to be false
+      expect(result["error_type"]).to eq("not_configured")
+    end
+
+    it "derives the provider default when the sidecar is left on auto" do
+      config = Clacky::AgentConfig.new(models: [
+        { "model" => "dsk-deepseek-v4", "type" => "default",
+          "base_url" => "https://api.openclacky.com", "api_key" => "k" }
+      ])
+
+      fake_provider = instance_double(Clacky::Media::OpenAICompat)
+      expect(Clacky::Media::OpenAICompat).to receive(:new) do |entry|
+        expect(entry["model"]).to eq("or-stt-gemini-3-8-flash")
+        fake_provider
+      end
+      expect(fake_provider).to receive(:generate_transcription)
+        .and_return({ "success" => true, "text" => "hi" })
+
+      result = described_class.new(config).generate_transcription(
+        audio_base64: "AAAA", mime_type: "audio/wav"
+      )
+      expect(result["success"]).to be true
+    end
+  end
 end

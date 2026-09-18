@@ -268,4 +268,331 @@ RSpec.describe "Agent file processing" do
       end
     end
   end
+
+  describe "audio transcription sidecar" do
+    let(:stt_config) do
+      Clacky::AgentConfig.new(
+        models: [
+          { "api_key" => "x", "base_url" => "https://api.openclacky.com", "model" => "dsk-deepseek-v4" },
+          { "api_key" => "y", "base_url" => "https://api.openclacky.com", "model" => "or-stt-gemini-3-8-flash",
+            "type" => "stt", "mode" => "custom" }
+        ],
+        permission_mode: :auto_approve
+      )
+    end
+
+    def build_agent(cfg, ui: nil)
+      Clacky::Agent.new(client, cfg,
+        working_dir: Dir.pwd, ui: ui,
+        profile: "coding",
+        session_id: Clacky::SessionManager.generate_id,
+        source: :manual)
+    end
+
+    def stub_stt(response)
+      generator = instance_double(Clacky::Media::Generator, generate_transcription: response)
+      allow(Clacky::Media::Generator).to receive(:new).and_return(generator)
+      generator
+    end
+
+    it "injects the sidecar transcript while preserving the audio path" do
+      Dir.mktmpdir do |dir|
+        path = File.join(dir, "note.wav")
+        File.binwrite(path, "RIFFxxxxWAVE")
+
+        stub_stt("success" => true, "text" => "hello from the recording")
+
+        a = build_agent(stt_config)
+        stub_llm_reply("Done")
+        a.run("what is in this audio?", files: [{ name: "note.wav", path: path }])
+
+        injected = a.history.to_a.select { |e| e[:system_injected] }.last
+        expect(injected[:content]).to include("## note.wav: #{path}")
+        expect(injected[:content]).to include("Type: audio")
+        expect(injected[:content])
+          .to include("Audio transcription (the current model cannot listen to audio directly; " \
+                      "this transcription was produced by sidecar or-stt-gemini-3-8-flash)")
+        expect(injected[:content]).to include("hello from the recording")
+        expect(injected[:content]).not_to include("Parse failed")
+      end
+    end
+
+    it "sends the audio only to the sidecar, never to the main model" do
+      Dir.mktmpdir do |dir|
+        path = File.join(dir, "note.wav")
+        File.binwrite(path, "RIFFxxxxWAVE")
+
+        stub_stt("success" => true, "text" => "spoken words")
+
+        a = build_agent(stt_config)
+        stub_llm_reply("Done")
+        a.run("transcribe", files: [{ name: "note.wav", path: path }])
+
+        injected = a.history.to_a.select { |e| e[:system_injected] }.last
+        expect(injected[:content]).not_to include(Base64.strict_encode64("RIFFxxxxWAVE"))
+        expect(injected[:content]).not_to include("data:audio")
+      end
+    end
+
+    it "tells the model audio is unreadable when no sidecar is configured" do
+      Dir.mktmpdir do |dir|
+        path = File.join(dir, "note.wav")
+        File.binwrite(path, "RIFFxxxxWAVE")
+
+        cfg = Clacky::AgentConfig.new(
+          models: [{ "api_key" => "x", "base_url" => "https://example.invalid/v1", "model" => "local-model" }],
+          permission_mode: :auto_approve
+        )
+        expect(Clacky::Media::Generator).not_to receive(:new)
+
+        a = build_agent(cfg)
+        stub_llm_reply("Done")
+        a.run("transcribe", files: [{ name: "note.wav", path: path }])
+
+        injected = a.history.to_a.select { |e| e[:system_injected] }.last
+        expect(injected[:content]).to include("## note.wav: #{path}")
+        expect(injected[:content]).not_to include("Audio transcription (")
+        expect(injected[:content]).to include("no STT sidecar is configured")
+        expect(injected[:content]).to include("do not install local transcription tooling unless the user asks")
+      end
+    end
+
+    it "honors an explicitly disabled STT sidecar" do
+      Dir.mktmpdir do |dir|
+        path = File.join(dir, "note.wav")
+        File.binwrite(path, "RIFFxxxxWAVE")
+
+        cfg = Clacky::AgentConfig.new(
+          models: [
+            { "api_key" => "x", "base_url" => "https://api.openclacky.com", "model" => "dsk-deepseek-v4" },
+            { "type" => "stt", "mode" => "off" }
+          ],
+          permission_mode: :auto_approve
+        )
+        expect(Clacky::Media::Generator).not_to receive(:new)
+
+        a = build_agent(cfg)
+        stub_llm_reply("Done")
+        a.run("transcribe", files: [{ name: "note.wav", path: path }])
+
+        injected = a.history.to_a.select { |e| e[:system_injected] }.last
+        expect(injected[:content]).not_to include("Audio transcription (")
+        expect(injected[:content]).to include("no STT sidecar is configured")
+      end
+    end
+
+    it "skips reading the file when the audio exceeds the inline request cap" do
+      Dir.mktmpdir do |dir|
+        path = File.join(dir, "long.m4a")
+        File.binwrite(path, "audio-bytes")
+
+        allow(File).to receive(:size).and_call_original
+        allow(File).to receive(:size).with(path)
+          .and_return(Clacky::Agent::MAX_AUDIO_TRANSCRIPTION_BYTES + 1)
+        expect(File).not_to receive(:binread).with(path)
+        expect(Clacky::Media::Generator).not_to receive(:new)
+
+        a = build_agent(stt_config)
+        stub_llm_reply("Done")
+        a.run("transcribe", files: [{ name: "long.m4a", path: path }])
+
+        injected = a.history.to_a.select { |e| e[:system_injected] }.last
+        expect(injected[:content]).to include("## long.m4a: #{path}")
+        expect(injected[:content]).not_to include("Audio transcription (")
+      end
+    end
+
+    it "tells the model the sidecar returned no speech instead of staying silent" do
+      Dir.mktmpdir do |dir|
+        path = File.join(dir, "silence.wav")
+        File.binwrite(path, "RIFFxxxxWAVE")
+
+        stub_stt("success" => true, "text" => "")
+
+        a = build_agent(stt_config)
+        stub_llm_reply("Done")
+        a.run("transcribe", files: [{ name: "silence.wav", path: path }])
+
+        injected = a.history.to_a.select { |e| e[:system_injected] }.last
+        expect(injected[:content]).not_to include("Audio transcription (")
+        expect(injected[:content]).to include("returned no text")
+        expect(injected[:content]).to include("do not install local transcription tooling unless the user asks")
+        expect(injected[:content]).to include("let them pick what happens next")
+      end
+    end
+
+    it "tells the model the sidecar call failed instead of staying silent" do
+      Dir.mktmpdir do |dir|
+        path = File.join(dir, "note.wav")
+        File.binwrite(path, "RIFFxxxxWAVE")
+
+        stub_stt("success" => false, "error_type" => "network_error", "error" => "timeout")
+
+        a = build_agent(stt_config)
+        stub_llm_reply("Done")
+        a.run("transcribe", files: [{ name: "note.wav", path: path }])
+
+        injected = a.history.to_a.select { |e| e[:system_injected] }.last
+        expect(injected[:content]).not_to include("Audio transcription (")
+        expect(injected[:content]).to include("STT sidecar call failed")
+        expect(injected[:content]).to include("do not install local transcription tooling unless the user asks")
+        expect(injected[:content]).to include("let them pick what happens next")
+      end
+    end
+
+    it "tells the model the audio was too large instead of staying silent" do
+      Dir.mktmpdir do |dir|
+        path = File.join(dir, "long.m4a")
+        File.binwrite(path, "audio-bytes")
+
+        allow(File).to receive(:size).and_call_original
+        allow(File).to receive(:size).with(path)
+          .and_return(Clacky::Agent::MAX_AUDIO_TRANSCRIPTION_BYTES + 1)
+
+        a = build_agent(stt_config)
+        stub_llm_reply("Done")
+        a.run("transcribe", files: [{ name: "long.m4a", path: path }])
+
+        injected = a.history.to_a.select { |e| e[:system_injected] }.last
+        expect(injected[:content]).not_to include("Audio transcription (")
+        expect(injected[:content]).to include("exceeds the 20 MB inline limit")
+        expect(injected[:content]).to include("do not install local transcription tooling unless the user asks")
+      end
+    end
+
+    it "never leaves the model guessing when no sidecar is configured at all" do
+      Dir.mktmpdir do |dir|
+        path = File.join(dir, "note.wav")
+        File.binwrite(path, "RIFFxxxxWAVE")
+
+        cfg = Clacky::AgentConfig.new(
+          models: [{ "api_key" => "x", "base_url" => "https://example.invalid/v1", "model" => "local-model" }],
+          permission_mode: :auto_approve
+        )
+
+        a = build_agent(cfg)
+        stub_llm_reply("Done")
+        a.run("transcribe", files: [{ name: "note.wav", path: path }])
+
+        injected = a.history.to_a.select { |e| e[:system_injected] }.last
+        expect(injected[:content]).not_to include("Audio transcription (")
+        expect(injected[:content]).to include("Note:")
+        expect(injected[:content]).to include("Settings → Media → STT")
+        expect(injected[:content]).to include("Do not guess the audio content")
+      end
+    end
+
+    it "transcribes only the first audio file in one message" do
+      Dir.mktmpdir do |dir|
+        first  = File.join(dir, "a.wav")
+        second = File.join(dir, "b.mp3")
+        File.binwrite(first, "RIFFxxxxWAVE")
+        File.binwrite(second, "ID3xxxx")
+
+        generator = stub_stt("success" => true, "text" => "only the first")
+
+        a = build_agent(stt_config)
+        stub_llm_reply("Done")
+        a.run("transcribe both", files: [
+          { name: "a.wav", path: first },
+          { name: "b.mp3", path: second }
+        ])
+
+        expect(generator).to have_received(:generate_transcription).once
+        injected = a.history.to_a.select { |e| e[:system_injected] }.last
+        expect(injected[:content].scan("Audio transcription (").size).to eq(1)
+      end
+    end
+
+    it "never truncates the transcript" do
+      Dir.mktmpdir do |dir|
+        path = File.join(dir, "long.wav")
+        File.binwrite(path, "RIFFxxxxWAVE")
+
+        long_transcript = "word " * 4000
+        stub_stt("success" => true, "text" => long_transcript)
+
+        a = build_agent(stt_config)
+        stub_llm_reply("Done")
+        a.run("transcribe", files: [{ name: "long.wav", path: path }])
+
+        injected = a.history.to_a.select { |e| e[:system_injected] }.last
+        expect(injected[:content]).to include(long_transcript.strip)
+      end
+    end
+
+    it "falls back to a plain attachment when the sidecar fails" do
+      Dir.mktmpdir do |dir|
+        path = File.join(dir, "note.wav")
+        File.binwrite(path, "RIFFxxxxWAVE")
+
+        stub_stt("success" => false, "error" => "upstream 500")
+
+        a = build_agent(stt_config)
+        stub_llm_reply("Done")
+        a.run("transcribe", files: [{ name: "note.wav", path: path }])
+
+        injected = a.history.to_a.select { |e| e[:system_injected] }.last
+        expect(injected[:content]).to include("## note.wav: #{path}")
+        expect(injected[:content]).not_to include("Audio transcription (")
+      end
+    end
+
+    it "falls back to a plain attachment when the sidecar returns empty text" do
+      Dir.mktmpdir do |dir|
+        path = File.join(dir, "silence.wav")
+        File.binwrite(path, "RIFFxxxxWAVE")
+
+        stub_stt("success" => true, "text" => "   ")
+
+        a = build_agent(stt_config)
+        stub_llm_reply("Done")
+        a.run("transcribe", files: [{ name: "silence.wav", path: path }])
+
+        injected = a.history.to_a.select { |e| e[:system_injected] }.last
+        expect(injected[:content]).not_to include("Audio transcription (")
+      end
+    end
+  end
+
+  describe "audio transcription progress lifecycle" do
+    it "pairs its own progress slot so the audio spinner never freezes" do
+      Dir.mktmpdir do |dir|
+        path = File.join(dir, "note.wav")
+        File.binwrite(path, "RIFFxxxxWAVE")
+
+        cfg = Clacky::AgentConfig.new(
+          models: [
+            { "api_key" => "x", "base_url" => "https://api.openclacky.com", "model" => "dsk-deepseek-v4" },
+            { "api_key" => "y", "base_url" => "https://api.openclacky.com", "model" => "or-stt-gemini-3-8-flash",
+              "type" => "stt", "mode" => "custom" }
+          ],
+          permission_mode: :auto_approve
+        )
+
+        generator = instance_double(Clacky::Media::Generator,
+          generate_transcription: { "success" => true, "text" => "hi" })
+        allow(Clacky::Media::Generator).to receive(:new).and_return(generator)
+
+        ui = spy("ui")
+        a = Clacky::Agent.new(client, cfg,
+          working_dir: Dir.pwd, ui: ui,
+          profile: "coding",
+          session_id: Clacky::SessionManager.generate_id,
+          source: :manual)
+
+        stub_llm_reply("Done")
+        a.run("transcribe", files: [{ name: "note.wav", path: path }])
+
+        expect(ui).to have_received(:show_progress)
+          .with("Transcribing audio…", progress_type: "audio_stt", phase: "active")
+        expect(ui).to have_received(:show_progress)
+          .with(progress_type: "audio_stt", phase: "done")
+        # Own slot, not "vision" — sharing it would make the UI label the audio
+        # run as image recognition.
+        expect(ui).not_to have_received(:show_progress)
+          .with(anything, hash_including(progress_type: "vision"))
+      end
+    end
+  end
 end
