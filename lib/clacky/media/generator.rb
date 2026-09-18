@@ -165,7 +165,7 @@ module Clacky
       end
 
       def video_understanding_model_entry
-        @agent_config.find_model_by_type("video_understanding")
+        @agent_config.effective_media_entry("video_understanding")
       end
 
       def generate_transcription(audio_base64:, mime_type:, **kwargs)
