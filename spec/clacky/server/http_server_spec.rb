@@ -1999,6 +1999,7 @@ RSpec.describe Clacky::Server::HttpServer do
           created_at: kind_of(Float),
           source: :web,
           files: [],
+          references: [],
           skill_command: "slides",
           skill_command_display: "幻灯片",
           steering: true
@@ -2018,6 +2019,7 @@ RSpec.describe Clacky::Server::HttpServer do
           created_at: kind_of(Float),
           source: :web,
           files: [],
+          references: [],
           skill_command: "slides",
           skill_command_display: "slides",
           steering: true
@@ -2037,6 +2039,7 @@ RSpec.describe Clacky::Server::HttpServer do
           created_at: kind_of(Float),
           source: :web,
           files: [],
+          references: [],
           skill_command: "slides",
           skill_command_display: "slides"
         )
