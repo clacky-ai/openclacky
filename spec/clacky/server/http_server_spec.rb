@@ -2001,8 +2001,7 @@ RSpec.describe Clacky::Server::HttpServer do
           files: [],
           references: [],
           skill_command: "slides",
-          skill_command_display: "幻灯片",
-          steering: true
+          skill_command_display: "幻灯片"
         )
         expect(skill).to have_received(:display_name).with("zh")
       end
@@ -2021,13 +2020,12 @@ RSpec.describe Clacky::Server::HttpServer do
           files: [],
           references: [],
           skill_command: "slides",
-          skill_command_display: "slides",
-          steering: true
+          skill_command_display: "slides"
         )
       end
     end
 
-    it "does not request a second bubble when interrupt mode already renders it optimistically" do
+    it "does not request a second bubble for directly-run messages in any mode" do
       agent_config.input_behavior = "interrupt"
       with_server(agent_config: agent_config) do |server|
         sid, _agent, _skill, ui = seed_session(server, "sid-broadcast-interrupt", display: "slides")
@@ -2042,6 +2040,86 @@ RSpec.describe Clacky::Server::HttpServer do
           references: [],
           skill_command: "slides",
           skill_command_display: "slides"
+        )
+      end
+    end
+  end
+
+  describe "#handle_user_message enqueued inputs" do
+    def seed_running_session(server, session_id)
+      sid = server.instance_variable_get(:@registry).create(session_id: session_id)
+      agent = double("agent", parse_skill_command: { found: false }, history: [], name: "My Chat")
+      ui = double("ui")
+      allow(ui).to receive(:show_user_message)
+      server.instance_variable_get(:@registry).with_session(sid) do |s|
+        s[:agent] = agent
+        s[:ui] = ui
+        s[:status] = :running
+      end
+      [sid, agent, ui]
+    end
+
+    it "enqueues and broadcasts input_enqueued instead of show_user_message while running in queue mode" do
+      with_server(agent_config: agent_config) do |server|
+        sid, agent, ui = seed_running_session(server, "sid-enqueue-queue")
+        allow(agent).to receive(:enqueue_input)
+        allow(server).to receive(:broadcast)
+
+        server.send(:handle_user_message, sid, "hold that thought")
+
+        expect(agent).to have_received(:enqueue_input).with(
+          "hold that thought", delivery: :queue, files: [], references_display: [],
+          reference_contexts: [], created_at: kind_of(Float)
+        )
+        expect(server).to have_received(:broadcast).with(
+          sid, { type: "input_enqueued", session_id: sid, created_at: kind_of(Float) }
+        )
+        expect(ui).not_to have_received(:show_user_message)
+      end
+    end
+
+    it "enqueues with steer delivery while running in steer mode" do
+      agent_config.input_behavior = "steer"
+      with_server(agent_config: agent_config) do |server|
+        sid, agent, _ui = seed_running_session(server, "sid-enqueue-steer")
+        allow(agent).to receive(:enqueue_input)
+        allow(server).to receive(:broadcast)
+
+        server.send(:handle_user_message, sid, "steer me")
+
+        expect(agent).to have_received(:enqueue_input).with(
+          "steer me", delivery: :steer, files: [], references_display: [],
+          reference_contexts: [], created_at: kind_of(Float)
+        )
+        expect(server).to have_received(:broadcast).with(
+          sid, { type: "input_enqueued", session_id: sid, created_at: kind_of(Float) }
+        )
+      end
+    end
+  end
+
+  describe "#handle_edit_message" do
+    it "re-runs without steering so the frontend keeps its single edited bubble" do
+      with_server(agent_config: agent_config) do |server|
+        sid = server.instance_variable_get(:@registry).create(session_id: "sid-edit-1")
+        history = double("history")
+        agent = double("agent", parse_skill_command: { found: false }, history: history, name: "My Chat")
+        ui = double("ui")
+        allow(ui).to receive(:show_user_message)
+        allow(history).to receive(:truncate_from_created_at)
+        allow(history).to receive(:empty?).and_return(false)
+        server.instance_variable_get(:@registry).with_session(sid) do |s|
+          s[:agent] = agent
+          s[:ui] = ui
+        end
+        allow(server).to receive(:run_agent_task)
+
+        server.send(:handle_edit_message, sid, "edited text", "123.45")
+
+        expect(history).to have_received(:truncate_from_created_at).with("123.45")
+        expect(ui).to have_received(:show_user_message).with(
+          "edited text", created_at: kind_of(Float), source: :web, files: [],
+          references: [], skill_command: nil, skill_command_display: nil
         )
       end
     end

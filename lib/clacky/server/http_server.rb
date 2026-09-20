@@ -7715,14 +7715,22 @@ module Clacky
         
         mode = @agent_config.input_behavior
         queued = false
+        queued_created_at = nil
         @registry.with_session(session_id) do |s|
           if s[:status] == :running && %w[queue steer].include?(mode)
+            queued_created_at = Time.now.to_f
             s[:agent].enqueue_input(content, delivery: mode.to_sym, files: files, references_display: references,
-                                    reference_contexts: build_reference_contexts(references), created_at: Time.now.to_f)
+                                    reference_contexts: build_reference_contexts(references), created_at: queued_created_at)
             queued = true
           end
         end
-        return if queued
+        if queued
+          # The frontend renders the bubble optimistically; tell it to retract
+          # the bubble — the message now lives in the queue panel and will be
+          # re-rendered by run_pending_input on delivery.
+          broadcast(session_id, { type: "input_enqueued", session_id: session_id, created_at: queued_created_at })
+          return
+        end
 
         # If session is running, interrupt it first (mimics CLI behavior)
         if session[:status] == :running
@@ -7733,8 +7741,10 @@ module Clacky
           old_thread = nil
           @registry.with_session(session_id) { |s| old_thread = s[:thread] }
           if old_thread && !old_thread.join(2)
+            retained_created_at = Time.now.to_f
             session[:agent].enqueue_input(content, files: files, references_display: references,
-                                          reference_contexts: build_reference_contexts(references), created_at: Time.now.to_f)
+                                          reference_contexts: build_reference_contexts(references), created_at: retained_created_at)
+            broadcast(session_id, { type: "input_enqueued", session_id: session_id, created_at: retained_created_at })
             broadcast(session_id, { type: "input_queue_notice", session_id: session_id, key: "chat.input.stoppingDelayed" })
             return
           end
@@ -7774,12 +7784,13 @@ module Clacky
         # processing finishes, which can take seconds. Without the preview here, a
         # page refresh inside that window shows the message without its image (the
         # "need to refresh several times before the image appears" bug).
-        # `steering` tells the frontend to render a bubble it did not add
-        # optimistically in queue/steer mode; it does not select task routing.
+        # No `steering` flag: a message reaching this point was never enqueued,
+        # so the frontend already rendered its bubble optimistically and only
+        # needs the authoritative created_at stamp (stampLastUserBubble).
         web_ui&.show_user_message(content, created_at: msg_created_at, source: :web, files: Array(files),
                                   references: Array(references),
                                   skill_command: skill_command[:found] ? skill_command[:skill_name] : nil,
-                                  skill_command_display: skill_command_display, **(%w[queue steer].include?(mode) ? { steering: true } : {}))
+                                  skill_command_display: skill_command_display)
 
         # File references are now handled inside agent.run — injected as a system_injected
         # message after the user message, so replay_history skips them automatically.

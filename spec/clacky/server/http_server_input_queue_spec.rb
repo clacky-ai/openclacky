@@ -10,6 +10,9 @@ RSpec.describe Clacky::Server::HttpServer, "input behavior routing" do
     described_class.allocate.tap do |s|
       s.instance_variable_set(:@registry, registry)
       s.instance_variable_set(:@agent_config, config)
+      s.instance_variable_set(:@ws_mutex, Mutex.new)
+      s.instance_variable_set(:@ws_clients, {})
+      s.instance_variable_set(:@all_ws_conns, [])
     end
   end
   before do
