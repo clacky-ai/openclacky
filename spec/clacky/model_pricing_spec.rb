@@ -100,9 +100,15 @@ RSpec.describe Clacky::ModelPricing do
     end
 
     context "with Claude Fable 5.1" do
-      it "uses the same price as Claude Fable 5" do
-        expect(described_class.get_pricing("claude-fable-5-1"))
-          .to eq(described_class.get_pricing("claude-fable-5"))
+      it "shares Fable 5 input/output rates but keeps its lower cache-read rate" do
+        fable_5_1 = described_class.get_pricing("claude-fable-5-1")
+        fable_5 = described_class.get_pricing("claude-fable-5")
+
+        expect(fable_5_1[:input]).to eq(fable_5[:input])
+        expect(fable_5_1[:output]).to eq(fable_5[:output])
+        expect(fable_5_1[:cache][:write]).to eq(fable_5[:cache][:write])
+        expect(fable_5_1[:cache][:read]).to eq(0.25)
+        expect(fable_5[:cache][:read]).to eq(1.00)
       end
     end
 

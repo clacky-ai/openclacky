@@ -7,7 +7,8 @@ module Clacky
     # Pricing per 1M tokens (MTok) in USD
     # All pricing is based on official API documentation
     PRICING_TABLE = {
-      # Claude Fable 5.1 — same pricing as Fable 5.
+      # Claude Fable 5.1 — same input/output as Fable 5, but cache read is
+      # $0.25/MTok (vs $1.00 for Fable 5). Source: Anthropic pricing table.
       "claude-fable-5-1" => {
         input: {
           default: 10.00,              # $10/MTok for prompts ≤ 200K tokens
@@ -19,7 +20,7 @@ module Clacky
         },
         cache: {
           write: 12.50,               # $12.50/MTok cache write (5-min tier)
-          read: 1.00                  # $1.00/MTok cache read
+          read: 0.25                  # $0.25/MTok cache read
         }
       },
 
