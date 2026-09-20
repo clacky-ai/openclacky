@@ -1155,6 +1155,10 @@ module Clacky
     end
 
     def notify_input_queue
+      # Forked agents share the parent's UI but own a separate input queue.
+      # Only the root agent may publish session-level queue snapshots.
+      return if @is_subagent
+
       @ui.show_input_queue(pending_inputs) if @ui&.respond_to?(:show_input_queue)
     end
 
