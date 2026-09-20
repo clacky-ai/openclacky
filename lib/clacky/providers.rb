@@ -297,7 +297,7 @@ module Clacky
         "base_url" => "https://open.bigmodel.cn/api/paas/v4",
         "api" => "openai-completions",
         "default_model" => "glm-5.3",
-        "models" => ["glm-5.3", "glm-5.3-flash", "glm-5.2", "glm-5.1", "glm-5", "glm-5-turbo", "glm-5v-turbo", "glm-4.7"],
+        "models" => ["glm-5.3", "glm-5.3-flashx", "glm-5.3-flash", "glm-5.2"],
         # Zhipu / Z.ai expose four functionally-equivalent endpoints:
         # two regional sites (mainland open.bigmodel.cn + international api.z.ai)
         # each with a general-billing and a Coding-Plan subpath. They share the
@@ -314,13 +314,14 @@ module Clacky
           { "label" => "International · Coding Plan",   "label_key" => "settings.models.baseurl.variant.international_coding","base_url" => "https://api.z.ai/api/coding/paas/v4",         "region" => "intl" }.freeze
         ].freeze,
         # GLM models are text-only except the vision-capable SKUs: glm-5v-turbo
-        # ("v" = visual) and glm-5.3-flash (GLM-5's first natively-multimodal model).
+        # (legacy), glm-5.3-flash, and glm-5.3-flashx.
         "capabilities" => { "vision" => false }.freeze,
         "model_capabilities" => {
           "glm-5v-turbo" => { "vision" => true }.freeze,
-          "glm-5.3-flash" => { "vision" => true }.freeze
+          "glm-5.3-flash" => { "vision" => true }.freeze,
+          "glm-5.3-flashx" => { "vision" => true }.freeze
         }.freeze,
-        "default_ocr_model" => "glm-5v-turbo",
+        "default_ocr_model" => "glm-5.3-flash",
         "website_url" => "https://open.bigmodel.cn/console/overview"
       }.freeze,
 
@@ -329,7 +330,7 @@ module Clacky
         "base_url" => "https://api.moonshot.cn/v1",
         "api" => "openai-completions",
         "default_model" => "kimi-k3",
-        "models" => ["kimi-k3", "kimi-k2.7-code", "kimi-k2.7-code-highspeed", "kimi-k2.6", "kimi-k2.5"],
+        "models" => ["kimi-k3", "kimi-k2.7-code", "kimi-k2.7-code-highspeed", "kimi-k2.6"],
         # Moonshot operates two regional endpoints with identical APIs & model
         # lineup — mainland China (.cn) and international (.ai). These are the
         # pay-as-you-go Open Platform endpoints; the subscription-billed
@@ -345,7 +346,7 @@ module Clacky
           { "label" => "Mainland China", "label_key" => "settings.models.baseurl.variant.mainland_cn",   "base_url" => "https://api.moonshot.cn/v1", "region" => "cn"   }.freeze,
           { "label" => "International",  "label_key" => "settings.models.baseurl.variant.international", "base_url" => "https://api.moonshot.ai/v1", "region" => "intl" }.freeze
         ].freeze,
-        # k3 / k2.7-code / k2.5 / k2.6 are multimodal; legacy k2 text-only models need model_capabilities override if added.
+        # k3 / k2.7-code / k2.6 are multimodal; legacy k2 text-only models need model_capabilities override if added.
         "capabilities" => { "vision" => true }.freeze,
         "default_ocr_model" => "kimi-k3",
         "website_url" => "https://platform.moonshot.cn/console/api-keys"
@@ -422,7 +423,17 @@ module Clacky
         "base_url" => "https://api.anthropic.com",
         "api" => "anthropic-messages",
         "default_model" => "claude-sonnet-4-6",
-        "models" => ["claude-opus-4-8", "claude-opus-4-7", "claude-opus-4-6", "claude-sonnet-4-6", "claude-haiku-4-5"],
+        "models" => [
+          "claude-fable-5-1",
+          "claude-fable-5",
+          "claude-opus-5",
+          "claude-sonnet-5",
+          "claude-opus-4-8",
+          "claude-opus-4-7",
+          "claude-opus-4-6",
+          "claude-sonnet-4-6",
+          "claude-haiku-4-5"
+        ],
         "default_ocr_model" => "claude-haiku-4-5",
         "website_url" => "https://console.anthropic.com/settings/keys"
       }.freeze,
@@ -552,16 +563,18 @@ module Clacky
           "doubao-seed-evolving",
           "doubao-seed-2.1-pro",
           "doubao-seed-2.1-turbo",
+          "doubao-seed-2.0-mini",
           "doubao-seed-2.0-lite",
           "minimax-m3",
-          "minimax-m2.7",
           "kimi-k2.7-code",
-          "kimi-k2.6",
+          "kimi-k2.8-preview",
+          "kimi-k3",
           # GLM-5.2 is delisted from Ark on 2026-08-31, so new setups only
           # offer GLM-5.3. It is available on the Coding/Agent Plan endpoints;
           # the pay-as-you-go endpoint does not carry it yet (no versioned id),
           # so no payg alias is registered for it.
           "glm-5.3",
+          "glm-5.3-flash",
           "deepseek-v4-pro",
           "deepseek-v4-flash"
         ],
@@ -584,11 +597,12 @@ module Clacky
             "deepseek-v4-flash"  => "deepseek-v4-flash-260425",
             "doubao-seed-2.1-pro"   => "doubao-seed-2-1-pro-260628",
             "doubao-seed-2.1-turbo" => "doubao-seed-2-1-turbo-260628",
+            "doubao-seed-2.0-mini"  => "doubao-seed-2-0-mini-260428",
             "doubao-seed-2.0-lite"  => "doubao-seed-2-0-lite-260428"
           }.freeze
         }.freeze,
         # Most Doubao/multimodal models accept image input; GLM-5.2/5.3 and
-        # DeepSeek-V4 on Ark are text-only.
+        # DeepSeek-V4 on Ark are text-only. GLM-5.3-Flash inherits vision=true.
         "capabilities" => { "vision" => true }.freeze,
         "model_capabilities" => {
           "glm-5.3"           => { "vision" => false }.freeze,

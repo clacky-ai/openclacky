@@ -118,6 +118,8 @@ RSpec.describe Clacky::Providers do
                                          model_name: "glm-5v-turbo")).to be true
         expect(described_class.supports?("glm", :vision,
                                          model_name: "glm-5.3-flash")).to be true
+        expect(described_class.supports?("glm", :vision,
+                                         model_name: "glm-5.3-flashx")).to be true
       end
     end
 
@@ -439,9 +441,11 @@ RSpec.describe Clacky::Providers do
         expect(described_class.default_model("glm")).to eq("glm-5.3")
       end
 
-      it "includes glm-5.3 at the top of the model list" do
-        expect(described_class.models("glm")).to include("glm-5.3", "glm-5.2")
-        expect(described_class.models("glm").first).to eq("glm-5.3")
+      it "lists only the current GLM 5.2 and 5.3 lineup" do
+        expect(described_class.models("glm")).to eq(
+          ["glm-5.3", "glm-5.3-flashx", "glm-5.3-flash", "glm-5.2"]
+        )
+        expect(described_class.default_ocr_model("glm")).to eq("glm-5.3-flash")
       end
     end
 
@@ -465,6 +469,14 @@ RSpec.describe Clacky::Providers do
           .to eq("volcengine-ark")
       end
 
+      it "lists the refreshed Ark lineup" do
+        models = described_class.models("volcengine-ark")
+        expect(models).to include(
+          "kimi-k2.8-preview", "kimi-k3", "glm-5.3-flash", "doubao-seed-2.0-mini"
+        )
+        expect(models).not_to include("kimi-k2.6", "minimax-m2.7")
+      end
+
       it "enforces vision matrix across all endpoints" do
         %w[
           https://ark.cn-beijing.volces.com/api/v3
@@ -482,6 +494,8 @@ RSpec.describe Clacky::Providers do
             .to be(true), "expected vision=true at #{url} for doubao-seed-2.1-pro"
           expect(described_class.supports?(id, :vision, model_name: "kimi-k2.7-code"))
             .to be(true), "expected vision=true at #{url} for kimi-k2.7-code"
+          expect(described_class.supports?(id, :vision, model_name: "glm-5.3-flash"))
+            .to be(true), "expected vision=true at #{url} for glm-5.3-flash"
         end
       end
 
@@ -496,6 +510,7 @@ RSpec.describe Clacky::Providers do
         it "swaps display names for versioned ids on the pay-as-you-go endpoint" do
           {
             "doubao-seed-2.0-lite"  => "doubao-seed-2-0-lite-260428",
+            "doubao-seed-2.0-mini"  => "doubao-seed-2-0-mini-260428",
             "doubao-seed-2.1-pro"   => "doubao-seed-2-1-pro-260628",
             "doubao-seed-2.1-turbo" => "doubao-seed-2-1-turbo-260628",
             "glm-5.2"               => "glm-5-2-260617",
@@ -519,7 +534,15 @@ RSpec.describe Clacky::Providers do
         it "leaves models without an alias unchanged on payg" do
           # glm-5.3 has no payg alias yet (Ark pay-as-you-go has not listed it);
           # it stays a display-name pass-through until a versioned id is known.
-          ["doubao-seed-evolving", "kimi-k2.7-code", "minimax-m3", "glm-5.3"].each do |m|
+          %w[
+            doubao-seed-evolving
+            kimi-k2.7-code
+            kimi-k2.8-preview
+            kimi-k3
+            minimax-m3
+            glm-5.3
+            glm-5.3-flash
+          ].each do |m|
             expect(described_class.resolve_api_model(base_url: "#{base}/api/v3", model: m)).to eq(m)
           end
         end
@@ -568,6 +591,12 @@ RSpec.describe Clacky::Providers do
     end
 
     context "Kimi (Moonshot) two regional endpoints" do
+      it "does not offer the retired kimi-k2.5 model" do
+        expect(described_class.models("kimi")).to eq(
+          ["kimi-k3", "kimi-k2.7-code", "kimi-k2.7-code-highspeed", "kimi-k2.6"]
+        )
+      end
+
       it "recognises mainland (.cn)" do
         expect(described_class.find_by_base_url("https://api.moonshot.cn/v1"))
           .to eq("kimi")
@@ -578,7 +607,7 @@ RSpec.describe Clacky::Providers do
           .to eq("kimi")
       end
 
-      it "keeps vision=true on both endpoints (Kimi k2.5/k2.6 are multimodal)" do
+      it "keeps vision=true on both endpoints" do
         # Unlike GLM/MiniMax, Kimi's current models support vision — so the
         # whole point of declaring variants here is purely to let capability
         # detection (fallback chains, provider-specific behaviours) wire up
@@ -590,11 +619,20 @@ RSpec.describe Clacky::Providers do
       end
     end
 
+    context "Anthropic current model lineup" do
+      it "includes the Claude 5 family without changing the default" do
+        expect(described_class.models("anthropic")).to include(
+          "claude-sonnet-5", "claude-opus-5", "claude-fable-5", "claude-fable-5-1"
+        )
+        expect(described_class.default_model("anthropic")).to eq("claude-sonnet-4-6")
+      end
+    end
+
     context "Kimi Code (Coding Plan) — separate from PAYG Kimi" do
       # The subscription-billed Coding Plan endpoint is its own preset, not
       # an endpoint_variant of "kimi" — different domain (api.kimi.com vs
       # api.moonshot.{cn,ai}), different model alias (kimi-for-coding vs
-      # kimi-k3/k2.7-code/k2.5/k2.6), different transport (anthropic-messages vs
+      # kimi-k3/k2.7-code/k2.6), different transport (anthropic-messages vs
       # openai-completions). These tests guard that the routing actually
       # discriminates instead of folding into the PAYG preset.
       it "recognises the canonical /coding base URL" do
