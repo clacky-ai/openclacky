@@ -4,6 +4,51 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
+## [1.5.15] - 2026-09-17
+
+### Added
+- Quote text selected in a message and send it as a reference badge
+- Queue messages while the agent is working, with pending-message controls in the CLI and Web UI (#561)
+- Steer a running turn with a queued message
+- Discover custom-endpoint models from the add-model dialog (#560 - @kylezhang)
+- Show vendor badges for each provider in the add-model dropdown
+- Label every model with its provider in the model picker
+- Open unviewable files in the system app and reveal them in the workspace tree
+- Follow the browsed directory in the directory picker sidebar
+- Show the extension and skill lists as segmented tabs in Extension Studio
+- Add disclosure carets to the clickable status-bar fields
+- Resolve redirected Windows shell folders in the WSL directory picker
+- Show web search results as UI results in the chat
+
+### Improved
+- Swap the extension and channel management order in the sidebar
+- Rename the Tasks sidebar entry to Scheduled Tasks
+- Improve mobile folder navigation in the directory picker (#549)
+- Improve the mobile layout of settings tabs and model controls (#548)
+- Add a global focus ring for keyboard navigation (#544)
+- Align the input behavior toggle with the send buttons
+- Deepen the directory-picker breadcrumb field
+- Keep the segmented control highlight dark on the dim and bluedark themes
+- Retire the dsk-deepseek-v4-flash model ids
+
+### Fixed
+- Keep the mobile composer above the soft keyboard (#557)
+- Install newly published brand skills when an agent starts
+- Show the marketplace takedown state instead of an unusable unpublish button
+- Show complete brand distribution for brand owners (#556)
+- Focus brand owners on brand publishing in Extension Studio (#555)
+- Hide the creator center from branded non-owners (#553)
+- Forward brand marketplace sorting to the backend (#552)
+- Complete the public session creation lifecycle (#551)
+- Make the @ mention menu selectable on the new-session page (#558)
+- Show a searched old session in the sidebar without a reload
+- Stop session updated_at from rolling back on save
+- Avoid a duplicated empty state in the sidebar search
+- Align reasoning and image fields with the Responses API schema
+- Use theme tokens for the badge colors
+- Give the calendar popup its own class namespace
+- Add the default user prompt for attachments
+
 ## [1.5.14] - 2026-09-10
 
 ### Added
