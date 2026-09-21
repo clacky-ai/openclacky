@@ -154,9 +154,9 @@ RSpec.describe Clacky::Agent, "queued guidance" do
     agent.instance_variable_set(:@accepting_steering, true)
     id = agent.enqueue_input("guidance")
     expect(agent.steer_pending_input(id, expected_task_id: agent.pending_inputs.first[:steer_target])).to be(true)
-    expect(agent.send(:consume_steering_inputs, finishing: true)).to be(true)
+    expect(agent.send(:consume_steering_inputs, finishing: true)[:consumed]).to be(true)
     expect(agent.instance_variable_get(:@accepting_steering)).to be(true)
-    expect(agent.send(:consume_steering_inputs, finishing: true)).to be(false)
+    expect(agent.send(:consume_steering_inputs, finishing: true)[:consumed]).to be(false)
     expect(agent.instance_variable_get(:@accepting_steering)).to be(false)
   end
 

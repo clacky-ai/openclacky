@@ -3,6 +3,7 @@
 module Clacky
   class HookManager
     HOOK_EVENTS = [
+      :before_user_message,
       :before_tool_use,
       :after_tool_use,
       :on_tool_error,
@@ -25,7 +26,7 @@ module Clacky
     end
 
     # @return [Hash] `{action: :allow}`, `{action: :deny, reason:}`, or
-    #   `{action: :handled, result:}` when a hook fulfilled the call itself.
+    #   `{action: :handled, result:}` when a hook fulfilled the event itself.
     # Extra trailing arg: the agent that owns this hook chain, so ext hooks can
     # call `agent.emit_event(...)`. Blocks are procs — those declaring fewer
     # params (`|call|`, `|call, result|`) silently ignore it.
@@ -43,8 +44,8 @@ module Clacky
           # place (chained rewrite), so for non-deny results there's nothing to
           # merge — we just keep going.
           #
-          # :handled short-circuits the same way — the hook has already produced
-          # the tool's result, so later hooks have nothing left to act on.
+          # :handled short-circuits the same way: the hook has already fulfilled
+          # the event, so later hooks have nothing left to act on.
           if hook_result[:action] == :deny || hook_result[:action] == :handled
             result = hook_result
             break

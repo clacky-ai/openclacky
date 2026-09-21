@@ -491,6 +491,18 @@ module Clacky
       result = nil
       run_turn_started = false
 
+      message = { content: user_input, files: files, reference_contexts: reference_contexts,
+                  display_text: display_text, created_at: created_at, references_display: references_display }
+      hook_result = check_user_message(message)
+      return result = hook_result[:result] if %i[deny handled].include?(hook_result[:action])
+
+      user_input = message[:content]
+      files = message[:files]
+      reference_contexts = message[:reference_contexts]
+      display_text = message[:display_text]
+      created_at = message[:created_at]
+      references_display = message[:references_display]
+
       # Intercept /goal ... commands before any task/LLM work. Control-plane
       # commands (status/pause/resume/clear) return immediately without a turn;
       # `/goal <text>` sets the goal, then falls through to run the first turn.
@@ -603,7 +615,8 @@ module Clacky
         @iterations += 1
         @hooks.trigger(:on_iteration, @iterations)
 
-        consume_steering_inputs
+        steering = consume_steering_inputs
+        return result = steering[:hook_result][:result] if steering[:hook_result]
 
         # Think: LLM reasoning with tool support
         response = think
@@ -722,7 +735,9 @@ module Clacky
           # and skip skill evolution — the task isn't truly complete yet.
           turn_unfinished = true if ends_with_question
 
-          if consume_steering_inputs(finishing: true)
+          steering = consume_steering_inputs(finishing: true)
+          return result = steering[:hook_result][:result] if steering[:hook_result]
+          if steering[:consumed]
             turn_unfinished = false
             next
           end
@@ -1206,32 +1221,59 @@ module Clacky
         selected
       end
       committed = 0
-      unless entries.empty?
-        @history.append(role: "user", system_injected: true, task_id: @current_task_id,
-                        content: "The following user messages were queued while you worked. Use them to guide the current task; retain its original objective and completed progress unless the user explicitly changes or cancels it.")
-      end
+      hook_result = nil
+      restored_unprocessed = false
       entries.each do |entry|
         options = entry[:options].dup
         source = options.delete(:source) || :web
+        message = options.merge(content: entry[:content])
+        verdict = check_user_message(message)
+        if %i[deny handled].include?(verdict[:action])
+          committed += 1
+          hook_result = verdict
+          break
+        end
+        content = message[:content]
+        options = message.slice(:files, :reference_contexts, :display_text, :created_at, :references_display)
         history_size = @history.size
         begin
-          append_user_input(entry[:content], **options)
+          if committed.zero?
+            @history.append(role: "user", system_injected: true, task_id: @current_task_id,
+                            content: "The following user messages were queued while you worked. Use them to guide the current task; retain its original objective and completed progress unless the user explicitly changes or cancels it.")
+          end
+          append_user_input(content, **options)
         rescue Exception
           @history.truncate_from(history_size)
           raise
         end
         committed += 1
-        @ui&.show_user_message(options[:display_text] || entry[:content],
+        @ui&.show_user_message(options[:display_text] || content,
                                created_at: options[:created_at], files: options[:files] || [], source: source, steering: true) if @ui&.respond_to?(:show_user_message)
       end
+      unprocessed = entries.drop(committed)
+      @input_mutex.synchronize { @input_queue.unshift(*unprocessed) } unless unprocessed.empty?
+      restored_unprocessed = true
       notify_input_queue unless entries.empty?
-      !entries.empty?
+      { consumed: committed.positive?, hook_result: hook_result }
     rescue Exception
       # Includes explicit interruption during file parsing or UI delivery.
       # Never replay committed input; preserve every unprocessed entry.
       remaining = (entries || []).drop(committed || 0)
-      @input_mutex.synchronize { @input_queue.unshift(*remaining) }
+      unless restored_unprocessed || remaining.empty?
+        @input_mutex.synchronize { @input_queue.unshift(*remaining) }
+      end
       raise
+    end
+
+    # Both direct and steering input use the same verdict before parsing or storing it.
+    private def check_user_message(message)
+      hook_result = @hooks.trigger(:before_user_message, message)
+      if hook_result[:action] == :deny
+        @ui&.show_warning(hook_result[:reason] || "User message denied by hook")
+        return hook_result.merge(result: { status: :success, queue_paused: true })
+      end
+
+      hook_result
     end
 
     private def think

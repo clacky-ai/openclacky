@@ -198,6 +198,27 @@ RSpec.describe Clacky::ShellHookLoader do
       expect(payload["tool"]["name"]).to eq("terminal")
     end
 
+    it "passes user messages to shell hooks using the existing deny protocol" do
+      out = File.join(tmp, "captured_message.json")
+      script = make_script("cat > \"#{out}\"\necho 'blocked message'\nexit 2")
+      write_yml(<<~YAML)
+        hooks:
+          before_user_message:
+            - command: "#{script}"
+      YAML
+      hm = build_hm
+      message = { content: "hello", reference_contexts: ["reference"], files: [] }
+
+      result = hm.trigger(:before_user_message, message)
+
+      payload = JSON.parse(File.read(out))
+      expect(result).to include(action: :deny, reason: "blocked message")
+      expect(payload["event"]).to eq("before_user_message")
+      expect(payload["user_message"]).to include(
+        "content" => "hello", "reference_contexts" => ["reference"], "files" => []
+      )
+    end
+
     it "allows (does not raise) when the command times out" do
       script = make_script("sleep 5\nexit 2")
       write_yml(<<~YAML)

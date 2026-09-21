@@ -36,7 +36,8 @@ module Clacky
   #   - The event payload is passed to the command as JSON on STDIN.
   #   - exit 0  → allow (default). Rewrite hooks parse STDOUT as hookSpecificOutput.
   #   - exit 2  → deny; STDOUT (simple) or stderr/stdout (rewrite) is the reason.
-  #               Only before_tool_use is checked for {action: :deny}.
+  #               Blocking events such as before_user_message and
+  #               before_tool_use act on {action: :deny}.
   #   - any other exit / timeout / crash → logged, treated as allow (a broken
   #     hook must never wedge the agent).
   #
@@ -90,7 +91,7 @@ module Clacky
 
       File.write(path, <<~YAML)
         # Declarative shell hooks. Each command receives the event payload as JSON
-        # on STDIN. For before_tool_use: exit 2 = deny (STDOUT = reason), exit 0 = allow.
+        # on STDIN. For blocking events: exit 2 = deny (STDOUT = reason), exit 0 = allow.
         # Add `type: rewrite` to a before_tool_use entry to use the rich JSON
         # protocol (updatedInput rewrite, matcher).
         # Events: #{HookManager::HOOK_EVENTS.join(", ")}
@@ -317,6 +318,8 @@ module Clacky
       base = { event: event.to_s }
 
       case event
+      when :before_user_message
+        base[:user_message] = args[0]
       when :before_tool_use, :after_tool_use, :on_tool_error
         base[:tool] = args[0]
         base[:result] = args[1] if args.length > 1 && event == :after_tool_use
