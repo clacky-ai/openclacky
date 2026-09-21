@@ -586,7 +586,16 @@ module Clacky
 
       @input_mutex.synchronize { @accepting_steering = true }
       notify_input_queue
-      @hooks.trigger(:on_start, user_input)
+      # The task and user history already exist. A terminal verdict skips the
+      # loop and completion hooks; ensure still cleans up this started turn.
+      hook_result = @hooks.trigger(:on_start, user_input)
+      case hook_result[:action]
+      when :deny
+        @ui&.show_warning(hook_result[:reason] || "Task denied by hook")
+        return result = build_result.merge(queue_paused: true)
+      when :handled
+        return result = hook_result[:result]
+      end
 
       # Track if ask_user was called
       awaiting_user_feedback = false
