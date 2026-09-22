@@ -750,6 +750,7 @@ module Clacky
                                          questions: questions)
               end
             else
+              remember_replayed_tool_name(tc[:id], name)
               ui.show_tool_call(name, args)
             end
           end
@@ -768,18 +769,63 @@ module Clacky
             msg[:content].each do |blk|
               next unless blk.is_a?(Hash) && blk[:type] == "tool_result"
 
-              ui.show_tool_result(blk[:content].to_s)
+              content = blk[:content].to_s
+              emit_replayed_tool_result(ui, content, blk[:tool_use_id])
             end
             replay_subagent_transcript(msg, ui)
           end
 
         when "tool"
           # OpenAI-format tool result
-          ui.show_tool_result(msg[:content].to_s)
+          emit_replayed_tool_result(ui, msg[:content].to_s, msg[:tool_call_id])
           replay_subagent_transcript(msg, ui)
         end
 
         replay_ext_events(msg, ui)
+      end
+
+      # Tool results persist as the raw JSON the tool returned, so replay can
+      # rebuild the same structured `ui:` payload the live path sent instead of
+      # degrading the card to plain text (C-5797).
+      private def emit_replayed_tool_result(ui, content, tool_call_id)
+        ui_payload = replayed_tool_ui(content, tool_call_id)
+        if ui_payload
+          ui.show_tool_result(content, ui: ui_payload)
+        else
+          ui.show_tool_result(content)
+        end
+      end
+
+      # Tool names live on the preceding assistant message, so remember them by
+      # call id while walking the round.
+      private def remember_replayed_tool_name(call_id, name)
+        return if call_id.nil? || name.to_s.empty?
+
+        @replayed_tool_names ||= {}
+        @replayed_tool_names[call_id.to_s] = name
+      end
+
+      private def replayed_tool_ui(content, tool_call_id)
+        return nil if tool_call_id.nil?
+
+        name = (@replayed_tool_names || {})[tool_call_id.to_s]
+        return nil if name.nil?
+
+        text = content.to_s
+        return nil unless text.start_with?("{")
+
+        resolved = @tool_registry.resolve(name)
+        return nil if resolved.nil?
+
+        tool = @tool_registry.get(resolved)
+        return nil unless tool.respond_to?(:ui_result)
+
+        parsed = JSON.parse(text, symbolize_names: true)
+        return nil unless parsed.is_a?(Hash)
+
+        tool.ui_result(parsed)
+      rescue StandardError
+        nil
       end
 
       # Re-emit custom extension events recorded on a message so extension
