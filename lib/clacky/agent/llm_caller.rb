@@ -45,7 +45,7 @@ module Clacky
       #   Inside call_llm we only *update in place* during retries, so the
       #   already-live progress slot shows meaningful transient status
       #   ("Network failed… attempt 2/10", etc.).
-      private def call_llm(agent_role: nil, agent_iteration: nil, agent_retries: nil, agent_upstream_fails: nil, agent_upgrade_fails: nil)
+      private def call_llm(agent_retries: nil, agent_upstream_fails: nil, agent_upgrade_fails: nil)
         # Transition :fallback_active → :probing if cooling-off has expired.
         @config.maybe_start_probing
 
@@ -118,8 +118,6 @@ module Clacky
             enable_caching: @config.enable_prompt_caching,
             reasoning_effort: @reasoning_effort,
             on_chunk: build_progress_on_chunk,
-            agent_role: agent_role,
-            agent_iteration: agent_iteration,
             agent_retries: (agent_retries || 0) + retries,
             agent_upstream_fails: (agent_upstream_fails || 0) + floor_fails,
             agent_upgrade_fails: (agent_upgrade_fails || 0) + upgrade_fails

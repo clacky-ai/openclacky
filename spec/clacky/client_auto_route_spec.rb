@@ -73,26 +73,10 @@ RSpec.describe Clacky::Client, "auto alias routed model" do
     end
   end
 
-  it "non-streaming: sends agent_role header when provided" do
-    seen_role = nil
-    with_stub_server(proc { |req, res|
-      seen_role = req.header["x-clacky-agent-role"]&.first
-      res["Content-Type"] = "application/json"
-      res.body = completion_body
-    }) do |base_url|
-      client = client_for(base_url)
-      client.send_messages_with_tools(
-        [{ role: "user", content: "hi" }], model: "auto", tools: [], max_tokens: 64,
-        agent_role: "compression"
-      )
-      expect(seen_role).to eq("compression")
-    end
-  end
-
-  it "non-streaming: sends iteration and retries headers when provided" do
+  it "non-streaming: sends retry signal headers when provided" do
     seen = {}
     with_stub_server(proc { |req, res|
-      seen[:iteration] = req.header["x-clacky-agent-iteration"]&.first
+      seen[:iteration] = req.header["x-clacky-agent-iteration"]
       seen[:retries] = req.header["x-clacky-agent-retries"]&.first
       seen[:upstream_fails] = req.header["x-clacky-agent-upstream-fails"]&.first
       seen[:role] = req.header["x-clacky-agent-role"]&.first
@@ -102,16 +86,16 @@ RSpec.describe Clacky::Client, "auto alias routed model" do
       client = client_for(base_url)
       client.send_messages_with_tools(
         [{ role: "user", content: "hi" }], model: "auto", tools: [], max_tokens: 64,
-        agent_iteration: 12, agent_retries: 2, agent_upstream_fails: 1
+        agent_retries: 2, agent_upstream_fails: 1
       )
-      expect(seen[:iteration]).to eq("12")
       expect(seen[:retries]).to eq("2")
       expect(seen[:upstream_fails]).to eq("1")
       expect(seen[:role]).to be_nil
+      expect(seen[:iteration]).to be_empty
     end
   end
 
-  it "streaming: sends iteration and retries headers when provided" do
+  it "streaming: sends retry signal headers when provided" do
     frames = [
       "data: {\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"ok\"}}]}\n\n",
       "data: {\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n",
@@ -121,7 +105,7 @@ RSpec.describe Clacky::Client, "auto alias routed model" do
 
     seen = {}
     with_stub_server(proc { |req, res|
-      seen[:iteration] = req.header["x-clacky-agent-iteration"]&.first
+      seen[:iteration] = req.header["x-clacky-agent-iteration"]
       seen[:retries] = req.header["x-clacky-agent-retries"]&.first
       seen[:upstream_fails] = req.header["x-clacky-agent-upstream-fails"]&.first
       res["Content-Type"] = "text/event-stream"
@@ -130,9 +114,9 @@ RSpec.describe Clacky::Client, "auto alias routed model" do
       client = client_for(base_url)
       client.send_messages_with_tools(
         [{ role: "user", content: "hi" }], model: "auto", tools: [], max_tokens: 64,
-        on_chunk: proc { |**| }, agent_iteration: 3, agent_retries: 1, agent_upstream_fails: 2
+        on_chunk: proc { |**| }, agent_retries: 1, agent_upstream_fails: 2
       )
-      expect(seen[:iteration]).to eq("3")
+      expect(seen[:iteration]).to be_empty
       expect(seen[:retries]).to eq("1")
       expect(seen[:upstream_fails]).to eq("2")
     end

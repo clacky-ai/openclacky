@@ -1287,12 +1287,12 @@ module Clacky
         begin
           if @ui
             @ui.with_progress(message: "Compressing message history...", style: :quiet) do |handle|
-              response = call_llm(agent_role: "compression")
+              response = call_llm
               handle_compression_response(response, compression_context, progress: handle)
               compression_handled = true
             end
           else
-            response = call_llm(agent_role: "compression")
+            response = call_llm
             handle_compression_response(response, compression_context)
             compression_handled = true
           end
@@ -1318,7 +1318,6 @@ module Clacky
       response = nil
       begin
         response = call_llm(
-          agent_iteration: @iterations - (@task_start_iterations || @iterations),
           agent_retries: @consecutive_tool_failures,
           agent_upstream_fails: @task_upstream_fails,
           agent_upgrade_fails: @task_upgrade_fails
