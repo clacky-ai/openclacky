@@ -73,7 +73,7 @@ RSpec.describe Clacky::Client, "auto alias routed model" do
     end
   end
 
-  it "non-streaming: sends retry signal headers when provided" do
+  it "non-streaming: sends the lane failure headers when provided" do
     seen = {}
     with_stub_server(proc { |req, res|
       seen[:iteration] = req.header["x-clacky-agent-iteration"]
@@ -86,16 +86,18 @@ RSpec.describe Clacky::Client, "auto alias routed model" do
       client = client_for(base_url)
       client.send_messages_with_tools(
         [{ role: "user", content: "hi" }], model: "auto", tools: [], max_tokens: 64,
-        agent_retries: 2, agent_upstream_fails: 1
+        agent_upstream_fails: 1
       )
-      expect(seen[:retries]).to eq("2")
       expect(seen[:upstream_fails]).to eq("1")
+      # The retries/role/iteration signals were retired — the gateway reads none
+      # of those headers anymore.
+      expect(seen[:retries]).to be_nil
       expect(seen[:role]).to be_nil
       expect(seen[:iteration]).to be_empty
     end
   end
 
-  it "streaming: sends retry signal headers when provided" do
+  it "streaming: sends the lane failure headers when provided" do
     frames = [
       "data: {\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"ok\"}}]}\n\n",
       "data: {\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n",
@@ -114,10 +116,10 @@ RSpec.describe Clacky::Client, "auto alias routed model" do
       client = client_for(base_url)
       client.send_messages_with_tools(
         [{ role: "user", content: "hi" }], model: "auto", tools: [], max_tokens: 64,
-        on_chunk: proc { |**| }, agent_retries: 1, agent_upstream_fails: 2
+        on_chunk: proc { |**| }, agent_upstream_fails: 2
       )
       expect(seen[:iteration]).to be_empty
-      expect(seen[:retries]).to eq("1")
+      expect(seen[:retries]).to be_nil
       expect(seen[:upstream_fails]).to eq("2")
     end
   end
