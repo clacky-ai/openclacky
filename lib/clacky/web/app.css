@@ -465,6 +465,18 @@ body {
 }
 #app { display: flex; flex-direction: column; width: 100%; height: 100%; overflow: hidden; }
 
+/* ── Floating layer chrome — reusable base for dropdowns / popovers ──────
+   Carries only the shared surface (background, border, radius, shadow);
+   position, size and z-index stay in the per-component class.
+   Usage: class="clacky-popover sib-model-dropdown"
+────────────────────────────────────────────────────────────────────────── */
+.clacky-popover {
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border-primary);
+  border-radius: var(--radius-md);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+}
+
 /* ── Offline Banner ───────────────────────────────────────────────────── */
 #offline-banner {
   position: fixed;
@@ -4985,10 +4997,6 @@ body {
   position: fixed;
   min-width: 13.75rem;
   max-width: 20rem;
-  background: var(--color-bg-secondary);
-  border: 1px solid var(--color-border-primary);
-  border-radius: 8px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
   z-index: 1000;
   padding: 0.25rem;
 }
@@ -5278,10 +5286,6 @@ body {
 .sib-reasoning-dropdown {
   position: fixed;
   min-width: 11rem;
-  background: var(--color-bg-secondary);
-  border: 1px solid var(--color-border-primary);
-  border-radius: 8px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
   z-index: 1000;
   overflow: hidden;
 }
@@ -5321,10 +5325,6 @@ body {
   /* Position will be calculated dynamically via JavaScript */
   min-width: 12.5rem;
   max-width: min(20rem, calc(100vw - 1.5rem));
-  background: var(--color-bg-secondary);
-  border: 1px solid var(--color-border-primary);
-  border-radius: 8px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
   z-index: 1000;
   max-height: 18.75rem;
   overflow-y: auto;
@@ -5365,6 +5365,37 @@ body {
 .sib-model-option .model-badge.lite {
   background: color-mix(in srgb, var(--color-accent-primary) 10%, transparent);
   color: var(--color-accent-primary);
+}
+
+/* Auto alias row: economy-first tag where other rows show a price ratio. */
+.sib-auto-tag {
+  font-size: 0.5625rem;
+  padding: 2px 0.375rem;
+  border-radius: 3px;
+  white-space: nowrap;
+  background: color-mix(in srgb, #4f46e5 16%, transparent);
+  color: color-mix(in srgb, #8b93f6 55%, var(--color-text-primary));
+}
+/* Explanation card for the "auto" alias row. Fixed and body-mounted because
+   the dropdown clips and scrolls; pointer-events:none keeps it from blocking
+   the row's hover/click targets. */
+.sib-auto-popover {
+  position: fixed;
+  z-index: 10001;
+  max-width: 15rem;
+  padding: 0.5rem 0.625rem 0.5625rem;
+  pointer-events: none;
+}
+.sib-auto-popover-title {
+  font-size: 0.625rem;
+  font-weight: 600;
+  margin-bottom: 0.25rem;
+  color: var(--color-accent-primary);
+}
+.sib-auto-popover-body {
+  font-size: 0.6875rem;
+  line-height: 1.55;
+  color: var(--color-text-secondary);
 }
 
 .sib-submodel-default-tag {
@@ -5423,10 +5454,6 @@ body {
   position: fixed;
   min-width: 12rem;
   max-width: 18rem;
-  background: var(--color-bg-secondary);
-  border: 1px solid var(--color-border-primary);
-  border-radius: 8px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
   z-index: 10000;
   max-height: 18.75rem;
   overflow-y: auto;
@@ -8149,6 +8176,18 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+.model-dropdown-option-right {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  flex-shrink: 0;
+}
+.model-dropdown-option .sib-model-price {
+  min-width: 2.25rem;
+  text-align: right;
 }
 .model-dropdown-option:hover {
   background: var(--color-bg-hover);
