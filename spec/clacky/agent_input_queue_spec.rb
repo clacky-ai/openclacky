@@ -167,6 +167,61 @@ RSpec.describe Clacky::Agent, "queued guidance" do
     expect(agent.pending_inputs.first[:delivery]).to eq("queue")
   end
 
+  it "returns an accepted guidance message to the queue without moving it" do
+    agent.instance_variable_set(:@accepting_steering, true)
+    first = agent.enqueue_input("first")
+    second = agent.enqueue_input("second")
+    third = agent.enqueue_input("third")
+    expect(agent.steer_pending_input(second, expected_task_id: agent.pending_inputs.first[:steer_target])).to be(true)
+    expect(agent.unsteer_pending_input(second)).to be(true)
+    expect(agent.pending_inputs.map { |entry| entry[:id] }).to eq([first, second, third])
+    expect(agent.pending_inputs.map { |entry| entry[:delivery] }).to eq(%w[queue queue queue])
+  end
+
+  it "keeps cancelling guidance idempotent and refuses entries it never accepted" do
+    agent.instance_variable_set(:@accepting_steering, true)
+    id = agent.enqueue_input("guidance")
+    expect(agent.unsteer_pending_input(id)).to be(false)
+    expect(agent.steer_pending_input(id, expected_task_id: agent.pending_inputs.first[:steer_target])).to be(true)
+    expect(agent.unsteer_pending_input(id)).to be(true)
+    expect(agent.unsteer_pending_input(id)).to be(false)
+    expect(agent.pending_inputs.first[:delivery]).to eq("queue")
+  end
+
+  it "cannot revive guidance the task already consumed" do
+    agent.instance_variable_set(:@accepting_steering, true)
+    id = agent.enqueue_input("guidance")
+    expect(agent.steer_pending_input(id, expected_task_id: agent.pending_inputs.first[:steer_target])).to be(true)
+    agent.send(:consume_steering_inputs)
+    expect(agent.unsteer_pending_input(id)).to be(false)
+    expect(agent.pending_inputs).to be_empty
+    expect(agent.history.to_a.map { |message| message[:content] }).to include("guidance")
+  end
+
+  it "leaves a cancelled message queued instead of steering the task" do
+    agent.instance_variable_set(:@accepting_steering, true)
+    id = agent.enqueue_input("guidance")
+    expect(agent.steer_pending_input(id, expected_task_id: agent.pending_inputs.first[:steer_target])).to be(true)
+    expect(agent.unsteer_pending_input(id)).to be(true)
+    expect(agent.send(:consume_steering_inputs, finishing: true)).to be(false)
+    expect(agent.pending_inputs.map { |entry| entry[:id] }).to eq([id])
+    expect(agent.history.to_a.map { |message| message[:content] }).not_to include("guidance")
+  end
+
+  it "publishes a fresh queue snapshot so the UI reflects the cancellation" do
+    snapshots = []
+    queue_ui = double("ui")
+    allow(queue_ui).to receive(:show_input_queue) { |entries| snapshots << entries }
+    agent = described_class.new(client, config, working_dir: Dir.pwd, ui: queue_ui, profile: "coding",
+                                                session_id: Clacky::SessionManager.generate_id, source: :manual)
+    agent.instance_variable_set(:@accepting_steering, true)
+    id = agent.enqueue_input("guidance")
+    agent.steer_pending_input(id, expected_task_id: agent.pending_inputs.first[:steer_target])
+    snapshots.clear
+    expect(agent.unsteer_pending_input(id)).to be(true)
+    expect(snapshots.last.map { |entry| entry[:delivery] }).to eq(["queue"])
+  end
+
   it "pauses the queue and goal continuation when user feedback is required" do
     agent.enqueue_input("unrelated task")
     allow(agent).to receive(:think).and_return({ content: nil, tool_calls: [{ id: "ask", name: "ask_user", arguments: {} }] })

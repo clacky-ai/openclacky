@@ -1138,6 +1138,20 @@ module Clacky
       changed
     end
 
+    # Reverting a mis-click shares the queue lock with conversion and
+    # consumption, so an entry already claimed by consume_steering_inputs can
+    # never be revived. The entry keeps its position: only the flag changes.
+    def unsteer_pending_input(id)
+      changed = @input_mutex.synchronize do
+        entry = @input_queue.find { |item| item[:id] == id }
+        next false unless entry && entry[:delivery] == "steer"
+        entry[:delivery] = "queue"
+        true
+      end
+      notify_input_queue
+      changed
+    end
+
     def restore_pending_input(entry)
       @input_mutex.synchronize do
         index = entry.delete(:queue_position) || 0
