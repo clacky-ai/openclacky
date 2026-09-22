@@ -769,6 +769,15 @@ RSpec.describe Clacky::Providers do
     end
   end
 
+  describe ".default_ocr_model" do
+    it "picks the declared OpenRouter OCR model" do
+      # default_ocr_model only honours a declared model that is also in the
+      # picker, so this guards the membership of the Gemini entry.
+      expect(described_class.default_ocr_model("openrouter")).to eq("google/gemini-3.8-flash")
+      expect(described_class.ocr_models("openrouter")).to include("google/gemini-3.8-flash")
+    end
+  end
+
   describe ".anthropic_format_for_model?" do
     it "is true for OpenRouter Claude models" do
       expect(described_class.anthropic_format_for_model?("openrouter", "anthropic/claude-opus-4-7"))

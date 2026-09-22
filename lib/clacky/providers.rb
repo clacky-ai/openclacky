@@ -371,9 +371,9 @@ module Clacky
         # Curated default lineup. OpenRouter's full catalogue is enormous
         # (hundreds of models) and the live /models endpoint isn't always
         # reachable from every region — shipping a small list of the
-        # mainstream Claude + GPT entries gives users a working dropdown
-        # out of the box. Users can still type any other OpenRouter model
-        # ID manually; this list only seeds the picker.
+        # mainstream Claude, GPT and Gemini entries gives users a working
+        # dropdown out of the box. Users can still type any other OpenRouter
+        # model ID manually; this list only seeds the picker.
         "models" => [
           "anthropic/claude-sonnet-4-6",
           "anthropic/claude-opus-4-8",
@@ -385,7 +385,10 @@ module Clacky
           "openai/gpt-5.6-luna",
           "openai/gpt-5.5",
           "openai/gpt-5.4",
-          "openai/gpt-5.4-mini"
+          "openai/gpt-5.4-mini",
+          # Listed because default_ocr_model only honours an explicit choice
+          # that is itself in the picker (see Providers.default_ocr_model).
+          "google/gemini-3.8-flash"
         ],
         # Per-primary lite pairing — Claude family pairs with Haiku, GPT
         # family pairs with the mini variant. Mirrors the openclacky and
@@ -421,6 +424,10 @@ module Clacky
         # until we ship a dedicated client-side adapter for that protocol.
         "image_models" => [],
         "default_image_model" => nil,
+        # Newest Gemini flash on OpenRouter that is still priced in our table;
+        # 2.5 Flash is cheaper upstream but has no entry, so its OCR usage
+        # would report no cost.
+        "default_ocr_model" => "google/gemini-3.8-flash",
         "website_url" => "https://openrouter.ai/keys"
       }.freeze,
 
