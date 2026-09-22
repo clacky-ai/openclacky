@@ -538,6 +538,8 @@ module Clacky
         # Note: Do NOT reset @previous_total_tokens here - it should maintain the value from the last iteration
         # across tasks to correctly calculate delta tokens in each iteration
         @task_start_iterations = @iterations  # Track starting iterations for this task
+        @task_upstream_fails = 0  # New task: retry the cheap floor from scratch
+        @task_upgrade_fails = 0  # New task: retry the upgrade lane from scratch
         @task_start_cost = @total_cost  # Track starting cost for this task
         # Track cache stats for current task
         @task_cache_stats = {
@@ -1313,7 +1315,10 @@ module Clacky
       # UI transitions cleanly to the assistant message that follows.
       response = nil
       begin
-        response = call_llm
+        response = call_llm(
+          agent_upstream_fails: @task_upstream_fails,
+          agent_upgrade_fails: @task_upgrade_fails
+        )
       rescue
         # Ensure the spinner is stopped on any error path before it bubbles up.
         @ui&.show_progress(phase: "done")

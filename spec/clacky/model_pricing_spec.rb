@@ -262,8 +262,6 @@ RSpec.describe Clacky::ModelPricing do
       let(:peak_time)     { Time.utc(2026, 8, 17, 2, 0, 0) }  # 02:00 UTC -> peak
       let(:off_peak_time) { Time.utc(2026, 8, 17, 5, 0, 0) }  # 05:00 UTC -> off-peak
       let(:weekend_peak_time) { Time.utc(2026, 8, 29, 2, 0, 0) } # Beijing Sat 10:00 (UTC peak window) -> off-peak
-      let(:v4pro_flash_time) { Time.utc(2026, 9, 14, 6, 0, 0) } # 06:00 UTC -> after 9/14 cutover, peak
-      let(:v4pro_flash_off_peak_time) { Time.utc(2026, 9, 14, 5, 0, 0) } # 05:00 UTC -> after 9/14 cutover, off-peak
 
       it "bills deepseek-v4-flash at peak rate" do
         usage = {
@@ -331,7 +329,7 @@ RSpec.describe Clacky::ModelPricing do
           cache_read_input_tokens: 30_000
         }
 
-        # Beijing Sat 10:00 (UTC peak window) -> off-peak rates (pre-9/14 old rate).
+        # Beijing Sat 10:00 (UTC peak window) -> off-peak rates.
         # Regular input: ((100_000 - 30_000) / 1_000_000) * $0.66   = $0.0462
         # Output:        (50_000 / 1_000_000)             * $1.98   = $0.099
         # Cache read:    (30_000 / 1_000_000)             * $0.022  = $0.00066
@@ -354,39 +352,6 @@ RSpec.describe Clacky::ModelPricing do
         # Total: $0.29172
         result = described_class.calculate_cost(model: "deepseek-v4-pro", usage: usage, now: peak_time)
         expect(result[:cost]).to be_within(0.0001).of(0.29172)
-        expect(result[:source]).to eq(:price)
-      end
-
-      it "bills deepseek-v4-pro at flash rates after the 9/14 cutover (peak)" do
-        usage = {
-          prompt_tokens: 100_000,
-          completion_tokens: 50_000,
-          cache_read_input_tokens: 30_000
-        }
-
-        # After 2026-09-14 v4-pro is routed to V4.1 Flash and billed at flash rates.
-        # Regular input: ((100_000 - 30_000) / 1_000_000) * $0.30  = $0.021
-        # Output:        (50_000 / 1_000_000)             * $1.20  = $0.06
-        # Cache read:    (30_000 / 1_000_000)             * $0.006 = $0.00018
-        # Total: $0.08118
-        result = described_class.calculate_cost(model: "deepseek-v4-pro", usage: usage, now: v4pro_flash_time)
-        expect(result[:cost]).to be_within(0.0001).of(0.08118)
-        expect(result[:source]).to eq(:price)
-      end
-
-      it "bills deepseek-v4-pro at flash rates after the 9/14 cutover (off-peak)" do
-        usage = {
-          prompt_tokens: 100_000,
-          completion_tokens: 50_000,
-          cache_read_input_tokens: 30_000
-        }
-
-        # Regular input: ((100_000 - 30_000) / 1_000_000) * $0.15  = $0.0105
-        # Output:        (50_000 / 1_000_000)             * $0.60  = $0.03
-        # Cache read:    (30_000 / 1_000_000)             * $0.003 = $0.00009
-        # Total: $0.04059
-        result = described_class.calculate_cost(model: "deepseek-v4-pro", usage: usage, now: v4pro_flash_off_peak_time)
-        expect(result[:cost]).to be_within(0.0001).of(0.04059)
         expect(result[:source]).to eq(:price)
       end
 
@@ -658,6 +623,69 @@ RSpec.describe Clacky::ModelPricing do
         )
         expect(result[:cost]).to be_nil
         expect(result[:source]).to be_nil
+      end
+    end
+
+    context "with GPT-5.5 / GPT-5.4 ids" do
+      it "resolves the openai/ OpenRouter prefix" do
+        expect(described_class.normalize_model_name("openai/gpt-5.5")).to eq("gpt-5.5")
+        expect(described_class.normalize_model_name("openai/gpt-5.4")).to eq("gpt-5.4")
+        expect(described_class.normalize_model_name("openai/gpt-5.4-mini")).to eq("gpt-5.4-mini")
+        expect(described_class.normalize_model_name("openai/gpt-5.4-nano")).to eq("gpt-5.4-nano")
+      end
+
+      it "keeps matching bare, compact and gateway-prefixed ids" do
+        expect(described_class.normalize_model_name("gpt-5.5")).to eq("gpt-5.5")
+        expect(described_class.normalize_model_name("gpt-5-5")).to eq("gpt-5.5")
+        expect(described_class.normalize_model_name("gpt55")).to eq("gpt-5.5")
+        expect(described_class.normalize_model_name("abs-gpt-5.4")).to eq("gpt-5.4")
+        expect(described_class.normalize_model_name("abs-gpt-5.4-mini")).to eq("gpt-5.4-mini")
+      end
+
+      it "bills the OpenRouter-prefixed 5.5 at its table rate" do
+        result = described_class.calculate_cost(
+          model: "openai/gpt-5.5",
+          usage: { prompt_tokens: 100_000, completion_tokens: 0 }
+        )
+        # 100K * $5/MTok (short tier)
+        expect(result[:cost]).to be_within(0.0001).of(0.50)
+        expect(result[:source]).to eq(:price)
+      end
+    end
+
+    context "with vendor-prefixed ids (OpenRouter / OrcaRouter style)" do
+      it "drops the vendor segment before matching" do
+        expect(described_class.normalize_model_name("google/gemini-3.5-flash")).to eq("gemini-3-flash")
+        expect(described_class.normalize_model_name("z-ai/glm-5.2")).to eq("glm-5.2")
+        expect(described_class.normalize_model_name("anthropic/claude-sonnet-5")).to eq("claude-sonnet-5")
+        expect(described_class.normalize_model_name("deepseek/deepseek-v4-flash")).to eq("deepseek-v4-flash")
+      end
+
+      it "bills google/gemini-3.5-flash at the gemini-3-flash rate" do
+        usage = { prompt_tokens: 100_000, completion_tokens: 50_000 }
+
+        # Input:  (100_000 / 1_000_000) * $0.50 = $0.05
+        # Output: (50_000 / 1_000_000)  * $3.00 = $0.15
+        result = described_class.calculate_cost(model: "google/gemini-3.5-flash", usage: usage)
+        expect(result[:cost]).to be_within(0.0001).of(0.20)
+        expect(result[:source]).to eq(:price)
+      end
+
+      it "bills z-ai/glm-5.2 at the glm-5.2 rate" do
+        usage = { prompt_tokens: 100_000, completion_tokens: 50_000 }
+
+        # Input: (100_000 / 1_000_000) * $1.40 = $0.14
+        # Output: (50_000 / 1_000_000) * $4.40 = $0.22
+        result = described_class.calculate_cost(model: "z-ai/glm-5.2", usage: usage)
+        expect(result[:cost]).to be_within(0.0001).of(0.36)
+        expect(result[:source]).to eq(:price)
+      end
+
+      it "leaves the auto-routing ids unpriced" do
+        ["auto", "orcarouter/auto"].each do |id|
+          result = described_class.calculate_cost(model: id, usage: { prompt_tokens: 1_000 })
+          expect(result[:source]).to be_nil, "expected no price for #{id}"
+        end
       end
     end
 

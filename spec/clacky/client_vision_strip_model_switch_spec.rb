@@ -32,7 +32,7 @@ RSpec.describe Clacky::Client, "vision strip follows request model" do
   def capture_request_body(request_model)
     captured = nil
     fake_response = instance_double(
-      Faraday::Response, status: 200,
+      Faraday::Response, status: 200, headers: {},
       body: { "choices" => [{ "message" => { "content" => "ok" } }] }.to_json
     )
     fake_conn = instance_double(Faraday::Connection)

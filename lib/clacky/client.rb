@@ -160,7 +160,7 @@ module Clacky
     #   path. When given but streaming is not yet wired for the active provider,
     #   a single synthetic invocation is fired after the response is received,
     #   so UI plumbing can be exercised end-to-end without the proxy work.
-    def send_messages_with_tools(messages, model:, tools:, max_tokens:, enable_caching: false, reasoning_effort: nil, on_chunk: nil)
+    def send_messages_with_tools(messages, model:, tools:, max_tokens:, enable_caching: false, reasoning_effort: nil, on_chunk: nil, agent_upstream_fails: nil, agent_upgrade_fails: nil)
       api_model = Providers.resolve_api_model(base_url: @base_url, api_key: @api_key, model: model)
       caching_enabled = enable_caching && supports_prompt_caching?(model)
       cloned = deep_clone(messages)
@@ -185,7 +185,7 @@ module Clacky
           send_openai_responses_request(cloned, api_model, tools, max_tokens, caching_enabled, reasoning_effort: reasoning_effort, on_chunk: wrapped_on_chunk, capability_model: model)
         else
           streaming_used = !on_chunk.nil?
-          send_openai_request(cloned, api_model, tools, max_tokens, caching_enabled, reasoning_effort: reasoning_effort, on_chunk: wrapped_on_chunk, capability_model: model)
+          send_openai_request(cloned, api_model, tools, max_tokens, caching_enabled, reasoning_effort: reasoning_effort, on_chunk: wrapped_on_chunk, capability_model: model, agent_upstream_fails: agent_upstream_fails, agent_upgrade_fails: agent_upgrade_fails)
         end
       t1 = Process.clock_gettime(Process::CLOCK_MONOTONIC)
 
@@ -208,7 +208,7 @@ module Clacky
         duration_ms: duration_ms,
         output_tokens: output_tokens,
         tps:         tps,
-        model:       model,
+        model:       response[:routed_model] || model,
         measured_at: Time.now.to_f,
         streaming:   streaming_used
       }
@@ -375,7 +375,7 @@ module Clacky
 
     # ── OpenAI request / response ─────────────────────────────────────────────
 
-    def send_openai_request(messages, model, tools, max_tokens, caching_enabled, reasoning_effort: nil, on_chunk: nil, capability_model: nil)
+    def send_openai_request(messages, model, tools, max_tokens, caching_enabled, reasoning_effort: nil, on_chunk: nil, capability_model: nil, agent_upstream_fails: nil, agent_upgrade_fails: nil)
       # Override max_tokens when the model declares a higher output ceiling
       # in Providers::MODEL_MAX_OUTPUT. Without this, strong models (GLM-5.2,
       # Kimi-K3, MiMo-V2.5) are throttled to the 16K global default.
@@ -399,15 +399,29 @@ module Clacky
         vision_supported: vision_supported,
         reasoning_effort: reasoning_effort
       )
-      return send_openai_stream_request(body, on_chunk) if on_chunk
+      return send_openai_stream_request(body, on_chunk, agent_upstream_fails: agent_upstream_fails, agent_upgrade_fails: agent_upgrade_fails) if on_chunk
 
-      response = openai_connection.post("chat/completions") { |r| r.body = body.to_json }
+      response = openai_connection.post("chat/completions") do |r|
+        r.body = body.to_json
+        set_agent_headers(r, agent_upstream_fails, agent_upgrade_fails)
+      end
 
       raise_error(response) unless response.status == 200
       check_html_response(response)
 
       parsed_body = safe_json_parse(response.body, context: "LLM response")
-      MessageFormat::OpenAI.parse_response(parsed_body)
+      parsed = MessageFormat::OpenAI.parse_response(parsed_body)
+      parsed[:routed_model] = response.headers["X-Clacky-Routed-Model"] if response.headers["X-Clacky-Routed-Model"]
+      parsed[:routed_tier] = response.headers["X-Clacky-Routed-Tier"] if response.headers["X-Clacky-Routed-Tier"]
+      parsed
+    end
+
+    # Forward the agent's pressure signals to the auto-routing gateway. The
+    # gateway is stateless, so the client is the only place that knows how a
+    # task is actually going (which lane already failed).
+    private def set_agent_headers(req, upstream_fails, upgrade_fails)
+      req.headers["X-Clacky-Agent-Upstream-Fails"] = upstream_fails.to_s if upstream_fails
+      req.headers["X-Clacky-Agent-Upgrade-Fails"] = upgrade_fails.to_s if upgrade_fails
     end
 
     # Whether the target model supports a capability. Resolution order mirrors
@@ -432,13 +446,14 @@ module Clacky
     # via platform/llm_proxy). Uses Faraday's on_data hook to consume SSE frames,
     # accumulates them, and reconstructs the non-streaming JSON response shape so
     # MessageFormat::OpenAI.parse_response works unchanged.
-    private def send_openai_stream_request(body, on_chunk)
+    private def send_openai_stream_request(body, on_chunk, agent_upstream_fails: nil, agent_upgrade_fails: nil)
       stream_body = body.merge(stream: true, stream_options: { include_usage: true })
       aggregator = OpenAIStreamAggregator.new(on_chunk: on_chunk)
       sse_buf = +""
 
       response = openai_connection.post("chat/completions") do |req|
         req.body = stream_body.to_json
+        set_agent_headers(req, agent_upstream_fails, agent_upgrade_fails)
         req.options.on_data = proc do |chunk, _bytes_received, _env|
           Clacky::Shutdown.checkpoint!
           sse_buf << chunk
@@ -451,6 +466,7 @@ module Clacky
         raise_error(response)
       end
 
+      routed_tier = response.headers["X-Clacky-Routed-Tier"]
       result = aggregator.to_h
       log_stream_summary("openai", aggregator, result.dig("choices", 0, "finish_reason"))
       # A complete chat-completion stream always terminates with a frame
@@ -459,10 +475,15 @@ module Clacky
       # didn't surface as an exception), leaving a half-written message. Treat
       # as retryable so we don't hand a silently truncated answer to the agent.
       if result.dig("choices", 0, "finish_reason").nil?
-        raise Clacky::UpstreamTruncatedError,
-          "[LLM] Streaming response ended without finish_reason (upstream cut the stream). Retrying..."
+        raise Clacky::UpstreamTruncatedError.new(
+          "[LLM] Streaming response ended without finish_reason (upstream cut the stream). Retrying...",
+          routed_tier: routed_tier
+        )
       end
-      MessageFormat::OpenAI.parse_response(result)
+      parsed = MessageFormat::OpenAI.parse_response(result)
+      parsed[:routed_model] = response.headers["X-Clacky-Routed-Model"] if response.headers["X-Clacky-Routed-Model"]
+      parsed[:routed_tier] = routed_tier if routed_tier
+      parsed
     end
 
     def parse_simple_openai_response(response)
@@ -785,6 +806,7 @@ module Clacky
       error_body    = JSON.parse(response.body) rescue nil
       error_message = extract_error_message(error_body, response.body)
       error_code    = extract_error_code(error_body)
+      routed_tier   = response.headers["X-Clacky-Routed-Tier"]
 
       Clacky::Logger.warn("client.raise_error",
         status: response.status,
@@ -805,7 +827,7 @@ module Clacky
       case response.status
       when 400
         if error_message.match?(/ThrottlingException|unavailable|quota/i)
-          raise RetryableError, "[LLM] #{I18n.t("llm.error.rate_limit_400")}"
+          raise RetryableError.new("[LLM] #{I18n.t("llm.error.rate_limit_400")}", routed_tier: routed_tier)
         end
 
         raise BadRequestError.new(
@@ -826,8 +848,8 @@ module Clacky
         if error_code == "quota_exceeded"
           raise AgentError.new("[LLM] #{I18n.t("llm.error.quota_exhausted")}", raw_message: error_message)
         end
-        raise RetryableError, "[LLM] #{I18n.t("llm.error.rate_limit_429")}"
-      when 500..599 then raise RetryableError, "[LLM] #{I18n.t("llm.error.server_error", status: response.status)}"
+        raise RetryableError.new("[LLM] #{I18n.t("llm.error.rate_limit_429")}", routed_tier: routed_tier)
+      when 500..599 then raise RetryableError.new("[LLM] #{I18n.t("llm.error.server_error", status: response.status)}", routed_tier: routed_tier)
       else raise AgentError.new("[LLM] #{I18n.t("llm.error.unexpected", status: response.status)}", raw_message: error_message)
       end
     end

@@ -179,8 +179,6 @@ module Clacky
       # Peak/off-peak billing (off-peak = half of peak; peak = 01:00-04:00 &
       # 06:00-10:00 UTC). Weekends (Sat/Sun, Beijing time) are billed entirely
       # at off-peak rates regardless of hour.
-      # v4-pro keeps its own rates until 2026-09-14, when it is routed to
-      # V4.1 Flash and billed at the flash rates (see flash_peak/flash_off_peak).
       # Each entry carries peak/off_peak tiers; calculate_cost resolves the
       # active tier from the request time.
       # V4.1 Flash — canonical model id, natively multimodal. The retired
@@ -242,18 +240,6 @@ module Clacky
           input:  { default: 0.66,   over_200k: 0.66 },   # $0.66/MTok  (half of peak)
           output: { default: 1.98,   over_200k: 1.98 },   # $1.98/MTok
           cache:  { write: 0.66,     read: 0.022 }        # $0.022/MTok cache hit
-        },
-        # Routed to V4.1 Flash from 2026-09-14 12:00 Beijing time and billed
-        # at the flash rates.
-        flash_peak: {
-          input:  { default: 0.30,   over_200k: 0.30 },
-          output: { default: 1.20,   over_200k: 1.20 },
-          cache:  { write: 0.30,     read: 0.006 }
-        },
-        flash_off_peak: {
-          input:  { default: 0.15,   over_200k: 0.15 },
-          output: { default: 0.60,   over_200k: 0.60 },
-          cache:  { write: 0.15,     read: 0.003 }
         }
       },
 
@@ -908,10 +894,6 @@ module Clacky
     # Costs for prompts between 200K–272K will be slightly over-estimated.
     TIERED_PRICING_THRESHOLD = 200_000
 
-    # v4-pro is routed to V4.1 Flash and billed at the flash rates from
-    # 2026-09-14 12:00 Beijing time (= 04:00 UTC).
-    DEEPSEEK_V4_PRO_FLASH_START = Time.utc(2026, 9, 14, 4, 0, 0)
-
     class << self
       # Calculate cost for the given model and usage
       #
@@ -1012,6 +994,13 @@ module Clacky
         return nil if model.nil? || model.empty?
 
         model = model.downcase.strip
+
+        # OpenRouter-style ids carry a "<vendor>/" prefix (e.g.
+        # "google/gemini-3.5-flash", "z-ai/glm-5.2", "anthropic/claude-sonnet-5").
+        # The pricing table is keyed by bare upstream ids, so drop the vendor
+        # segment up front — the anchored rules below would otherwise miss
+        # every prefixed form.
+        model = model.sub(%r{\A[a-z0-9][a-z0-9_.-]*/}, "")
 
         # Direct match
         return model if PRICING_TABLE.key?(model)
@@ -1157,10 +1146,11 @@ module Clacky
           "gemini-3.8-flash"
 
         # OpenAI GPT-5.x models - match various dashed/dotted/compact forms
-        # (e.g. "gpt-5.5", "gpt-5-5", "gpt5.5", "gpt55")
-        # GPT-5.6 tiers also accept an "openai/" OpenRouter prefix (the
-        # anchored rules above would otherwise miss it) and the "-pro"
-        # suffix (pro is priced identically to the base tier). Batch ids
+        # (e.g. "gpt-5.5", "gpt-5-5", "gpt5.5", "gpt55").
+        # Every tier also accepts the gateway ("abs-", "us.openai.",
+        # "global.openai.") and OpenRouter ("openai/") prefixes - the anchored
+        # rules would otherwise miss them. GPT-5.6 additionally accepts the
+        # "-pro" suffix (priced identically to the base tier). Batch ids
         # (":batch") stay unmatched - they bill at half price.
         when /^(?:abs-|us\.openai\.|global\.openai\.|openai\/)?gpt-?6[.-]?astra$/i
           "gpt-6-astra"
@@ -1170,13 +1160,13 @@ module Clacky
           "gpt-5.6-terra"
         when %r{^(?:abs-|global\.openai\.|openai/)?gpt-?5[\.-]?6[\.-]?luna(-pro)?$}i
           "gpt-5.6-luna"
-        when /^gpt-?5\.?5$/i, /^gpt-?5[\.-]?5$/i
-          "gpt-5.5"        
-        when /^gpt-?5\.?4[^.]*mini$/i, /^gpt-?5\.?4[\.-]?mini$/i
+        when %r{^(?:abs-|us\.openai\.|global\.openai\.|openai/)?gpt-?5[\.-]?5$}i
+          "gpt-5.5"
+        when %r{^(?:abs-|us\.openai\.|global\.openai\.|openai/)?gpt-?5[\.-]?4[\.-]?mini$}i
           "gpt-5.4-mini"
-        when /^gpt-?5\.?4[^.]*nano$/i, /^gpt-?5\.?4[\.-]?nano$/i
+        when %r{^(?:abs-|us\.openai\.|global\.openai\.|openai/)?gpt-?5[\.-]?4[\.-]?nano$}i
           "gpt-5.4-nano"
-        when /^gpt-?5\.?4$/i, /^gpt-?5[\.-]?4$/i
+        when %r{^(?:abs-|us\.openai\.|global\.openai\.|openai/)?gpt-?5[\.-]?4$}i
           "gpt-5.4"
         # O-series reasoning models
         when /^o4[\.-]?mini$/i
@@ -1228,12 +1218,6 @@ module Clacky
       # Resolve a DeepSeek pricing entry (which holds peak/off_peak tiers) to
       # the single tier that applies at the given time.
       def resolve_deepseek_tier(pricing, now)
-        # v4-pro migrates to V4.1 Flash on 2026-09-14; its entry carries
-        # flash_peak/flash_off_peak.
-        if pricing.key?(:flash_peak) && now >= DEEPSEEK_V4_PRO_FLASH_START
-          return deepseek_weekend?(now) || !deepseek_peak_hour?(now) ? pricing[:flash_off_peak] : pricing[:flash_peak]
-        end
-
         if deepseek_weekend?(now) || !deepseek_peak_hour?(now)
           pricing[:off_peak]
         else

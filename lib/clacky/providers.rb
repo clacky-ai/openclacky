@@ -29,8 +29,13 @@ module Clacky
         "name" => "OpenClacky",
         "base_url" => "https://api.openclacky.com",
         "api" => "bedrock",
-        "default_model" => "or-gemini-3-8-flash",
+        # "auto" is a gateway-side virtual alias: the platform routes each
+        # call economy-first (DeepSeek Flash floor, Gemini Pro upgrade on
+        # long/complex requests) and reports the concrete model back via the
+        # X-Clacky-Routed-Model response header.
+        "default_model" => "auto",
         "models" => [
+          "auto",
           "abs-gpt-6-astra",
           "abs-gpt-5.6-sol",
           "abs-gpt-5.6-terra",
@@ -153,6 +158,7 @@ module Clacky
         # Responses API — their Chat Completions endpoint rejects function
         # tools for reasoning models (GPT-6 Astra).
         "model_api_overrides" => {
+          "auto"      => "openai-completions",
           /\Aabs-gpt-/ => "openai-responses"
         }.freeze,
         # Per-primary lite pairing: keys are "strong" primary models, values
@@ -162,6 +168,7 @@ module Clacky
         # themselves, so they're intentionally not listed here as keys —
         # no injection happens when the default model is already lite-class.
         "lite_models" => {
+          "auto"                 => "dsk-deepseek-flash",
           "abs-claude-fable-5-1"  => "abs-claude-haiku-4-5",
           "abs-claude-fable-5"    => "abs-claude-haiku-4-5",
           "abs-claude-opus-5"     => "abs-claude-haiku-4-5",
@@ -200,67 +207,6 @@ module Clacky
         "website_url" => "https://www.openclacky.com/ai-keys"
       }.freeze,
 
-      "openrouter" => {
-        "name" => "OpenRouter",
-        "base_url" => "https://openrouter.ai/api/v1",
-        "api" => "openai-responses",
-        "default_model" => "anthropic/claude-sonnet-4-6",
-        # Curated default lineup. OpenRouter's full catalogue is enormous
-        # (hundreds of models) and the live /models endpoint isn't always
-        # reachable from every region — shipping a small list of the
-        # mainstream Claude + GPT entries gives users a working dropdown
-        # out of the box. Users can still type any other OpenRouter model
-        # ID manually; this list only seeds the picker.
-        "models" => [
-          "anthropic/claude-sonnet-4-6",
-          "anthropic/claude-opus-4-8",
-          "anthropic/claude-opus-4-7",
-          "anthropic/claude-opus-4-6",
-          "anthropic/claude-haiku-4-5",
-          "openai/gpt-5.6-sol",
-          "openai/gpt-5.6-terra",
-          "openai/gpt-5.6-luna",
-          "openai/gpt-5.5",
-          "openai/gpt-5.4",
-          "openai/gpt-5.4-mini"
-        ],
-        # Per-primary lite pairing — Claude family pairs with Haiku, GPT
-        # family pairs with the mini variant. Mirrors the openclacky and
-        # openai presets above so subagents on OpenRouter get a sensible
-        # cheap/fast sidekick automatically.
-        "lite_models" => {
-          "anthropic/claude-sonnet-4-6" => "anthropic/claude-haiku-4-5",
-          "anthropic/claude-opus-4-8"   => "anthropic/claude-haiku-4-5",
-          "anthropic/claude-opus-4-7"   => "anthropic/claude-haiku-4-5",
-          "anthropic/claude-opus-4-6"   => "anthropic/claude-haiku-4-5",
-          "openai/gpt-5.6-sol"         => "openai/gpt-5.6-luna",
-          "openai/gpt-5.6-terra"       => "openai/gpt-5.6-luna",
-          "openai/gpt-5.5"              => "openai/gpt-5.4-mini",
-          "openai/gpt-5.4"              => "openai/gpt-5.4-mini"
-        },
-        # Per-model API type overrides. Matched by Regexp against the model name.
-        # Why this exists: OpenRouter proxies Claude via both its OpenAI-compatible
-        # /chat/completions endpoint AND a native Anthropic /v1/messages endpoint.
-        # The OpenAI shim is lossy for Claude's cache_control semantics — prefix
-        # rewrites inside the proxy cause ~10% prompt-cache misses. Pinning
-        # "anthropic/*" (and any direct "claude-*" alias) to the native Anthropic
-        # endpoint preserves cache_control byte-for-byte and matches what Claude
-        # Code CLI does internally. Non-Claude models (Gemini, GPT, etc.) keep
-        # the OpenAI shim — that's what OpenRouter documents as their primary.
-        "model_api_overrides" => {
-          /\Aanthropic\// => "anthropic-messages",
-          /\Aclaude[-.]/  => "anthropic-messages"
-        }.freeze,
-        # Image generation via OpenRouter is currently routed through the
-        # openclacky platform gateway (see "openclacky" provider above) which
-        # handles the OpenRouter chat-completions + modalities translation.
-        # Direct OpenRouter image config is not exposed here — leave empty
-        # until we ship a dedicated client-side adapter for that protocol.
-        "image_models" => [],
-        "default_image_model" => nil,
-        "default_ocr_model" => "google/gemini-2.5-flash",
-        "website_url" => "https://openrouter.ai/keys"
-      }.freeze,
 
       "deepseekv4" => {
         "name" => "DeepSeek V4",
@@ -271,23 +217,22 @@ module Clacky
         "base_url" => "https://api.deepseek.com",
         "api" => "openai-completions",
         "default_model" => "deepseek-v4-pro",
-        "lite_model" => "deepseek-v4-flash",
+        "lite_model" => "deepseek-flash",
         # Note: deepseek-chat and deepseek-reasoner are legacy aliases being
-        # deprecated on 2026-07-24; they map to deepseek-v4-flash's non-thinking
-        # and thinking modes respectively. Prefer deepseek-v4-flash / deepseek-v4-pro.
+        # deprecated on 2026-07-24; they map to V4.1 Flash's non-thinking and
+        # thinking modes respectively.
+        # deepseek-v4-flash / deepseek-v4-flash-vision-exp are retired and no
+        # longer offered upstream, so they are out of this list: only their
+        # pricing entries remain, to let already-billed history resolve.
         "models" => [
           "deepseek-flash",
           "deepseek-v4-pro",
-          "deepseek-v4-flash",
-          "deepseek-v4-flash-vision-exp",
         ],
-        # DeepSeek V4 API is text-only across all models, except the
-        # flash-vision-exp variant which accepts image input. V4.1 Flash
-        # (deepseek-flash) is natively multimodal.
+        # DeepSeek V4 API is text-only across all models, except V4.1 Flash
+        # (deepseek-flash), which is natively multimodal.
         "capabilities" => { "vision" => false }.freeze,
         "model_capabilities" => {
-          "deepseek-flash"               => { "vision" => true }.freeze,
-          "deepseek-v4-flash-vision-exp" => { "vision" => true }.freeze
+          "deepseek-flash" => { "vision" => true }.freeze
         }.freeze,
         "website_url" => "https://platform.deepseek.com/api_keys"
       }.freeze,
@@ -366,7 +311,7 @@ module Clacky
         # and an OpenAI-compatible endpoint at api.kimi.com/coding/v1 (used
         # by Roo Code etc.). We route through anthropic-messages so
         # cache_control fields round-trip byte-for-byte (the OpenAI shim is
-        # lossy for cache_control semantics — see OpenRouter preset above
+        # lossy for cache_control semantics — see OpenRouter preset below
         # for the same reason). Verified against the live endpoint: response
         # payload includes cache_creation_input_tokens / cache_read_input_tokens,
         # so the cache layer is real on this backend.
@@ -416,6 +361,74 @@ module Clacky
         }.freeze,
         "default_ocr_model" => "MiniMax-M3",
         "website_url" => "https://platform.minimax.io/"
+      }.freeze,
+
+      "openrouter" => {
+        "name" => "OpenRouter",
+        "base_url" => "https://openrouter.ai/api/v1",
+        "api" => "openai-responses",
+        "default_model" => "anthropic/claude-sonnet-4-6",
+        # Curated default lineup. OpenRouter's full catalogue is enormous
+        # (hundreds of models) and the live /models endpoint isn't always
+        # reachable from every region — shipping a small list of the
+        # mainstream Claude, GPT and Gemini entries gives users a working
+        # dropdown out of the box. Users can still type any other OpenRouter
+        # model ID manually; this list only seeds the picker.
+        "models" => [
+          "anthropic/claude-sonnet-4-6",
+          "anthropic/claude-opus-4-8",
+          "anthropic/claude-opus-4-7",
+          "anthropic/claude-opus-4-6",
+          "anthropic/claude-haiku-4-5",
+          "openai/gpt-5.6-sol",
+          "openai/gpt-5.6-terra",
+          "openai/gpt-5.6-luna",
+          "openai/gpt-5.5",
+          "openai/gpt-5.4",
+          "openai/gpt-5.4-mini",
+          # Listed because default_ocr_model only honours an explicit choice
+          # that is itself in the picker (see Providers.default_ocr_model).
+          "google/gemini-3.8-flash"
+        ],
+        # Per-primary lite pairing — Claude family pairs with Haiku, GPT
+        # family pairs with the mini variant. Mirrors the openclacky and
+        # openai presets above so subagents on OpenRouter get a sensible
+        # cheap/fast sidekick automatically.
+        "lite_models" => {
+          "anthropic/claude-sonnet-4-6" => "anthropic/claude-haiku-4-5",
+          "anthropic/claude-opus-4-8"   => "anthropic/claude-haiku-4-5",
+          "anthropic/claude-opus-4-7"   => "anthropic/claude-haiku-4-5",
+          "anthropic/claude-opus-4-6"   => "anthropic/claude-haiku-4-5",
+          "openai/gpt-5.6-sol"         => "openai/gpt-5.6-luna",
+          "openai/gpt-5.6-terra"       => "openai/gpt-5.6-luna",
+          "openai/gpt-5.5"              => "openai/gpt-5.4-mini",
+          "openai/gpt-5.4"              => "openai/gpt-5.4-mini"
+        },
+        # Per-model API type overrides. Matched by Regexp against the model name.
+        # Why this exists: OpenRouter proxies Claude via both its OpenAI-compatible
+        # /chat/completions endpoint AND a native Anthropic /v1/messages endpoint.
+        # The OpenAI shim is lossy for Claude's cache_control semantics — prefix
+        # rewrites inside the proxy cause ~10% prompt-cache misses. Pinning
+        # "anthropic/*" (and any direct "claude-*" alias) to the native Anthropic
+        # endpoint preserves cache_control byte-for-byte and matches what Claude
+        # Code CLI does internally. Non-Claude models (Gemini, GPT, etc.) keep
+        # the OpenAI shim — that's what OpenRouter documents as their primary.
+        "model_api_overrides" => {
+          /\Aanthropic\// => "anthropic-messages",
+          /\Aclaude[-.]/  => "anthropic-messages"
+        }.freeze,
+        # Image generation via OpenRouter is currently routed through the
+        # openclacky platform gateway (see "openclacky" provider above) which
+        # handles the OpenRouter chat-completions + modalities translation.
+        # Direct OpenRouter image config is not exposed here — leave empty
+        # until we ship a dedicated client-side adapter for that protocol.
+        "image_models" => [],
+        "default_image_model" => nil,
+        # Newest Gemini flash on OpenRouter that is still priced in our table;
+        # 2.5 Flash is cheaper upstream but has no entry, so its OCR usage
+        # would report no cost.
+        "default_ocr_model" => "google/gemini-3.8-flash",
+        "website_url" => "https://openrouter.ai/keys"
       }.freeze,
 
       "anthropic" => {
@@ -567,7 +580,6 @@ module Clacky
           "doubao-seed-2.0-lite",
           "minimax-m3",
           "kimi-k2.7-code",
-          "kimi-k2.8-preview",
           "kimi-k3",
           # GLM-5.2 is delisted from Ark on 2026-08-31, so new setups only
           # offer GLM-5.3. It is available on the Coding/Agent Plan endpoints;
@@ -626,24 +638,20 @@ module Clacky
         "default_model" => "deepseek-v4-flash",
         # Curated list of cloud-enabled models from the Ollama library.
         # Users can type any Ollama model name manually; this list seeds the picker.
+        # Ollama's own subscription-billed open-weight models (gemma4, qwen3.5,
+        # nemotron-3-*, mistral-large-3, gpt-oss) publish no per-token price, so
+        # they are left out to keep every picker entry priced.
         "models" => [
           "glm-5.2",
           "kimi-k3",
-          "gemma4",
-          "qwen3.5",
           "glm-5.1",
           "minimax-m2.7",
-          "nemotron-3-super",
           "minimax-m3",
           "kimi-k2.7-code",
           "kimi-k2.6",
           "deepseek-v4-flash",
           "deepseek-v4-pro",
-          "nemotron-3-ultra",
-          "gemini-3-flash-preview",
-          "nemotron-3-nano",
-          "mistral-large-3",
-          "gpt-oss"
+          "gemini-3-flash-preview"
         ],
         # Provider-level default: many Ollama cloud models are vision-capable.
         "capabilities" => { "vision" => true }.freeze,
@@ -653,24 +661,16 @@ module Clacky
           "glm-5.1"             => { "vision" => false }.freeze,
           "minimax-m2.7"        => { "vision" => false }.freeze,
           "deepseek-v4-pro"     => { "vision" => false }.freeze,
-          "deepseek-v4-flash"   => { "vision" => false }.freeze,
-          "nemotron-3-super"    => { "vision" => false }.freeze,
-          "nemotron-3-ultra"    => { "vision" => false }.freeze,
-          "nemotron-3-nano"     => { "vision" => false }.freeze,
-          "gpt-oss"             => { "vision" => false }.freeze
+          "deepseek-v4-flash"   => { "vision" => false }.freeze
         }.freeze,
         # Per-primary lite pairing: subagents use smaller models for cheap/fast work.
         "lite_models" => {
           "glm-5.2"                => "glm-5.1",
           "kimi-k3"                => "kimi-k2.6",
-          "gemma4"                 => "nemotron-3-nano",
-          "qwen3.5"                => "gemini-3-flash-preview",
           "minimax-m3"             => "minimax-m2.7",
           "kimi-k2.7-code"         => "kimi-k2.6",
           "deepseek-v4-pro"        => "deepseek-v4-flash",
-          "mistral-large-3"        => "nemotron-3-nano",
-          "gpt-oss"                => "nemotron-3-nano",
-          "gemini-3-flash-preview"  => "nemotron-3-nano"
+          "gemini-3-flash-preview" => "deepseek-v4-flash"
         },
         "default_ocr_model" => "kimi-k2.7-code",
         "website_url" => "https://ollama.com/settings/keys"
@@ -685,8 +685,7 @@ module Clacky
         # Anthropic, Google, DeepSeek, Qwen, MiniMax, Zhipu and others behind a
         # single OpenAI-compatible endpoint. Shipping a small list of the
         # mainstream Claude + GPT entries gives users a working dropdown out
-        # of the box; users can still type any other OrcaRouter model id
-        # manually (e.g. "orcarouter/auto" for request-level auto-routing).
+        # of the box; users can still type any other OrcaRouter model id manually.
         "models" => [
           "anthropic/claude-sonnet-5",
           "anthropic/claude-opus-4.8",
@@ -696,8 +695,7 @@ module Clacky
           "openai/gpt-5.4-mini",
           "google/gemini-3.5-flash",
           "deepseek/deepseek-v4-flash",
-          "z-ai/glm-5.2",
-          "orcarouter/auto"
+          "z-ai/glm-5.2"
         ],
         # Per-primary lite pairing — Claude family pairs with Haiku, GPT
         # family pairs with the mini variant. Mirrors the openrouter preset
@@ -717,13 +715,12 @@ module Clacky
         "model_api_overrides" => {
           /\Aanthropic\// => "anthropic-messages"
         }.freeze,
-        # Most models on OrcaRouter are vision-capable; DeepSeek / GLM-5.2 and
-        # the "orcarouter/auto" router are text-only.
+        # Most models on OrcaRouter are vision-capable; DeepSeek and GLM-5.2
+        # are text-only.
         "capabilities" => { "vision" => true }.freeze,
         "model_capabilities" => {
           "deepseek/deepseek-v4-flash" => { "vision" => false }.freeze,
-          "z-ai/glm-5.2"               => { "vision" => false }.freeze,
-          "orcarouter/auto"            => { "vision" => false }.freeze
+          "z-ai/glm-5.2"               => { "vision" => false }.freeze
         }.freeze,
         "default_ocr_model" => "google/gemini-3.5-flash",
         "website_url" => "https://www.orcarouter.ai"
