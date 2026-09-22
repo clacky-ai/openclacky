@@ -267,6 +267,9 @@ module Clacky
       # directory for both the path label and the file listing so the LLM sees real
       # paths it can actually execute.
       effective_dir = script_dir || @directory.to_s
+      # Inline the absolute path into the body — the Supporting Files block below is not
+      # guaranteed to be read, and hunting for the path costs several extra turns.
+      processed_content.gsub!("<skill_dir>") { effective_dir }
       effective_files = if script_dir && Dir.exist?(script_dir)
         gitignore_path = Utils::FileIgnoreHelper.find_gitignore(script_dir)
         gitignore = gitignore_path ? GitignoreParser.new(gitignore_path) : nil

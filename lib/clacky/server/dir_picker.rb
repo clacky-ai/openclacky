@@ -12,20 +12,83 @@ module Clacky
       # Translated client-side via `id`. On WSL every favorite targets the
       # Windows profile (/mnt/<drive>/Users/<name>/...) so they match where a
       # Windows browser actually saves files; elsewhere they stay under Dir.home.
+      # The Windows shell folders win over the guessed profile when available —
+      # they are the folders the user actually sees in Explorer.
       private def dir_picker_places
         home = Dir.home
-        win_home = wsl_windows_home
+        folders = wsl_shell_folders
+        win_home = folders["profile"] || wsl_windows_home
         places = []
 
         [["home", win_home || home],
-         ["desktop",   File.join(win_home || home, "Desktop")],
-         ["downloads", File.join(win_home || home, "Downloads")],
-         ["documents", File.join(win_home || home, "Documents")]].each do |id, path|
+         ["desktop",   folders["desktop"]   || File.join(win_home || home, "Desktop")],
+         ["downloads", folders["downloads"] || File.join(win_home || home, "Downloads")],
+         ["documents", folders["documents"] || File.join(win_home || home, "Documents")]].each do |id, path|
           places << { id: id, path: path, kind: "favorite" } if Dir.exist?(path)
         end
 
         places.concat(dir_picker_drives)
         places
+      end
+
+      # Windows "shell folders" — the profile plus Desktop/Documents/Downloads —
+      # are routinely redirected away from C:\Users\<name>: OneDrive's "back up
+      # folders", Huawei PC Manager's file migration (which moves a profile to
+      # D:\HuaweiMoveData\Users\<name>), group-policy folder redirection. Guessing
+      # "<profile>/Desktop" then lands on the empty leftover shell, so the picker
+      # shows an empty directory while Explorer is full of files. Ask Windows for
+      # the real paths; the profile guess stays as the fallback for every entry.
+      # Cached — the spawn costs 0.5–1.5s and these paths never change while the
+      # process runs.
+      private def wsl_shell_folders
+        return @wsl_shell_folders if defined?(@wsl_shell_folders)
+
+        @wsl_shell_folders = wsl? ? (wsl_shell_folders_from_powershell || {}) : {}
+      end
+
+      # One PowerShell run for all four paths so the picker pays the process
+      # spawn once. Returns nil when interop is unavailable or nothing resolved,
+      # so callers fall back to guessing from the profile.
+      private def wsl_shell_folders_from_powershell
+        script = '$f=[Environment];' \
+                 '$f::GetFolderPath("UserProfile");' \
+                 '$f::GetFolderPath("Desktop");' \
+                 '$f::GetFolderPath("MyDocuments");' \
+                 'try { (New-Object -ComObject Shell.Application).NameSpace("shell:Downloads").Self.Path } catch { "" }'
+        require "open3"
+        out, _err, status = Open3.capture3(
+          "powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script, binmode: true
+        )
+        return nil unless status.success?
+
+        lines = Utils::Encoding.pty_to_utf8(out).split(/\r?\n/)
+        folders = {}
+        %w[profile desktop documents downloads].each_with_index do |key, index|
+          path = wsl_path_of(lines[index])
+          folders[key] = path if path
+        end
+        folders.empty? ? nil : folders
+      rescue StandardError
+        nil
+      end
+
+      # "D:\Users\leo\Desktop" → "/mnt/d/Users/leo/Desktop". wslpath does the
+      # conversion so custom mount roots are honoured. Nil for blank values, UNC
+      # shares (WSL can't reach them) and paths not mounted in this distro.
+      private def wsl_path_of(win_path)
+        value = win_path.to_s.strip
+        return nil unless value.match?(%r{\A[A-Za-z]:[\\/]})
+
+        require "open3"
+        out, _err, status = Open3.capture3("wslpath", "-a", "-u", value, binmode: true)
+        return nil unless status.success?
+
+        linux = Utils::Encoding.pty_to_utf8(out).strip
+        return nil unless linux.start_with?("/") && Dir.exist?(linux)
+
+        linux
+      rescue StandardError
+        nil
       end
 
       # Drive letters exposed to the picker so Windows users can reach D:/E:/…

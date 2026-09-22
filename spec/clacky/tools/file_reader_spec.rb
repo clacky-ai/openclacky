@@ -367,6 +367,20 @@ RSpec.describe Clacky::Tools::FileReader do
         end
       end
 
+      it "passes image_max_width 0 through as full resolution" do
+        Dir.mktmpdir do |dir|
+          png_file = File.join(dir, "wide.png")
+          require "chunky_png"
+          require "base64"
+          ChunkyPNG::Image.new(1200, 100).save(png_file)
+
+          result = tool.execute(path: png_file, image_max_width: 0)
+
+          image = ChunkyPNG::Image.from_blob(Base64.strict_decode64(result[:base64_data]))
+          expect(image.width).to eq(1200)
+        end
+      end
+
       it "delegates PDF files to parser (auto-extracts text, no base64)" do
         Dir.mktmpdir do |dir|
           pdf_file = File.join(dir, "test.pdf")

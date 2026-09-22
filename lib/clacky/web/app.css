@@ -933,7 +933,7 @@ body {
   height: 1.5rem;
   padding: 0 0.6rem;
   border: none;
-  border-radius: 6px 0 0 6px;
+  border-radius: 5px 0 0 5px;
   background: var(--color-accent-primary);
   color: #fff;
   font-size: 0.75rem;
@@ -959,7 +959,7 @@ body {
   padding: 0;
   border: none;
   border-left: 1px solid rgba(255,255,255,0.2);
-  border-radius: 0 6px 6px 0;
+  border-radius: 0 5px 5px 0;
   background: var(--color-accent-primary);
   color: #fff;
   cursor: pointer;
@@ -1331,7 +1331,7 @@ body {
 }
 
 /* ── DatePicker popup ─────────────────────────────────────────────────────── */
-.dp-popup {
+.dpk-popup {
   position: fixed;
   z-index: 9999;
   background: var(--color-bg-primary, #fff);
@@ -1344,17 +1344,17 @@ body {
   color: var(--color-text-primary);
   user-select: none;
 }
-.dp-header {
+.dpk-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   margin-bottom: 0.5rem;
 }
-.dp-title {
+.dpk-title {
   font-weight: 500;
   font-size: 0.8125rem;
 }
-.dp-nav {
+.dpk-nav {
   background: none;
   border: none;
   cursor: pointer;
@@ -1364,20 +1364,20 @@ body {
   border-radius: 4px;
   line-height: 1;
 }
-.dp-nav:hover { background: var(--color-bg-hover); }
-.dp-grid {
+.dpk-nav:hover { background: var(--color-bg-hover); }
+.dpk-grid {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
   gap: 2px;
 }
-.dp-dow {
+.dpk-dow {
   text-align: center;
   font-size: 0.625rem;
   color: var(--color-text-muted);
   padding: 0.1875rem 0;
   font-weight: 500;
 }
-.dp-day {
+.dpk-day {
   background: none;
   border: none;
   cursor: pointer;
@@ -1388,26 +1388,26 @@ body {
   font-size: 0.75rem;
   line-height: 1.4;
 }
-.dp-day:hover { background: var(--color-bg-hover); }
-.dp-day--today {
+.dpk-day:hover { background: var(--color-bg-hover); }
+.dpk-day--today {
   color: var(--color-accent-primary);
   font-weight: 700;
 }
-.dp-day--selected {
+.dpk-day--selected {
   background: var(--color-accent-primary);
   color: var(--color-text-inverse) !important;
   font-weight: 500;
 }
-.dp-day--selected:hover { background: var(--color-accent-primary); opacity: 0.88; }
-.dp-footer {
+.dpk-day--selected:hover { background: var(--color-accent-primary); opacity: 0.88; }
+.dpk-footer {
   display: flex;
   justify-content: space-between;
   margin-top: 0.5rem;
   padding-top: 0.5rem;
   border-top: 1px solid var(--color-border-primary);
 }
-.dp-btn-clear,
-.dp-btn-today {
+.dpk-btn-clear,
+.dpk-btn-today {
   background: none;
   border: none;
   cursor: pointer;
@@ -1416,8 +1416,8 @@ body {
   padding: 0.25rem 0.5rem;
   border-radius: 4px;
 }
-.dp-btn-clear:hover,
-.dp-btn-today:hover { background: var(--color-bg-hover); }
+.dpk-btn-clear:hover,
+.dpk-btn-today:hover { background: var(--color-bg-hover); }
 
 /* 清除筛选 — small ✕ icon button */
 .btn-search-clear-all {
@@ -4904,7 +4904,7 @@ body {
 #session-info-bar {
   display: flex;
   align-items: center;
-  gap: 0.375rem;
+  gap: 0.275rem;
   flex-wrap: nowrap;
   padding: 0.375rem 0.75rem;
   margin-left: 1.5rem;
@@ -4970,6 +4970,7 @@ body {
 .sib-id-clickable {
   cursor: pointer;
   border-radius: 3px;
+  padding: 0.2rem;
   transition: all 0.15s ease;
 }
 .sib-id-clickable:hover {
@@ -5070,15 +5071,32 @@ body {
 }
 
 #sib-dir {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3125rem;
   flex-shrink: 0;
   cursor: pointer;
   border-radius: 3px;
+  padding: 0.2rem;
   opacity: 0.75;        /* tier 2 */
   transition: all 0.15s ease;
   max-width: 17rem;
+}
+/* The path is the only shrinkable part — the caret must stay visible.
+   line-height is pinned so the wrapper's height stays driven by the text and
+   the bar keeps its height (an unconstrained flex item would grow to its line
+   box, ~3px taller). */
+#sib-dir-text,
+#sib-reasoning-text {
+  min-width: 0;
+  line-height: 1.2;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+/* display:inline-flex above would beat the UA [hidden] rule. */
+#sib-dir[hidden] {
+  display: none;
 }
 #sib-dir:hover {
   background: var(--color-bg-hover);
@@ -5157,14 +5175,80 @@ body {
   position: relative;
 }
 .sib-model-clickable {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.2rem;
+  gap: 0.3125rem;
   cursor: pointer;
   border-radius: 3px;
   transition: all 0.15s ease;
+}
+/* The bar text is 11px, so the dropdown's 18px tile would loom over it. */
+.sib-model-clickable .sib-vendor-badge {
+  width: 0.875rem;
+  height: 0.875rem;
+  border-radius: 4px;
+  font-size: 0.4375rem;
+}
+.sib-model-clickable .sib-vendor-badge svg {
+  width: 0.5625rem;
+  height: 0.5625rem;
+}
+.sib-model-clickable .sib-vendor-badge.is-brand svg {
+  width: 0.625rem;
+  height: 0.625rem;
 }
 .sib-model-clickable:hover {
   background: var(--color-bg-hover);
   opacity: 1 !important;
   color: var(--color-accent-primary);
+}
+/* Disclosure caret for the clickable status-bar fields. Those fields render as
+   plain text, so the caret is the only persistent hint that they open a picker.
+   Kept dim until hovered or expanded. */
+.sib-caret {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 3px;
+  opacity: 0.6;
+  transition: opacity 0.15s ease, transform 0.15s ease, background 0.15s ease;
+}
+/* The model caret is a click target of its own — it opens the quick-switch
+   panel directly — so it gets a padded hit area pulled back with a negative
+   margin to keep the bar height, and a small horizontal margin so the hover
+   fill does not touch the row edge. */
+#sib-model .sib-caret {
+  margin: -3px 2px -3px 0;
+  padding: 3px 2px;
+}
+/* The dir/reasoning carets are hints only: clicking them must reach the row,
+   and the row hover already provides the feedback. */
+#sib-dir .sib-caret,
+.sib-reasoning-clickable .sib-caret {
+  pointer-events: none;
+}
+.sib-model-clickable:hover .sib-caret,
+.sib-model-clickable.is-open .sib-caret,
+#sib-dir:hover .sib-caret,
+#sib-dir.is-open .sib-caret,
+.sib-reasoning-clickable:hover .sib-caret,
+.sib-reasoning-clickable.is-open .sib-caret {
+  opacity: 1;
+}
+/* Hovering the model caret needs feedback of its own: the row hover already
+   paints --color-bg-hover underneath, which made an identical fill invisible.
+   Accent tint mirrors .sib-submodel-toggle. */
+.sib-model-clickable .sib-caret:hover {
+  background: color-mix(in srgb, var(--color-accent-primary) 16%, transparent);
+  opacity: 1;
+}
+.sib-model-clickable.is-open .sib-caret,
+#sib-dir.is-open .sib-caret,
+.sib-reasoning-clickable.is-open .sib-caret {
+  transform: rotate(180deg);
+}
+.sib-model-disabled .sib-caret {
+  opacity: 0.3;
 }
 .sib-model-disabled {
   cursor: not-allowed !important;
@@ -5177,8 +5261,12 @@ body {
 
 /* Reasoning effort switcher — same dropdown pattern as model switcher */
 .sib-reasoning-clickable {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3125rem;
   cursor: pointer;
   border-radius: 3px;
+  padding: 0.2rem;
   transition: all 0.15s ease;
   font-variant-numeric: tabular-nums;
 }
@@ -5557,7 +5645,7 @@ body {
 }
 .sib-model-option .sib-model-name.has-sub {
   flex-direction: column;
-  align-items: flex-start;
+  align-items: stretch;
   gap: 0.325rem;
 }
 .sib-model-option .sib-model-name-main {
@@ -5609,6 +5697,17 @@ body {
   height: 0.6875rem;
   fill: currentColor;
   display: block;
+}
+/* Official brand artwork carries its own colors, so the tile only provides
+   contrast behind it — several marks include white shapes that vanish on a
+   light background. */
+.sib-vendor-badge.is-light {
+  border-color: transparent;
+}
+.sib-vendor-badge.is-brand svg {
+  width: 0.75rem;
+  height: 0.75rem;
+  fill: initial;
 }
 .sib-model-option .sib-model-name-sub {
   font-size: 0.6875rem;
@@ -6318,6 +6417,18 @@ body {
   display: inline-flex;
   align-items: center;
   flex-shrink: 0;
+}
+
+/* A quote badge carries an excerpt, not a filename — excerpts run to paragraphs,
+   so they stay on one line, same as the composer chip they were staged in. */
+.msg-quote-badge {
+  max-width: 100%;
+}
+.msg-quote-badge .msg-mention-badge-name {
+  max-width: 46ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 #user-input {
@@ -7565,6 +7676,15 @@ body {
 .dp-sidebar-item:hover {
   background: var(--color-bg-hover);
 }
+.dp-sidebar-item.active,
+.dp-sidebar-item.active:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+  font-weight: 600;
+}
+.dp-sidebar-item.active .dp-sidebar-icon {
+  color: var(--color-text-primary);
+}
 .dp-sidebar-icon {
   display: inline-flex;
   align-items: center;
@@ -7588,6 +7708,13 @@ body {
 .dp-sidebar-favorite:focus-within {
   background: var(--color-bg-hover);
 }
+/* The selected favorite paints the whole row so the highlight stays one block */
+.dp-sidebar-favorite:has(.dp-sidebar-item.active) {
+  background: var(--color-bg-hover);
+}
+.dp-sidebar-favorite:has(.dp-sidebar-item.active) .dp-sidebar-item.active {
+  background: transparent;
+}
 .dp-sidebar-favorite-open {
   min-width: 0;
   padding-right: 0.25rem;
@@ -7605,7 +7732,7 @@ body {
   padding: 0;
   flex-shrink: 0;
   border: 0;
-  border-radius: 4px;
+  border-radius: 6px;
   background: transparent;
   color: var(--color-text-tertiary);
   cursor: pointer;
@@ -7619,8 +7746,17 @@ body {
   pointer-events: auto;
 }
 .dp-sidebar-favorite-remove:hover {
-  background: var(--color-bg-active);
+  background: color-mix(in srgb, var(--color-text-primary) 8%, transparent);
   color: var(--color-text-primary);
+}
+.dp-sidebar-favorite-remove:active {
+  background: color-mix(in srgb, var(--color-text-primary) 14%, transparent);
+}
+.dp-sidebar-favorite-remove:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+  outline: 2px solid var(--color-accent-primary);
+  outline-offset: 1px;
 }
 
 /* Main column — toolbar + list + footer */
@@ -7687,7 +7823,9 @@ body {
   overflow-y: hidden;
   border: 1px solid transparent;
   border-radius: 5px;
-  background: var(--color-bg-primary);
+  /* Recessed field: a touch darker than the toolbar in every theme, so it
+     reads as sunken rather than as a second hover fill. */
+  background: color-mix(in srgb, var(--color-bg-secondary) 96%, #000);
   cursor: text;
   transition: border-color 0.12s, background 0.12s;
   scrollbar-width: none; /* Firefox */
@@ -9442,19 +9580,104 @@ button:focus-visible { outline: 2px solid var(--color-accent-primary); outline-o
   opacity: 0.6;
   cursor: default;
 }
-.extension-card {
-  background: var(--color-bg-secondary);
-  border: 1px solid var(--color-border-primary);
-  border-radius: 8px;
-  padding: 0.6rem 1rem;
-  transition: border-color .15s;
+/* ── Extension list: two-column rows grouped by publisher ───────────────── */
+.extensions-group { margin-bottom: 1.5rem; }
+.extensions-group:last-of-type { margin-bottom: 0.75rem; }
+.extensions-group-title {
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--color-text-secondary);
+  margin: 0 0 0.5rem;
 }
-.extension-card:hover { border-color: var(--color-text-muted); }
-.extension-card-main {
+.extensions-rows {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.125rem 1rem;
+}
+@media (max-width: 720px) {
+  .extensions-rows { grid-template-columns: minmax(0, 1fr); }
+}
+.extension-row {
   display: flex;
   align-items: center;
   gap: 0.75rem;
+  padding: 0.5rem 0.625rem;
+  border-radius: 8px;
+  min-width: 0;
+  transition: background .15s;
 }
+.extension-row:hover { background: var(--color-bg-hover); }
+.extension-row-clickable { cursor: pointer; }
+.extension-row-icon {
+  flex-shrink: 0;
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 10px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.extension-row-icon .extension-emoji { font-size: 1.5rem; align-items: center; }
+.extension-row-icon .extension-default-icon { width: 2.25rem; height: 2.25rem; }
+.extension-row-img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.extension-row-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.375rem; }
+.extension-row-name { display: flex; align-items: center; gap: 0.375rem; min-width: 0; }
+.extension-row-desc {
+  font-size: 0.75rem;
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.extension-row-action {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+}
+.ext-row-add,
+.ext-row-more {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  padding: 0;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--color-text-tertiary);
+  cursor: pointer;
+  transition: background .15s, color .15s;
+}
+/* One shade above the row's own hover fill: reusing --color-bg-hover here would
+   match a hovered row exactly and the button would disappear into it. */
+.ext-row-add:hover,
+.ext-row-more:hover,
+.ext-row-more[aria-expanded="true"] {
+  background: color-mix(in srgb, var(--color-bg-hover) 92%, var(--color-text-primary));
+  color: var(--color-text-secondary);
+}
+.ext-row-busy {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  font-size: 0.6875rem;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+.ext-row-error { font-size: 0.6875rem; color: var(--color-error); white-space: nowrap; }
+.ext-spinner {
+  flex-shrink: 0;
+  width: 0.875rem;
+  height: 0.875rem;
+  border-radius: 50%;
+  border: 1.5px solid var(--color-border-primary);
+  border-top-color: var(--color-text-secondary);
+  animation: ext-spin 0.7s linear infinite;
+}
+@keyframes ext-spin { to { transform: rotate(360deg); } }
 .extension-emoji {
   font-size: 1.5rem;
   line-height: 1.4;
@@ -9473,7 +9696,6 @@ button:focus-visible { outline: 2px solid var(--color-accent-primary); outline-o
   height: 2.75rem;
   border-radius: 10px;
 }
-.extension-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
 .extension-title {
   display: flex;
   align-items: center;
@@ -9574,37 +9796,43 @@ button:focus-visible { outline: 2px solid var(--color-accent-primary); outline-o
 }
 .extension-homepage:hover { text-decoration: underline; }
 
-/* Clickable catalog card + detail view */
-.extension-card-clickable { cursor: pointer; }
-
-/* System extension card toggle switch */
-.ext-card-toggle {
-  flex-shrink: 0;
-  position: relative;
-  width: 2.25rem;
-  height: 1.25rem;
-  border-radius: 999px;
+/* One floating menu serves every row, so it lives outside the list in the DOM
+   and is positioned against the button that opened it. */
+.ext-row-menu {
+  position: fixed;
+  z-index: 1200;
+  min-width: 10.5rem;
+  padding: 0.3125rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border-primary);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+}
+.ext-row-menu[hidden] { display: none; }
+.ext-row-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.5rem 0.625rem;
   border: none;
-  background: var(--color-border-primary);
+  border-radius: 7px;
+  background: transparent;
+  color: var(--color-text-primary);
+  font-family: inherit;
+  font-size: 0.8125rem;
+  text-align: left;
+  white-space: nowrap;
   cursor: pointer;
-  transition: background 0.2s;
-  padding: 0;
-  margin-left: auto;
-  align-self: center;
+  transition: background .15s;
 }
-.ext-card-toggle-on { background: var(--color-accent-primary); }
-.ext-card-toggle-thumb {
-  position: absolute;
-  top: 0.125rem;
-  left: 0.125rem;
-  width: 1rem;
-  height: 1rem;
-  border-radius: 50%;
-  background: #fff;
-  transition: transform 0.2s;
-  display: block;
-}
-.ext-card-toggle-on .ext-card-toggle-thumb { transform: translateX(1rem); }
+.ext-row-menu-item:hover { background: var(--color-bg-hover); }
+.ext-row-menu-item svg { flex-shrink: 0; opacity: 0.75; }
+.ext-row-menu-danger { color: var(--color-error); }
+.ext-row-menu-danger svg { opacity: 1; }
 
 .extension-detail {
   flex: 1;
@@ -11289,7 +11517,7 @@ body.setup-mode[data-theme="dark"] {
   height: 6.875rem;
   border-radius: 10px;
   border: 1px solid var(--color-border-primary);
-  object-fit: cover;
+  object-fit: contain;
   background: #fff;
   display: block;
 }
@@ -13210,10 +13438,14 @@ body.setup-mode[data-theme="dark"] {
   font-weight: 500;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.06);
 }
-[data-theme="dark"] .segmented-control {
+[data-theme="dark"] .segmented-control,
+[data-theme="dim"] .segmented-control,
+[data-theme="bluedark"] .segmented-control {
   background: var(--color-bg-primary);
 }
-[data-theme="dark"] .segmented-control__btn.active {
+[data-theme="dark"] .segmented-control__btn.active,
+[data-theme="dim"] .segmented-control__btn.active,
+[data-theme="bluedark"] .segmented-control__btn.active {
   background: var(--color-bg-hover);
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
 }
@@ -15255,6 +15487,11 @@ body.setup-mode[data-theme="dark"] {
     padding: 0.4rem 0.25rem 0.4rem 0.625rem;
     border: 0;
   }
+  .dp-sidebar > .dp-sidebar-item.active,
+  .dp-sidebar-favorite:has(.dp-sidebar-item.active) {
+    border-color: color-mix(in srgb, var(--color-text-primary) 22%, var(--color-border-primary));
+    background: var(--color-bg-hover);
+  }
   .dp-sidebar-favorite-remove {
     width: 28px;
     height: 28px;
@@ -16430,10 +16667,25 @@ body.setup-mode[data-theme="dark"] {
   background: #000;
 }
 
+/* ═══ Staged quote chip (quote-select.js) ═══
+   The chip borrows the mention-chip look and mechanics (see the "Mention chips
+   inside the contenteditable composer" block): atomic in the composer, skipped
+   by Composer.text(). It only adds the single-line truncation — a quote can be
+   paragraphs long, the chip must stay one line. */
+.quote-chip {
+  max-width: 100%;
+}
+.quote-chip .mention-chip-label {
+  max-width: 46ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* Running-task input behavior menu. */
 #input-behavior-control { position: relative; flex-shrink: 0; align-self: center; }
 #input-behavior-control[hidden], #input-behavior-menu[hidden] { display: none; }
-#input-behavior-toggle { display: grid; place-items: center; width: 26px; height: 34px; padding: 0; border: none; border-radius: 7px; background: transparent; color: var(--color-text-secondary); cursor: pointer; }
+#input-behavior-toggle { display: grid; place-items: center; width: 34px; height: 34px; padding: 0; border: none; border-radius: 9px; background: transparent; color: var(--color-text-secondary); cursor: pointer; }
 #input-behavior-toggle:hover, #input-behavior-toggle[aria-expanded="true"] { background: var(--color-bg-hover); color: var(--color-text-primary); }
 #input-behavior-menu { position: absolute; bottom: calc(100% + 12px); right: 0; width: min(280px, calc(100vw - 48px)); padding: 6px; border: 1px solid var(--color-border-primary); border-radius: 12px; background: var(--color-bg-primary); box-shadow: 0 8px 30px rgba(0,0,0,.14); z-index: 1000; }
 .input-behavior-heading { padding: 6px 10px 8px; font-size: 11px; color: var(--color-text-tertiary); }
@@ -16444,7 +16696,7 @@ body.setup-mode[data-theme="dark"] {
 #input-behavior-menu small { display: block; margin-top: 2px; font-size: 11px; line-height: 1.5; color: var(--color-text-secondary); }
 .input-behavior-check { width: 15px; flex-shrink: 0; line-height: 20px; color: var(--color-accent-primary); visibility: hidden; }
 #input-behavior-menu [aria-checked="true"] .input-behavior-check { visibility: visible; }
-@media (max-width: 768px) { #input-behavior-toggle { width: 28px; height: 38px; } #input-behavior-menu button { min-height: 56px; } }
+@media (max-width: 768px) { #input-behavior-menu button { min-height: 56px; } }
 
 /* Pending guidance: single-line previews and always-visible actions. */
 #input-queue[hidden] { display: none; }

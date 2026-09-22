@@ -140,6 +140,7 @@ class ExtStudioExt < Clacky::ApiExtension
         name: ext["display_name"] || ext["name"],
         version: (ext["latest_version"] || {})["version"] || ext["version"],
         status: ext["status"],
+        hub_status: ext["hub_status"],
         origin: ext["origin"],
         units: ext["units"] || {}
       }
@@ -164,6 +165,7 @@ class ExtStudioExt < Clacky::ApiExtension
         name: ext["display_name"] || ext["name"],
         version: (ext["latest_version"] || {})["version"] || ext["version"],
         status: ext["status"] || "published",
+        hub_status: ext["hub_status"],
         origin: ext["origin"]
       }
     end

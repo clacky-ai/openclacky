@@ -81,6 +81,9 @@ module Clacky
       ".zip"  => :zip, ".gz" => :zip, ".tgz" => :zip, ".tar" => :zip, ".rar" => :zip, ".7z" => :zip,
       ".png"  => :image, ".jpg" => :image, ".jpeg" => :image,
       ".gif"  => :image, ".webp" => :image,
+      ".mp4"  => :video, ".webm" => :video, ".mov" => :video,
+      ".wav"  => :audio, ".mp3" => :audio, ".ogg" => :audio,
+      ".aac"  => :audio, ".flac" => :audio, ".m4a" => :audio,
       ".csv"  => :csv,
       ".md"   => :text, ".markdown" => :text, ".txt" => :text, ".log" => :text
     }.freeze
@@ -152,6 +155,12 @@ module Clacky
 
       when ".png", ".jpg", ".jpeg", ".gif", ".webp"
         FileRef.new(name: name, type: :image, original_path: path)
+
+      when ".mp4", ".webm", ".mov"
+        FileRef.new(name: name, type: :video, original_path: path)
+
+      when ".wav", ".mp3", ".ogg", ".aac", ".flac", ".m4a"
+        FileRef.new(name: name, type: :audio, original_path: path)
 
       when ".csv"
         # CSV is plain text — the file itself IS the preview. No parser, no copy.
@@ -250,7 +259,7 @@ module Clacky
       b64
     end
 
-    def self.file_to_base64(path)
+    def self.file_to_base64(path, max_width: nil)
       require "base64"
       ext  = File.extname(path).downcase
       size = File.size(path)
@@ -260,9 +269,25 @@ module Clacky
       # Detect actual image format from magic bytes (ignore misleading extensions)
       mime = ext_mime.start_with?("image/") ? detect_image_mime_type(raw_data, ext_mime) : ext_mime
       data = Base64.strict_encode64(raw_data)
-      # Downscale images before sending to LLM to reduce token cost
-      data = downscale_image_base64(data, mime) if mime.start_with?("image/")
+      # Downscale images before sending to LLM to reduce token cost.
+      # max_width 0 opts out (full resolution); the API hard size limit still applies.
+      if mime.start_with?("image/")
+        width = max_width.nil? ? IMAGE_MAX_WIDTH : max_width.to_i
+        data = width > 0 ? downscale_image_base64(data, mime, max_width: width) : enforce_image_size_limit(data)
+      end
       { format: ext[1..], mime_type: mime, size_bytes: size, base64_data: data }
+    end
+
+    # Full-resolution pass-through is bounded by the vision API payload cap;
+    # raise with a actionable message instead of letting the API reject it.
+    def self.enforce_image_size_limit(b64)
+      return b64 if b64.bytesize <= IMAGE_MAX_BASE64_BYTES
+
+      size_kb = b64.bytesize / 1024
+      limit_mb = IMAGE_MAX_BASE64_BYTES / 1_000_000
+      raise ArgumentError,
+        "Image too large to send at full resolution (#{size_kb}KB > #{limit_mb}MB). " \
+        "Downscale it first, or read a cropped region."
     end
 
     def self.image_path_to_data_url(path)

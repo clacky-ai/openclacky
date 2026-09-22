@@ -28,6 +28,10 @@ module Clacky
           end_line: {
             type: "integer",
             description: "End line number (1-indexed, e.g., 200 reads up to line 200)"
+          },
+          image_max_width: {
+            type: "integer",
+            description: "Images only: max width in px for downscaling (default 800). Pass 0 to send full resolution — many more tokens"
           }
         },
         required: ["path"]
@@ -44,7 +48,7 @@ module Clacky
       # Maximum characters per line (prevent single huge lines from bloating tokens)
       MAX_LINE_CHARS = 1000
 
-      def execute(path:, max_lines: 1000, start_line: nil, end_line: nil, working_dir: nil)
+      def execute(path:, max_lines: 1000, start_line: nil, end_line: nil, working_dir: nil, image_max_width: nil)
         # Expand path relative to working_dir when provided
         expanded_path = expand_path(path, working_dir: working_dir)
 
@@ -79,7 +83,7 @@ module Clacky
           case ref.type
           when :image
             # Images go to LLM as base64 via the image_inject sidecar channel.
-            return handle_image_file(expanded_path)
+            return handle_image_file(expanded_path, image_max_width)
 
           when :pdf, :document, :spreadsheet, :presentation
             # Parser-backed document formats. FileProcessor has already
@@ -350,9 +354,10 @@ module Clacky
 
       # Handle an image file: convert to base64 and return an LLM-ready result
       # with the image_inject sidecar. Used by execute() for :image type files.
-      private def handle_image_file(path)
+      # image_max_width nil keeps the default downscale; 0 sends full resolution.
+      private def handle_image_file(path, image_max_width = nil)
         begin
-          result = Utils::FileProcessor.file_to_base64(path)
+          result = Utils::FileProcessor.file_to_base64(path, max_width: image_max_width)
           {
             path: path,
             binary: true,

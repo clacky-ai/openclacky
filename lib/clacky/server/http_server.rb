@@ -317,12 +317,15 @@ module Clacky
         #
         # When running as a worker under Master, DoNotListen: true prevents WEBrick
         # from calling bind() on its own — we inject the inherited socket instead.
+        server = nil
         webrick_opts = {
           BindAddress:   @host,
           Port:          @port,
           Logger:        WEBrick::Log.new(File::NULL),
           AccessLog:     [],
-          StartCallback: proc { }  # signal traps set below, after `server` is created
+          # WEBrick resets its status in start(). A TERM during initialization
+          # must not resurrect a server whose listeners were already detached.
+          StartCallback: proc { server.shutdown if @draining }
         }
         webrick_opts[:DoNotListen] = true if @inherited_socket
         Clacky::Logger.info("[HttpServer PID=#{Process.pid}] WEBrick DoNotListen=#{webrick_opts[:DoNotListen].inspect}")
@@ -330,7 +333,7 @@ module Clacky
         server = WEBrick::HTTPServer.new(**webrick_opts)
 
         # Override WEBrick's signal traps now that `server` is available.
-        # On INT/TERM: call server.shutdown (graceful), with a 1s hard-kill fallback.
+        # On INT/TERM: call server.shutdown; the master bounds process exit.
         # Also stop BrowserManager so the chrome-devtools-mcp node process is killed
         # before this worker exits — otherwise it becomes an orphan and holds port 7070.
         shutdown_once = false
@@ -528,6 +531,8 @@ module Clacky
         # pass covers the whole-program checks an author needs to see at boot.
         report_extension_issues
 
+        return if @draining
+
         # Start the background scheduler
         @scheduler.start
         puts "   Scheduler: #{@scheduler.schedules.size} task(s) loaded"
@@ -549,7 +554,10 @@ module Clacky
         # Start browser MCP daemon if browser.yml is configured (non-blocking)
         @browser_manager.start
 
-        server.start
+        server.start unless @draining
+      ensure
+        # close only this process's FD, never shutdown the shared kernel socket.
+        @inherited_socket.close if @inherited_socket && !@inherited_socket.closed?
       end
 
 
@@ -1049,8 +1057,7 @@ module Clacky
         end
 
         broadcast_session_update(session_id, created: true)
-        summary = @registry.session_summary(session_id)
-        json_response(res, 201, { session: summary })
+        json_response(res, 201, { session: @registry.session_summary(session_id) })
       end
 
       # Auto-restore persisted sessions (or create a fresh default) when the server starts.
@@ -2641,9 +2648,9 @@ module Clacky
           # Refresh skill_loader with the now-activated brand config so brand
           # skills are loadable from this point forward (e.g. after sync).
           @skill_loader = Clacky::SkillLoader.new(working_dir: nil, brand_config: brand)
-          # Install all brand skills in the background on first activation so
-          # they are available immediately without manual user action.
-          brand.sync_brand_skills_async!(install_new: true)
+          # Sync brand skills in the background so they are available without
+          # manual user action.
+          brand.sync_brand_skills_async!
           json_response(res, 200, {
             ok:            true,
             product_name:  result[:product_name] || brand.product_name,
@@ -2712,6 +2719,9 @@ module Clacky
             slug      = ext["name"] || ext[:name] || ext["slug"] || ext[:slug]
             container = installed[slug]
             ext.merge(
+              # `id` on a catalog entry is the store's own row id; local
+              # operations (uninstall) need the installed directory name.
+              "slug"              => slug,
               "installed"         => !container.nil?,
               "installed_version" => container&.dig(:version)
             )
@@ -2756,6 +2766,9 @@ module Clacky
               local_overrides["emoji"] = local_emoji if local_emoji.to_s.strip != ""
             end
             ext.merge(
+              # Same as the public catalog: `id` is the store's row id, while
+              # uninstall/enable need the slug the extension was installed as.
+              "slug"              => slug,
               "installed"         => !ext["installed_version"].nil?,
               "installed_version" => ext["installed_version"],
               **local_overrides
@@ -2776,7 +2789,6 @@ module Clacky
       # Returns only the builtin (system) extensions shipped with the gem.
       def api_store_extensions_system(res)
         result   = Clacky::ExtensionLoader.load_all
-        disabled = Clacky::ExtensionLoader.disabled_ids
 
         hidden = %w[coding general ext-studio].to_set
 
@@ -2803,7 +2815,7 @@ module Clacky
             "layer"           => "builtin",
             "installed"       => true,
             "removable"       => false,
-            "disabled"        => disabled.include?(ext_id),
+            "disabled"        => container[:disabled] == true,
           }
         end
 
@@ -2814,55 +2826,61 @@ module Clacky
 
       # GET /api/store/extensions/installed
       #
-      # Returns all locally installed extensions (all layers: builtin, installed,
-      # local) regardless of whether they are still listed on the marketplace.
+      # Every extension that lives on this machine, regardless of whether it is
+      # still listed on the marketplace, ordered builtin → installed: builtin is
+      # official (ships with the gem, can only be switched off), installed came
+      # from the marketplace via the user and can be removed. Extensions that own
+      # a dedicated surface (coding, general, ext-studio) are hidden here too —
+      # they are not user-managed extensions.
       def api_store_extensions_installed(res)
-        result   = Clacky::ExtensionLoader.load_all
-        disabled = Clacky::ExtensionLoader.disabled_ids
+        hidden  = %w[coding general ext-studio].to_set
+        result  = Clacky::ExtensionLoader.load_all
+        layers  = Clacky::ExtensionLoader::LAYERS
 
-        local_entries = Array(result&.containers).filter_map do |ext_id, container|
-          next unless container[:layer] == :installed
+        entries = Array(result&.containers).select do |ext_id, container|
+          next false unless %i[builtin installed].include?(container[:layer])
+          next false if container[:layer] == :builtin && hidden.include?(ext_id)
 
-          [ext_id, container]
-        end.to_h
+          true
+        end.sort_by { |ext_id, container| [layers.index(container[:layer]) || 99, ext_id] }
 
-        market_by_slug = fetch_batch_market_data(local_entries.keys)
+        market_by_slug = fetch_batch_market_data(entries.map { |ext_id, _c| ext_id })
 
-        extensions = local_entries.map do |ext_id, container|
-          market = market_by_slug[ext_id]
-          # For self-authored (origin: self) extensions market is nil.
-          # Fall back to local ext.yml data so name/description/author are populated.
-          local_name   = container[:name].to_s.then { |n| n.empty? ? ext_id : n }
-          local_desc   = container.dig(:raw, "description").to_s
-          local_author = container[:author].to_s
-          local_units  = units_from_container(container)
+        extensions = entries.map do |ext_id, container|
+          builtin = container[:layer] == :builtin
+          market  = market_by_slug[ext_id]
+          # A builtin extension's manifest is the source of truth for its text: it
+          # ships with the gem, and plenty of builtins were never published, so a
+          # marketplace miss must not paint them as delisted.
+          label = builtin ? nil : market
+          local_name = container[:name].to_s.then { |n| n.empty? ? ext_id : n }
           {
             "id"                => ext_id,
-            "name"              => market ? (market["name"] || ext_id) : local_name,
-            "display_name"      => market&.dig("display_name"),
-            "display_name_zh"   => market&.dig("display_name_zh"),
-            "name_zh"           => market&.dig("name_zh"),
-            "name_en"           => market&.dig("name_en"),
+            "name"              => label ? (label["name"] || ext_id) : local_name,
+            "display_name"      => (label && label["display_name"]) || container.dig(:raw, "display_name") || local_name,
+            "display_name_zh"   => (label && label["display_name_zh"]) || container.dig(:raw, "display_name_zh"),
+            "name_zh"           => label&.dig("name_zh"),
+            "name_en"           => label&.dig("name_en"),
             "slug"              => ext_id,
-            "version"           => market ? (market["version"] || container[:version]) : container[:version],
+            "version"           => (label && label["version"]) || container[:version],
             "installed_version" => container[:version],
-            "description"       => market ? market["description"] : local_desc,
-            "author"            => market ? market["author"] : local_author,
+            "description"       => (label && label["description"]) || container.dig(:raw, "description").to_s,
+            "description_zh"    => (label && label["description_zh"]) || container.dig(:raw, "description_zh").to_s,
+            "author"            => (label && label["author"]) || container[:author].to_s,
             "icon_url"          => market&.dig("icon_url"),
-            "units"             => market ? market["units"] : local_units,
-            "homepage"          => market ? (market["homepage"] || "") : container[:homepage].to_s,
-            "origin"            => market ? (market["origin"] || container[:origin]) : container[:origin],
+            "units"             => (label && label["units"]) || units_from_container(container),
+            "homepage"          => (label && label["homepage"]) || container[:homepage].to_s,
+            "origin"            => (label && (label["origin"] || container[:origin])) || container[:origin],
             "hub_active"        => market&.dig("hub_active"),
             "download_count"    => market&.dig("download_count").to_i,
-            # Mark as unlisted when:
-            # - market is nil (extension no longer exists on the platform), OR
-            # - platform batch API explicitly returned unlisted:true (brand-private
-            #   extension removed from all distributions but not yet soft-deleted).
-            "unlisted"          => market.nil? || market["unlisted"] == true,
+            # Unlisted means the marketplace lost track of it: either the batch
+            # lookup came back empty, or the platform flagged it unlisted:true
+            # (brand-private extension pulled from distribution, not yet deleted).
+            "unlisted"          => !builtin && (market.nil? || market["unlisted"] == true),
             "layer"             => container[:layer].to_s,
             "installed"         => true,
-            "removable"         => true,
-            "disabled"          => disabled.include?(ext_id),
+            "removable"         => container[:layer] == :installed,
+            "disabled"          => container[:disabled] == true,
           }
         end
 
@@ -6297,18 +6315,25 @@ module Clacky
       # GET /api/config — return current model configurations
       def api_get_config(req, res)
         models = @agent_config.models.map.with_index do |m, i|
+          # Provider is resolved (stored id → base_url → api_key hint) so the
+          # model picker can label every row with the service it actually runs
+          # through; provider_id alone is absent on most stored entries.
+          provider_id = @agent_config.provider_id_for(m)
+          provider    = provider_id && Clacky::Providers.get(provider_id)
           {
-            id:               m["id"],   # Stable runtime id — use this for switching
-            index:            i,
-            model:            m["model"],
-            base_url:         m["base_url"],
-            api_key_masked:   mask_api_key(m["api_key"]),
-            anthropic_format: m["anthropic_format"] || false,
-            api_format:       m["api_format"],
-            provider_id:      m["provider_id"],
-            capabilities:     m["capabilities"],
-            remark:           m["remark"],
-            type:             m["type"]
+            id:                m["id"],   # Stable runtime id — use this for switching
+            index:             i,
+            model:             m["model"],
+            base_url:          m["base_url"],
+            api_key_masked:    mask_api_key(m["api_key"]),
+            anthropic_format:  m["anthropic_format"] || false,
+            api_format:        m["api_format"],
+            provider_id:       m["provider_id"],
+            provider_name:     provider && provider["name"],
+            provider_name_key: provider && provider["name_key"],
+            capabilities:      m["capabilities"],
+            remark:            m["remark"],
+            type:              m["type"]
           }
         end
         # Filter out auto-injected models (lite, derived media) AND media
@@ -7565,7 +7590,7 @@ module Clacky
 
         when "input_behavior"
           mode = msg["value"]
-          raise ArgumentError, "Invalid input behavior" unless %w[interrupt steer].include?(mode)
+          raise ArgumentError, "Invalid input behavior" unless %w[queue interrupt steer].include?(mode)
           @agent_config.input_behavior = mode
           @agent_config.save
           broadcast_all(type: "input_behavior", value: mode)
@@ -7577,6 +7602,13 @@ module Clacky
         when "remove_pending_input"
           session_id = msg["session_id"] || conn.session_id
           @registry.get(session_id)&.dig(:agent)&.remove_pending_input(msg["id"])
+
+        when "steer_pending_input"
+          session_id = msg["session_id"] || conn.session_id
+          agent = @registry.get(session_id)&.dig(:agent)
+          unless agent&.steer_pending_input(msg["id"], expected_task_id: msg["task_id"])
+            broadcast(session_id, { type: "input_queue_notice", session_id: session_id, key: "chat.input.guidanceRejected" })
+          end
 
         when "send_pending_input"
           session_id = msg["session_id"] || conn.session_id
@@ -7674,19 +7706,23 @@ module Clacky
         session = @registry.get(session_id)
         agent = session&.dig(:agent)
         # Claim before interrupting: an already consumed or double-clicked ID is a no-op.
-        entry = agent&.remove_pending_input(id)
+        entry = agent&.remove_pending_input(id, for_execution: true)
         return unless entry
 
         started = false
         begin
           if session[:status] == :running
             interrupt_session(session_id, reason: :replacement)
-            session[:thread]&.join(2)
+            worker = session[:thread]
+            if worker && !worker.join(2)
+              broadcast(session_id, { type: "input_queue_notice", session_id: session_id, key: "chat.input.stoppingDelayed" })
+              return
+            end
           end
           started = run_agent_task(session_id, agent) { agent.run_pending_input(entry) }
         ensure
           # A concurrency-limit rejection must not discard the user's input.
-          agent.enqueue_input(entry[:content], **entry[:options]) unless started
+          agent.restore_pending_input(entry) unless started
         end
       end
 
@@ -7697,28 +7733,39 @@ module Clacky
         
         mode = @agent_config.input_behavior
         queued = false
+        queued_created_at = nil
         @registry.with_session(session_id) do |s|
-          if s[:status] == :running && mode == "steer"
-            s[:agent].enqueue_input(content, files: files, references_display: references,
-                                    reference_contexts: build_reference_contexts(references), created_at: Time.now.to_f)
+          if s[:status] == :running && %w[queue steer].include?(mode)
+            queued_created_at = Time.now.to_f
+            s[:agent].enqueue_input(content, delivery: mode.to_sym, files: files, references_display: references,
+                                    reference_contexts: build_reference_contexts(references), created_at: queued_created_at)
             queued = true
           end
         end
-        return if queued
+        if queued
+          # The frontend renders the bubble optimistically; tell it to retract
+          # the bubble — the message now lives in the queue panel and will be
+          # re-rendered by run_pending_input on delivery.
+          broadcast(session_id, { type: "input_enqueued", session_id: session_id, created_at: queued_created_at })
+          return
+        end
 
         # If session is running, interrupt it first (mimics CLI behavior)
         if session[:status] == :running
           interrupt_session(session_id, reason: :replacement)
 
-          # Give the old thread a short window to exit cleanly.
-          # In the common case it returns within milliseconds (Thread#raise
-          # lands on a tight loop or LLM read). If it can't be reached in
-          # time (e.g. blocked in a slow subagent syscall), we proceed anyway:
-          # the agent's check_stale! checkpoints will refuse to mutate
-          # history once the new thread takes over.
+          # A replacement must not race the old worker on shared history or
+          # tool execution. Retain the input if cooperative shutdown is slow.
           old_thread = nil
           @registry.with_session(session_id) { |s| old_thread = s[:thread] }
-          old_thread&.join(2)
+          if old_thread && !old_thread.join(2)
+            retained_created_at = Time.now.to_f
+            session[:agent].enqueue_input(content, files: files, references_display: references,
+                                          reference_contexts: build_reference_contexts(references), created_at: retained_created_at)
+            broadcast(session_id, { type: "input_enqueued", session_id: session_id, created_at: retained_created_at })
+            broadcast(session_id, { type: "input_queue_notice", session_id: session_id, key: "chat.input.stoppingDelayed" })
+            return
+          end
         end
 
         agent = nil
@@ -7755,9 +7802,13 @@ module Clacky
         # processing finishes, which can take seconds. Without the preview here, a
         # page refresh inside that window shows the message without its image (the
         # "need to refresh several times before the image appears" bug).
+        # No `steering` flag: a message reaching this point was never enqueued,
+        # so the frontend already rendered its bubble optimistically and only
+        # needs the authoritative created_at stamp (stampLastUserBubble).
         web_ui&.show_user_message(content, created_at: msg_created_at, source: :web, files: Array(files),
+                                  references: Array(references),
                                   skill_command: skill_command[:found] ? skill_command[:skill_name] : nil,
-                                  skill_command_display: skill_command_display, **(mode == "steer" ? { steering: true } : {}))
+                                  skill_command_display: skill_command_display)
 
         # File references are now handled inside agent.run — injected as a system_injected
         # message after the user message, so replay_history skips them automatically.
@@ -7773,6 +7824,7 @@ module Clacky
           next unless ref.is_a?(Hash)
           case ref["type"].to_s
           when "session" then build_session_reference_context(ref)
+          when "quote"   then build_quote_reference_context(ref)
           end
         end
       end
@@ -7793,6 +7845,19 @@ module Clacky
         lines.join("\n")
       end
 
+      # A quote reference is a passage the user selected out of an earlier
+      # message. The excerpt is the whole point of the reference, so inline it
+      # verbatim — no file pointer, nothing for the model to go fetch.
+      private def build_quote_reference_context(ref)
+        text = ref["text"].to_s.strip
+        return nil if text.empty?
+
+        label = ref["label"].to_s.strip
+        header = label.empty? ? "[Quoted excerpt from this conversation]" :
+                                "[Quoted excerpt from this conversation: #{label}]"
+        [header, text].join("\n")
+      end
+
       def deliver_confirmation(session_id, conf_id, result)
         ui = nil
         @registry.with_session(session_id) { |s| ui = s[:ui] }
@@ -7805,12 +7870,9 @@ module Clacky
       # Faraday reads, but can't reach a thread stuck in a C-extension syscall
       # until that syscall returns. We raise once and return immediately.
       #
-      # Correctness of the *takeover* does not depend on the old thread dying
-      # promptly: each new task claims a fresh epoch (see run_agent_task), and
-      # any status write or UI broadcast from a superseded thread is fenced off
-      # by that epoch. A stale thread that lingers in a syscall is harmless — it
-      # self-terminates at the next check_stale! checkpoint, or when the syscall
-      # returns; either way it can no longer touch the live session.
+      # Replacement callers must wait for the old worker to exit before
+      # starting more work. Epoch fencing remains a secondary guard against
+      # stale status updates; it cannot undo a tool's filesystem side effects.
       def interrupt_session(session_id, reason: :user)
         @registry.with_session(session_id) do |s|
           s[:idle_timer]&.cancel
@@ -7959,13 +8021,16 @@ module Clacky
           awaiting = false
           owns_epoch = true
           loop do
+            owns_epoch = @registry.current_epoch(session_id).to_i == epoch.to_i
+            break unless owns_epoch
+            @session_manager.save(agent.to_session_data(status: :success, updated_at: Time.now))
             pending = nil
             @registry.with_session(session_id) do |s|
               owns_epoch = s[:epoch].to_i == epoch.to_i
               next unless owns_epoch
-              pending = agent.take_pending_input
+              awaiting = run_result.is_a?(Hash) && run_result[:awaiting_user_feedback]
+              pending = agent.take_pending_input if Agent.task_completed?(run_result)
               unless pending
-                awaiting = run_result.is_a?(Hash) && run_result[:awaiting_user_feedback]
                 s[:status] = awaiting ? :awaiting_feedback : :idle
                 s[:error] = nil
               end

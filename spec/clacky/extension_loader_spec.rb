@@ -575,4 +575,161 @@ RSpec.describe Clacky::ExtensionLoader do
       expect(forced).not_to be(first)
     end
   end
+
+  describe "extension switches" do
+    let(:state_dir)   { Dir.mktmpdir }
+    let(:state_file)  { File.join(state_dir, "state.json") }
+    let(:legacy_file) { File.join(state_dir, "disabled.json") }
+
+    before do
+      stub_const("Clacky::ExtensionLoader::STATE_FILE", state_file)
+      stub_const("Clacky::ExtensionLoader::LEGACY_DISABLED_FILE", legacy_file)
+    end
+
+    after { FileUtils.remove_entry(state_dir) if Dir.exist?(state_dir) }
+
+    def manifest_for(id, enabled_by_default: nil)
+      lines = ["id: #{id}", "origin: self"]
+      lines << "enabled_by_default: #{enabled_by_default}" unless enabled_by_default.nil?
+      lines << "contributes:"
+      lines << "  panels:"
+      lines << "    - id: #{id}"
+      lines << "      view: view.js"
+      "#{lines.join("\n")}\n"
+    end
+
+    def write_state_file(hash)
+      FileUtils.mkdir_p(File.dirname(state_file))
+      File.write(state_file, JSON.generate(hash))
+    end
+
+    it "contributes units when the manifest says nothing about defaults" do
+      make_container(local, "plain", manifest: manifest_for("plain"), files: { "view.js" => "// v" })
+
+      result = described_class.load_all(layers: layers, force: true)
+
+      expect(result.panels.map(&:ext_id)).to eq(["plain"])
+      expect(result.containers["plain"][:disabled]).to be(false)
+    end
+
+    it "keeps an opt-out extension discoverable but contributes nothing" do
+      make_container(local, "quiet", manifest: manifest_for("quiet", enabled_by_default: false),
+                     files: { "view.js" => "// v" })
+
+      result = described_class.load_all(layers: layers, force: true)
+
+      expect(result.panels).to be_empty
+      expect(result.errors).to be_empty
+      expect(result.containers.keys).to eq(["quiet"])
+      expect(result.containers["quiet"][:disabled]).to be(true)
+    end
+
+    it "lets an explicit user switch override the manifest default" do
+      make_container(local, "quiet", manifest: manifest_for("quiet", enabled_by_default: false),
+                     files: { "view.js" => "// v" })
+      make_container(local, "loud", manifest: manifest_for("loud", enabled_by_default: true),
+                     files: { "view.js" => "// v" })
+      write_state_file("quiet" => true, "loud" => false)
+
+      result = described_class.load_all(layers: layers, force: true)
+
+      expect(result.panels.map(&:ext_id)).to eq(["quiet"])
+      expect(result.containers["loud"][:disabled]).to be(true)
+    end
+
+    it "tolerates a missing or corrupt state file" do
+      expect(described_class.ext_switch_state).to eq({})
+
+      File.write(state_file, "{ nope")
+      expect(described_class.ext_switch_state).to eq({})
+    end
+
+    it "lists the explicit ids on each side" do
+      write_state_file("quiet" => false, "loud" => true)
+
+      expect(described_class.disabled_ids).to contain_exactly("quiet")
+      expect(described_class.enabled_ids).to contain_exactly("loud")
+    end
+
+    it "lets the state file speak before the manifest in disabled?" do
+      write_state_file("x" => false)
+      expect(described_class.disabled?("x")).to be(true)
+
+      write_state_file("x" => true)
+      expect(described_class.disabled?("x")).to be(false)
+    end
+
+    it "writes switches through enable!/disable!/forget_switch! and drops the cached scan" do
+      make_container(local, "quiet", manifest: manifest_for("quiet", enabled_by_default: false),
+                     files: { "view.js" => "// v" })
+      expect(described_class.load_all(layers: layers).panels).to be_empty
+
+      described_class.enable!("quiet")
+      expect(JSON.parse(File.read(state_file))).to eq("quiet" => true)
+      expect(described_class.load_all(layers: layers).panels.map(&:ext_id)).to eq(["quiet"])
+
+      described_class.disable!("quiet")
+      expect(described_class.load_all(layers: layers).panels).to be_empty
+      expect(described_class.disabled?("quiet")).to be(true)
+
+      described_class.forget_switch!("quiet")
+      expect(JSON.parse(File.read(state_file))).to eq({})
+    end
+
+    describe "legacy disabled.json migration" do
+      def write_legacy_file(ids)
+        File.write(legacy_file, JSON.generate(ids))
+      end
+
+      it "folds the legacy opt-outs in and parks the old file" do
+        write_legacy_file(%w[quiet loud])
+        write_state_file("loud" => true)
+
+        expect(described_class.disabled_ids).to contain_exactly("quiet")
+        expect(JSON.parse(File.read(state_file))).to eq("loud" => true, "quiet" => false)
+        expect(File.file?(legacy_file)).to be(false)
+        expect(File.file?("#{legacy_file}.migrated")).to be(true)
+      end
+
+      it "creates the state file from scratch when there is none yet" do
+        write_legacy_file(%w[quiet loud])
+
+        expect(described_class.ext_switch_state).to eq("quiet" => false, "loud" => false)
+        expect(File.file?("#{legacy_file}.migrated")).to be(true)
+      end
+
+      it "lets a newer explicit re-enable win over the legacy array" do
+        write_legacy_file(%w[quiet])
+        write_state_file("quiet" => true)
+
+        expect(described_class.disabled?("quiet")).to be(false)
+        expect(JSON.parse(File.read(state_file))).to eq("quiet" => true)
+      end
+
+      it "migrates through load_all so a scan honours the old opt-out" do
+        make_container(local, "quiet", manifest: manifest_for("quiet"), files: { "view.js" => "// v" })
+        write_legacy_file(%w[quiet])
+
+        result = described_class.load_all(layers: layers, force: true)
+
+        expect(result.containers["quiet"][:disabled]).to be(true)
+        expect(result.panels).to be_empty
+      end
+
+      it "does not resurrect a switch forgotten after the migration" do
+        write_legacy_file(%w[quiet])
+        described_class.ext_switch_state
+
+        described_class.forget_switch!("quiet")
+
+        expect(described_class.ext_switch_state).to eq({})
+      end
+
+      it "ignores a legacy file that is not an array" do
+        File.write(legacy_file, JSON.generate("quiet" => false))
+
+        expect(described_class.ext_switch_state).to eq({})
+      end
+    end
+  end
 end

@@ -99,6 +99,19 @@ RSpec.describe Clacky::ModelPricing do
       end
     end
 
+    context "with Claude Fable 5.1" do
+      it "shares Fable 5 input/output rates but keeps its lower cache-read rate" do
+        fable_5_1 = described_class.get_pricing("claude-fable-5-1")
+        fable_5 = described_class.get_pricing("claude-fable-5")
+
+        expect(fable_5_1[:input]).to eq(fable_5[:input])
+        expect(fable_5_1[:output]).to eq(fable_5[:output])
+        expect(fable_5_1[:cache][:write]).to eq(fable_5[:cache][:write])
+        expect(fable_5_1[:cache][:read]).to eq(0.25)
+        expect(fable_5[:cache][:read]).to eq(1.00)
+      end
+    end
+
     context "with Claude Opus 5" do
       let(:model) { "abs-claude-opus-5" }
 
@@ -752,6 +765,13 @@ RSpec.describe Clacky::ModelPricing do
   # regardless of mainland-vs-intl endpoint. Flat-rate (no tiered billing).
   # Source: https://docs.z.ai/guides/overview/pricing
   describe "GLM pricing" do
+    it "bills glm-5.3-flashx at its list rate" do
+      usage = { prompt_tokens: 1_000_000, completion_tokens: 1_000_000 }
+      result = described_class.calculate_cost(model: "glm-5.3-flashx", usage: usage)
+      expect(result[:cost]).to be_within(0.0001).of(1.62)
+      expect(result[:source]).to eq(:price)
+    end
+
     it "bills glm-5.3-flash at its lower list rate (launch promo ignored)" do
       usage = { prompt_tokens: 1_000_000, completion_tokens: 1_000_000 }
       result = described_class.calculate_cost(model: "glm-5.3-flash", usage: usage)
@@ -844,6 +864,34 @@ RSpec.describe Clacky::ModelPricing do
       )
       expect(result[:cost]).to be_within(0.0001).of(1.40)
       expect(result[:source]).to eq(:price)
+    end
+  end
+
+  describe "Volcengine Ark pricing" do
+    it "bills doubao-seed-2.0-mini at the mapped CNY tiers" do
+      default = described_class.calculate_cost(
+        model: "doubao-seed-2.0-mini",
+        usage: { prompt_tokens: 100_000, completion_tokens: 50_000 }
+      )
+      over_200k = described_class.calculate_cost(
+        model: "doubao-seed-2.0-mini",
+        usage: { prompt_tokens: 250_000, completion_tokens: 50_000 }
+      )
+
+      expect(default[:cost]).to be_within(0.0001).of(0.036)
+      expect(default[:source]).to eq(:price)
+      expect(over_200k[:cost]).to be_within(0.0001).of(0.0895)
+      expect(over_200k[:source]).to eq(:price)
+    end
+
+    it "keeps subscription-only kimi-k2.8-preview pricing unknown" do
+      result = described_class.calculate_cost(
+        model: "kimi-k2.8-preview",
+        usage: { prompt_tokens: 100_000, completion_tokens: 50_000 }
+      )
+
+      expect(result[:cost]).to be_nil
+      expect(result[:source]).to be_nil
     end
   end
 

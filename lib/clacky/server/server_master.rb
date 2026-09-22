@@ -37,9 +37,10 @@ module Clacky
       # Revert to 3 once the worker side is proven to finish in time.
       WORKER_GRACE_EXIT_SECONDS = ENV.fetch("CLACKY_MASTER_GRACE_SECONDS", "10").to_i
 
-      def initialize(host:, port:, argv: nil, extra_flags: [])
+      def initialize(host:, port:, argv: nil, extra_flags: [], strict_port: false)
         @host   = host
         @port   = port
+        @strict_port = strict_port
         @argv   = argv          # kept for backward compat but no longer used
         @extra_flags = extra_flags  # e.g. ["--brand-test"]
 
@@ -58,11 +59,11 @@ module Clacky
         # If port is 7070 (default), try fallback ports 7071-7075 if occupied.
         # If port is non-default (user-specified), only try that exact port.
         original_port = @port
-        max_port = (@port == 7070) ? (@port + 5) : @port
+        max_port = (@port == 7070 && !@strict_port) ? (@port + 5) : @port
         @socket = bind_with_fallback(@host, @port, max_port: max_port)
         
         if @socket.nil?
-          if @port == 7070
+          if max_port != @port
             Clacky::Logger.error("[Master] No available ports in range 7070-7075")
           else
             Clacky::Logger.error("[Master] Port #{@port} is in use")
@@ -234,6 +235,9 @@ module Clacky
               end
               sleep 0.1
             end
+            # A worker can exit before its browser/MCP children. They may still
+            # hold the inherited listener even after the leader was reaped.
+            Process.kill("KILL", -@worker_pid) rescue Errno::ESRCH
           rescue Errno::ESRCH, Errno::ECHILD
             # already gone
           end
@@ -252,7 +256,10 @@ module Clacky
       end
 
       def remove_pid_file
-        File.delete(pid_file_path) if File.exist?(pid_file_path)
+        # A replacement may already own the port after this master was stopped.
+        if File.exist?(pid_file_path) && File.read(pid_file_path).strip == Process.pid.to_s
+          File.delete(pid_file_path)
+        end
       end
 
       def port_free_within?(seconds)
@@ -324,13 +331,16 @@ module Clacky
           Process.kill("TERM", pid)
           Clacky::Logger.info("[Master] Sent TERM to existing master (PID=#{pid}, port=#{port}), waiting...")
 
-          deadline = Time.now + 5
+          # Let the old master finish its own worker-group KILL before killing
+          # it; a shorter deadline strands the worker and its inherited socket.
+          wait_seconds = WORKER_GRACE_EXIT_SECONDS + 2
+          deadline = Time.now + wait_seconds
           until process_dead?(pid) || Time.now > deadline
             sleep 0.1
           end
 
           unless process_dead?(pid)
-            Clacky::Logger.warn("[Master] PID=#{pid} still alive after 5s, sending KILL...")
+            Clacky::Logger.warn("[Master] PID=#{pid} still alive after #{wait_seconds}s, sending KILL...")
             Process.kill("KILL", pid) rescue Errno::ESRCH
           end
 
@@ -340,7 +350,7 @@ module Clacky
         rescue Errno::EPERM
           Clacky::Logger.warn("[Master] Could not stop existing master (PID=#{pid}) — permission denied.")
         ensure
-          File.delete(path) if File.exist?(path)
+          File.delete(path) if File.exist?(path) && File.read(path).strip == pid.to_s
         end
       end
 

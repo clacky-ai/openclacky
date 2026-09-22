@@ -15,6 +15,7 @@ module Clacky
       # alias → real upstream model id, used to translate the model filter
       # before querying the platform API. Vertex ids are preferred as the
       # "primary" id where the gateway can dispatch an alias two ways.
+      # Retired aliases stay here so usage recorded under them still resolves.
       ALIAS_TO_REAL = {
         # deepseek (dsk-)
         "dsk-deepseek-flash"               => "deepseek-flash",

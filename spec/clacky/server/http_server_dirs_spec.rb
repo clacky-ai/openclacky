@@ -2,6 +2,7 @@
 
 require "spec_helper"
 require "json"
+require "open3"
 require "tmpdir"
 require "fileutils"
 require "uri"
@@ -204,6 +205,7 @@ RSpec.describe Clacky::Server::HttpServer, "directory picker mutation API" do
         win_home = File.join(tmproot, "win")
         %w[Desktop Downloads Documents].each { |d| FileUtils.mkdir_p(File.join(win_home, d)) }
         allow(server).to receive(:wsl_windows_home).and_return(win_home)
+        allow(server).to receive(:wsl_shell_folders).and_return({})
 
         places = server.send(:dir_picker_places)
 
@@ -211,6 +213,90 @@ RSpec.describe Clacky::Server::HttpServer, "directory picker mutation API" do
         expect(places.find { |p| p[:id] == "desktop" }[:path]).to eq(File.join(win_home, "Desktop"))
         expect(places.find { |p| p[:id] == "downloads" }[:path]).to eq(File.join(win_home, "Downloads"))
         expect(places.find { |p| p[:id] == "documents" }[:path]).to eq(File.join(win_home, "Documents"))
+      end
+    end
+
+    # Huawei PC Manager's file migration, OneDrive's "back up folders" and
+    # group-policy redirection move the shell folders off the profile, leaving
+    # an empty leftover shell in C:\Users. The picker must follow the real paths
+    # or it renders an empty directory while Explorer is full of files.
+    it "prefers redirected Windows shell folders over the guessed profile" do
+      with_server(agent_config: agent_config) do |server|
+        moved = File.join(tmproot, "HuaweiMoveData", "Users", "leo")
+        %w[Desktop Documents Downloads].each { |d| FileUtils.mkdir_p(File.join(moved, d)) }
+        shell = File.join(tmproot, "win")
+        FileUtils.mkdir_p(shell)
+
+        allow(server).to receive(:wsl_windows_home).and_return(shell)
+        allow(server).to receive(:wsl_shell_folders).and_return(
+          "profile"   => moved,
+          "desktop"   => File.join(moved, "Desktop"),
+          "documents" => File.join(moved, "Documents"),
+          "downloads" => File.join(moved, "Downloads")
+        )
+
+        places = server.send(:dir_picker_places)
+
+        expect(places.find { |p| p[:id] == "home" }[:path]).to eq(moved)
+        expect(places.find { |p| p[:id] == "desktop" }[:path]).to eq(File.join(moved, "Desktop"))
+        expect(places.find { |p| p[:id] == "downloads" }[:path]).to eq(File.join(moved, "Downloads"))
+        expect(places.find { |p| p[:id] == "documents" }[:path]).to eq(File.join(moved, "Documents"))
+      end
+    end
+
+    it "keeps the profile guess for the folders Windows didn't report" do
+      with_server(agent_config: agent_config) do |server|
+        moved = File.join(tmproot, "HuaweiMoveData", "Users", "leo")
+        FileUtils.mkdir_p(File.join(moved, "Desktop"))
+        shell = File.join(tmproot, "win")
+        FileUtils.mkdir_p(File.join(shell, "Documents"))
+
+        allow(server).to receive(:wsl_windows_home).and_return(shell)
+        allow(server).to receive(:wsl_shell_folders).and_return(
+          "desktop" => File.join(moved, "Desktop")
+        )
+
+        places = server.send(:dir_picker_places)
+
+        expect(places.find { |p| p[:id] == "desktop" }[:path]).to eq(File.join(moved, "Desktop"))
+        expect(places.find { |p| p[:id] == "documents" }[:path]).to eq(File.join(shell, "Documents"))
+      end
+    end
+
+    it "resolves PowerShell shell-folder output through wslpath" do
+      with_server(agent_config: agent_config) do |server|
+        ok = double("status", success?: true)
+        raw = [
+          'D:\HuaweiMoveData\Users\Leo',
+          'D:\HuaweiMoveData\Users\Leo\Desktop',
+          '\\server\share\Documents',
+          'E:\\'
+        ].join("\r\n").encode("GBK")
+        converted = {
+          'D:\HuaweiMoveData\Users\Leo' => "/mnt/d/HuaweiMoveData/Users/Leo",
+          'D:\HuaweiMoveData\Users\Leo\Desktop' => "/mnt/d/HuaweiMoveData/Users/Leo/Desktop",
+          'E:\\' => "/mnt/e"
+        }
+
+        allow(Open3).to receive(:capture3) do |*args, **_opts|
+          if args.first == "powershell.exe"
+            [raw, "", ok]
+          else
+            [String(converted[args[3]]) + "\n", "", ok]
+          end
+        end
+        allow(Dir).to receive(:exist?).and_wrap_original do |original, *args|
+          converted.value?(args.first) ? true : original.call(*args)
+        end
+
+        folders = server.send(:wsl_shell_folders_from_powershell)
+
+        expect(folders["profile"]).to eq("/mnt/d/HuaweiMoveData/Users/Leo")
+        expect(folders["desktop"]).to eq("/mnt/d/HuaweiMoveData/Users/Leo/Desktop")
+        expect(folders["downloads"]).to eq("/mnt/e")
+        # UNC shares are unreachable from WSL, so that entry is dropped rather
+        # than passed to the picker as an unusable path.
+        expect(folders).not_to have_key("documents")
       end
     end
 

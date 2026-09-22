@@ -74,6 +74,22 @@ RSpec.describe Clacky::Tools::Terminal do
     end
   end
 
+  describe "task resource protection" do
+    it "reports OOM even when a child failure is swallowed by the shell" do
+      group = instance_double(Clacky::Utils::ResourceGroup)
+      allow(group).to receive(:wrap) { |argv| argv }
+      allow(group).to receive(:cleanup)
+      allow(group).to receive(:consume_oom_error).and_return(Clacky::Utils::ResourceGroup::MEMORY_ERROR)
+      allow(Clacky::Utils::ResourceGroup).to receive(:create).and_return(group)
+      Clacky::Tools::Terminal::PersistentSessionPool.reset!
+      result = tool.execute(command: "true", timeout: 5)
+      expect(result[:exit_code]).to eq(0)
+      expect(result[:resource_exhausted]).to eq("memory")
+      expect(result[:error]).to include("memory limit")
+      Clacky::Tools::Terminal::PersistentSessionPool.reset!
+    end
+  end
+
   # ---------------------------------------------------------------------------
   # Dispatcher / argument validation
   # ---------------------------------------------------------------------------
@@ -1198,7 +1214,7 @@ RSpec.describe Clacky::Tools::Terminal do
   describe "Xcode Command Line Tools detection (macOS)" do
     let(:fake_session_class) do
       Struct.new(:id, :read_offset, :marker_token, :marker_regex,
-                 :log_file, :exit_code, :status, :pid, keyword_init: true)
+                 :log_file, :exit_code, :status, :pid, :resource_group, keyword_init: true)
     end
 
     before do

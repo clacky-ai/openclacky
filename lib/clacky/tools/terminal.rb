@@ -6,6 +6,7 @@ require "fileutils"
 require_relative "base"
 require_relative "security"
 require_relative "../utils/trash_directory"
+require_relative "../utils/resource_group"
 require_relative "terminal/session_manager"
 require_relative "terminal/output_cleaner"
 require_relative "terminal/persistent_session"
@@ -511,6 +512,8 @@ module Clacky
         # Note rewrites so the agent notices if Security changed the command.
         rewrite_note = rewrite_note(original_command, rewritten_command)
 
+        resource_error = session.resource_group&.consume_oom_error
+
         case state
         when :matched, :eof
           exit_code = code || session.exit_code
@@ -530,6 +533,8 @@ module Clacky
           end
           {
             output: cleaned,
+            error: resource_error,
+            resource_exhausted: resource_error ? "memory" : nil,
             exit_code: exit_code,
             bytes_read: new_offset - start_offset,
             output_truncated: truncated,
@@ -544,6 +549,8 @@ module Clacky
           PersistentSessionPool.instance.discard if persistent
           {
             output: cleaned,
+            error: resource_error,
+            resource_exhausted: resource_error ? "memory" : nil,
             session_id: session.id,
             state: background ? "background" : (state == :idle ? "waiting" : "timeout"),
             bytes_read: new_offset - start_offset,
@@ -726,6 +733,7 @@ module Clacky
         session.writer.close rescue nil
         session.reader.close rescue nil
         session.log_io.close rescue nil
+        session.resource_group&.cleanup
         SessionManager.forget(session.id)
       end
 
@@ -833,6 +841,9 @@ module Clacky
         spawn_env["CLACKY_TRASH_DIR"] = trash_dir if trash_dir
         (env || {}).each { |k, v| spawn_env[k.to_s] = v.to_s }
 
+        resource_group = Clacky::Utils::ResourceGroup.create("terminal")
+        args = resource_group.wrap(args) if resource_group
+
         log_file = SessionManager.allocate_log_file
         log_io   = File.open(log_file, "wb")
 
@@ -885,7 +896,7 @@ module Clacky
           reader: reader, writer: writer,
           reader_thread: reader_thread,
           mode: "shell", marker_token: marker_token,
-          shell_name: shell_name
+          shell_name: shell_name, resource_group: resource_group
         )
         session_box << session
 

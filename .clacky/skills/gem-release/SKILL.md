@@ -95,15 +95,25 @@ This is the one step the agent handles manually — the script does not write ch
      ```bash
      gh api orgs/clacky-ai/members --paginate --jq '.[].login' | sort
      ```
-   - Then cross-reference PR authors in the release range:
+   - Then cross-reference PR authors in the release range. Use `grep -oE`, not `-oP` —
+     BSD grep on macOS rejects `-P` with "invalid option", and the loop silently yields nothing:
      ```bash
-     git log <previous_tag>..HEAD --oneline | grep -oP '#\d+' | while read pr; do
+     git log <previous_tag>..HEAD --oneline | grep -oE '#[0-9]+' | while read pr; do
        num=${pr#\#}
        gh pr view $num --json number,author --jq '"#\(.number) \(.author.login)"'
      done
      ```
    - Skip attribution for org members (internal contributors) - only call out external contributors
-   - If a PR was closed and resubmitted, use the merged PR number
+   - Some cited numbers no longer resolve at all. A commit subject can name a superseded PR
+     next to the merged one (`feat: discover custom-endpoint models in the add-model dialog
+     (#559) (#560)`), and `gh pr view 559` answers "Could not resolve to a PullRequest".
+     When that happens, ask the commit which PR actually merged it:
+     ```bash
+     gh api repos/clacky-ai/openclacky/commits/<sha>/pulls \
+       --jq '.[] | "PR #\(.number) | \(.user.login) | \(.state)"'
+     ```
+     Attribute the bullet to the PR that resolves and carries a real author; a number that
+     resolves to nobody is not a contributor reference.
    - Example: `- Todo panel with SVG icons (#437 - @shipinliang)`
 
 6. Commit the changelog:

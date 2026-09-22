@@ -396,6 +396,54 @@ RSpec.describe Clacky::Skill do
       end
     end
 
+    context "<skill_dir> placeholder substitution" do
+      def make_placeholder_skill(base_dir, name:)
+        dir = File.join(base_dir, name)
+        FileUtils.mkdir_p(File.join(dir, "bin"))
+        File.write(File.join(dir, "SKILL.md"), <<~MD)
+          ---
+          name: #{name}
+          description: Placeholder substitution fixture
+          ---
+          Run `ruby <skill_dir>/bin/tool.rb`.
+        MD
+        File.write(File.join(dir, "bin", "tool.rb"), "puts 'hi'")
+        dir
+      end
+
+      it "replaces <skill_dir> with the skill's absolute directory" do
+        dir = make_placeholder_skill(temp_dir, name: "ph-skill")
+        skill = described_class.new(dir)
+
+        result = skill.process_content
+
+        expect(result).to include("ruby #{dir}/bin/tool.rb")
+        expect(result).not_to include("<skill_dir>")
+      end
+
+      it "replaces <skill_dir> with script_dir when given" do
+        dir = make_placeholder_skill(temp_dir, name: "ph-encrypted")
+        skill = described_class.new(dir)
+
+        Dir.mktmpdir("clacky-test-") do |tmpdir|
+          result = skill.process_content(script_dir: tmpdir)
+
+          expect(result).to include("ruby #{tmpdir}/bin/tool.rb")
+          expect(result).not_to include("<skill_dir>")
+        end
+      end
+
+      it "does not treat special characters in the path as backreferences" do
+        dir = make_placeholder_skill(temp_dir, name: "ph&special")
+        skill = described_class.new(dir)
+
+        result = skill.process_content
+
+        expect(result).to include("ruby #{dir}/bin/tool.rb")
+        expect(result).not_to include("<skill_dir>")
+      end
+    end
+
     context "Supporting Files injection (encrypted brand skill)" do
       def activated_brand_config
         Clacky::BrandConfig.new(

@@ -5,7 +5,7 @@ module Clacky
     class AskUser < Base
       self.tool_name = "ask_user"
       self.tool_description = <<~DESC
-        Ask the user to choose when you cannot infer the answer and guessing would waste work.
+        Request feedback or clarification from the user when you need more information to complete a task.
         Keep every question concise: one sentence, no more than 80 characters.
 
         Every question must have `options` — this tool is for choices, not open prompts.
@@ -13,7 +13,6 @@ module Clacky
         Each option must be complete enough to act on directly. Never write an "Other"
         option — set `allow_free_text` and the UI adds one.
 
-        Batch related questions into one call; use separate calls for unrelated topics.
         After calling, STOP and wait for the answer.
       DESC
 

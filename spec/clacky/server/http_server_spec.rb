@@ -691,6 +691,44 @@ RSpec.describe Clacky::Server::HttpServer do
         expect(m["api_format"]).to eq("openai-completions")
       end
     end
+
+    # The model picker labels every row with the provider it runs through, so
+    # the API has to resolve entries that carry no provider_id of their own.
+    it "resolves the provider name for each model" do
+      agent_config.models[0]["base_url"] = "https://api.openclacky.com"
+      with_server(agent_config: agent_config) do |server|
+        req = fake_req(method: "GET", path: "/api/config")
+        res = fake_res
+        dispatch(server, req, res)
+
+        m = parsed_body(res)["models"].first
+        expect(m["provider_name"]).to eq("OpenClacky")
+      end
+    end
+
+    it "passes through the preset i18n key when the provider has one" do
+      agent_config.models[0]["provider_id"] = "volcengine-ark"
+      with_server(agent_config: agent_config) do |server|
+        req = fake_req(method: "GET", path: "/api/config")
+        res = fake_res
+        dispatch(server, req, res)
+
+        m = parsed_body(res)["models"].first
+        expect(m["provider_name_key"]).to eq("provider.name.volcengine_ark")
+      end
+    end
+
+    it "leaves provider_name nil for endpoints no preset claims" do
+      with_server(agent_config: agent_config) do |server|
+        req = fake_req(method: "GET", path: "/api/config")
+        res = fake_res
+        dispatch(server, req, res)
+
+        m = parsed_body(res)["models"].first
+        expect(m["provider_name"]).to be_nil
+        expect(m["provider_name_key"]).to be_nil
+      end
+    end
   end
 
   # ── Single-item model CRUD APIs ───────────────────────────────────────────
@@ -1961,6 +1999,7 @@ RSpec.describe Clacky::Server::HttpServer do
           created_at: kind_of(Float),
           source: :web,
           files: [],
+          references: [],
           skill_command: "slides",
           skill_command_display: "幻灯片"
         )
@@ -1979,8 +2018,108 @@ RSpec.describe Clacky::Server::HttpServer do
           created_at: kind_of(Float),
           source: :web,
           files: [],
+          references: [],
           skill_command: "slides",
           skill_command_display: "slides"
+        )
+      end
+    end
+
+    it "does not request a second bubble for directly-run messages in any mode" do
+      agent_config.input_behavior = "interrupt"
+      with_server(agent_config: agent_config) do |server|
+        sid, _agent, _skill, ui = seed_session(server, "sid-broadcast-interrupt", display: "slides")
+
+        server.send(:handle_user_message, sid, "/slides")
+
+        expect(ui).to have_received(:show_user_message).with(
+          "/slides",
+          created_at: kind_of(Float),
+          source: :web,
+          files: [],
+          references: [],
+          skill_command: "slides",
+          skill_command_display: "slides"
+        )
+      end
+    end
+  end
+
+  describe "#handle_user_message enqueued inputs" do
+    def seed_running_session(server, session_id)
+      sid = server.instance_variable_get(:@registry).create(session_id: session_id)
+      agent = double("agent", parse_skill_command: { found: false }, history: [], name: "My Chat")
+      ui = double("ui")
+      allow(ui).to receive(:show_user_message)
+      server.instance_variable_get(:@registry).with_session(sid) do |s|
+        s[:agent] = agent
+        s[:ui] = ui
+        s[:status] = :running
+      end
+      [sid, agent, ui]
+    end
+
+    it "enqueues and broadcasts input_enqueued instead of show_user_message while running in queue mode" do
+      with_server(agent_config: agent_config) do |server|
+        sid, agent, ui = seed_running_session(server, "sid-enqueue-queue")
+        allow(agent).to receive(:enqueue_input)
+        allow(server).to receive(:broadcast)
+
+        server.send(:handle_user_message, sid, "hold that thought")
+
+        expect(agent).to have_received(:enqueue_input).with(
+          "hold that thought", delivery: :queue, files: [], references_display: [],
+          reference_contexts: [], created_at: kind_of(Float)
+        )
+        expect(server).to have_received(:broadcast).with(
+          sid, { type: "input_enqueued", session_id: sid, created_at: kind_of(Float) }
+        )
+        expect(ui).not_to have_received(:show_user_message)
+      end
+    end
+
+    it "enqueues with steer delivery while running in steer mode" do
+      agent_config.input_behavior = "steer"
+      with_server(agent_config: agent_config) do |server|
+        sid, agent, _ui = seed_running_session(server, "sid-enqueue-steer")
+        allow(agent).to receive(:enqueue_input)
+        allow(server).to receive(:broadcast)
+
+        server.send(:handle_user_message, sid, "steer me")
+
+        expect(agent).to have_received(:enqueue_input).with(
+          "steer me", delivery: :steer, files: [], references_display: [],
+          reference_contexts: [], created_at: kind_of(Float)
+        )
+        expect(server).to have_received(:broadcast).with(
+          sid, { type: "input_enqueued", session_id: sid, created_at: kind_of(Float) }
+        )
+      end
+    end
+  end
+
+  describe "#handle_edit_message" do
+    it "re-runs without steering so the frontend keeps its single edited bubble" do
+      with_server(agent_config: agent_config) do |server|
+        sid = server.instance_variable_get(:@registry).create(session_id: "sid-edit-1")
+        history = double("history")
+        agent = double("agent", parse_skill_command: { found: false }, history: history, name: "My Chat")
+        ui = double("ui")
+        allow(ui).to receive(:show_user_message)
+        allow(history).to receive(:truncate_from_created_at)
+        allow(history).to receive(:empty?).and_return(false)
+        server.instance_variable_get(:@registry).with_session(sid) do |s|
+          s[:agent] = agent
+          s[:ui] = ui
+        end
+        allow(server).to receive(:run_agent_task)
+
+        server.send(:handle_edit_message, sid, "edited text", "123.45")
+
+        expect(history).to have_received(:truncate_from_created_at).with("123.45")
+        expect(ui).to have_received(:show_user_message).with(
+          "edited text", created_at: kind_of(Float), source: :web, files: [],
+          references: [], skill_command: nil, skill_command_display: nil
         )
       end
     end
@@ -2046,6 +2185,31 @@ RSpec.describe Clacky::Server::HttpServer do
           [{ "type" => "session", "session_id" => "", "name" => "Empty" }])
 
         expect(captured[:kwargs][:reference_contexts]).to eq([])
+      end
+    end
+
+    it "inlines a quoted excerpt so the model sees the passage verbatim" do
+      with_server(agent_config: agent_config) do |server|
+        refs = [{ "type" => "quote", "label" => "Assistant · #2", "text" => "The quick brown fox." }]
+        captured = send_reference_message(server, "sid-ref-5", "what does this mean", refs)
+
+        expect(captured[:kwargs][:reference_contexts]).to eq([
+          "[Quoted excerpt from this conversation: Assistant · #2]\nThe quick brown fox."
+        ])
+        expect(captured[:kwargs][:references_display]).to eq(refs)
+      end
+    end
+
+    it "drops a quote's blank label and skips empty excerpts" do
+      with_server(agent_config: agent_config) do |server|
+        captured = send_reference_message(server, "sid-ref-6", "hi", [
+          { "type" => "quote", "text" => "  just the text  " },
+          { "type" => "quote", "label" => "Empty", "text" => "   " }
+        ])
+
+        expect(captured[:kwargs][:reference_contexts]).to eq([
+          "[Quoted excerpt from this conversation]\njust the text"
+        ])
       end
     end
 

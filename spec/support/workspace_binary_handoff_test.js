@@ -172,7 +172,9 @@ async function tests() {
     assert.equal(subhintOf(w), "workspace.fallbackSubHint", "the manual page still explains itself");
   }
 
-  // 4. Re-opening the same file just re-selects its tab.
+  // 4. Re-opening a fallback file hands it to the OS again: the pane has no
+  //    content of its own to re-select, and the document was probably closed in
+  //    the meantime.
   {
     const w = boot();
     w.WorkspaceView.openFile("/wd/report.docx");
@@ -180,10 +182,25 @@ async function tests() {
     w.WorkspaceView.openFile("/wd/report.docx");
     await settle();
 
-    assert.equal(systemOpens(w).length, 1, "the application is launched once");
+    assert.equal(systemOpens(w).length, 2, "the application is launched again");
+    assert.equal(subhintOf(w), "workspace.openedInSystem", "the pane still reports the handoff");
   }
 
-  // 5. A machine with no handler for the format keeps the manual fallback.
+  // 5. A fallback the OS must not launch by itself stays put when re-opened:
+  //    nothing is loaded and no program starts.
+  {
+    const w = boot();
+    w.WorkspaceView.openFile("/wd/lib.jar");
+    await settle();
+    const loaded = w.fetches.length;
+    w.WorkspaceView.openFile("/wd/lib.jar");
+    await settle();
+
+    assert.equal(w.fetches.length, loaded, "no second load");
+    assert.equal(systemOpens(w).length, 0, "no program is started");
+  }
+
+  // 6. A machine with no handler for the format keeps the manual fallback.
   {
     const w = boot({ failOpen: true });
     w.WorkspaceView.openFile("/wd/report.docx");

@@ -38,6 +38,27 @@ RSpec.describe Clacky::ShellHookLoader do
   end
 
   describe ".load_into" do
+    it "denies an agent turn through on_start using the existing user_input payload" do
+      out = File.join(tmp, "start_payload.json")
+      script = make_script("cat > \"#{out}\"\necho 'blocked start'\nexit 2")
+      write_yml(<<~YAML)
+        hooks:
+          on_start:
+            - command: "#{script}"
+      YAML
+      config = Clacky::AgentConfig.new(memory_update_enabled: false, skill_evolution: { enabled: false })
+      ui = double("ui").as_null_object
+      agent = Clacky::Agent.new(double("client", current_model: nil), config, working_dir: tmp,
+                                ui: ui, profile: "coding", source: :manual,
+                                session_id: Clacky::SessionManager.generate_id)
+      described_class.load_into(agent.instance_variable_get(:@hooks), path: yml)
+      expect(agent).not_to receive(:think)
+
+      expect(agent.run("request")).to include(status: :success, queue_paused: true)
+      expect(JSON.parse(File.read(out))).to include("event" => "on_start", "user_input" => "request")
+      expect(ui).to have_received(:show_warning).with("blocked start")
+    end
+
     it "returns empty when the file is absent" do
       result = described_class.load_into(Clacky::HookManager.new, path: File.join(tmp, "none.yml"))
       expect(result.registered).to be_empty

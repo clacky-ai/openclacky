@@ -185,6 +185,17 @@ openclacky server --port 8080        # custom port
 openclacky server --host 0.0.0.0     # listen on all interfaces (remote access)
 ```
 
+Linux sandbox hosts can opt into task limits with
+`openclacky server --task-cgroup /sys/fs/cgroup/tasks`. The host must first create
+that cgroup, configure its aggregate memory/CPU limits, and enable the `memory`
+and `cpu` subtree controllers. Terminal shells and browser MCP daemons enter
+child groups before exec; the server remains outside. Terminal results include
+`resource_exhausted: "memory"` and an error when their group records an OOM kill,
+even if the shell masks the child's failure. A separately managed Chrome must
+also be placed under the same parent by its launcher. This option is off by
+default and does not establish a security boundary against privileged commands.
+
+
 ## Configuration
 
 ```bash

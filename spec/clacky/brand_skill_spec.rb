@@ -201,6 +201,7 @@ RSpec.describe "Brand Skill system" do
         config = activated_brand_config(tmp)
         # Undo the global stub from spec_helper so the real method runs.
         allow(config).to receive(:sync_brand_skills_async!).and_call_original
+        allow(config).to receive(:install_brand_skill!).and_call_original
 
         brand_dir = File.join(tmp, "brand_skills")
         skill_dir = File.join(brand_dir, "skill-keep")
@@ -221,9 +222,37 @@ RSpec.describe "Brand Skill system" do
         thread = config.sync_brand_skills_async!
         thread.join(5)
 
+        # An up-to-date installed skill must not be downloaded again.
+        expect(config).not_to have_received(:install_brand_skill!)
         expect(Dir.exist?(skill_dir)).to be true
         registry = JSON.parse(File.read(json_path))
         expect(registry.keys).to include("skill-keep")
+      end
+    end
+
+    it "auto-installs a remote skill that is not installed locally" do
+      with_temp_config_dir do |tmp|
+        config = activated_brand_config(tmp)
+        # Undo the global stub from spec_helper so the real method runs.
+        allow(config).to receive(:sync_brand_skills_async!).and_call_original
+
+        # The brand published a skill this install has never seen. needs_update is
+        # false because there is no local version to compare against.
+        allow(config).to receive(:fetch_brand_skills!).and_return({
+          success: true,
+          skills: [{ "name" => "skill-new", "needs_update" => false }]
+        })
+
+        installed_names = []
+        allow(config).to receive(:install_brand_skill!) do |skill_info|
+          installed_names << skill_info["name"]
+          { success: true, name: skill_info["name"], version: "1.0.0" }
+        end
+
+        thread = config.sync_brand_skills_async!
+        thread.join(5)
+
+        expect(installed_names).to eq(["skill-new"])
       end
     end
 

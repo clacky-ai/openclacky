@@ -294,11 +294,11 @@ module Clacky
         sub_count = web_ui_for_session_diag(session_id)
         Clacky::Logger.info("[ChannelManager] Routing to session #{session_id[0, 8]} (status=#{session[:status]}, text=#{text.inspect}, channel_subs=#{sub_count})")
 
-        if session[:status] == :running && @registry.agent_config_input_behavior == "steer"
+        if session[:status] == :running && %w[queue steer].include?(@registry.agent_config_input_behavior)
           queued = false
           @registry.with_session(session_id) do |s|
             if s[:status] == :running
-              s[:agent].enqueue_input(build_prompt_with_context(event, text), files: files,
+              s[:agent].enqueue_input(build_prompt_with_context(event, text), delivery: @registry.agent_config_input_behavior.to_sym, files: files,
                                       display_text: text, source: :channel, created_at: Time.now.to_f)
               queued = true
             end
@@ -313,7 +313,7 @@ module Clacky
         # ships to the LLM with no matching tool result — DeepSeek (strict
         # OpenAI-compat) rejects this with HTTP 400 "insufficient tool
         # messages following tool_calls message". CLI already waits via
-        # join(2); we do the same here so all entrypoints behave alike.
+        # join(2); if shutdown is slow, retain the input instead of overlapping work.
         if session[:status] == :running
           Clacky::Logger.info("[ChannelManager] Session busy, interrupting previous task")
           old_thread = nil
@@ -322,7 +322,10 @@ module Clacky
           if old_thread&.alive?
             old_thread.join(2)
             if old_thread.alive?
-              Clacky::Logger.warn("[ChannelManager] previous task did not finish within 2s; continuing anyway (watchdog will escalate)")
+              session[:agent].enqueue_input(build_prompt_with_context(event, text), files: files,
+                                             display_text: text, source: :channel, created_at: Time.now.to_f)
+              adapter.send_text(event[:chat_id], "The current task is still stopping. Your message remains queued.")
+              return
             end
           end
         end

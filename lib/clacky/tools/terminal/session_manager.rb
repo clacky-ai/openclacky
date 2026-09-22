@@ -42,6 +42,7 @@ module Clacky
           :marker_regex,    # Regexp, compiled match for marker
           :read_offset,     # Integer, bytes already returned by previous read calls
           :mutex,           # per-session mutex for PTY writes
+          :resource_group,   # Optional cgroup for task limits and OOM attribution
           :shell_name,      # "zsh" | "bash" | "sh" — informs marker syntax & rc reload
           keyword_init: true
         )
@@ -54,7 +55,7 @@ module Clacky
           # Register a new session.  Caller has already spawned the PTY and
           # started the reader thread; we just record the metadata.
           def register(pid:, command:, cwd:, log_file:, log_io:, reader:, writer:,
-                       reader_thread:, mode:, marker_token: nil, shell_name: nil)
+                       reader_thread:, mode:, marker_token: nil, shell_name: nil, resource_group: nil)
             @mutex.synchronize do
               @next_id += 1
               session = Session.new(
@@ -75,6 +76,7 @@ module Clacky
                 marker_regex: marker_token ? /__CLACKY_DONE_#{marker_token}_(\d+)__/ : nil,
                 read_offset: 0,
                 mutex: Mutex.new,
+                resource_group: resource_group,
                 shell_name: shell_name
               )
               @sessions[session.id] = session

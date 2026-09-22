@@ -465,11 +465,15 @@ module Clacky
         end
       end
 
-      # Also load skills bundled inside default_extensions/*/skills/
+      # Also load skills bundled inside default_extensions/*/skills/ — skipping
+      # extensions the user has switched off, so a disabled extension never
+      # advertises its skills in the system prompt.
       ext_skills_dir = File.join(gem_lib_dir, "clacky", "default_extensions")
       Dir.glob(File.join(ext_skills_dir, "*/skills/*/SKILL.md")).each do |skill_file|
         skill_dir = File.dirname(skill_file)
         skill_name = File.basename(skill_dir)
+        ext_id = skill_dir.delete_prefix("#{ext_skills_dir}/").split("/").first
+        next if Clacky::ExtensionLoader.disabled?(ext_id)
 
         begin
           skill = Skill.new(Pathname.new(skill_dir))

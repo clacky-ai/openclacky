@@ -546,4 +546,25 @@ RSpec.describe Clacky::SkillLoader do
       expect(unfiltered).to include("skill-add")
     end
   end
+
+  describe "skills bundled in builtin extensions" do
+    it "loads the skill of an enabled extension" do
+      allow(Clacky::ExtensionLoader).to receive(:disabled?).and_return(false)
+
+      loader = described_class.new(working_dir: working_dir, brand_config: nil)
+
+      expect(loader.load_all.map(&:identifier)).to include("computer-use")
+    end
+
+    it "skips the skill while its extension is switched off" do
+      allow(Clacky::ExtensionLoader).to receive(:disabled?).and_return(false)
+      allow(Clacky::ExtensionLoader).to receive(:disabled?).with("computer-use").and_return(true)
+
+      loader = described_class.new(working_dir: working_dir, brand_config: nil)
+      identifiers = loader.load_all.map(&:identifier)
+
+      expect(identifiers).not_to include("computer-use")
+      expect(identifiers).to include("skill-add")
+    end
+  end
 end

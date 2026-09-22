@@ -3,6 +3,7 @@
 require "yaml"
 require "shellwords"
 require "open3"
+require_relative "../utils/resource_group"
 
 module Clacky
   # BrowserManager owns the chrome-devtools-mcp daemon lifecycle.
@@ -166,6 +167,9 @@ module Clacky
       call_resp = nil
 
       @mutex.synchronize do
+        if (error = @resource_group&.consume_oom_error)
+          raise Clacky::AgentError, error
+        end
         ensure_process!  # May raise BrowserNotReachableError
 
         call_id  = @call_id
@@ -194,11 +198,18 @@ module Clacky
           raise text.empty? ? "Chrome MCP tool '#{tool_name}' failed" : text
         end
 
+        if (error = @resource_group&.consume_oom_error)
+          raise Clacky::AgentError, error
+        end
         result
       end
     rescue Clacky::BrowserNotReachableError => e
       # Return friendly error for AI to guide user
       raise Clacky::AgentError, e.message
+    rescue StandardError
+      error = @resource_group&.consume_oom_error
+      raise Clacky::AgentError, error if error
+      raise
     end
 
     # ---------------------------------------------------------------------------
@@ -251,7 +262,10 @@ module Clacky
       # replaces the shell process with the MCP daemon itself, so the pid
       # / signals / waitpid we hold point at the real target.
       inner   = cmd.map { |a| shell_escape(a) }.join(" ")
+      @resource_group&.cleanup
+      @resource_group = Clacky::Utils::ResourceGroup.create("mcp")
       wrapped = Clacky::Utils::LoginShell.login_shell_command(inner)
+      wrapped = @resource_group.wrap(wrapped) if @resource_group
 
       # close_others: true prevents inheriting the server's listening socket (port 7070).
       # The MCP daemon is an independent external process and should not hold server fds.

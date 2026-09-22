@@ -344,6 +344,47 @@ RSpec.describe Clacky::Media::OpenAICompat do
     end
   end
 
+  describe "#understand_video" do
+    let(:entry) do
+      { "model" => "or-gemini-3-8-flash", "base_url" => "https://api.openclacky.com", "api_key" => "test-key" }
+    end
+    let(:response_body) do
+      JSON.generate({
+        "choices" => [{ "message" => { "content" => "A concise description." } }],
+        "usage" => { "prompt_tokens" => 10 }
+      })
+    end
+
+    it "sends the video only to the sidecar request and returns its description" do
+      captured_body = nil
+      captured_headers = {}
+      req_double = double("req")
+      allow(req_double).to receive(:headers).and_return(captured_headers)
+      allow(req_double).to receive(:body=) { |body| captured_body = body }
+      allow(provider).to receive(:vu_connection).and_return(fake_conn)
+      expect(fake_conn).to receive(:post).with("chat/completions")
+        .and_yield(req_double).and_return(fake_response)
+
+      encoded = Base64.strict_encode64("VIDEO_BYTES")
+      result = provider.understand_video(
+        video_base64: encoded, mime_type: "video/mp4", prompt: "Describe it."
+      )
+
+      body = JSON.parse(captured_body)
+      expect(body["model"]).to eq("or-gemini-3-8-flash")
+      expect(body.dig("messages", 0, "content", 0)).to eq(
+        "type" => "text", "text" => "Describe it."
+      )
+      expect(body.dig("messages", 0, "content", 1)).to eq(
+        "type" => "image_url",
+        "image_url" => { "url" => "data:video/mp4;base64,#{encoded}" }
+      )
+      expect(captured_headers["Authorization"]).to eq("Bearer test-key")
+      expect(result["success"]).to be true
+      expect(result["analysis"]).to eq("A concise description.")
+    end
+  end
+
   describe "base_url normalization" do
     let(:response_body) { JSON.generate({ "data" => [{ "url" => "https://x/y.png" }] }) }
 

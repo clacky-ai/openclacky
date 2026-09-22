@@ -126,9 +126,19 @@ RSpec.describe "ExtStudioExt brand owner publishing" do
       'brandPublished = isBrandOwner() ? brandCloud : cloud.filter((e) => e.origin === "self");'
     )
     expect(view_source).to include(
-      'const canUnpublish = !isBrandOwner() || ext.origin === "self";'
+      'const canUnpublish = (!isBrandOwner() || ext.origin === "self") && !unlisted;'
     )
-    expect(view_source).to include('if (!brandOwner || e.origin === "self") {')
+    expect(view_source).to include('if ((!brandOwner || e.origin === "self") && !unlisted) {')
+  end
+
+  it "drops the unpublish button on a taken-down card and points at republishing instead" do
+    expect(view_source).to include('const unlisted = listingState(ext) === "unlisted";')
+    expect(view_source).to include('const unlisted = listingState(e) === "unlisted";')
+    expect(view_source).to include(
+      'head.appendChild(badge(listingBadgeText(ext), listingBadgeKind(ext), unlisted ? t("extlist.unlisted.hint") : null));'
+    )
+    expect(view_source).to include('stateBadge.setAttribute("data-tooltip", t("extlist.unlisted.hint"));')
+    expect(view_source).to include('"extlist.unlisted.hint": "已被市场下架，重新发布新版本可恢复上架。"')
   end
 
   it "preserves extension origin in the brand distribution response" do
@@ -136,5 +146,21 @@ RSpec.describe "ExtStudioExt brand owner publishing" do
                                           .split('delete "/local" do', 2).first
 
     expect(published_brand_route).to include('origin: ext["origin"]')
+  end
+
+  it "passes the marketplace hub status through so a takedown stays visible" do
+    published_route = handler_source.split('get "/published" do', 2).last
+                                    .split('get "/published_brand" do', 2).first
+    published_brand_route = handler_source.split('get "/published_brand" do', 2).last
+                                          .split('delete "/local" do', 2).first
+
+    expect(published_route).to include('hub_status: ext["hub_status"]')
+    expect(published_brand_route).to include('hub_status: ext["hub_status"]')
+  end
+
+  it "reads a taken-down extension as unlisted rather than published" do
+    expect(view_source).to include('if (hub && hub !== "active") return "unlisted";')
+    expect(view_source).to include('"extlist.badge.unlisted": "已下架"')
+    expect(view_source).to include(".studio-skill-badge-unlisted {")
   end
 end

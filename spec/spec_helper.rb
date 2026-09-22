@@ -15,6 +15,18 @@ require "fileutils"
 require "climate_control"
 require_relative "support/test_helpers"
 
+# Redirect the extension switch files away from the developer's real
+# ~/.clacky/ext/. Reading that state.json would leak their own extension setup
+# into every scan, and the legacy-migration path renames disabled.json — which
+# must never happen to a real one. Installed here rather than in before(:suite)
+# because specs may scan extensions while the file is still being loaded.
+TEST_EXT_DIR = Dir.mktmpdir("clacky_ext_test")
+
+Clacky::ExtensionLoader.send(:remove_const, :STATE_FILE)
+Clacky::ExtensionLoader.const_set(:STATE_FILE, File.join(TEST_EXT_DIR, "state.json"))
+Clacky::ExtensionLoader.send(:remove_const, :LEGACY_DISABLED_FILE)
+Clacky::ExtensionLoader.const_set(:LEGACY_DISABLED_FILE, File.join(TEST_EXT_DIR, "disabled.json"))
+
 TEST_PROJECTS_FILE = File.join(Dir.mktmpdir("clacky_projects_test"), "projects.json")
 
 RSpec.configure do |config|

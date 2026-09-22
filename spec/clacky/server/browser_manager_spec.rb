@@ -57,6 +57,14 @@ RSpec.describe Clacky::BrowserManager do
     JSON.generate(msg)
   end
 
+  it "reports an OOM before replacing a dead MCP daemon" do
+    group = instance_double(Clacky::Utils::ResourceGroup)
+    allow(group).to receive(:consume_oom_error).and_return(Clacky::Utils::ResourceGroup::MEMORY_ERROR, nil)
+    manager.instance_variable_set(:@resource_group, group)
+    expect(manager).not_to receive(:ensure_process!)
+    expect { manager.mcp_call("list_pages") }.to raise_error(Clacky::AgentError, /memory limit/)
+  end
+
   # ---------------------------------------------------------------------------
   # .instance — singleton
   # ---------------------------------------------------------------------------

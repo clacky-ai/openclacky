@@ -115,6 +115,22 @@ RSpec.describe Clacky::Agent, "#fork_subagent" do
       expect(subagent.instance_variable_get(:@parent_message_count)).to eq(1)
     end
 
+    it "keeps the parent queue authoritative when the subagent shares its UI" do
+      snapshots = []
+      ui = double("ui")
+      allow(ui).to receive(:show_input_queue) { |entries| snapshots << entries }
+      agent.instance_variable_set(:@ui, ui)
+
+      agent.enqueue_input("queued before fanout")
+      subagent = agent.fork_subagent
+      subagent.notify_input_queue
+
+      expect(snapshots.map { |entries| entries.map { |entry| entry[:content] } })
+        .to eq([["queued before fanout"]])
+      expect(agent.pending_inputs.map { |entry| entry[:content] })
+        .to eq(["queued before fanout"])
+    end
+
     context "with model switching" do
       before do
         # Add multiple models to config

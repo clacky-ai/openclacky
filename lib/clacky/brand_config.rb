@@ -1290,9 +1290,11 @@ module Clacky
 
     # Synchronise brand skills in the background.
     #
-    # Fetches the remote skills list and installs any skill whose remote version
-    # differs from the locally installed version.  The work runs in a daemon
-    # Thread so it never blocks the caller (typically Agent startup).
+    # Fetches the remote skills list and installs every skill that is missing
+    # locally or has a newer remote version — skills the brand publishes after
+    # this install was activated therefore arrive without user action.  The work
+    # runs in a daemon Thread so it never blocks the caller (typically Agent
+    # startup).
     #
     # If the license is not activated the method returns immediately without
     # spawning a thread.
@@ -1300,10 +1302,7 @@ module Clacky
     # @param on_complete [Proc, nil] Optional callback called with the sync
     #   results array once all downloads finish (useful for tests / UI feedback).
     # @return [Thread, nil] The background thread, or nil if skipped.
-    # install_new: when true, install ALL remote skills regardless of whether they
-    # were previously installed. Used on first activation so every brand skill is
-    # available immediately without the user clicking Install one-by-one.
-    def sync_brand_skills_async!(on_complete: nil, install_new: false)
+    def sync_brand_skills_async!(on_complete: nil)
       return nil unless activated?
       return nil if ENV["CLACKY_TEST"] == "1"
 
@@ -1322,16 +1321,13 @@ module Clacky
             delete_brand_skill!(local_name) unless remote_skill_names.include?(local_name)
           end
 
-          # When install_new is true (e.g. on first activation) install every
-          # remote skill. Otherwise limit auto-sync to skills already installed
-          # locally that have a newer version available — new skills must be
-          # installed explicitly by the user from the Brand Skills panel.
+          # Install every remote skill that is missing locally or has a newer
+          # version available, so the local catalogue converges on the brand's
+          # without the user clicking Install in the Brand Skills panel.
           installed = installed_brand_skills
-          skills_to_install = if install_new
-                                result[:skills].select { |s| s["needs_update"] || !installed.key?(s["name"]) }
-                              else
-                                result[:skills].select { |s| s["needs_update"] }
-                              end
+          skills_to_install = result[:skills].select do |s|
+            s["needs_update"] || !installed.key?(s["name"])
+          end
           results = skills_to_install.map do |skill_info|
             install_brand_skill!(skill_info)
           end

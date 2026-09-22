@@ -1,0 +1,15 @@
+id: computer-use
+name: Computer Use
+display_name: Computer Use
+display_name_zh: 电脑操作
+description: Let the AI drive your desktop — macOS, or Windows through WSL — with screenshots, mouse and keyboard.
+description_zh: 让 AI 直接操作桌面（macOS，或 WSL 下的 Windows）——截屏、鼠标、键盘。
+version: "0.1.0"
+author: OpenClacky
+homepage: https://www.openclacky.com
+license: MIT
+origin: self
+enabled_by_default: false
+contributes:
+  skills:
+    - id: computer-use

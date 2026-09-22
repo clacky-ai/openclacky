@@ -183,8 +183,9 @@ module Clacky
       # V4.1 Flash and billed at the flash rates (see flash_peak/flash_off_peak).
       # Each entry carries peak/off_peak tiers; calculate_cost resolves the
       # active tier from the request time.
-      # V4.1 Flash — new canonical model id. Native multimodal; the retired
-      # v4-flash / v4-flash-vision-exp ids are routed here for compatibility.
+      # V4.1 Flash — canonical model id, natively multimodal. The retired
+      # v4-flash / v4-flash-vision-exp ids below are no longer offered, but
+      # keep their entries so already-billed history still resolves to a price.
       "deepseek-flash" => {
         deepseek: true,
         peak: {
@@ -199,6 +200,7 @@ module Clacky
         }
       },
 
+      # Retired alias — kept so already-billed history still resolves to a price.
       "deepseek-v4-flash" => {
         deepseek: true,
         peak: {
@@ -213,8 +215,8 @@ module Clacky
         }
       },
 
-      # Vision variant of v4-flash; identical token rates (images are billed
-      # as tokens per DeepSeek's image tokenization rules).
+      # Retired vision variant of v4-flash; identical token rates. Kept for
+      # history only.
       "deepseek-v4-flash-vision-exp" => {
         deepseek: true,
         peak: {
@@ -405,6 +407,11 @@ module Clacky
         input:  { default: 0.14, over_200k: 0.27 },
         output: { default: 0.80, over_200k: 1.60 },
         cache:  { write: 0.14, read: 0.03 }
+      },
+      "doubao-seed-2.0-mini" => {
+        input:  { default: 0.06, over_200k: 0.12 },
+        output: { default: 0.60, over_200k: 1.19 },
+        cache:  { write: 0.06, read: 0.02 }
       },
 
       # Google Gemini 3 series (via Vertex AI). Tiered at 200K input tokens
@@ -705,6 +712,12 @@ module Clacky
         input:  { default: 0.15, over_200k: 0.15 },
         output: { default: 0.50, over_200k: 0.50 },
         cache:  { write: 0.15, read: 0.03 }
+      },
+
+      "glm-5.3-flashx" => {
+        input:  { default: 0.37, over_200k: 0.37 },
+        output: { default: 1.25, over_200k: 1.25 },
+        cache:  { write: 0.37, read: 0.075 }
       },
 
       "glm-5.3" => {
@@ -1079,12 +1092,15 @@ module Clacky
         # (mainland bigmodel.cn vs intl z.ai) the user configured.
         # Strict anchored match so unrelated strings like "glm-5-x-foo"
         # don't silently borrow a nearby model's rate.
+        when /^glm-5\.3-flashx$/i
+          "glm-5.3-flashx"
         when /^glm-5\.3-flash$/i
           "glm-5.3-flash"
         when /^glm-5\.3$/i
           "glm-5.3"
         when /^glm-5\.2$/i
-          "glm-5.2"        when /^glm-5\.1$/i
+          "glm-5.2"
+        when /^glm-5\.1$/i
           "glm-5.1"
         when /^glm-5v-turbo$/i
           "glm-5v-turbo"

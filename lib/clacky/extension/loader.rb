@@ -45,7 +45,10 @@ module Clacky
     BUILTIN_DIR   = File.expand_path("../default_extensions", __dir__)
     INSTALLED_DIR = File.expand_path("~/.clacky/ext/installed")
     LOCAL_DIR     = File.expand_path("~/.clacky/ext/local")
-    DISABLED_FILE = File.expand_path("~/.clacky/ext/disabled.json")
+    STATE_FILE    = File.expand_path("~/.clacky/ext/state.json")
+    # Pre-state.json switch store: a bare array of disabled ids. Read once by
+    # migrate_legacy_switches! so upgrades keep the user's opt-outs.
+    LEGACY_DISABLED_FILE = File.expand_path("~/.clacky/ext/disabled.json")
     MANIFEST      = "ext.yml"
 
     # User data lives OUTSIDE the package tree so uninstalling (which deletes
@@ -95,7 +98,8 @@ module Clacky
       # manifest changes, we invalidate and rescan. Pass `force: true` to
       # bypass the cache (used by CLI / tests).
       def load_all(layers: default_layers, force: false)
-        fingerprint = [fingerprint_layers(layers), disabled_fingerprint]
+        migrate_legacy_switches!
+        fingerprint = [fingerprint_layers(layers), state_fingerprint]
         if !force && @last_result && @last_fingerprint == fingerprint
           return @last_result
         end
@@ -126,9 +130,9 @@ module Clacky
         end
 
         result = Result.new(panels: [], api: [], skills: [], agents: [], channels: [], patches: [], hooks: [], tools: [], errors: errors, overridden: overridden, containers: by_id)
-        disabled = disabled_ids
+        switches = ext_switch_state
         by_id.each_value do |container|
-          container[:disabled] = disabled.include?(container[:ext_id])
+          container[:disabled] = disabled_for?(container, switches)
           resolve_units(container, result) unless container[:disabled]
         end
 
@@ -151,34 +155,59 @@ module Clacky
         @last_fingerprint = nil
       end
 
-      # ── Disabled state ────────────────────────────────────────────────
+      # ── Extension switches ────────────────────────────────────────────
+      # One file, ~/.clacky/ext/state.json, shaped { "<ext_id>" => true|false }:
+      #   false   → the user turned it off
+      #   true    → the user turned it on — the only way an extension declaring
+      #             `enabled_by_default: false` stays on across restarts
+      #   absent  → no user opinion, fall back to the manifest default
       # A disabled extension stays discoverable (still listed as installed)
-      # but contributes no units until re-enabled. Persisted as a JSON array
-      # of ext ids at ~/.clacky/ext/disabled.json.
+      # but contributes no units.
+      #
+      # Releases before state.json recorded opt-outs as a bare array of ids in
+      # disabled.json; migrate_legacy_switches! folds those in on first read.
 
-      def disabled_ids
-        return Set.new unless File.file?(DISABLED_FILE)
-
-        data = JSON.parse(File.read(DISABLED_FILE))
-        data.is_a?(Array) ? data.map(&:to_s).to_set : Set.new
-      rescue StandardError
-        Set.new
+      def ext_switch_state
+        migrate_legacy_switches!
+        read_switch_state
       end
 
+      def disabled_ids
+        ext_switch_state.select { |_id, on| on == false }.keys.to_set
+      end
+
+      def enabled_ids
+        ext_switch_state.select { |_id, on| on == true }.keys.to_set
+      end
+
+      # External lookup (skill loader, API responses) — resolves containers so
+      # a manifest's enabled_by_default is honoured.
       def disabled?(id)
-        disabled_ids.include?(id.to_s)
+        id = id.to_s
+        opinion = ext_switch_state[id]
+        return !opinion unless opinion.nil?
+
+        # `last_result` rather than `load_all`: callers may have primed the
+        # cache with their own layers, and a forced default-layer scan here
+        # would clobber it mid-load.
+        container = last_result.containers[id]
+        container ? container.dig(:raw, "enabled_by_default") == false : false
       end
 
       def disable!(id)
-        ids = disabled_ids
-        ids << id.to_s
-        write_disabled(ids)
+        write_switch_state(ext_switch_state.merge(id.to_s => false))
       end
 
       def enable!(id)
-        ids = disabled_ids
-        ids.delete(id.to_s)
-        write_disabled(ids)
+        write_switch_state(ext_switch_state.merge(id.to_s => true))
+      end
+
+      # Forget any explicit user opinion for this id (used on uninstall).
+      def forget_switch!(id)
+        state = ext_switch_state
+        return if state.delete(id.to_s).nil?
+
+        write_switch_state(state)
       end
 
       # Remove an installed extension by deleting its installed-layer dir.
@@ -193,19 +222,67 @@ module Clacky
 
         FileUtils.rm_rf(dir)
         FileUtils.rm_rf(data_dir_for(id)) if purge_data
-        enable!(id) # clear any stale disabled flag
+        forget_switch!(id)
         invalidate_cache!
         true
       end
 
-      private def write_disabled(ids)
-        FileUtils.mkdir_p(File.dirname(DISABLED_FILE))
-        File.write(DISABLED_FILE, JSON.generate(ids.to_a.sort))
+      private def write_switch_state(state)
+        FileUtils.mkdir_p(File.dirname(STATE_FILE))
+        tmp = "#{STATE_FILE}.#{Process.pid}.tmp"
+        File.write(tmp, JSON.generate(state))
+        File.rename(tmp, STATE_FILE)
         invalidate_cache!
       end
 
-      private def disabled_fingerprint
-        File.file?(DISABLED_FILE) ? File.mtime(DISABLED_FILE).to_f : 0.0
+      # Raw read, no migration — keeps migrate_legacy_switches! off its own
+      # recursion path.
+      private def read_switch_state
+        return {} unless File.file?(STATE_FILE)
+
+        data = JSON.parse(File.read(STATE_FILE))
+        return {} unless data.is_a?(Hash)
+
+        data.each_with_object({}) { |(id, on), acc| acc[id.to_s] = (on == true) }
+      rescue StandardError
+        {}
+      end
+
+      # Fold the legacy disabled.json array into state.json, then park the old
+      # file as disabled.json.migrated. Two details matter:
+      #   - only ids state.json has no opinion on are filled in, so a re-enable
+      #     made on a newer build always wins over the stale array;
+      #   - the rename is what makes this a one-shot. Leaving the array in place
+      #     would let a later uninstall's forget_switch! get undone on the next
+      #     scan, resurrecting an opt-out for an id the user no longer has.
+      private def migrate_legacy_switches!
+        return unless File.file?(LEGACY_DISABLED_FILE)
+
+        ids = JSON.parse(File.read(LEGACY_DISABLED_FILE))
+        return unless ids.is_a?(Array)
+
+        state  = read_switch_state
+        absent = ids.map(&:to_s).uniq.reject { |id| state.key?(id) }
+        unless absent.empty?
+          absent.each { |id| state[id] = false }
+          write_switch_state(state)
+        end
+
+        File.rename(LEGACY_DISABLED_FILE, "#{LEGACY_DISABLED_FILE}.migrated")
+      rescue StandardError
+        nil
+      end
+
+      # User opinion first, manifest default second.
+      private def disabled_for?(container, switches)
+        opinion = switches[container[:ext_id].to_s]
+        return !opinion unless opinion.nil?
+
+        container.dig(:raw, "enabled_by_default") == false
+      end
+
+      private def state_fingerprint
+        File.file?(STATE_FILE) ? File.mtime(STATE_FILE).to_f : 0.0
       rescue StandardError
         Object.new
       end
