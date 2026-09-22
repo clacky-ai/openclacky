@@ -209,7 +209,7 @@ module Clacky
 
 
       "deepseekv4" => {
-        "name" => "DeepSeek V4",
+        "name" => "DeepSeek",
         # DeepSeek API is compatible with both OpenAI and Anthropic formats.
         # We use the OpenAI-compatible endpoint here (matches kimi/minimax/glm style).
         # For Anthropic-format usage, point base_url at https://api.deepseek.com/anthropic
