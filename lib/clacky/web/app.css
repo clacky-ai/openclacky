@@ -5373,8 +5373,8 @@ body {
   padding: 2px 0.375rem;
   border-radius: 3px;
   white-space: nowrap;
-  background: color-mix(in srgb, #4f46e5 16%, transparent);
-  color: color-mix(in srgb, #8b93f6 55%, var(--color-text-primary));
+  background: color-mix(in srgb, var(--color-accent-primary) 14%, transparent);
+  color: var(--color-accent-primary);
 }
 /* Explanation card for the "auto" alias row. Fixed and body-mounted because
    the dropdown clips and scrolls; pointer-events:none keeps it from blocking
