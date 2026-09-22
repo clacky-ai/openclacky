@@ -86,10 +86,10 @@ RSpec.describe Clacky::Providers do
                                          model_name: "dsk-deepseek-flash")).to be true
       end
 
-      it "returns true for deepseekv4 + flash-vision-exp override" do
+      it "returns true for deepseekv4 + V4.1 Flash multimodal override" do
         expect(described_class.supports?("deepseekv4", :vision)).to be false
         expect(described_class.supports?("deepseekv4", :vision,
-                                         model_name: "deepseek-v4-flash-vision-exp")).to be true
+                                         model_name: "deepseek-flash")).to be true
         expect(described_class.supports?("deepseekv4", :vision,
                                          model_name: "deepseek-v4-pro")).to be false
       end
@@ -171,9 +171,15 @@ RSpec.describe Clacky::Providers do
 
       it "includes expected cloud models" do
         expect(described_class.models("ollama")).to include(
-          "glm-5.2", "kimi-k3", "gemma4", "qwen3.5",
+          "glm-5.2", "kimi-k3", "glm-5.1",
           "deepseek-v4-pro", "deepseek-v4-flash",
-          "gemini-3-flash-preview", "gpt-oss"
+          "gemini-3-flash-preview", "minimax-m3"
+        )
+        # Ollama's subscription-billed open-weight models carry no per-token
+        # price, so they stay out of the picker.
+        expect(described_class.models("ollama")).not_to include(
+          "gemma4", "qwen3.5", "nemotron-3-super", "nemotron-3-ultra",
+          "nemotron-3-nano", "mistral-large-3", "gpt-oss"
         )
         expect(described_class.models("ollama")).not_to include(
           "qwen3-coder:480b-cloud", "gpt-oss:120b-cloud",
@@ -185,8 +191,7 @@ RSpec.describe Clacky::Providers do
         expect(described_class.lite_model("ollama", "glm-5.2")).to eq("glm-5.1")
         expect(described_class.lite_model("ollama", "kimi-k3")).to eq("kimi-k2.6")
         expect(described_class.lite_model("ollama", "deepseek-v4-pro")).to eq("deepseek-v4-flash")
-        expect(described_class.lite_model("ollama", "qwen3.5")).to eq("gemini-3-flash-preview")
-        expect(described_class.lite_model("ollama", "gpt-oss")).to eq("nemotron-3-nano")
+        expect(described_class.lite_model("ollama", "gemini-3-flash-preview")).to eq("deepseek-v4-flash")
       end
 
       it "returns nil lite for models without lite pairing" do
@@ -197,16 +202,12 @@ RSpec.describe Clacky::Providers do
       it "enforces vision capabilities correctly" do
         # Vision-capable models
         expect(described_class.supports?("ollama", :vision, model_name: "kimi-k3")).to be true
-        expect(described_class.supports?("ollama", :vision, model_name: "gemma4")).to be true
-        expect(described_class.supports?("ollama", :vision, model_name: "qwen3.5")).to be true
         expect(described_class.supports?("ollama", :vision, model_name: "minimax-m3")).to be true
-        expect(described_class.supports?("ollama", :vision, model_name: "mistral-large-3")).to be true
         # Text-only models
         expect(described_class.supports?("ollama", :vision, model_name: "glm-5.2")).to be false
         expect(described_class.supports?("ollama", :vision, model_name: "deepseek-v4-pro")).to be false
         expect(described_class.supports?("ollama", :vision, model_name: "deepseek-v4-flash")).to be false
         expect(described_class.supports?("ollama", :vision, model_name: "minimax-m2.7")).to be false
-        expect(described_class.supports?("ollama", :vision, model_name: "gpt-oss")).to be false
       end
 
       it "resolves provider by base_url" do
@@ -239,8 +240,9 @@ RSpec.describe Clacky::Providers do
           "openai/gpt-5.5", "openai/gpt-5.4-mini",
           "anthropic/claude-sonnet-5", "anthropic/claude-haiku-4.5",
           "google/gemini-3.5-flash", "deepseek/deepseek-v4-flash",
-          "z-ai/glm-5.2", "orcarouter/auto"
+          "z-ai/glm-5.2"
         )
+        expect(described_class.models("orcarouter")).not_to include("orcarouter/auto")
       end
 
       it "returns correct lite model mappings" do
@@ -258,7 +260,6 @@ RSpec.describe Clacky::Providers do
         # Text-only models
         expect(described_class.supports?("orcarouter", :vision, model_name: "deepseek/deepseek-v4-flash")).to be false
         expect(described_class.supports?("orcarouter", :vision, model_name: "z-ai/glm-5.2")).to be false
-        expect(described_class.supports?("orcarouter", :vision, model_name: "orcarouter/auto")).to be false
       end
 
       it "resolves provider by base_url" do
@@ -472,8 +473,10 @@ RSpec.describe Clacky::Providers do
       it "lists the refreshed Ark lineup" do
         models = described_class.models("volcengine-ark")
         expect(models).to include(
-          "kimi-k2.8-preview", "kimi-k3", "glm-5.3-flash", "doubao-seed-2.0-mini"
+          "kimi-k3", "glm-5.3-flash", "doubao-seed-2.0-mini"
         )
+        # Subscription-only preview with no per-token price.
+        expect(models).not_to include("kimi-k2.8-preview")
         expect(models).not_to include("kimi-k2.6", "minimax-m2.7")
       end
 
