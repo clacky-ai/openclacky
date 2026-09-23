@@ -319,6 +319,7 @@ module Clacky
           old_thread = nil
           @registry.with_session(session_id) { |s| old_thread = s[:thread] }
           @interrupt_session.call(session_id)
+          channel_ui_for_session(session_id)&.interrupt_task
           if old_thread&.alive?
             old_thread.join(2)
             if old_thread.alive?
@@ -359,8 +360,13 @@ module Clacky
         context_token = event[:context_token]
         adapter.start_typing_keepalive(chat_id, context_token) if adapter.respond_to?(:start_typing_keepalive)
 
-        # Acknowledge to the IM channel only — WebUI doesn't need a "Thinking..." noise.
-        adapter.send_text(chat_id, "Thinking...") if @channel_config.status_messages_enabled?
+        # Acknowledge to the IM channel only — WebUI doesn't need progress noise.
+        channel_ui = channel_ui_for_session(session_id)
+        if channel_ui
+          channel_ui.start_task
+        elsif @channel_config.status_messages_enabled?
+          adapter.send_text(chat_id, "Thinking...")
+        end
 
         @run_agent_task.call(session_id, agent) do
           begin
@@ -463,7 +469,8 @@ module Clacky
             return
           end
           @interrupt_session.call(session_id)
-          adapter.send_text(chat_id, "Task interrupted.")
+          updated = channel_ui_for_session(session_id)&.interrupt_task
+          adapter.send_text(chat_id, "Task interrupted.") unless updated
 
         when "/unbind"
           unbound = false

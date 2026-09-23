@@ -53,6 +53,18 @@ module Clacky
           ERR_INVALID_TOKEN = 99991663
           GROUP_HISTORY_LIMIT = 15
           SCOPE_GROUP_MSG = "im:message.group_msg"
+          CARDKIT_CONTENT_ELEMENT_ID = "content"
+          CARDKIT_PROCESS_ELEMENT_ID = "process_history"
+          CARDKIT_STATUS_ELEMENT_ID = "status"
+          CARDKIT_TERMINAL_STATUS_TEXT = {
+            waiting: "Waiting for input",
+            success: "Done",
+            failed: "Failed",
+            interrupted: "Stopped"
+          }.freeze
+          CARDKIT_TERMINAL_STATES = CARDKIT_TERMINAL_STATUS_TEXT.keys.freeze
+          CARDKIT_SUMMARY_MAX_LENGTH = 50
+          ProgressCardSession = Struct.new(:card_id, :sequence, :closed, :mutex)
 
           def initialize(app_id:, app_secret:, domain: DEFAULT_DOMAIN)
             @app_id = app_id
@@ -60,6 +72,8 @@ module Clacky
             @domain = domain
             @token_cache = nil
             @token_expires_at = nil
+            @progress_cards = {}
+            @progress_cards_mutex = Mutex.new
 
           end
 
@@ -104,6 +118,65 @@ module Clacky
             response["code"] == 0
           rescue => e
             Clacky::Logger.warn("[feishu] Failed to update message: #{e.message}")
+            false
+          end
+
+          # Create and send a CardKit card used for low-frequency task progress.
+          # @return [Hash] Response with :message_id and opaque :progress_id
+          def send_progress_card(chat_id, text, reply_to: nil, state: :running)
+            create_response = post("/open-apis/cardkit/v1/cards", {
+              type: "card_json",
+              data: build_progress_card_payload(text)
+            })
+            unless create_response["code"] == 0
+              raise "Failed to create progress card: code=#{create_response["code"]} msg=#{create_response["msg"]}"
+            end
+
+            card_id = create_response.dig("data", "card_id").to_s
+            raise "Failed to create progress card: no card_id returned" if card_id.empty?
+
+            content = JSON.generate({ type: "card", data: { card_id: card_id } })
+            if reply_to
+              response = post("/open-apis/im/v1/messages/#{reply_to}/reply", {
+                msg_type: "interactive",
+                content: content
+              })
+            else
+              response = post("/open-apis/im/v1/messages", {
+                receive_id: chat_id,
+                msg_type: "interactive",
+                content: content
+              }, params: { receive_id_type: "chat_id" })
+            end
+            unless response["code"] == 0
+              raise "Failed to send progress card: code=#{response["code"]} msg=#{response["msg"]}"
+            end
+
+            message_id = response.dig("data", "message_id").to_s
+            session = ProgressCardSession.new(card_id, 1, false, Mutex.new)
+            @progress_cards_mutex.synchronize { @progress_cards[card_id] = session }
+
+            { message_id: message_id, progress_id: card_id }
+          end
+
+          # Update or finalize a CardKit progress card.
+          # @return [Boolean] Success status
+          def update_progress_card(progress_id, text, state: :running, content: nil, history: nil)
+            session = @progress_cards_mutex.synchronize { @progress_cards[progress_id] }
+            return false unless session
+
+            terminal = CARDKIT_TERMINAL_STATES.include?(state.to_sym)
+            session.mutex.synchronize do
+              return false if session.closed
+
+              if terminal
+                finalize_progress_card(session, content || text, state, history: history)
+              else
+                update_progress_card_status(session, text, content: content, history: history)
+              end
+            end
+          rescue => e
+            Clacky::Logger.warn("[feishu] Failed to update progress card: #{e.message}")
             false
           end
 
@@ -212,6 +285,183 @@ module Clacky
               })
               [content, "post"]
             end
+          end
+
+          # Build a CardKit schema 2.0 card with native streaming enabled.
+          # @return [String] JSON-encoded card content
+          def build_progress_card_payload(text)
+            JSON.generate({
+              schema: "2.0",
+              config: {
+                streaming_mode: true,
+                summary: { content: "[Generating...]" },
+                streaming_config: {
+                  print_frequency_ms: { default: 50 },
+                  print_step: { default: 1 }
+                }
+              },
+              body: {
+                elements: [
+                  { tag: "markdown", content: "", element_id: CARDKIT_CONTENT_ELEMENT_ID },
+                  {
+                    tag: "collapsible_panel",
+                    expanded: false,
+                    header: {
+                      title: { tag: "plain_text", content: "View process" },
+                      icon: {
+                        tag: "standard_icon",
+                        token: "down-small-ccm_outlined",
+                        size: "16px 16px"
+                      },
+                      icon_position: "right",
+                      icon_expanded_angle: -180
+                    },
+                    border: { color: "grey", corner_radius: "5px" },
+                    elements: [
+                      {
+                        tag: "markdown",
+                        content: "",
+                        element_id: CARDKIT_PROCESS_ELEMENT_ID
+                      }
+                    ]
+                  },
+                  {
+                    tag: "markdown",
+                    content: progress_status_markdown(text),
+                    element_id: CARDKIT_STATUS_ELEMENT_ID
+                  }
+                ]
+              }
+            })
+          end
+
+          private def update_progress_card_status(session, text, content: nil, history: nil)
+            if history
+              perform_cardkit_request("replace process history", session.card_id) do
+                replace_card_markdown_element(session, CARDKIT_PROCESS_ELEMENT_ID, history)
+              end
+            end
+
+            content_response = if content
+              perform_cardkit_request("replace progress content", session.card_id) do
+                replace_card_markdown_element(session, CARDKIT_CONTENT_ELEMENT_ID, content)
+              end
+            end
+
+            status_response = perform_cardkit_request("update progress status", session.card_id) do
+              put_card_element_content(
+                session,
+                CARDKIT_STATUS_ELEMENT_ID,
+                progress_status_markdown(text)
+              )
+            end
+            # The visible body is the primary delivery when narration is
+            # present. A footer failure must not trigger a duplicate fallback
+            # message after the body was already updated successfully.
+            (content_response || status_response)["code"] == 0
+          end
+
+          private def finalize_progress_card(session, text, state, history: nil)
+            safe_text = sanitize_images_for_card(text.to_s)
+            status_text = CARDKIT_TERMINAL_STATUS_TEXT.fetch(state.to_sym)
+
+            if history
+              perform_cardkit_request("write final process history", session.card_id) do
+                replace_card_markdown_element(session, CARDKIT_PROCESS_ELEMENT_ID, history)
+              end
+            end
+
+            content_response = perform_cardkit_request("write final progress content", session.card_id) do
+              replace_card_markdown_element(session, CARDKIT_CONTENT_ELEMENT_ID, safe_text)
+            end
+
+            perform_cardkit_request("write final progress status", session.card_id) do
+              put_card_element_content(
+                session,
+                CARDKIT_STATUS_ELEMENT_ID,
+                progress_status_markdown(status_text)
+              )
+            end
+
+            perform_cardkit_request("close progress card", session.card_id) do
+              close_progress_card(session, safe_text)
+            end
+
+            session.closed = true
+            @progress_cards_mutex.synchronize { @progress_cards.delete(session.card_id) }
+
+            content_response["code"] == 0
+          end
+
+          private def replace_card_markdown_element(session, element_id, content)
+            safe_content = sanitize_images_for_card(content.to_s)
+            sequence = next_progress_sequence(session)
+            put(
+              "/open-apis/cardkit/v1/cards/#{session.card_id}/elements/#{element_id}",
+              {
+                element: JSON.generate({
+                  tag: "markdown",
+                  content: safe_content,
+                  element_id: element_id
+                }),
+                sequence: sequence,
+                uuid: "r_#{session.card_id}_#{sequence}"
+              }
+            )
+          end
+
+          private def put_card_element_content(session, element_id, content)
+            sequence = next_progress_sequence(session)
+            put(
+              "/open-apis/cardkit/v1/cards/#{session.card_id}/elements/#{element_id}/content",
+              {
+                content: content,
+                sequence: sequence,
+                uuid: "u_#{session.card_id}_#{sequence}"
+              }
+            )
+          end
+
+          private def close_progress_card(session, text)
+            sequence = next_progress_sequence(session)
+            patch("/open-apis/cardkit/v1/cards/#{session.card_id}/settings", {
+              settings: JSON.generate({
+                config: {
+                  streaming_mode: false,
+                  summary: { content: truncate_cardkit_summary(text) }
+                }
+              }),
+              sequence: sequence,
+              uuid: "c_#{session.card_id}_#{sequence}"
+            })
+          end
+
+          private def next_progress_sequence(session)
+            session.sequence += 1
+          end
+
+          private def progress_status_markdown(text)
+            "<font color='grey'>#{sanitize_images_for_card(text.to_s)}</font>"
+          end
+
+          private def truncate_cardkit_summary(text)
+            clean = text.to_s.gsub(/\s+/, " ").strip
+            return clean if clean.length <= CARDKIT_SUMMARY_MAX_LENGTH
+
+            "#{clean[0, CARDKIT_SUMMARY_MAX_LENGTH - 3]}..."
+          end
+
+          private def perform_cardkit_request(action, card_id)
+            response = yield
+            unless response["code"] == 0
+              Clacky::Logger.warn("[feishu] CardKit #{action} failed",
+                code: response["code"], msg: response["msg"], card_id: card_id)
+            end
+            response
+          rescue => e
+            Clacky::Logger.warn("[feishu] CardKit #{action} failed",
+              error: e.message, card_id: card_id)
+            { "code" => -1, "msg" => e.message }
           end
 
           def has_code_block_or_table?(text)
@@ -344,6 +594,23 @@ module Clacky
                 req.headers["Authorization"] = "Bearer #{tenant_access_token}"
                 req.headers["Content-Type"] = "application/json"
                 req.params.update(params)
+                req.body = JSON.generate(body)
+              end
+
+              parse_response(response)
+            end
+          end
+
+          # Make authenticated PUT request
+          # @param path [String] API path
+          # @param body [Hash] Request body
+          # @return [Hash] Parsed response
+          def put(path, body)
+            with_token_retry do
+              conn = build_connection
+              response = conn.put(path) do |req|
+                req.headers["Authorization"] = "Bearer #{tenant_access_token}"
+                req.headers["Content-Type"] = "application/json"
                 req.body = JSON.generate(body)
               end
 

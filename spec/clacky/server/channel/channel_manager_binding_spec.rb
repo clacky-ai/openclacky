@@ -149,6 +149,25 @@ RSpec.describe Clacky::Channel::ChannelManager do
     end
   end
 
+  describe "/stop" do
+    it "uses the active progress message instead of sending a second status message" do
+      allow(channel_ui).to receive(:interrupt_task).and_return(true)
+
+      manager.handle_command(adapter, event, "/stop")
+
+      expect(channel_ui).to have_received(:interrupt_task)
+      expect(sent).to be_empty
+    end
+
+    it "falls back to a standalone status message without an active progress message" do
+      allow(channel_ui).to receive(:interrupt_task).and_return(false)
+
+      manager.handle_command(adapter, event, "/stop")
+
+      expect(sent).to eq(["Task interrupted."])
+    end
+  end
+
   describe "/unbind with a stale binding left on an older session" do
     let(:stale_id) { "sess_964a5317" }
     let(:stale_agent) do

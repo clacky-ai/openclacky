@@ -70,8 +70,27 @@ module Clacky
           false
         end
 
+        # Send a task-progress message. Adapters with native progress rendering
+        # can override this while other adapters keep their normal text path.
+        # @return [Hash] { message_id: String, progress_id: String (optional) }
+        def send_progress(chat_id, text, reply_to: nil, state: :running)
+          send_text(chat_id, text, reply_to: reply_to)
+        end
+
+        # Update a task-progress message or native progress session in place.
+        # @return [Boolean] true if successful
+        def update_progress(chat_id, progress_id, text, state: :running, content: nil, history: nil)
+          update_message(chat_id, progress_id, content || text)
+        end
+
         # @return [Boolean] true if the platform supports editing a sent message
         def supports_message_updates?
+          false
+        end
+
+        # @return [Boolean] true if the adapter supports the complete task-progress
+        # lifecycle through #send_progress and #update_progress
+        def supports_progress_updates?
           false
         end
 
