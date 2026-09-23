@@ -56,6 +56,18 @@ RSpec.describe Clacky::Server::HttpServer, "input behavior routing" do
     server.on_ws_message(double("connection"), JSON.generate(type: "steer_pending_input", session_id: "s", id: "p1", task_id: 0))
   end
 
+  it "routes the cancel-guidance action to the agent" do
+    expect(agent).to receive(:unsteer_pending_input).with("p1").and_return(true)
+    expect(server).not_to receive(:interrupt_session)
+    server.on_ws_message(double("connection"), JSON.generate(type: "unsteer_pending_input", session_id: "s", id: "p1"))
+  end
+
+  it "stays silent when the cancelled entry was already consumed" do
+    expect(agent).to receive(:unsteer_pending_input).with("p1").and_return(false)
+    expect(server).not_to receive(:broadcast)
+    server.on_ws_message(double("connection"), JSON.generate(type: "unsteer_pending_input", session_id: "s", id: "p1"))
+  end
+
   describe "sending pending input immediately" do
     let(:entry) { { id: "p1", content: "extra", options: { files: [{ name: "a.pdf" }], reference_contexts: ["context"] } } }
 

@@ -7610,6 +7610,10 @@ module Clacky
             broadcast(session_id, { type: "input_queue_notice", session_id: session_id, key: "chat.input.guidanceRejected" })
           end
 
+        when "unsteer_pending_input"
+          session_id = msg["session_id"] || conn.session_id
+          @registry.get(session_id)&.dig(:agent)&.unsteer_pending_input(msg["id"])
+
         when "send_pending_input"
           session_id = msg["session_id"] || conn.session_id
           Thread.current[:lang] = msg["lang"].to_s.strip.then { |l| l.empty? ? nil : l }
