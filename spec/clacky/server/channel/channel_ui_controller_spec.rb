@@ -39,6 +39,150 @@ RSpec.describe Clacky::Channel::ChannelUIController do
     end
   end
 
+  describe "task progress messages" do
+    let(:progress_updates) { [] }
+    let(:progress_adapter) do
+      updates = progress_updates
+      rec = sent
+      double("progress adapter").tap do |a|
+        allow(a).to receive(:supports_progress_updates?).and_return(true)
+        allow(a).to receive(:send_progress).and_return(
+          message_id: "progress_1",
+          progress_id: "card_1"
+        )
+        allow(a).to receive(:update_progress) do |chat_id, message_id, text, state:|
+          updates << [chat_id, message_id, text, state]
+          true
+        end
+        allow(a).to receive(:send_text) { |_chat_id, text, _opts| rec << text }
+      end
+    end
+    let(:progress_controller) do
+      described_class.new(event, -> { progress_adapter }, -> { @status_enabled }, -> { @process_enabled })
+    end
+
+    it "updates one progress message from thinking through working to the final reply" do
+      expect(progress_controller.start_task).to be true
+      expect(progress_adapter).to have_received(:send_progress)
+        .with("chat_1", "Thinking...", reply_to: "msg_1", state: :running)
+
+      progress_controller.show_tool_call("terminal", { "command" => "ls" })
+      progress_controller.show_tool_call("write", { "path" => "a.rb" })
+      progress_controller.show_assistant_message("All done", files: [])
+      progress_controller.show_complete(iterations: 2, cost: nil, duration: 1.2, cost_source: nil)
+
+      expect(progress_updates).to eq([
+        ["chat_1", "card_1", "Working...", :working],
+        ["chat_1", "card_1", "All done", :success]
+      ])
+      expect(sent).to be_empty
+    end
+
+    it "falls back to a normal final message when the card update fails" do
+      progress_controller.start_task
+      allow(progress_adapter).to receive(:update_progress).and_return(false)
+
+      progress_controller.show_assistant_message("Fallback result", files: [])
+
+      expect(sent).to eq(["Fallback result"])
+    end
+
+    it "keeps the native card session after a transient milestone failure" do
+      progress_controller.start_task
+      attempts = 0
+      allow(progress_adapter).to receive(:update_progress) do |chat_id, progress_id, text, state:|
+        progress_updates << [chat_id, progress_id, text, state]
+        attempts += 1
+        attempts > 1
+      end
+
+      progress_controller.show_tool_call("terminal", { "command" => "ls" })
+      progress_controller.show_assistant_message("Final result", files: [])
+
+      expect(progress_updates).to eq([
+        ["chat_1", "card_1", "Working...", :working],
+        ["chat_1", "card_1", "Final result", :success]
+      ])
+      expect(sent).to be_empty
+    end
+
+    it "updates the active progress message when the task is interrupted" do
+      progress_controller.start_task
+
+      expect(progress_controller.interrupt_task).to be true
+      expect(progress_updates).to eq([
+        ["chat_1", "card_1", "Task interrupted.", :interrupted]
+      ])
+    end
+
+    it "marks the progress message as waiting when the agent requests feedback" do
+      progress_controller.start_task
+
+      progress_controller.show_complete(
+        iterations: 1,
+        cost: nil,
+        duration: 1.2,
+        cost_source: nil,
+        awaiting_user_feedback: true
+      )
+
+      expect(progress_updates).to eq([
+        ["chat_1", "card_1", "Waiting for your response.", :waiting]
+      ])
+      expect(sent).to be_empty
+    end
+
+    it "clears a previous task before starting with status messages disabled" do
+      progress_controller.start_task
+      progress_controller.show_assistant_message("First result", files: [])
+      @status_enabled = false
+
+      expect(progress_controller.start_task).to be false
+      progress_controller.show_assistant_message("Second result", files: [])
+
+      expect(sent).to eq(["Second result"])
+    end
+
+    it "keeps standalone status messages for adapters without progress updates" do
+      expect(controller.start_task).to be false
+      expect(sent).to eq(["Thinking..."])
+      expect(adapter).to have_received(:send_text).with("chat_1", "Thinking...", reply_to: nil)
+    end
+
+    it "does not infer progress support from ordinary message editing" do
+      allow(adapter).to receive(:supports_message_updates?).and_return(true)
+      allow(adapter).to receive(:supports_progress_updates?).and_return(false)
+      allow(adapter).to receive(:send_progress)
+      allow(adapter).to receive(:update_progress)
+
+      expect(controller.start_task).to be false
+
+      expect(adapter).not_to have_received(:send_progress)
+      expect(sent).to eq(["Thinking..."])
+    end
+
+    it "falls back to a standalone status when native card creation fails" do
+      allow(progress_adapter).to receive(:send_progress).and_raise("scope missing")
+
+      expect(progress_controller.start_task).to be false
+      expect(sent).to eq(["Thinking..."])
+    end
+
+    it "sanitizes hidden reasoning before finalizing the progress card" do
+      progress_controller.start_task
+
+      progress_controller.show_assistant_message(
+        "<think>private reasoning</think>\nVisible answer",
+        files: []
+      )
+
+      expect(progress_updates).to eq([
+        ["chat_1", "card_1", "Visible answer", :success]
+      ])
+      expect(sent).to be_empty
+    end
+  end
+
   describe "#buffer_line" do
     it "flushes buffered previews when process messages are enabled" do
       controller.buffer_line("create: a.rb")
