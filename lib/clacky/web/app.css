@@ -2673,7 +2673,31 @@ body {
 }
 .ns-input-bar-card:focus-within {
   border-color: color-mix(in srgb, var(--color-accent-primary) 50%, var(--color-border-primary));
-}.ns-ctx-chip {
+}
+
+/* External deep link notice — sits above the composer, outside the input card,
+   so the card keeps its shape and the notice reads as a note about the message
+   rather than a second input box. */
+.deeplink-notice {
+  margin: 0 1rem 0.375rem;
+  padding: 0.375rem 0.625rem;
+  border-radius: 0.5rem;
+  background: var(--color-warning-bg);
+  color: var(--color-warning-text);
+  font-size: 0.75rem;
+  line-height: 1.5;
+}
+.deeplink-notice::before {
+  content: "";
+  display: inline-block;
+  width: 0.375rem;
+  height: 0.375rem;
+  margin-right: 0.375rem;
+  border-radius: 50%;
+  background: var(--color-warning);
+  vertical-align: middle;
+}
+.ns-ctx-chip {
   display: inline-flex;
   align-items: center;
   gap: 0.3125rem;

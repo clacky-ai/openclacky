@@ -404,6 +404,8 @@
           </div>
           <!-- Composer frame: context bar card (offset) + input bar card (full width) -->
           <div class="ns-composer-frame">
+            <!-- Shown when the composer was prefilled from an external link -->
+            <div id="ns-deeplink-notice" class="deeplink-notice" role="status" style="display:none"></div>
             <div id="ns-context-bar" class="ns-context-bar"></div>
             <!-- Input bar card -->
             <div class="ns-input-bar-card">
@@ -536,6 +538,8 @@
           </div>
           <div id="skill-autocomplete-list"></div>
         </div>
+        <!-- Shown when the composer was prefilled from an external link -->
+        <div id="chat-deeplink-notice" class="deeplink-notice" role="status" style="display:none"></div>
         <!-- Image preview strip (hidden when empty) -->
         <div id="input-queue" aria-live="polite" hidden></div>
         <div id="image-preview-strip" style="display:none"></div>
