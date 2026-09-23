@@ -15,7 +15,7 @@ RSpec.describe "attachment metadata across compression" do
     end.new
   end
 
-  it "archives only attachment name and type" do
+  it "archives attachment name, type, and paths but not contents or sizes" do
     md = writer.render_message_sections([
       {
         role: "user",
@@ -31,8 +31,9 @@ RSpec.describe "attachment metadata across compression" do
       }
     ]).join("\n")
 
-    expect(md).to include('_Display files: [{"name":"data.csv","type":"csv"}]_')
-    expect(md).not_to include("/tmp/private")
+    expect(md).to include('"name":"data.csv"')
+    expect(md).to include("/tmp/private/data.csv")
+    expect(md).to include("/tmp/private/preview.md")
     expect(md).not_to include("12345")
     expect(md).not_to include("private file contents")
   end
@@ -46,12 +47,12 @@ RSpec.describe "attachment metadata across compression" do
     expect(files).to eq([{ name: "report.pdf", type: "pdf" }])
   end
 
-  it "defaults a missing attachment type without restoring extra fields" do
+  it "defaults a missing attachment type and restores path from the chunk marker" do
     _text, files = reader.extract_display_files_from_text(
       '_Display files: [{"name":"notes.txt","path":"/tmp/notes.txt"}]_'
     )
 
-    expect(files).to eq([{ name: "notes.txt", type: "file" }])
+    expect(files).to eq([{ name: "notes.txt", type: "file", path: "/tmp/notes.txt" }])
   end
 
   it "archives an inline image as a badge without retaining image data" do
@@ -67,9 +68,9 @@ RSpec.describe "attachment metadata across compression" do
       }
     ]).join("\n")
 
-    expect(md).to include('_Display files: [{"name":"photo.png","type":"image"}]_')
+    expect(md).to include('"name":"photo.png"')
+    expect(md).to include("/tmp/private/photo.png")
     expect(md).not_to include("PRIVATE_IMAGE_DATA")
-    expect(md).not_to include("/tmp/private")
     expect(md).not_to include("[image_url]")
   end
 

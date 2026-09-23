@@ -576,7 +576,7 @@ module Clacky
 
       # Pull lightweight attachment badge metadata out of a chunk section.
       # The marker is internal archive data and must not appear in replayed text.
-      # Only name + type are accepted; paths and file contents are never restored.
+      # Restores name, type, and path/preview_path when present in the chunk marker.
       def extract_display_files_from_text(text)
         return [text, []] unless text.include?("_Display files:")
 
@@ -594,7 +594,12 @@ module Clacky
 
             type = file["type"] || file[:type] || "file"
             type = "file" if type.to_s.strip.empty?
-            files << { name: name.to_s, type: type.to_s }
+            entry = { name: name.to_s, type: type.to_s }
+            path = file["path"] || file[:path]
+            entry[:path] = path.to_s unless path.nil? || path.to_s.strip.empty?
+            preview = file["preview_path"] || file[:preview_path]
+            entry[:preview_path] = preview.to_s unless preview.nil? || preview.to_s.strip.empty?
+            files << entry
           end
           true
         end
