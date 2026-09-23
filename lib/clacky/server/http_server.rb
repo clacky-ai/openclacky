@@ -7174,24 +7174,24 @@ module Clacky
         return json_response(res, 404, { error: "Session not found" }) unless @registry.ensure(session_id)
 
         agent = nil
-        @registry.with_session(session_id) { |s| agent = s[:agent] }
-
-        # With Plan B (shared @models reference), every session's AgentConfig
-        # points at the same @models array as the global @agent_config. So
-        # resolving the model by stable id here and in agent.switch_model_by_id
-        # will always agree — no more index divergence after add/delete.
-        target_model = @agent_config.models.find { |m| m["id"] == model_id }
-        if target_model.nil?
-          return json_response(res, 400, { error: "Model not found in configuration" })
+        target_model = nil
+        @registry.with_session(session_id) do |session|
+          # Share task startup's lock; also reject workers still exiting after
+          # an interrupt, even if the status has already changed.
+          if session[:status] == :running || session[:thread]&.alive?
+            return json_response(res, 409, { error: "Cannot switch models while the session is running" })
+          end
+          agent = session[:agent]
+          return json_response(res, 404, { error: "Session not found" }) unless agent
+          target_model = @agent_config.models.find { |m| m["id"] == model_id }
+          unless target_model
+            return json_response(res, 400, { error: "Model not found in configuration" })
+          end
+          unless agent.switch_model_by_id(model_id)
+            return json_response(res, 500, { error: "Failed to switch model" })
+          end
         end
-
-        # Switch to the model by id (unified interface with CLI)
-        # Handles: config.switch_model_by_id + client rebuild + message_compressor rebuild
-        success = agent.switch_model_by_id(model_id)
-
-        unless success
-          return json_response(res, 500, { error: "Failed to switch model" })
-        end
+        return json_response(res, 404, { error: "Session not found" }) unless agent
 
         # Persist the change (saves to session file, NOT global config.yml)
         @session_manager.save(agent.to_session_data(updated_at: Time.now))
@@ -7239,26 +7239,32 @@ module Clacky
         return json_response(res, 404, { error: "Session not found" }) unless @registry.ensure(session_id)
 
         agent = nil
-        @registry.with_session(session_id) { |s| agent = s[:agent] }
-        return json_response(res, 404, { error: "Session not found" }) unless agent
+        @registry.with_session(session_id) do |session|
+          if session[:status] == :running || session[:thread]&.alive?
+            return json_response(res, 409, { error: "Cannot switch models while the session is running" })
+          end
+          agent = session[:agent]
+          return json_response(res, 404, { error: "Session not found" }) unless agent
 
-        if model_name && !model_name.empty?
-          info = agent.current_model_info
-          # Prefer explicitly saved provider_id, fall back to base_url lookup
-          provider_id = info&.dig(:provider_id).to_s.strip.then { |v| v.empty? ? nil : v }
-          provider_id ||= (info && Clacky::Providers.find_by_base_url(info[:base_url]))
-          allowed = provider_id ? Clacky::Providers.models(provider_id) : []
-          if allowed.empty?
-            return json_response(res, 400, { error: "Current model has no provider preset; sub-model switching unavailable" })
+          if model_name && !model_name.empty?
+            info = agent.current_model_info
+            # Prefer explicitly saved provider_id, fall back to base_url lookup
+            provider_id = info&.dig(:provider_id).to_s.strip.then { |v| v.empty? ? nil : v }
+            provider_id ||= (info && Clacky::Providers.find_by_base_url(info[:base_url]))
+            allowed = provider_id ? Clacky::Providers.models(provider_id) : []
+            if allowed.empty?
+              return json_response(res, 400, { error: "Current model has no provider preset; sub-model switching unavailable" })
+            end
+            unless allowed.include?(model_name)
+              return json_response(res, 400, { error: "Sub-model '#{model_name}' not listed under provider '#{provider_id}'" })
+            end
+          else
+            model_name = nil
           end
-          unless allowed.include?(model_name)
-            return json_response(res, 400, { error: "Sub-model '#{model_name}' not listed under provider '#{provider_id}'" })
-          end
-        else
-          model_name = nil
+
+          agent.set_session_sub_model(model_name)
         end
-
-        agent.set_session_sub_model(model_name)
+        return json_response(res, 404, { error: "Session not found" }) unless agent
         @session_manager.save(agent.to_session_data(updated_at: Time.now))
         broadcast_session_update(session_id)
 
