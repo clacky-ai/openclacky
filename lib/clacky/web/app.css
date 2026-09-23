@@ -1565,7 +1565,7 @@ body {
   display: flex;
   align-items: center;
   gap: 0.25rem;
-  font-size: 0.8325rem;
+  font-size: 0.85rem;
   font-weight: 400;
   transition: color var(--transition-fast), font-weight var(--transition-fast);
 }
