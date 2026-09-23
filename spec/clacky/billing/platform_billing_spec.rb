@@ -22,6 +22,13 @@ RSpec.describe Clacky::Billing::PlatformBilling do
       .and_return({ success: false, error: "Invalid API key", data: {} })
   end
 
+  def stub_slow_request(payload, latency)
+    allow(described_class).to receive(:request) do |_api_key, _path|
+      sleep(latency)
+      payload
+    end
+  end
+
   def summary_payload(cost:, prompt:, completion:, cache_read:, model_cost:, requests:, day_cost:)
     {
       "period" => "month",
@@ -155,6 +162,19 @@ RSpec.describe Clacky::Billing::PlatformBilling do
       expect(client).to have_received(:get)
         .with("/api/v1/usage/summary?period=month&model=deepseek-v4-pro", anything)
     end
+
+    it "fetches keys concurrently instead of stacking their latencies" do
+      payload = summary_payload(cost: 1.0, prompt: 60, completion: 40, cache_read: 0,
+                                model_cost: 1.0, requests: 1, day_cost: 1.0)
+      stub_slow_request(payload, 0.3)
+
+      started_at = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+      merged = described_class.fetch_summary_merged(["clacky-a", "clacky-b", "clacky-c"], period: "month")
+      elapsed = Process.clock_gettime(Process::CLOCK_MONOTONIC) - started_at
+
+      expect(merged[:total_cost]).to eq(3.0)
+      expect(elapsed).to be < 0.75
+    end
   end
 
   describe ".fetch_daily_merged" do
@@ -205,6 +225,19 @@ RSpec.describe Clacky::Billing::PlatformBilling do
 
     it "returns nil for an empty key list" do
       expect(described_class.fetch_daily_merged([], days: 30)).to be_nil
+    end
+
+    it "fetches keys concurrently instead of stacking their latencies" do
+      payload = daily_payload(date: "2026-09-02", cost: 1.0, tokens: 100, requests: 1)
+      stub_slow_request(payload, 0.3)
+
+      started_at = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+      merged = described_class.fetch_daily_merged(["clacky-a", "clacky-b", "clacky-c"], days: 30)
+      elapsed = Process.clock_gettime(Process::CLOCK_MONOTONIC) - started_at
+
+      expect(merged[:days].length).to eq(1)
+      expect(merged[:days].first[:cost]).to eq(3.0)
+      expect(elapsed).to be < 0.75
     end
   end
 

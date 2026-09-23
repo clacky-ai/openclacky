@@ -96,7 +96,7 @@ module Clacky
         # per-key results yields the combined total. Failing keys
         # (invalid/revoked) are skipped; returns nil only when every key fails.
         def fetch_summary_merged(api_keys, period:, model: nil)
-          summaries = Array(api_keys).uniq.map { |key| fetch_summary(key, period: period, model: model) }.compact
+          summaries = parallel_fetch(Array(api_keys).uniq) { |key| fetch_summary(key, period: period, model: model) }.compact
           return nil if summaries.empty?
 
           summaries.reduce { |acc, summary| merge_summaries(acc, summary) }
@@ -105,7 +105,7 @@ module Clacky
         # Fetch and merge daily breakdowns across multiple openclacky keys.
         # Same skip-on-failure semantics as fetch_summary_merged.
         def fetch_daily_merged(api_keys, days:, model: nil)
-          dailies = Array(api_keys).uniq.map { |key| fetch_daily(key, days: days, model: model) }.compact
+          dailies = parallel_fetch(Array(api_keys).uniq) { |key| fetch_daily(key, days: days, model: model) }.compact
           return nil if dailies.empty?
 
           { days: merge_daily_entries(dailies.flat_map { |daily| daily[:days] }) }
@@ -145,6 +145,13 @@ module Clacky
           result[:success] ? result[:data] : nil
         rescue StandardError
           nil
+        end
+
+        # Every key is one remote round-trip; fetching them in sequence stacks
+        # the network latency (3 keys × ~2s ≈ 6s per panel open), so fan the
+        # keys out and pay the slowest single request instead of the sum.
+        private def parallel_fetch(keys, &fetch)
+          keys.map { |key| ThreadRegistry.spawn(name: "billing-usage-fetch") { fetch.call(key) } }.map(&:value)
         end
 
         private def merge_summaries(a, b)
