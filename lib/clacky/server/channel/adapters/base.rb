@@ -79,8 +79,8 @@ module Clacky
 
         # Update a task-progress message or native progress session in place.
         # @return [Boolean] true if successful
-        def update_progress(chat_id, progress_id, text, state: :running)
-          update_message(chat_id, progress_id, text)
+        def update_progress(chat_id, progress_id, text, state: :running, content: nil, history: nil)
+          update_message(chat_id, progress_id, content || text)
         end
 
         # @return [Boolean] true if the platform supports editing a sent message

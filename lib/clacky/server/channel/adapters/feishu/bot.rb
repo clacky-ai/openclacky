@@ -54,6 +54,7 @@ module Clacky
           GROUP_HISTORY_LIMIT = 15
           SCOPE_GROUP_MSG = "im:message.group_msg"
           CARDKIT_CONTENT_ELEMENT_ID = "content"
+          CARDKIT_PROCESS_ELEMENT_ID = "process_history"
           CARDKIT_STATUS_ELEMENT_ID = "status"
           CARDKIT_TERMINAL_STATUS_TEXT = {
             waiting: "Waiting for input",
@@ -160,7 +161,7 @@ module Clacky
 
           # Update or finalize a CardKit progress card.
           # @return [Boolean] Success status
-          def update_progress_card(progress_id, text, state: :running)
+          def update_progress_card(progress_id, text, state: :running, content: nil, history: nil)
             session = @progress_cards_mutex.synchronize { @progress_cards[progress_id] }
             return false unless session
 
@@ -169,9 +170,9 @@ module Clacky
               return false if session.closed
 
               if terminal
-                finalize_progress_card(session, text, state)
+                finalize_progress_card(session, content || text, state, history: history)
               else
-                update_progress_card_status(session, text)
+                update_progress_card_status(session, text, content: content, history: history)
               end
             end
           rescue => e
@@ -303,6 +304,28 @@ module Clacky
                 elements: [
                   { tag: "markdown", content: "", element_id: CARDKIT_CONTENT_ELEMENT_ID },
                   {
+                    tag: "collapsible_panel",
+                    expanded: false,
+                    header: {
+                      title: { tag: "plain_text", content: "View process" },
+                      icon: {
+                        tag: "standard_icon",
+                        token: "down-small-ccm_outlined",
+                        size: "16px 16px"
+                      },
+                      icon_position: "right",
+                      icon_expanded_angle: -180
+                    },
+                    border: { color: "grey", corner_radius: "5px" },
+                    elements: [
+                      {
+                        tag: "markdown",
+                        content: "",
+                        element_id: CARDKIT_PROCESS_ELEMENT_ID
+                      }
+                    ]
+                  },
+                  {
                     tag: "markdown",
                     content: progress_status_markdown(text),
                     element_id: CARDKIT_STATUS_ELEMENT_ID
@@ -312,30 +335,52 @@ module Clacky
             })
           end
 
-          private def update_progress_card_status(session, text)
-            response = perform_cardkit_request("update progress status", session.card_id) do
+          private def update_progress_card_status(session, text, content: nil, history: nil)
+            if history
+              perform_cardkit_request("replace process history", session.card_id) do
+                replace_card_markdown_element(session, CARDKIT_PROCESS_ELEMENT_ID, history)
+              end
+            end
+
+            content_response = if content
+              perform_cardkit_request("replace progress content", session.card_id) do
+                replace_card_markdown_element(session, CARDKIT_CONTENT_ELEMENT_ID, content)
+              end
+            end
+
+            status_response = perform_cardkit_request("update progress status", session.card_id) do
               put_card_element_content(
                 session,
                 CARDKIT_STATUS_ELEMENT_ID,
                 progress_status_markdown(text)
               )
             end
-            response["code"] == 0
+            # The visible body is the primary delivery when narration is
+            # present. A footer failure must not trigger a duplicate fallback
+            # message after the body was already updated successfully.
+            (content_response || status_response)["code"] == 0
           end
 
-          private def finalize_progress_card(session, text, state)
+          private def finalize_progress_card(session, text, state, history: nil)
             safe_text = sanitize_images_for_card(text.to_s)
             status_text = CARDKIT_TERMINAL_STATUS_TEXT.fetch(state.to_sym)
+
+            if history
+              perform_cardkit_request("write final process history", session.card_id) do
+                replace_card_markdown_element(session, CARDKIT_PROCESS_ELEMENT_ID, history)
+              end
+            end
+
+            content_response = perform_cardkit_request("write final progress content", session.card_id) do
+              replace_card_markdown_element(session, CARDKIT_CONTENT_ELEMENT_ID, safe_text)
+            end
+
             perform_cardkit_request("write final progress status", session.card_id) do
               put_card_element_content(
                 session,
                 CARDKIT_STATUS_ELEMENT_ID,
                 progress_status_markdown(status_text)
               )
-            end
-
-            content_response = perform_cardkit_request("write final progress content", session.card_id) do
-              put_card_element_content(session, CARDKIT_CONTENT_ELEMENT_ID, safe_text)
             end
 
             perform_cardkit_request("close progress card", session.card_id) do
@@ -346,6 +391,23 @@ module Clacky
             @progress_cards_mutex.synchronize { @progress_cards.delete(session.card_id) }
 
             content_response["code"] == 0
+          end
+
+          private def replace_card_markdown_element(session, element_id, content)
+            safe_content = sanitize_images_for_card(content.to_s)
+            sequence = next_progress_sequence(session)
+            put(
+              "/open-apis/cardkit/v1/cards/#{session.card_id}/elements/#{element_id}",
+              {
+                element: JSON.generate({
+                  tag: "markdown",
+                  content: safe_content,
+                  element_id: element_id
+                }),
+                sequence: sequence,
+                uuid: "r_#{session.card_id}_#{sequence}"
+              }
+            )
           end
 
           private def put_card_element_content(session, element_id, content)

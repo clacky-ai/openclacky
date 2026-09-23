@@ -101,7 +101,7 @@ module Clacky
             @ws_client&.stop
           end
 
-          # Send plain text message
+          # Send a text message.
           # @param chat_id [String] Chat ID
           # @param text [String] Message text
           # @param reply_to [String, nil] Message ID to reply to
@@ -134,8 +134,14 @@ module Clacky
           end
 
           # Update or finalize a task-progress CardKit session.
-          def update_progress(chat_id, progress_id, text, state: :running)
-            @bot.update_progress_card(progress_id, text, state: state)
+          def update_progress(chat_id, progress_id, text, state: :running, content: nil, history: nil)
+            @bot.update_progress_card(
+              progress_id,
+              text,
+              state: state,
+              content: content,
+              history: history
+            )
           end
 
           # @return [Boolean]
@@ -343,6 +349,7 @@ module Clacky
               nil
             end.compact
           end
+
         end
 
         Adapters.register(:feishu, Adapter)

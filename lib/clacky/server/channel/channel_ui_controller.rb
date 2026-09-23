@@ -19,7 +19,21 @@ module Clacky
       include Clacky::UIInterface
 
       BUFFER_FLUSH_SIZE = 5  # flush early when buffer is large
+      PROCESS_STATUS_MAX_LENGTH = 240
       TERMINAL_PROGRESS_STATES = %i[waiting success failed interrupted].freeze
+      TOOL_PROGRESS_MESSAGES = {
+        "browser" => "Using the browser...",
+        "edit" => "Editing a file...",
+        "file_reader" => "Reading a file...",
+        "glob" => "Finding files...",
+        "grep" => "Searching files...",
+        "invoke_skill" => "Using a skill...",
+        "terminal" => "Running a command...",
+        "todo_manager" => "Updating the task plan...",
+        "web_fetch" => "Reading a web page...",
+        "web_search" => "Searching the web...",
+        "write" => "Writing a file..."
+      }.freeze
 
       attr_reader :platform, :chat_id
 
@@ -47,6 +61,7 @@ module Clacky
         @progress_id              = nil
         @progress_chat_id         = nil
         @progress_state           = nil
+        @progress_history         = []
       end
 
       # Update the reply context for the current inbound message.
@@ -117,8 +132,8 @@ module Clacky
           return unless process_messages?
 
           flush_buffer
-          text = content.to_s.strip
-          send_text(text) unless text.empty?
+          text = sanitize_outbound_text(content)
+          send_text(text) unless text.empty? || present_process_content(text)
           return
         end
 
@@ -155,7 +170,7 @@ module Clacky
           return
         end
 
-        mark_task_working
+        mark_task_working unless present_process_status(tool_progress_message(name))
       end
 
       def show_tool_result(result, ui: nil)
@@ -333,14 +348,66 @@ module Clacky
         update_active_progress("Working...", state: :working)
       end
 
+      # Route compact process signals into the active progress card. Returning
+      # false lets callers retain the existing standalone-message behavior on
+      # adapters (or configurations) without an active progress message.
+      private def present_process_status(text)
+        return false unless process_messages?
+        # Once the card has reached a terminal state, delayed process events
+        # belong to the completed task and must not leak out as new messages.
+        return true if progress_finished?
+
+        status = compact_process_status(text)
+        return false if status.empty?
+
+        update_active_progress(status, state: :working)
+      end
+
+      private def present_process_content(text)
+        return false unless process_messages?
+        return true if progress_finished?
+
+        content = sanitize_outbound_text(text)
+        return false if content.empty?
+
+        update_active_progress(
+          "Working...",
+          state: :working,
+          content: content,
+          history_entry: content
+        )
+      end
+
+      private def compact_process_status(text)
+        status = sanitize_outbound_text(text).gsub(/\s+/, " ")
+        return status if status.length <= PROCESS_STATUS_MAX_LENGTH
+
+        "#{status[0, PROCESS_STATUS_MAX_LENGTH - 3]}..."
+      end
+
+      private def tool_progress_message(name)
+        TOOL_PROGRESS_MESSAGES.fetch(name.to_s.downcase, "Working...")
+      end
+
       private def finalize_progress(text, state:)
         return true if progress_finished?
 
-        updated = update_active_progress(text, state: state)
+        updated = update_active_progress(
+          text,
+          state: state,
+          content: text,
+          include_history: true
+        )
         updated || progress_finished?
       end
 
-      private def update_active_progress(text, state:)
+      private def update_active_progress(
+        text,
+        state:,
+        content: nil,
+        history_entry: nil,
+        include_history: false
+      )
         @progress_mutex.synchronize do
           return false unless @progress_id && @progress_chat_id
           return false if TERMINAL_PROGRESS_STATES.include?(@progress_state)
@@ -351,11 +418,19 @@ module Clacky
             return false
           end
 
+          next_history = @progress_history.dup
+          next_history << history_entry if history_entry
+          history = if (history_entry || include_history) && next_history.any?
+            next_history.join("\n\n")
+          end
+
           updated = adapter.update_progress(
             @progress_chat_id,
             @progress_id,
             text,
-            state: state
+            state: state,
+            content: content,
+            history: history
           )
           unless updated
             if TERMINAL_PROGRESS_STATES.include?(state)
@@ -369,6 +444,7 @@ module Clacky
           end
 
           @progress_state = state
+          @progress_history = next_history if history_entry
           true
         end
       rescue StandardError => e
@@ -391,6 +467,7 @@ module Clacky
         @progress_id = nil
         @progress_chat_id = nil
         @progress_state = nil
+        @progress_history = []
       end
 
       private def sanitize_outbound_text(text, remove_file_links: false)
@@ -403,6 +480,7 @@ module Clacky
 
       def buffer_line(line)
         return unless process_messages?
+        return if present_process_status(line)
 
         @mutex.synchronize do
           @buffer << line

@@ -109,12 +109,17 @@ RSpec.describe Clacky::Channel::Adapters::Feishu::Bot do
 
       expect(bot).to have_received(:post).with("/open-apis/cardkit/v1/cards", satisfy { |payload|
         card = JSON.parse(payload[:data])
+        elements = card.dig("body", "elements")
+        process_panel = elements.find { |element| element["tag"] == "collapsible_panel" }
         payload[:type] == "card_json" &&
           card["schema"] == "2.0" &&
           card.dig("config", "streaming_mode") == true &&
           card.dig("config", "summary", "content") == "[Generating...]" &&
-          card.dig("body", "elements", 0, "element_id") == "content" &&
-          card.dig("body", "elements", 1, "content") == "<font color='grey'>Thinking...</font>"
+          elements[0]["element_id"] == "content" &&
+          process_panel["expanded"] == false &&
+          process_panel.dig("header", "title", "content") == "View process" &&
+          process_panel.dig("elements", 0, "element_id") == "process_history" &&
+          elements[2]["content"] == "<font color='grey'>Thinking...</font>"
       })
       expect(bot).to have_received(:post).with(
         "/open-apis/im/v1/messages/om_user/reply",
@@ -137,6 +142,42 @@ RSpec.describe Clacky::Channel::Adapters::Feishu::Bot do
       expect(bot.update_progress_card("card_progress", "Working...", state: :working)).to be true
     end
 
+    it "replaces visible narration and updates collapsible process history" do
+      bot.send_progress_card("oc_chat", "Thinking...", reply_to: "om_user")
+      calls = []
+      allow(bot).to receive(:put) do |path, payload|
+        calls << [path, payload]
+        { "code" => 0 }
+      end
+
+      expect(bot.update_progress_card(
+        "card_progress",
+        "Working...",
+        state: :working,
+        content: "Latest step",
+        history: "First step\n\nLatest step"
+      )).to be true
+
+      expect(calls.map(&:first)).to eq([
+        "/open-apis/cardkit/v1/cards/card_progress/elements/process_history",
+        "/open-apis/cardkit/v1/cards/card_progress/elements/content",
+        "/open-apis/cardkit/v1/cards/card_progress/elements/status/content"
+      ])
+      process_element = JSON.parse(calls[0][1][:element])
+      content_element = JSON.parse(calls[1][1][:element])
+      expect(process_element).to include(
+        "element_id" => "process_history",
+        "content" => "First step\n\nLatest step"
+      )
+      expect(content_element).to include(
+        "element_id" => "content",
+        "content" => "Latest step"
+      )
+      expect(calls[2][1]).to include(
+        content: "<font color='grey'>Working...</font>"
+      )
+    end
+
     it "writes final content, marks the status done, and closes streaming mode" do
       bot.send_progress_card("oc_chat", "Thinking...", reply_to: "om_user")
       calls = []
@@ -156,22 +197,29 @@ RSpec.describe Clacky::Channel::Adapters::Feishu::Bot do
       expect(bot.update_progress_card("card_progress", "Finished", state: :success)).to be true
       expect(calls.size).to eq(2)
       expect(calls[0][0]).to eq(
-        "/open-apis/cardkit/v1/cards/card_progress/elements/status/content"
+        "/open-apis/cardkit/v1/cards/card_progress/elements/content"
       )
+      content_element = JSON.parse(calls[0][1][:element])
       expect(calls[0][1]).to include(
-        content: "<font color='grey'>Done</font>",
         sequence: 2
       )
-      expect(calls[1][0]).to eq(
-        "/open-apis/cardkit/v1/cards/card_progress/elements/content/content"
+      expect(content_element).to include(
+        "element_id" => "content",
+        "content" => "Finished"
       )
-      expect(calls[1][1]).to include(content: "Finished", sequence: 3)
+      expect(calls[1][0]).to eq(
+        "/open-apis/cardkit/v1/cards/card_progress/elements/status/content"
+      )
+      expect(calls[1][1]).to include(
+        content: "<font color='grey'>Done</font>",
+        sequence: 3
+      )
     end
 
     it "reports a failed final content update so the caller can fall back" do
       bot.send_progress_card("oc_chat", "Thinking...", reply_to: "om_user")
       allow(bot).to receive(:put) do |path, _payload|
-        if path.include?("/elements/content/content")
+        if path.end_with?("/elements/content")
           { "code" => 230001, "msg" => "invalid card" }
         else
           { "code" => 0 }

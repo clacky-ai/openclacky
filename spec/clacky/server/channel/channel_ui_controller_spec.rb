@@ -41,8 +41,10 @@ RSpec.describe Clacky::Channel::ChannelUIController do
 
   describe "task progress messages" do
     let(:progress_updates) { [] }
+    let(:progress_details) { [] }
     let(:progress_adapter) do
       updates = progress_updates
+      details = progress_details
       rec = sent
       double("progress adapter").tap do |a|
         allow(a).to receive(:supports_progress_updates?).and_return(true)
@@ -50,8 +52,9 @@ RSpec.describe Clacky::Channel::ChannelUIController do
           message_id: "progress_1",
           progress_id: "card_1"
         )
-        allow(a).to receive(:update_progress) do |chat_id, message_id, text, state:|
+        allow(a).to receive(:update_progress) do |chat_id, message_id, text, state:, content: nil, history: nil|
           updates << [chat_id, message_id, text, state]
+          details << { content: content, history: history }
           true
         end
         allow(a).to receive(:send_text) { |_chat_id, text, _opts| rec << text }
@@ -72,8 +75,108 @@ RSpec.describe Clacky::Channel::ChannelUIController do
       progress_controller.show_complete(iterations: 2, cost: nil, duration: 1.2, cost_source: nil)
 
       expect(progress_updates).to eq([
-        ["chat_1", "card_1", "Working...", :working],
+        ["chat_1", "card_1", "Running a command...", :working],
+        ["chat_1", "card_1", "Writing a file...", :working],
         ["chat_1", "card_1", "All done", :success]
+      ])
+      expect(sent).to be_empty
+    end
+
+    it "keeps the generic working milestone when process messages are disabled" do
+      @process_enabled = false
+      progress_controller.start_task
+
+      progress_controller.show_tool_call("terminal", { "command" => "ls" })
+      progress_controller.show_tool_call("write", { "path" => "a.rb" })
+
+      expect(progress_updates).to eq([
+        ["chat_1", "card_1", "Working...", :working]
+      ])
+      expect(sent).to be_empty
+    end
+
+    it "replaces visible progress content and keeps narration in collapsible history" do
+      progress_controller.start_task
+
+      progress_controller.show_assistant_message(
+        "Checking   the configuration...",
+        files: [],
+        interim: true
+      )
+
+      expect(progress_updates).to eq([
+        ["chat_1", "card_1", "Working...", :working]
+      ])
+      expect(progress_details).to eq([
+        {
+          content: "Checking   the configuration...",
+          history: "Checking   the configuration..."
+        }
+      ])
+      expect(sent).to be_empty
+    end
+
+    it "shows only the latest narration while accumulating process history" do
+      progress_controller.start_task
+
+      progress_controller.show_assistant_message("First step", files: [], interim: true)
+      progress_controller.show_assistant_message("Second step", files: [], interim: true)
+      progress_controller.show_assistant_message("Final answer", files: [])
+
+      expect(progress_details).to eq([
+        { content: "First step", history: "First step" },
+        { content: "Second step", history: "First step\n\nSecond step" },
+        { content: "Final answer", history: "First step\n\nSecond step" }
+      ])
+      expect(progress_updates.last).to eq([
+        "chat_1", "card_1", "Final answer", :success
+      ])
+      expect(sent).to be_empty
+    end
+
+    it "updates the progress card with existing process previews" do
+      progress_controller.start_task
+
+      progress_controller.buffer_line("$ bundle exec rspec")
+      progress_controller.flush_buffer
+
+      expect(progress_updates).to eq([
+        ["chat_1", "card_1", "$ bundle exec rspec", :working]
+      ])
+      expect(sent).to be_empty
+    end
+
+    it "uses a safe generic status for unknown tools" do
+      progress_controller.start_task
+
+      progress_controller.show_tool_call("private_extension_tool", { "secret" => "value" })
+
+      expect(progress_updates).to eq([
+        ["chat_1", "card_1", "Working...", :working]
+      ])
+      expect(progress_updates.flatten.join).not_to include("private_extension_tool", "secret", "value")
+    end
+
+    it "continues suppressing tool results while process updates are enabled" do
+      progress_controller.start_task
+
+      progress_controller.show_tool_result("sensitive output")
+      progress_controller.show_tool_args("secret arguments")
+
+      expect(progress_updates).to be_empty
+      expect(sent).to be_empty
+    end
+
+    it "ignores delayed process events after the progress card is finalized" do
+      progress_controller.start_task
+      progress_controller.show_assistant_message("Final result", files: [])
+
+      progress_controller.show_tool_call("terminal", { "command" => "late command" })
+      progress_controller.buffer_line("$ late command")
+      progress_controller.show_assistant_message("late narration", files: [], interim: true)
+
+      expect(progress_updates).to eq([
+        ["chat_1", "card_1", "Final result", :success]
       ])
       expect(sent).to be_empty
     end
@@ -90,8 +193,9 @@ RSpec.describe Clacky::Channel::ChannelUIController do
     it "keeps the native card session after a transient milestone failure" do
       progress_controller.start_task
       attempts = 0
-      allow(progress_adapter).to receive(:update_progress) do |chat_id, progress_id, text, state:|
+      allow(progress_adapter).to receive(:update_progress) do |chat_id, progress_id, text, state:, **details|
         progress_updates << [chat_id, progress_id, text, state]
+        progress_details << details
         attempts += 1
         attempts > 1
       end
@@ -100,7 +204,7 @@ RSpec.describe Clacky::Channel::ChannelUIController do
       progress_controller.show_assistant_message("Final result", files: [])
 
       expect(progress_updates).to eq([
-        ["chat_1", "card_1", "Working...", :working],
+        ["chat_1", "card_1", "Running a command...", :working],
         ["chat_1", "card_1", "Final result", :success]
       ])
       expect(sent).to be_empty
