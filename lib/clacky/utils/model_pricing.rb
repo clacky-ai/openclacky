@@ -58,6 +58,21 @@ module Clacky
         }
       },
 
+      "claude-opus-5.5" => {
+        input: {
+          default: 4.00,               # $4/MTok, same for all tiers
+          over_200k: 4.00
+        },
+        output: {
+          default: 20.00,              # $20/MTok, same for all tiers
+          over_200k: 20.00
+        },
+        cache: {
+          write: 5.00,                 # $5/MTok cache write (5min TTL)
+          read: 0.20                   # $0.20/MTok cache read — 0.05x base input, not the usual 0.1x
+        }
+      },
+
       "claude-opus-5" => {
         input: {
           default: 5.00,               # $5/MTok, same for all tiers
@@ -546,6 +561,45 @@ module Clacky
         }
       },
 
+      # GPT-6 Sol / Luna via Bedrock's OpenAI-compatible endpoint (Global CRIS).
+      # Tiered at 272K input tokens (OpenAI's breakpoint, not the global 200K)
+      # — the 200K–272K band is slightly over-estimated, same caveat as GPT-6
+      # Astra below. USD per 1M tokens; Bedrock commercial regions match
+      # OpenAI direct pricing.
+      "gpt-6-sol" => {
+        input: {
+          default: 2.00,
+          over_200k: 4.00
+        },
+        output: {
+          default: 10.00,
+          over_200k: 15.00
+        },
+        cache: {
+          write_default: 2.50,
+          write_over_200k: 5.00,
+          read_default: 0.20,
+          read_over_200k: 0.40
+        }
+      },
+
+      "gpt-6-luna" => {
+        input: {
+          default: 0.10,
+          over_200k: 0.20
+        },
+        output: {
+          default: 0.50,
+          over_200k: 0.75
+        },
+        cache: {
+          write_default: 0.125,
+          write_over_200k: 0.25,
+          read_default: 0.01,
+          read_over_200k: 0.02
+        }
+      },
+
       # GPT-6 Astra via Bedrock's OpenAI-compatible endpoint (Global CRIS).
       # Tiered at 272K input tokens (OpenAI's breakpoint, not the global 200K)
       # — the 200K–272K band is slightly over-estimated, same caveat as
@@ -1020,6 +1074,11 @@ module Clacky
         # prefixes like "global.anthropic.claude-sonnet-5".
         when /claude.*sonnet-5(?!\d)/i
           "claude-sonnet-5"
+        # Claude Opus 5.5 (2026) must precede the "opus-5" branch below: its
+        # (?!\d) lookahead still accepts "opus-5-5" (a dash is not a digit),
+        # so without this branch 5.5 would resolve to 5.
+        when /claude.*opus-5[.-]5/i
+          "claude-opus-5.5"
         when /claude.*opus-5(?!\d)/i
           "claude-opus-5"
         when /claude.*opus.*4[.-]?[5-9]/i
@@ -1154,6 +1213,10 @@ module Clacky
         # (":batch") stay unmatched - they bill at half price.
         when /^(?:abs-|us\.openai\.|global\.openai\.|openai\/)?gpt-?6[.-]?astra$/i
           "gpt-6-astra"
+        when %r{^(?:abs-|us\.openai\.|global\.openai\.|openai/)?gpt-?6[\.-]?sol(-pro)?$}i
+          "gpt-6-sol"
+        when %r{^(?:abs-|us\.openai\.|global\.openai\.|openai/)?gpt-?6[\.-]?luna(-pro)?$}i
+          "gpt-6-luna"
         when %r{^(?:abs-|global\.openai\.|openai/)?gpt-?5[\.-]?6[\.-]?sol(-pro)?$}i
           "gpt-5.6-sol"
         when %r{^(?:abs-|global\.openai\.|openai/)?gpt-?5[\.-]?6[\.-]?terra(-pro)?$}i
