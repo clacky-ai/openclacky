@@ -678,9 +678,8 @@ module Clacky
         lines
       end
 
-      # Serialize only the lightweight UI metadata needed to reconstruct file
-      # badges after compression. File paths, previews, sizes, MIME types, and
-      # contents deliberately stay out of the chunk archive.
+      # Serialize lightweight UI metadata for file badges after compression.
+      # Includes path/preview_path when set; file contents and sizes stay out of the archive.
       def display_files_for_archive(msg)
         files = Array(msg[:display_files]).dup
         Array(msg[:content]).each do |block|
@@ -688,12 +687,14 @@ module Clacky
           next unless %w[image image_url].include?((block[:type] || block["type"]).to_s)
 
           name = block[:image_name] || block["image_name"]
+          path = block[:image_path] || block["image_path"]
           if name.nil? || name.to_s.strip.empty?
-            path = block[:image_path] || block["image_path"]
             name = File.basename(path.to_s).sub(/\A[0-9a-f]{16}_/, "") unless path.to_s.empty?
           end
           name = "image" if name.nil? || name.to_s.strip.empty?
-          files << { name: name, type: "image" }
+          entry = { name: name, type: "image" }
+          entry[:path] = path.to_s unless path.nil? || path.to_s.strip.empty?
+          files << entry
         end
 
         files.filter_map do |file|
@@ -704,8 +705,13 @@ module Clacky
 
           type = file[:type] || file["type"] || "file"
           type = "file" if type.to_s.strip.empty?
-          { name: name.to_s, type: type.to_s }
-        end.uniq { |file| [file[:name], file[:type]] }
+          entry = { name: name.to_s, type: type.to_s }
+          path = file[:path] || file["path"]
+          entry[:path] = path.to_s unless path.nil? || path.to_s.strip.empty?
+          preview = file[:preview_path] || file["preview_path"]
+          entry[:preview_path] = preview.to_s unless preview.nil? || preview.to_s.strip.empty?
+          entry
+        end.uniq { |file| [file[:name], file[:type], file[:path]] }
       end
 
       # Once an image has a badge in the archive, omit the generic [image_url]
