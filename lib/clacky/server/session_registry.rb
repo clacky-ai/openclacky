@@ -431,6 +431,14 @@ module Clacky
         SessionManager::GROUPED_SOURCES.to_h { |source| [source, group_stats(source)] }
       end
 
+      # Every stored session, whatever sidebar view or group it renders under.
+      # The multi-select bar shows this as its denominator so the number stays
+      # stable across the main list, project tree and folded group sub-views.
+      def total_count
+        return 0 unless @session_manager
+        @session_manager.all_sessions.size
+      end
+
       # Delete a session from registry (and interrupt its thread).
       def delete(session_id)
         @mutex.synchronize do

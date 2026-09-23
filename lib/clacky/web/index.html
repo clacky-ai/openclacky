@@ -336,6 +336,18 @@
       <div id="ext-slot-sidebar-nav-bottom" data-slot="sidebar.nav.bottom"></div>
     </div>
 
+    <!-- Bulk-delete toolbar: sits between the list and the footer so the list
+         never shifts, and stays reachable from any sidebar section. -->
+    <div id="session-select-bar" hidden>
+      <span class="select-bar-count" data-select-count></span>
+      <button type="button" id="btn-select-cancel" class="select-bar-cancel" data-select-cancel
+              data-i18n="sessions.select.cancel">Cancel</button>
+      <button type="button" id="btn-select-delete" class="select-bar-delete" data-select-delete disabled>
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
+        <span data-select-delete-label></span>
+      </button>
+    </div>
+
     <!-- Bottom Settings -->
     <div id="sidebar-footer">
       <span id="ext-slot-sidebar-footer" data-slot="sidebar.footer"></span>
