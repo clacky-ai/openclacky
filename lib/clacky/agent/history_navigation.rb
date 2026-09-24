@@ -208,7 +208,7 @@ module Clacky
 
       private def navigation_entry(round)
         msg = round[:user_msg]
-        user = navigation_preview(msg[:display_text] || extract_text_from_content(msg[:content]))
+        user = navigation_preview(msg[:display_text] || strip_channel_prompt_prefix(extract_text_from_content(msg[:content])))
         if user.empty?
           names = Array(msg[:display_files]).map { |file| file[:name] || file["name"] }
           Array(msg[:content]).each do |block|
