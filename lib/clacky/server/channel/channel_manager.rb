@@ -294,18 +294,6 @@ module Clacky
         sub_count = web_ui_for_session_diag(session_id)
         Clacky::Logger.info("[ChannelManager] Routing to session #{session_id[0, 8]} (status=#{session[:status]}, text=#{text.inspect}, channel_subs=#{sub_count})")
 
-        if session[:status] == :running && %w[queue steer].include?(@registry.agent_config_input_behavior)
-          queued = false
-          @registry.with_session(session_id) do |s|
-            if s[:status] == :running
-              s[:agent].enqueue_input(build_prompt_with_context(event, text), delivery: @registry.agent_config_input_behavior.to_sym, files: files,
-                                      display_text: text, source: :channel, created_at: Time.now.to_f)
-              queued = true
-            end
-          end
-          return if queued
-        end
-
         # If session is running, interrupt it AND wait for the old thread to
         # actually unwind before starting a new task. Without the join, two
         # threads briefly race on the same agent/history and the old thread
