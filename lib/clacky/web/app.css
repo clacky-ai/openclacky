@@ -1643,7 +1643,7 @@ body {
   pointer-events: auto;
 }
 .session-actions-btn:hover {
-  background: var(--color-border-primary);
+  background: color-mix(in srgb, var(--color-text-primary) 8%, transparent);
   color: var(--color-text-primary);
 }
 
@@ -1988,7 +1988,7 @@ body {
 /* Extension nav mounts are wrapped by ext.js; the Router stamps .active on the
    wrapper, so the highlight is forwarded to the inner nav item. */
 [data-ext-workspace].active > .task-item {
-  background: var(--color-accent-soft);
+  background: var(--color-bg-hover);
 }
 [data-ext-workspace].active > .task-item::before {
   content: "";
@@ -5281,7 +5281,7 @@ body {
   display: inline-flex;
   align-items: center;
   gap: 0.3125rem;
-  padding: 1px 0.375rem;
+  padding: 0.2rem;
   cursor: default;                         /* no click handler yet — step 3/4 will add one */
   border-radius: 3px;
   opacity: 0.85;
@@ -12393,7 +12393,7 @@ body.setup-mode[data-theme="dark"] {
 .sidebar-nav-row {
   display: flex;
   align-items: stretch;
-  border-radius: 6px;
+  border-radius: 8px;
   overflow: hidden;
   transition: background .15s;
   width: 100%;
@@ -12410,8 +12410,8 @@ body.setup-mode[data-theme="dark"] {
 .sidebar-nav-row:hover #btn-settings {
   color: var(--color-text-primary);
 }
-.sidebar-nav-row #btn-settings.active {
-  color: var(--color-accent-primary);
+.sidebar-nav-row:has(#btn-settings.active) {
+  background: var(--color-bg-hover);
 }
 
 .version-badge {
@@ -15392,7 +15392,7 @@ body.setup-mode[data-theme="dark"] {
 
 .share-stage .share-btn-ghost {
   padding: 8px 16px;
-  border: 1px solid var(--color-border-strong, rgba(0, 0, 0, .3));
+  border: 1px solid var(--color-border-primary);
   border-radius: var(--radius-sm, 8px);
   background: transparent;
   color: var(--color-text-primary, #333);
@@ -15400,10 +15400,11 @@ body.setup-mode[data-theme="dark"] {
   font-size: .8125rem;
   font-weight: 600;
   cursor: pointer;
-  transition: background .14s ease, transform .14s ease;
+  transition: background .14s ease, border-color .14s ease, transform .14s ease;
 }
 .share-stage .share-btn-ghost:hover {
-  background: var(--color-bg-secondary, rgba(0, 0, 0, .06));
+  background: var(--color-bg-hover);
+  border-color: var(--color-border-strong);
   transform: translateY(-1px);
 }
 
