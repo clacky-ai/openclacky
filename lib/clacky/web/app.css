@@ -565,6 +565,7 @@ body {
   display: flex;
   align-items: center;
   gap: 0.625rem;
+  margin-left: 0.5rem;
   min-width: 0;
 }
 .header-logo {
@@ -936,97 +937,124 @@ body {
 .btn-split-wrap {
   display: flex;
   align-items: stretch;
+  border-radius: 5px;
+  background: var(--color-accent-primary);
+  transition: background 0.15s;
+}
+.btn-split-main,
+.btn-split-arrow {
+  height: 1.5rem;
+  border: none;
+  background: transparent;
+  color: #fff;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  transition: background 0.15s;
 }
 .btn-split-main {
-  height: 1.5rem;
-  padding: 0 0.6rem;
-  border: none;
+  padding: 0 0.5rem 0 0.4375rem;
   border-radius: 5px 0 0 5px;
-  background: var(--color-accent-primary);
-  color: #fff;
   font-size: 0.75rem;
   font-weight: 500;
   white-space: nowrap;
   line-height: 1;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  gap: 0.3rem;
-  transition: background 0.15s, box-shadow 0.15s;
+  gap: 0.25rem;
 }
-.btn-split-main:hover {
-  background: var(--color-button-primary-hover);
-  box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+.btn-split-main:hover,
+.btn-split-arrow:hover,
+.btn-split-dropdown:hover .btn-split-arrow {
+  background: rgba(0,0,0,0.1);
 }
 .btn-split-arrow {
-  display: flex;
-  align-items: center;
+  position: relative;
   justify-content: center;
-  height: 1.5rem;
-  width: 1.375rem;
+  width: 1.25rem;
   padding: 0;
-  border: none;
-  border-left: 1px solid rgba(255,255,255,0.2);
   border-radius: 0 5px 5px 0;
-  background: var(--color-accent-primary);
-  color: #fff;
-  cursor: pointer;
-  transition: background 0.15s, box-shadow 0.15s;
   flex-shrink: 0;
 }
-.btn-split-arrow:hover {
-  background: var(--color-button-primary-hover);
-  box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+.btn-split-arrow::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 25%;
+  bottom: 25%;
+  width: 1px;
+  background: rgba(255,255,255,0.35);
+}
+.btn-split-arrow svg {
+  transition: transform 0.2s ease;
+}
+.btn-split-dropdown:hover .btn-split-arrow svg {
+  transform: rotate(180deg);
 }
 .btn-split-dropdown {
   position: relative;
   display: flex;
 }
 .btn-split-menu {
-  display: none;
   position: absolute;
-  top: calc(100% + 4px);
+  top: calc(100% + 6px);
   right: 0;
-  min-width: 9rem;
+  min-width: 10rem;
   background: var(--color-bg-elevated, var(--color-bg-secondary));
   border: 1px solid var(--color-border-secondary);
-  border-radius: 8px;
-  box-shadow: 0 4px 16px rgba(0,0,0,0.12);
-  padding: 0.25rem;
+  border-radius: 10px;
+  box-shadow:
+    0 12px 32px -8px rgba(15,23,42,0.18),
+    0 2px 6px rgba(15,23,42,0.06);
+  padding: 0.3125rem;
   z-index: 200;
   white-space: nowrap;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(-4px) scale(0.98);
+  transform-origin: top right;
+  transition: opacity 0.15s ease, transform 0.15s ease, visibility 0s linear 0.15s;
 }
-/* Bridge the 4px gap so hover doesn't break when moving to the menu */
+/* Bridge the gap so hover doesn't break when moving to the menu */
 .btn-split-menu::before {
   content: "";
   position: absolute;
-  top: -8px;
+  top: -10px;
   left: 0;
   right: 0;
-  height: 8px;
+  height: 10px;
 }
 .btn-split-dropdown:hover .btn-split-menu {
-  display: block;
+  opacity: 1;
+  visibility: visible;
+  transform: none;
+  transition: opacity 0.15s ease, transform 0.15s ease, visibility 0s;
 }
 .btn-split-menu-item {
   display: flex;
   align-items: center;
-  gap: 7px;
+  gap: 0.5rem;
   width: 100%;
-  padding: 0.375rem 0.75rem;
+  padding: 0.4375rem 0.625rem;
   border: none;
-  border-radius: 5px;
+  border-radius: 6px;
   background: transparent;
-  color: var(--color-text-secondary);
+  color: var(--color-text-primary);
   font-size: 0.8125rem;
   font-family: var(--font-sans);
   text-align: left;
   cursor: pointer;
   transition: background 0.12s, color 0.12s;
 }
+.btn-split-menu-item svg {
+  flex-shrink: 0;
+  color: var(--color-text-tertiary);
+  transition: color 0.12s;
+}
 .btn-split-menu-item:hover {
-  background: var(--color-bg-hover);
-  color: var(--color-text-primary);
+  background: var(--color-accent-soft);
+  color: var(--color-accent-primary);
+}
+.btn-split-menu-item:hover svg {
+  color: var(--color-accent-primary);
 }
 
 /* ── Session source badge ────────────────────────────────────────────────── */
@@ -1061,10 +1089,10 @@ body {
   color: var(--color-accent-primary);
   border-color: transparent;
 }
-/* Source: channel — neutral amber tint (communication channel). */
+/* Source: channel — soft magenta tint. */
 .session-badge--channel {
-  background: color-mix(in srgb, #10b981 10%, transparent);
-  color: #10b981;
+  background: color-mix(in srgb, #ee46bc 10%, transparent);
+  color: #ee46bc;
   border-color: transparent;
 }
 /* Source: ext — violet tint (created by an installed extension). */
@@ -1073,36 +1101,33 @@ body {
   color: #8b5cf6;
   border-color: transparent;
 }
-/* Source: setup — muted neutral (rarely visible in normal use). */
+/* Source: setup — soft blue tint. */
 .session-badge--setup   {
-  background: var(--color-bg-tertiary);
-  color: var(--color-text-muted);
-  opacity: 0.8;
+  background: color-mix(in srgb, #2e90fa 10%, transparent);
+  color: #2e90fa;
+  border-color: transparent;
 }
-/* Agent profile: coding — the most common badge, so it's the quietest:
-   a hollow neutral mono marker that reads as a system tag, not a label. */
+/* Agent profile: coding — soft green tint. */
 .session-badge--coding  {
-  background: transparent;
-  color: var(--color-text-muted);
-  border-color: var(--color-border-strong);
+  background: color-mix(in srgb, #17b26a 10%, transparent);
+  color: #17b26a;
+  border-color: transparent;
 }
 .session-item.active .session-badge--coding {
-  color: var(--color-text-tertiary);
+  color: #17b26a;
 }
-/* Agent profile: extension / custom agents — same hollow neutral base as
-   coding, but a subtle accent tint keeps user-defined agents visually
-   distinct from the built-in "coding" tag. */
+/* Agent profile: extension / custom agents — soft orange tint. */
 .session-badge--agent   {
-  background: transparent;
-  color: var(--color-accent-primary);
-  border-color: var(--color-accent-soft);
+  background: color-mix(in srgb, #ef6820 10%, transparent);
+  color: #ef6820;
+  border-color: transparent;
   max-width: 8rem;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .session-item.active .session-badge--agent {
-  border-color: var(--color-accent-primary);
+  border-color: transparent;
 }
 
 
@@ -2455,6 +2480,14 @@ body {
   color: var(--color-accent-primary);
   background: var(--color-accent-soft);
 }
+.agent-card-avatar--icon {
+  border-radius: 0.625rem;
+  color: var(--agent-icon-color);
+  background: color-mix(in srgb, var(--agent-icon-color) 10%, transparent);
+}
+.agent-card-avatar--general       { --agent-icon-color: var(--color-accent-primary); }
+.agent-card-avatar--coding        { --agent-icon-color: #17b26a; }
+.agent-card-avatar--ext-developer { --agent-icon-color: #ef6820; }
 .agent-card-new {
   font-size: 0.6rem;
   font-weight: 700;
@@ -2483,8 +2516,8 @@ body {
   font-weight: 500;
   padding: 2px 6px;
   border-radius: 4px;
-  background: var(--color-bg-hover);
-  color: var(--color-text-secondary);
+  background: color-mix(in srgb, #8b5cf6 10%, transparent);
+  color: #8b5cf6;
   letter-spacing: 0.02em;
 }
 .agent-card-badge--custom {
@@ -2703,8 +2736,7 @@ body {
   background: var(--color-bg-hover);
 }
 .ns-ctx-chip--muted {
-  color: var(--color-text-tertiary);
-  opacity: 0.8;
+  color: var(--color-text-secondary);
 }
 .ns-ctx-chip--active,
 .ns-ctx-chip--active:hover {
