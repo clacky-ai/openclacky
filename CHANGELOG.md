@@ -4,6 +4,46 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
+## [1.5.16] - 2026-09-24
+
+### Added
+- Add Claude Opus 5.5 and GPT-6 Sol/Luna to the model catalog
+- Send task progress cards in Feishu, with collapsible process history (#582)
+- Print a receipt-style usage scorecard from the billing page and share it as an image
+- Understand video attachments through a sidecar model (#564)
+- Open the app straight into a chat from an external clacky:// link, including the welcome view
+- Route requests automatically: the auto alias picks a tier per request and reports which tier served it (#576)
+- Drive the Windows desktop through WSL in computer-use
+- Ship computer-use as a default-off extension
+- Let on_start hooks veto a turn before the agent starts (#573 - @afumu)
+- Cap the memory and CPU of a task's shells and browser daemons on Linux hosts with --task-cgroup
+- Refuse to start on a taken port instead of silently moving to another one, with --strict-port
+- Keep attachment paths when a compressed history chunk is replayed (#581 - @BoyYangzai)
+- Point generated skills at their own directory through an inlined skill_dir
+
+### Improved
+- Restyle the web search result card (#575)
+- Use official brand marks for model vendor badges (#566)
+- Refresh the supported model catalogs and pricing (#571)
+- Rename the extension group label User to Personal
+- Adjust the session title size and unify the sidebar active highlight
+- Soften the extension row action buttons and tighten the segmented control corners
+
+### Fixed
+- Keep queued guidance attached to the message it was sent from, and allow cancelling it (#584, #578)
+- Stop treating a pasted path as a slash command (#577)
+- Restore structured tool result cards when a session history is replayed (#574)
+- Stop duplicating user bubbles after an edit (#568)
+- Show attachment badges in realtime user bubbles (#567)
+- Transcribe audio attachments through the STT sidecar (#565)
+- Preserve a quote selection while a live update streams in (#569)
+- Load per-key platform usage in parallel in the billing view (#580)
+- Prevent subagents from publishing input queues (#570 - @afumu)
+- Block model switching while a session is running instead of racing the running turn
+- Hand binary files back to the OS when they are reopened
+- Report the doctor host before resolving the backend
+- Stop the DeepSeek preset from showing a version suffix
+
 ## [1.5.15] - 2026-09-17
 
 ### Added
