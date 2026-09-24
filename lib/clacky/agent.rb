@@ -1128,11 +1128,14 @@ module Clacky
 
     # Conversion and closing the input window share the queue lock. A stale
     # client can never steer a successor task or remove the original entry.
+    # Guidance is exclusive: steering one entry demotes any earlier steered
+    # entry back to queue, so at most one pending input can join the task.
     def steer_pending_input(id, expected_task_id:)
       changed = @input_mutex.synchronize do
         next false unless @accepting_steering && expected_task_id == @current_task_id
         entry = @input_queue.find { |item| item[:id] == id }
         next false unless entry && !entry[:content].to_s.lstrip.start_with?("/")
+        @input_queue.each { |item| item[:delivery] = "queue" if item[:delivery] == "steer" }
         entry[:delivery] = "steer"
         true
       end
