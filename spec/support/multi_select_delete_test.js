@@ -106,6 +106,8 @@ class Element {
     // innerHTML is stored verbatim, never parsed. Hand back a detached stub for
     // markup that only exists as a string (e.g. a row's own ⋯ button) so the
     // code under test can attach handlers to it.
+    const attr = selector.match(/^\[([\w-]+)="([^"]*)"\]$/);
+    if (attr) return this._innerHTML.includes(`${attr[1]}="${attr[2]}"`) ? new Element() : null;
     const bare = selector.replace(/^[.#]/, "");
     return this._innerHTML.includes(bare) ? new Element() : null;
   }
@@ -171,6 +173,7 @@ function boot({ fetchImpl } = {}) {
     Modal: autoStub({ confirm: async () => true, toast: () => {} }),
     Composer: autoStub({ text: () => "", chips: () => [] }),
     IME: autoStub({ track: () => ({ isComposing: () => false, dispose() {} }) }),
+    innerWidth: 1024,
     alert() {},
   };
   context.window = context;
@@ -221,25 +224,40 @@ const tick = () => new Promise(resolve => setImmediate(resolve));
 const ids = value => JSON.parse(JSON.stringify(Array.from(value)));
 
 async function tests() {
-  // 1. Entering selection mode marks the sidebar, pre-ticks the seed row and
-  //    reveals the bar. The seed row is the one whose ⋯ menu was used.
+  // 1. Entering selection mode goes through the header "···" menu: opening
+  //    the menu alone must not select anything, only its labelled item does.
+  //    Nothing is pre-ticked: the entry is list-level, so no row gets
+  //    special treatment.
   {
-    const { Sessions, sidebarList, bar, list } = boot();
+    const { Sessions, document, sidebarList, bar, list } = boot();
     Sessions.setAll([row("a"), row("b"), row("c")]);
     Sessions.renderList();
 
     assert.equal(sidebarList.classes.has("selecting"), false);
     assert.equal(bar.hidden, true, "bar is hidden until selection mode starts");
 
-    Sessions.enterSelectMode("b");
+    Sessions._showListMenu(document.getElementById("btn-sessions-menu"));
+
+    const menus = document.body.children.filter(el => el.classes.has("session-actions-menu"));
+    assert.equal(menus.length, 1, "the header menu opens as a floating layer");
+    const html = menus[0]._innerHTML;
+    assert.match(html, /session-actions-menu-item session-actions-menu-item--danger session-actions-menu-item--danger-follow" data-action="selectMultiple"/,
+      "the item is the row-menu danger variant, separator stripped");
+    assert.match(html, /M3 6h18/, "the item carries the shared trash icon");
+    assert.match(html, /session-actions-menu-label">sessions\.actions\.selectMultiple</,
+      "the item is labelled so a mis-tap needs two clicks, not one");
+    assert.equal(sidebarList.classes.has("selecting"), false,
+      "opening the menu alone must not start selection");
+
+    Sessions.enterSelectMode();
 
     assert.equal(sidebarList.classes.has("selecting"), true,
       "the sidebar carries the scope class that reveals checkboxes");
     assert.equal(bar.hidden, false, "the select bar becomes visible");
-    assert.deepEqual(ids(Sessions.selectedIds()), ["b"], "the row the menu came from starts ticked");
+    assert.deepEqual(ids(Sessions.selectedIds()), [], "nothing starts ticked");
 
     const marked = list.children.filter(el => el.classes.has("selected")).map(el => el.dataset.sessionId);
-    assert.deepEqual(marked, ["b"], "only the seed row is visually ticked");
+    assert.deepEqual(marked, [], "no row is visually ticked");
   }
 
   // 2. The checkbox markup ships with every row so entering selection mode
@@ -261,7 +279,7 @@ async function tests() {
     let opened = null;
     Sessions.setAll([row("a"), row("b")]);
     Sessions.renderList();
-    Sessions.enterSelectMode(null);
+    Sessions.enterSelectMode();
 
     const original = Sessions.select;
     Sessions.select = id => { opened = id; };
@@ -284,7 +302,7 @@ async function tests() {
     // 3 rows paged in, but the server says there are 140 sessions in total.
     Sessions.setAll([row("a"), row("b"), row("c")], false, {}, 140);
     Sessions.renderList();
-    Sessions.enterSelectMode(null);
+    Sessions.enterSelectMode();
 
     assert.equal(delBtn.disabled, true, "nothing selected → delete is disabled");
     assert.match(count.textContent, /"n":0/);
@@ -310,7 +328,7 @@ async function tests() {
     const { Sessions, list, requests } = boot();
     Sessions.setAll([row("a"), row("b"), row("c")]);
     Sessions.renderList();
-    Sessions.enterSelectMode(null);
+    Sessions.enterSelectMode();
     click(list.children[0]);
     click(list.children[2]);
 
@@ -337,7 +355,7 @@ async function tests() {
     });
     Sessions.setAll([row("a"), row("b")]);
     Sessions.renderList();
-    Sessions.enterSelectMode(null);
+    Sessions.enterSelectMode();
     click(list.children[0]);
     click(list.children[1]);
 
@@ -356,7 +374,8 @@ async function tests() {
     });
     Sessions.setAll([row("a")]);
     Sessions.renderList();
-    Sessions.enterSelectMode("a");
+    Sessions.enterSelectMode();
+    click(list.children[0]);
 
     await Sessions.deleteSelected();
     await tick();
@@ -370,7 +389,8 @@ async function tests() {
     let opened = null;
     Sessions.setAll([row("a")]);
     Sessions.renderList();
-    Sessions.enterSelectMode("a");
+    Sessions.enterSelectMode();
+    click(list.children[0]);
     Sessions.exitSelectMode();
 
     assert.equal(sidebarList.classes.has("selecting"), false);
@@ -393,7 +413,7 @@ async function tests() {
     const { Sessions, document, list } = boot();
     Sessions.setAll([row("a")]);
     Sessions.renderList();
-    Sessions.enterSelectMode(null);
+    Sessions.enterSelectMode();
 
     const overlay = document.getElementById("session-search-overlay");
     document.body.appendChild(overlay);
@@ -419,7 +439,8 @@ async function tests() {
     Sessions.setAll([row("a"), row("b")]);
     Sessions._setActiveId("a");
     Sessions.renderList();
-    Sessions.enterSelectMode("a");
+    Sessions.enterSelectMode();
+    click(list.children[0]);
 
     await Sessions.deleteSelected();
     await tick();
@@ -434,7 +455,7 @@ async function tests() {
     const { Sessions, list } = boot();
     Sessions.setAll([row("a"), row("b")]);
     Sessions.renderList();
-    Sessions.enterSelectMode(null);
+    Sessions.enterSelectMode();
     click(list.children[0]);
     click(list.children[1]);
     assert.equal(ids(Sessions.selectedIds()).length, 2);

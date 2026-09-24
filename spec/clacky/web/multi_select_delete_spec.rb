@@ -75,19 +75,60 @@ RSpec.describe "Web sidebar bulk delete" do
     expect(body).not_to match(/GROUPED_SOURCES|project_id|select|reject/)
   end
 
-  it "draws no extra separator between the two delete entries" do
-    js  = File.read(File.join(web_dir, "sessions.js"))
-    css = File.read(File.join(web_dir, "app.css"))
-    entry = js[/<div class="([^"]*)" data-action="selectMultiple">/, 1]
-    expect(entry).to include("session-actions-menu-item--danger-follow")
-    expect(css).to match(/\.session-actions-menu-item--danger-follow::before \{\s*content: none;/)
+  it "keeps bulk delete out of the per-row ⋯ menu" do
+    js = File.read(File.join(web_dir, "sessions.js"))
+
+    # Bulk delete is a list-level action; offering it inside one row's menu
+    # makes it look like it targets that row (PR review feedback). Exactly one
+    # occurrence: the header menu's template (the negative lookbehind skips
+    # the querySelector attribute string). A second one means the item
+    # crept back into a row's ⋯ menu.
+    expect(js.scan(/(?<!\[)data-action="selectMultiple"/).size).to eq(1)
   end
 
-  it "reuses the existing trash icon instead of inventing a second one" do
-    js = File.read(File.join(web_dir, "sessions.js"))
-    menu = js[/data-action="selectMultiple">(.*?)<\/div>/m, 1]
-    expect(menu).to include("${iconTrash}")
+  it "enters selection mode via the header \"···\" menu, not from a session row" do
+    html = File.read(File.join(web_dir, "index.html"))
+    js   = File.read(File.join(web_dir, "sessions.js"))
+
+    # Same affordance as the projects header: a bare "···" button that only
+    # opens a menu, so the destructive-ish path needs a labelled second click.
+    entry = html[/<button id="btn-sessions-menu".*?<\/button>/m]
+    expect(entry).not_to be_nil
+    expect(entry).to include("btn-icon-sm")
+    expect(entry).to include("data-i18n-title=\"sessions.actions.selectMultiple\"")
+
+    # The button opens the list menu; the menu's labelled item starts
+    # selection, and a list-level entry never pre-ticks any row.
+    expect(js).to match(/btn-sessions-menu"\);\s*\n\s*if \(sessionsMenuBtn\)/)
+    expect(js).to match(/Sessions\._showListMenu\(sessionsMenuBtn\)/)
+    expect(js).to match(/menu\.remove\(\);\s*\n\s*Sessions\.enterSelectMode\(\)/)
+    expect(js).not_to include("enterSelectMode(session.id)")
     expect(js).not_to include("iconBulkTrash")
+
+    # The menu item is the row-menu delete item verbatim — danger colour,
+    # shared trash icon, escaped label — minus the top separator, so no
+    # parallel styling exists.
+    expect(js).to match(/_showListMenu\(anchor\) \{\s*\n\s*Sessions\._closeActionsMenu\(\)/)
+    expect(js).to match(/className = "session-actions-menu"/)
+    expect(js).to match(/session-actions-menu-item session-actions-menu-item--danger session-actions-menu-item--danger-follow" data-action="selectMultiple"/)
+    expect(js).to match(/menu-icon">\$\{ICON_TRASH\}/)
+    expect(js).to match(/menu-label">\$\{escapeHtml\(I18n\.t\("sessions\.actions\.selectMultiple"\)\)\}<\/span>/)
+    expect(js.scan(/const ICON_TRASH/).size).to eq(1)
+    css = File.read(File.join(web_dir, "app.css"))
+    expect(css).to match(/\.session-actions-menu-item--danger-follow \{\s*\n\s*margin-top: 0;\s*\n\s*\}/)
+    expect(css).to match(/--danger-follow::before \{\s*\n\s*content: none;\s*\n\s*\}/)
+
+    # The header sits deep in the sidebar; a right-anchored menu (the
+    # projects-organize style) runs off-screen at the minimum sidebar width.
+    expect(js).not_to match(/menu\.style\.right = /)
+    expect(js).to match(/if \(r\.left < 8\) menu\.style\.left = "8px"/)
+    expect(js).to match(/r\.right > window\.innerWidth - 8/)
+    expect(js).to match(/r\.bottom > window\.innerHeight - 8/)
+
+    # Mid-selection the whole actions row (new session + this button) would
+    # dead-end, so it must vanish while the list carries .selecting.
+    css = File.read(File.join(web_dir, "app.css"))
+    expect(css).to match(/#sidebar-list\.selecting #chat-section-header \.sidebar-divider-actions/)
   end
 
   it "keeps the cancel control a bordered text button, as signed off in the demo" do

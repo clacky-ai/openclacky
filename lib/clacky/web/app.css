@@ -1683,6 +1683,12 @@ body {
 #sidebar-list.selecting .session-item.selected {
   background: var(--color-accent-soft);
 }
+/* Selecting rows borrows the sidebar's click target; the header actions
+   (new session, bulk select) would dead-end mid-selection, so they vanish
+   until the bar is dismissed. */
+#sidebar-list.selecting #chat-section-header .sidebar-divider-actions {
+  display: none;
+}
 
 #session-select-bar {
   flex-shrink: 0;
@@ -1835,15 +1841,15 @@ body {
   background: var(--color-border-secondary);
   pointer-events: none;
 }
+.session-actions-menu-item--danger:hover {
+  background: var(--color-error-bg);
+  color: var(--color-error);
+}
 .session-actions-menu-item--danger-follow {
   margin-top: 0;
 }
 .session-actions-menu-item--danger-follow::before {
   content: none;
-}
-.session-actions-menu-item--danger:hover {
-  background: var(--color-error-bg);
-  color: var(--color-error);
 }
 .session-actions-menu-item--danger:hover .session-actions-menu-icon {
   color: var(--color-error);
