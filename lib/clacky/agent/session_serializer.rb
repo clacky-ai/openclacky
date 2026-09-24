@@ -332,10 +332,22 @@ module Clacky
         { has_more: has_more }
       end
 
+      # ChannelManager prefixes channel prompts with agent-only context for
+      # the LLM; the clean original rides in display_text. Replay paths that
+      # fall back to raw content (pre-display_text sessions, chunk MD archives)
+      # must strip that block for UI parity with live rendering. Gated on
+      # channel_info so a normal user literally typing these lines keeps them.
+      private def strip_channel_prompt_prefix(text)
+        return text unless @channel_info
+        text.to_s
+            .sub(/\A\[Group chat history \(\d+ messages\)\]\n.*?\n---\n\[Sender: [^\]]*\]\n?/m, "")
+            .sub(/\A\[Sender: [^\]]*\]\n?/, "")
+      end
+
       private def replay_rounds(ui, page)
         page.each do |round|
           msg = round[:user_msg]
-          raw_text    = msg[:display_text] || extract_text_from_content(msg[:content])
+          raw_text    = msg[:display_text] || strip_channel_prompt_prefix(extract_text_from_content(msg[:content]))
           # Images: recovered from inline image_url blocks in content (carry data_url for <img> rendering)
           image_files = extract_image_files_from_content(msg[:content])
           # Disk files (PDF, doc, etc.): stored in display_files on the user message at send time
@@ -507,7 +519,7 @@ module Clacky
             synthetic_ts = base_time - ((index ? index[:section_count] : sections.size) - round_offset - round_index) * 1.0
             user_msg = {
               role: "user",
-              content: text,
+              content: strip_channel_prompt_prefix(text),
               created_at: synthetic_ts,
               ext_events: sec_ext_events,
               _from_chunk: true
