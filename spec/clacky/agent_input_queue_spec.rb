@@ -118,6 +118,31 @@ RSpec.describe Clacky::Agent, "queued guidance" do
     expect(agent.history.to_a.map { |message| message[:content] }).to include("use phone login", "reference")
   end
 
+  it "demotes the earlier steered entry when a second queued message is steered" do
+    first = agent.enqueue_input("first pick")
+    second = agent.enqueue_input("second pick")
+    third = agent.enqueue_input("untouched")
+    calls = 0
+    allow(agent).to receive(:think) do
+      calls += 1
+      if calls == 1
+        target = agent.pending_inputs.first[:steer_target]
+        expect(agent.steer_pending_input(first, expected_task_id: target)).to be(true)
+        expect(agent.steer_pending_input(second, expected_task_id: target)).to be(true)
+        snapshot = agent.pending_inputs
+        expect(snapshot.find { |entry| entry[:id] == first }[:delivery]).to eq("queue")
+        expect(snapshot.find { |entry| entry[:id] == second }[:delivery]).to eq("steer")
+      end
+      { content: "done", tool_calls: [] }
+    end
+    agent.run("task")
+    expect(calls).to eq(2)
+    expect(agent.total_tasks).to eq(1)
+    expect(agent.history.to_a.map { |message| message[:content] }).to include("second pick")
+    expect(agent.history.to_a.map { |message| message[:content] }).not_to include("first pick")
+    expect(agent.pending_inputs.map { |entry| entry[:id] }).to eq([first, third])
+  end
+
   it "rejects stale task targets without moving or consuming the queued entry" do
     id = agent.enqueue_input("later")
     old_target = nil
