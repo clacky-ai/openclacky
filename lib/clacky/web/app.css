@@ -1647,6 +1647,114 @@ body {
   color: var(--color-text-primary);
 }
 
+/* ── Bulk-delete selection ───────────────────────────────────────────────
+   The checkbox only exists inside #sidebar-list. The search overlay renders
+   rows into its own container, so it never inherits `.selecting`. */
+.session-select {
+  flex-shrink: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+}
+#sidebar-list.selecting .session-select {
+  display: flex;
+}
+/* Virtual group rows ("Scheduled Tasks (4)") aren't real sessions. */
+#sidebar-list.selecting .session-item.group-item .session-select {
+  visibility: hidden;
+}
+.session-select-box {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 0.875rem;
+  height: 0.875rem;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-xs);
+  color: transparent;
+  transition: background var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast);
+}
+.session-select-box svg {
+  width: 0.625rem;
+  height: 0.625rem;
+}
+.session-item.selected .session-select-box {
+  background: var(--color-accent-primary);
+  border-color: var(--color-accent-primary);
+  color: #fff;
+}
+/* Selection mode borrows the row's click target, so the ⋯ affordance would be
+   a dead end — hide it rather than leave it un-clickable. */
+#sidebar-list.selecting .session-actions-btn {
+  display: none;
+}
+#sidebar-list.selecting .session-item.selected {
+  background: var(--color-accent-soft);
+}
+/* Selecting rows borrows the sidebar's click target; the header actions
+   (new session, bulk select) would dead-end mid-selection, so they vanish
+   until the bar is dismissed. */
+#sidebar-list.selecting #chat-section-header .sidebar-divider-actions {
+  display: none;
+}
+
+#session-select-bar {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem;
+  border-top: 1px solid var(--color-border-primary);
+  background: var(--color-bg-secondary);
+}
+#session-select-bar[hidden] {
+  display: none;
+}
+.select-bar-count {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.71875rem;
+  color: var(--color-text-secondary);
+}
+.select-bar-cancel,
+.select-bar-delete {
+  flex-shrink: 0;
+  font: inherit;
+  font-size: 0.71875rem;
+  padding: 0.25rem 0.5625rem;
+  border-radius: var(--radius-xs);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.select-bar-cancel {
+  background: transparent;
+  border: 1px solid var(--color-border-primary);
+  color: var(--color-text-secondary);
+  transition: background var(--transition-fast);
+}
+.select-bar-cancel:hover {
+  background: var(--color-bg-hover);
+}
+.select-bar-delete {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  background: var(--color-error);
+  border: 1px solid var(--color-error);
+  color: #fff;
+  transition: filter var(--transition-fast);
+}
+.select-bar-delete:hover:not(:disabled) {
+  filter: brightness(0.93);
+}
+.select-bar-delete:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 /* Pin icon in session name */
 .session-pin-icon {
   flex-shrink: 0;
@@ -1744,6 +1852,12 @@ body {
 .session-actions-menu-item--danger:hover {
   background: var(--color-error-bg);
   color: var(--color-error);
+}
+.session-actions-menu-item--danger-follow {
+  margin-top: 0;
+}
+.session-actions-menu-item--danger-follow::before {
+  content: none;
 }
 .session-actions-menu-item--danger:hover .session-actions-menu-icon {
   color: var(--color-error);
@@ -15457,6 +15571,14 @@ body.setup-mode[data-theme="dark"] {
   }
   /* active session: always show ⋯ button (no hover on touch) */
   .session-item.active .session-actions-btn { width: 1.5rem; opacity: 1; pointer-events: auto; }
+  /* Fingers need a bigger tick target than a 14px box. */
+  #sidebar-list.selecting .session-item { padding-top: 0.5rem; padding-bottom: 0.5rem; }
+  #sidebar-list.selecting .session-select { width: 1.5rem; }
+  .session-select-box { width: 1.0625rem; height: 1.0625rem; }
+  .session-select-box svg { width: 0.75rem; height: 0.75rem; }
+  #session-select-bar { padding: 0.625rem 0.75rem; }
+  .select-bar-cancel { width: 2rem; height: 2rem; }
+  .select-bar-delete { padding: 0.4375rem 0.75rem; }
   #sidebar.hidden {
     transform: translateX(-100%);
     margin-left: 0 !important;

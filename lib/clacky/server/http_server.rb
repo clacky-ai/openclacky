@@ -981,6 +981,7 @@ module Clacky
         sessions = pinned_part + non_pinned_part
 
         json_response(res, 200, { sessions: sessions, has_more: has_more,
+                                  total: @registry.total_count,
                                   groups: @registry.group_stats_all })
       end
 
@@ -7669,6 +7670,7 @@ module Clacky
             all_sessions += project_sessions.reject { |s| paged_ids.include?(s[:id]) }
           end
           conn.send_json(type: "session_list", sessions: all_sessions, has_more: has_more,
+                         total: @registry.total_count,
                          groups: groups, projects: projects)
 
         when "run_task"

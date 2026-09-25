@@ -143,6 +143,11 @@
             </svg>
           </span>
           <div class="sidebar-divider-actions">
+            <button id="btn-sessions-menu" class="btn-icon-sm" data-i18n-title="sessions.actions.selectMultiple" title="Bulk Delete" aria-label="Session list actions">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                <circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/>
+              </svg>
+            </button>
             <div class="btn-split-wrap">
               <button id="btn-new-session-inline" class="btn-split-main" title="New Session">
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg">
@@ -327,6 +332,18 @@
 
       <!-- BOTTOM nav slot: end-of-sidebar spot for secondary ext entries. -->
       <div id="ext-slot-sidebar-nav-bottom" data-slot="sidebar.nav.bottom"></div>
+    </div>
+
+    <!-- Bulk-delete toolbar: sits between the list and the footer so the list
+         never shifts, and stays reachable from any sidebar section. -->
+    <div id="session-select-bar" hidden>
+      <span class="select-bar-count" data-select-count></span>
+      <button type="button" id="btn-select-cancel" class="select-bar-cancel" data-select-cancel
+              data-i18n="sessions.select.cancel">Cancel</button>
+      <button type="button" id="btn-select-delete" class="select-bar-delete" data-select-delete disabled>
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
+        <span data-select-delete-label></span>
+      </button>
     </div>
 
     <!-- Bottom Settings -->
