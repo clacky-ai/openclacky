@@ -144,8 +144,13 @@ module Clacky
         # raw markdown links would just be noise in the chat.
         text = sanitize_outbound_text(content, remove_file_links: true)
         unless text.empty?
-          delivered = finalize_progress(text, state: :success)
-          send_text(text) unless delivered
+          # Send the answer as a standalone message first: a new message
+          # notifies the user and bumps the chat, whereas updating the card in
+          # place (a threaded reply) raises no notification on Feishu.
+          send_text(text)
+          # Then collapse the progress card to a short terminal state so it does
+          # not keep spinning. The full text lives in the standalone message.
+          finalize_progress("Done", state: :success) if progress_active?
         end
         flush_adapter_pending
         files.each do |f|
@@ -456,6 +461,12 @@ module Clacky
       private def progress_finished?
         @progress_mutex.synchronize do
           !!(@progress_id && TERMINAL_PROGRESS_STATES.include?(@progress_state))
+        end
+      end
+
+      private def progress_active?
+        @progress_mutex.synchronize do
+          !!(@progress_id && !TERMINAL_PROGRESS_STATES.include?(@progress_state))
         end
       end
 
