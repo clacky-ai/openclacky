@@ -303,7 +303,13 @@ module Clacky
               queued = true
             end
           end
-          return if queued
+          if queued
+            # Acknowledge queued (non-steering) messages so the IM side does not
+            # look like it dropped the message. Steering entries may join the
+            # current task, so no receipt is sent for them.
+            adapter.send_text(event[:chat_id], "Your message is queued and will be processed as soon as the current task finishes.") if @registry.agent_config_input_behavior == "queue"
+            return
+          end
         end
 
         # If session is running, interrupt it AND wait for the old thread to
@@ -434,7 +440,7 @@ module Clacky
               end
             end
           else
-            channel_ui = ChannelUIController.new(event, -> { adapter_for(event[:platform]) }, -> { @channel_config.status_messages_enabled? }, -> { @channel_config.process_messages_enabled? })
+            channel_ui = ChannelUIController.new(event, -> { adapter_for(event[:platform]) }, -> { @channel_config.status_messages_enabled? }, -> { @channel_config.process_messages_enabled? }, -> { @channel_config.final_reply_messages_enabled? })
           end
 
           @persist_session&.call(cleared_agent) if cleared_agent
@@ -770,7 +776,7 @@ module Clacky
         # Create a long-lived ChannelUIController for this session and subscribe it
         # to the session's WebUIController. It stays for the session's full lifetime
         # so all events (agent output, errors, status) flow through web_ui → channel_ui.
-        channel_ui = ChannelUIController.new(event, -> { adapter_for(event[:platform]) }, -> { @channel_config.status_messages_enabled? }, -> { @channel_config.process_messages_enabled? })
+        channel_ui = ChannelUIController.new(event, -> { adapter_for(event[:platform]) }, -> { @channel_config.status_messages_enabled? }, -> { @channel_config.process_messages_enabled? }, -> { @channel_config.final_reply_messages_enabled? })
         @registry.with_session(session_id) do |s|
           s[:ui]&.subscribe_channel(channel_ui)
           s[:channel_ui] = channel_ui
@@ -797,7 +803,7 @@ module Clacky
         end
         return unless needs_attach
 
-        channel_ui = ChannelUIController.new(event, -> { adapter_for(event[:platform]) }, -> { @channel_config.status_messages_enabled? }, -> { @channel_config.process_messages_enabled? })
+        channel_ui = ChannelUIController.new(event, -> { adapter_for(event[:platform]) }, -> { @channel_config.status_messages_enabled? }, -> { @channel_config.process_messages_enabled? }, -> { @channel_config.final_reply_messages_enabled? })
         @registry.with_session(session_id) do |s|
           next unless s[:ui] && s[:channel_ui].nil?
           s[:ui].subscribe_channel(channel_ui)

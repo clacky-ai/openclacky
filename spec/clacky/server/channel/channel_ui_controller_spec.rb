@@ -5,20 +5,32 @@ require "clacky/server/channel"
 
 RSpec.describe Clacky::Channel::ChannelUIController do
   let(:sent) { [] }
+  let(:sent_replies) { [] }
   let(:adapter) do
     rec = sent
+    replies = sent_replies
     double("adapter").tap do |a|
-      allow(a).to receive(:send_text) { |_chat_id, text, _opts| rec << text }
+      allow(a).to receive(:send_text) do |_chat_id, text, opts|
+        rec << text
+        replies << (opts || {})[:reply_to]
+      end
     end
   end
   let(:event) { { platform: :feishu, chat_id: "chat_1", message_id: "msg_1" } }
   let(:controller) do
-    described_class.new(event, -> { adapter }, -> { @status_enabled }, -> { @process_enabled })
+    described_class.new(
+      event,
+      -> { adapter },
+      -> { @status_enabled },
+      -> { @process_enabled },
+      -> { @final_reply_enabled }
+    )
   end
 
   before do
-    @status_enabled  = true
-    @process_enabled = true
+    @status_enabled      = true
+    @process_enabled     = true
+    @final_reply_enabled = true
   end
 
   def complete
@@ -42,10 +54,12 @@ RSpec.describe Clacky::Channel::ChannelUIController do
   describe "task progress messages" do
     let(:progress_updates) { [] }
     let(:progress_details) { [] }
+    let(:progress_replies) { [] }
     let(:progress_adapter) do
       updates = progress_updates
       details = progress_details
       rec = sent
+      replies = progress_replies
       double("progress adapter").tap do |a|
         allow(a).to receive(:supports_progress_updates?).and_return(true)
         allow(a).to receive(:send_progress).and_return(
@@ -57,11 +71,20 @@ RSpec.describe Clacky::Channel::ChannelUIController do
           details << { content: content, history: history }
           true
         end
-        allow(a).to receive(:send_text) { |_chat_id, text, _opts| rec << text }
+        allow(a).to receive(:send_text) do |_chat_id, text, opts|
+          rec << text
+          replies << (opts || {})[:reply_to]
+        end
       end
     end
     let(:progress_controller) do
-      described_class.new(event, -> { progress_adapter }, -> { @status_enabled }, -> { @process_enabled })
+      described_class.new(
+        event,
+        -> { progress_adapter },
+        -> { @status_enabled },
+        -> { @process_enabled },
+        -> { @final_reply_enabled }
+      )
     end
 
     it "updates one progress message from thinking through working to the final reply" do
@@ -79,6 +102,17 @@ RSpec.describe Clacky::Channel::ChannelUIController do
         ["chat_1", "card_1", "Writing a file...", :working],
         ["chat_1", "card_1", "All done", :success]
       ])
+      # Card is updated in place AND the answer is sent as a top-level message.
+      expect(sent).to eq(["All done"])
+      expect(progress_replies).to eq([nil])
+    end
+
+    it "suppresses the standalone final message when final replies are disabled" do
+      @final_reply_enabled = false
+      progress_controller.start_task
+      progress_controller.show_assistant_message("All done", files: [])
+
+      expect(progress_updates.last).to eq(["chat_1", "card_1", "All done", :success])
       expect(sent).to be_empty
     end
 
@@ -131,7 +165,7 @@ RSpec.describe Clacky::Channel::ChannelUIController do
       expect(progress_updates.last).to eq([
         "chat_1", "card_1", "Final answer", :success
       ])
-      expect(sent).to be_empty
+      expect(sent).to eq(["Final answer"])
     end
 
     it "updates the progress card with existing process previews" do
@@ -178,7 +212,8 @@ RSpec.describe Clacky::Channel::ChannelUIController do
       expect(progress_updates).to eq([
         ["chat_1", "card_1", "Final result", :success]
       ])
-      expect(sent).to be_empty
+      # Late events are dropped, but the finalized answer still goes out once.
+      expect(sent).to eq(["Final result"])
     end
 
     it "falls back to a normal final message when the card update fails" do
@@ -207,7 +242,7 @@ RSpec.describe Clacky::Channel::ChannelUIController do
         ["chat_1", "card_1", "Running a command...", :working],
         ["chat_1", "card_1", "Final result", :success]
       ])
-      expect(sent).to be_empty
+      expect(sent).to eq(["Final result"])
     end
 
     it "updates the active progress message when the task is interrupted" do
@@ -244,7 +279,8 @@ RSpec.describe Clacky::Channel::ChannelUIController do
       expect(progress_controller.start_task).to be false
       progress_controller.show_assistant_message("Second result", files: [])
 
-      expect(sent).to eq(["Second result"])
+      # First result is still delivered under the earlier card-enabled run.
+      expect(sent).to eq(["First result", "Second result"])
     end
 
     it "keeps standalone status messages for adapters without progress updates" do
@@ -283,7 +319,7 @@ RSpec.describe Clacky::Channel::ChannelUIController do
       expect(progress_updates).to eq([
         ["chat_1", "card_1", "Visible answer", :success]
       ])
-      expect(sent).to be_empty
+      expect(sent).to eq(["Visible answer"])
     end
   end
 

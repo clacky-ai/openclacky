@@ -33,10 +33,14 @@ module Clacky
     #   ("Thinking...", "Done" summary) sent to IM chats
     # @param process_messages [Boolean] global toggle for tool-process messages
     #   (interim narration, file/shell previews) sent to IM chats
-    def initialize(channels: {}, status_messages: false, process_messages: false)
-      @channels         = channels || {}
-      @status_messages  = status_messages == true ? true : false
-      @process_messages = process_messages == true ? true : false
+    # @param final_reply_messages [Boolean] global toggle for sending the final
+    #   assistant reply as a standalone top-level message in addition to updating
+    #   the progress card, so it raises a new-message notification
+    def initialize(channels: {}, status_messages: false, process_messages: false, final_reply_messages: true)
+      @channels             = channels || {}
+      @status_messages      = status_messages == true ? true : false
+      @process_messages     = process_messages == true ? true : false
+      @final_reply_messages = final_reply_messages == false ? false : true
     end
 
     # Load from disk. Returns an empty instance if the file does not exist.
@@ -49,7 +53,8 @@ module Clacky
         data = {}
       end
 
-      new(channels: data["channels"] || {}, status_messages: data["status_messages"], process_messages: data["process_messages"])
+      new(channels: data["channels"] || {}, status_messages: data["status_messages"],
+          process_messages: data["process_messages"], final_reply_messages: data["final_reply_messages"])
     end
 
     # Persist to disk.
@@ -63,7 +68,12 @@ module Clacky
     # Serialize to YAML string.
     # @return [String]
     def to_yaml
-      YAML.dump({ "status_messages" => @status_messages, "process_messages" => @process_messages, "channels" => @channels })
+      YAML.dump({
+        "status_messages"      => @status_messages,
+        "process_messages"     => @process_messages,
+        "final_reply_messages" => @final_reply_messages,
+        "channels"             => @channels
+      })
     end
 
     # Returns true if at least one channel is enabled.
@@ -176,6 +186,20 @@ module Clacky
       @process_messages = enabled ? true : false
     end
 
+    # Global toggle: whether the final assistant reply is also sent as a
+    # standalone top-level message (in addition to the in-place progress-card
+    # update). Updating a threaded card raises no notification and can be
+    # missed, so this defaults to true.
+    def final_reply_messages_enabled?
+      @final_reply_messages == true
+    end
+
+    # Enable/disable standalone final-reply messages globally.
+    # @param enabled [Boolean]
+    def set_final_reply_messages(enabled)
+      @final_reply_messages = enabled ? true : false
+    end
+
     # Enable a platform (requires it to already be configured).
     # @param platform [Symbol, String]
     # @raise [ArgumentError] if the platform has no stored credentials yet.
@@ -202,7 +226,12 @@ module Clacky
     # Deep copy - prevents callers from mutating shared config state.
     # @return [ChannelConfig]
     def deep_copy
-      self.class.new(channels: JSON.parse(JSON.generate(@channels)), status_messages: @status_messages, process_messages: @process_messages)
+      self.class.new(
+        channels: JSON.parse(JSON.generate(@channels)),
+        status_messages: @status_messages,
+        process_messages: @process_messages,
+        final_reply_messages: @final_reply_messages
+      )
     end
   end
 end

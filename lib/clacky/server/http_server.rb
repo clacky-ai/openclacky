@@ -781,6 +781,8 @@ module Clacky
             api_channel_status_messages(req, res)
           elsif method == "PATCH" && path == "/api/channels/process_messages"
             api_channel_process_messages(req, res)
+          elsif method == "PATCH" && path == "/api/channels/final_reply_messages"
+            api_channel_final_reply_messages(req, res)
           elsif method == "PATCH" && path.match?(%r{^/api/channels/[^/]+/enabled$})
             platform = path.sub("/api/channels/", "").sub("/enabled", "")
             api_toggle_channel(platform, req, res)
@@ -4777,6 +4779,24 @@ module Clacky
         json_response(res, 422, { ok: false, error: e.message })
       end
 
+      # PATCH /api/channels/final_reply_messages
+      # Body: { final_reply_messages: true|false }
+      # Global toggle for sending the final assistant reply as a standalone
+      # top-level message in addition to the in-place progress-card update.
+      # Hot-applies without restarting adapters.
+      def api_channel_final_reply_messages(req, res)
+        enabled = parse_json_body(req)["final_reply_messages"] == true
+        config  = Clacky::ChannelConfig.load
+
+        config.set_final_reply_messages(enabled)
+        config.save
+        @channel_manager.update_config(config)
+
+        json_response(res, 200, { ok: true, final_reply_messages: config.final_reply_messages_enabled? })
+      rescue StandardError => e
+        json_response(res, 422, { ok: false, error: e.message })
+      end
+
       # PATCH /api/channels/:platform/enabled
       # Body: { enabled: true|false }
       # Toggles the platform on/off without touching credentials.
@@ -8039,7 +8059,7 @@ module Clacky
               owns_epoch = s[:epoch].to_i == epoch.to_i
               next unless owns_epoch
               awaiting = run_result.is_a?(Hash) && run_result[:awaiting_user_feedback]
-              pending = agent.take_pending_input if Agent.task_completed?(run_result)
+              pending = agent.take_pending_input if Agent.queue_drainable?(run_result)
               unless pending
                 s[:status] = awaiting ? :awaiting_feedback : :idle
                 s[:error] = nil

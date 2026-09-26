@@ -115,6 +115,52 @@ RSpec.describe Clacky::ChannelConfig do
     end
   end
 
+  describe "#final_reply_messages_enabled?" do
+    it "defaults to true" do
+      config = described_class.new(channels: {})
+      expect(config.final_reply_messages_enabled?).to be true
+    end
+
+    it "defaults to true when the field is missing on load" do
+      with_temp_channels_file do |file|
+        File.write(file, YAML.dump({
+          "status_messages" => true,
+          "channels" => { "feishu" => { "enabled" => true } }
+        }))
+        expect(described_class.load(file).final_reply_messages_enabled?).to be true
+      end
+    end
+
+    it "returns false when explicitly disabled" do
+      config = described_class.new(channels: {}, final_reply_messages: false)
+      expect(config.final_reply_messages_enabled?).to be false
+    end
+  end
+
+  describe "#set_final_reply_messages" do
+    it "round-trips a disabled flag through save/load" do
+      with_temp_channels_file do |file|
+        config = described_class.new(channels: { "feishu" => { "enabled" => true } })
+        config.set_final_reply_messages(false)
+        config.save(file)
+
+        reloaded = described_class.load(file)
+        expect(reloaded.final_reply_messages_enabled?).to be false
+      end
+    end
+
+    it "writes the flag as a top-level YAML key" do
+      with_temp_channels_file do |file|
+        config = described_class.new(channels: { "feishu" => { "enabled" => true } })
+        config.set_final_reply_messages(false)
+        config.save(file)
+
+        data = YAMLCompat.safe_load(File.read(file), permitted_classes: [Symbol])
+        expect(data["final_reply_messages"]).to be false
+      end
+    end
+  end
+
   describe "#deep_copy" do
     it "copies the status flag independently of the original" do
       config = described_class.new(channels: {}, status_messages: false)
@@ -130,6 +176,14 @@ RSpec.describe Clacky::ChannelConfig do
       copy.set_process_messages(true)
       expect(config.process_messages_enabled?).to be false
       expect(copy.process_messages_enabled?).to be true
+    end
+
+    it "copies the final-reply flag independently of the original" do
+      config = described_class.new(channels: {}, final_reply_messages: true)
+      copy   = config.deep_copy
+      copy.set_final_reply_messages(false)
+      expect(config.final_reply_messages_enabled?).to be true
+      expect(copy.final_reply_messages_enabled?).to be false
     end
   end
 end

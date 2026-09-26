@@ -48,20 +48,25 @@ module Clacky
       # @param process_messages_resolver [Proc] callable returning true/false — whether
       #   tool-process messages (interim narration, file/shell previews) should be
       #   sent. Resolved per call so config changes apply without rebuilding.
-      def initialize(event, adapter_resolver, status_messages_resolver = nil, process_messages_resolver = nil)
-        @platform                 = event[:platform]
-        @chat_id                  = event[:chat_id]
-        @message_id               = event[:message_id]  # original message to reply under
-        @adapter_resolver         = adapter_resolver
-        @status_messages_resolver = status_messages_resolver
-        @process_messages_resolver = process_messages_resolver
-        @buffer                   = []
-        @mutex                    = Mutex.new
-        @progress_mutex           = Mutex.new
-        @progress_id              = nil
-        @progress_chat_id         = nil
-        @progress_state           = nil
-        @progress_history         = []
+      # @param final_reply_messages_resolver [Proc] callable returning true/false —
+      #   whether the final assistant reply is also sent as a standalone top-level
+      #   message (in addition to the in-place card update), so it raises a
+      #   new-message notification. Resolved per call.
+      def initialize(event, adapter_resolver, status_messages_resolver = nil, process_messages_resolver = nil, final_reply_messages_resolver = nil)
+        @platform                      = event[:platform]
+        @chat_id                       = event[:chat_id]
+        @message_id                    = event[:message_id]  # original message to reply under
+        @adapter_resolver              = adapter_resolver
+        @status_messages_resolver      = status_messages_resolver
+        @process_messages_resolver     = process_messages_resolver
+        @final_reply_messages_resolver = final_reply_messages_resolver
+        @buffer                        = []
+        @mutex                         = Mutex.new
+        @progress_mutex                = Mutex.new
+        @progress_id                   = nil
+        @progress_chat_id              = nil
+        @progress_state                = nil
+        @progress_history              = []
       end
 
       # Update the reply context for the current inbound message.
@@ -145,7 +150,14 @@ module Clacky
         text = sanitize_outbound_text(content, remove_file_links: true)
         unless text.empty?
           delivered = finalize_progress(text, state: :success)
-          send_text(text) unless delivered
+          if delivered
+            # The card was updated in place (often a threaded reply that raises
+            # no notification). Optionally also send the answer as a standalone
+            # top-level message so it bumps the chat and notifies the user.
+            send_text(text, reply_to: nil) if final_reply_messages?
+          else
+            send_text(text)
+          end
         end
         flush_adapter_pending
         files.each do |f|
@@ -330,6 +342,10 @@ module Clacky
 
       private def process_messages?
         @process_messages_resolver ? @process_messages_resolver.call : false
+      end
+
+      private def final_reply_messages?
+        @final_reply_messages_resolver ? @final_reply_messages_resolver.call : false
       end
 
       private def progress_updates_supported?(adapter)
