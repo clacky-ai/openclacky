@@ -69,9 +69,11 @@ curl -s -X POST http://${CLACKY_SERVER_HOST}:${CLACKY_SERVER_PORT}/api/media/ima
 - If a call fails with `400 / INVALID_ARGUMENT`, drop the `aspect_ratio` field and retry once before reporting the error.
 - If a call fails with `unknown image model` (400), the configured model name isn't recognized by its backend — tell the user to fix the model name in the settings page; do NOT guess another name and retry.
 
-### Content-safety refusal (content_filter) — retry up to 3×, then stop
+### Content-safety refusal (content_filter)
 
-The safety filter is non-deterministic — the same prompt is sometimes refused, sometimes allowed. When a call fails with no image and the error mentions `content_filter` / `safety` / `blocked` (or HTTP `422`), re-send the **identical** request, up to **3 attempts total** (sequential). If all 3 are refused, stop and ask the user to rephrase. Don't apply this to other errors (`auth_required`, `unknown image model`, etc.) — report those once.
+If a call fails with no image and mentions `content_filter` / `safety` / `blocked` (or HTTP `422`), the prompt was blocked. Don't resend as-is — **rephrase the prompt** (soften the sensitive part, keep the intent) and retry, up to 3 times, checking each returned image. Still blocked? Stop and ask the user to adjust.
+
+
 
 ### Request fields
 
@@ -84,9 +86,10 @@ The safety filter is non-deterministic — the same prompt is sometimes refused,
 | `image`        | no       | file path / base64 / data URL       | A single input image to **edit**. Triggers image-edit mode (see below). |
 | `images`       | no       | array of the above                  | Multiple input images for a multi-image edit. Takes precedence over `image`. |
 
-### Input / reference image format — hard limit
+### Input / reference image format
 
-Images passed as `image` / `images` must be **PNG, JPEG, or WebP** — anything else (SVG, GIF, BMP, TIFF) is rejected upstream and fails the call. Convert first: rasterize SVG to PNG (`magick input.svg input.png`), convert GIF/BMP/TIFF to PNG (`magick input.gif[0] out.png`). A `.png` extension isn't proof; verify with `magick identify <file>` when unsure.
+Images passed as `image` / `images` must be **PNG, JPEG, or WebP**. Other formats (SVG, GIF, BMP, TIFF, …) are rejected upstream and fail the call — convert them to PNG first.
+
 
 ### Editing an existing image
 
