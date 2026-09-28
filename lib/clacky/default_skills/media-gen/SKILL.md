@@ -88,7 +88,7 @@ If a call fails with no image and mentions `content_filter` / `safety` / `blocke
 
 ### Input / reference image format
 
-Images passed as `image` / `images` must be **PNG, JPEG, or WebP**. Other formats (SVG, GIF, BMP, TIFF, …) are rejected upstream and fail the call — convert them to PNG first.
+Images passed as `image` / `images` must be **PNG, JPEG, or WebP**. Other formats (SVG, GIF, BMP, TIFF, …) are rejected upstream and fail the call — convert them to one of the supported formats first.
 
 
 ### Editing an existing image
