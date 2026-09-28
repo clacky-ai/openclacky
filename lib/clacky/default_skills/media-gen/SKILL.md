@@ -71,25 +71,7 @@ curl -s -X POST http://${CLACKY_SERVER_HOST}:${CLACKY_SERVER_PORT}/api/media/ima
 
 ### Content-safety refusal (content_filter) — retry up to 3×, then stop
 
-The safety filter is partly non-deterministic: the **same** prompt is sometimes
-refused and sometimes allowed. So when a call comes back as a content-safety
-refusal — the response is a failure with no image and the error mentions
-`content_filter` / `content filter` / `safety` / `blocked` (or HTTP `422`) —
-**retry the exact same request**, up to **3 attempts total**:
-
-1. On a content_filter failure, wait ~1–2s and re-send the identical request.
-2. Repeat until you either get an image or have made **3 attempts**.
-3. If all 3 attempts are still refused, **stop — do NOT keep retrying.** Tell
-   the user plainly that the image was blocked by the content-safety filter and
-   ask them to rephrase / adjust the prompt.
-
-Rules:
-
-- Only this retry loop applies to content_filter. Do **not** apply it to other
-  errors (`auth_required`, `unknown image model`, `not_configured`,
-  `network_error`) — those won't fix themselves by retrying; report them once.
-- Keep it **sequential** (one at a time, per the concurrency rule) and never
-  exceed 3 attempts — each call costs money and time.
+The safety filter is non-deterministic — the same prompt is sometimes refused, sometimes allowed. When a call fails with no image and the error mentions `content_filter` / `safety` / `blocked` (or HTTP `422`), re-send the **identical** request, up to **3 attempts total** (sequential). If all 3 are refused, stop and ask the user to rephrase. Don't apply this to other errors (`auth_required`, `unknown image model`, etc.) — report those once.
 
 ### Request fields
 
@@ -104,16 +86,7 @@ Rules:
 
 ### Input / reference image format — hard limit
 
-When you pass an image as `image` / `images` (edit or multi-image), the model
-accepts **only PNG, JPEG, or WebP**. GIF / BMP / TIFF / SVG (and any other
-format) are rejected upstream and the whole call fails.
-
-- If the source is **SVG**, rasterize to PNG first (`magick input.svg input.png`
-  or `rsvg-convert`), then pass the PNG — never send the `.svg`.
-- If the source is **GIF / BMP / TIFF** (or an animated GIF frame), convert to
-  PNG first (`magick input.gif[0] out.png`), then pass the PNG.
-- A `.png` extension doesn't guarantee PNG bytes — verify with
-  `magick identify <file>` (or `file <file>`) when unsure.
+Images passed as `image` / `images` must be **PNG, JPEG, or WebP** — anything else (SVG, GIF, BMP, TIFF) is rejected upstream and fails the call. Convert first: rasterize SVG to PNG (`magick input.svg input.png`), convert GIF/BMP/TIFF to PNG (`magick input.gif[0] out.png`). A `.png` extension isn't proof; verify with `magick identify <file>` when unsure.
 
 ### Editing an existing image
 
