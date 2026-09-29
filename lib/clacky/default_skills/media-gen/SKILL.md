@@ -71,6 +71,12 @@ curl -s -X POST http://${CLACKY_SERVER_HOST}:${CLACKY_SERVER_PORT}/api/media/ima
 - If a call fails with `400 / INVALID_ARGUMENT`, drop the `aspect_ratio` field and retry once before reporting the error.
 - If a call fails with `unknown image model` (400), the configured model name isn't recognized by its backend — tell the user to fix the model name in the settings page; do NOT guess another name and retry.
 
+### Content-safety refusal (content_filter)
+
+If a call fails with no image and mentions `content_filter` / `safety` / `blocked` (or HTTP `422`), the prompt was blocked. Don't resend as-is — **rephrase the prompt** (soften the sensitive part, keep the intent) and retry, up to 3 times, checking each returned image. Still blocked? Stop and ask the user to adjust.
+
+
+
 ### Request fields
 
 | Field          | Required | Values                              | Notes |
@@ -81,6 +87,11 @@ curl -s -X POST http://${CLACKY_SERVER_HOST}:${CLACKY_SERVER_PORT}/api/media/ima
 | `session_id`   | yes      | string                              | Current Clacky session ID. Always pass the rendered value shown in the request example. |
 | `image`        | no       | file path / base64 / data URL       | A single input image to **edit**. Triggers image-edit mode (see below). |
 | `images`       | no       | array of the above                  | Multiple input images for a multi-image edit. Takes precedence over `image`. |
+
+### Input / reference image format
+
+Images passed as `image` / `images` must be **PNG, JPEG, or WebP**. Other formats (SVG, GIF, BMP, TIFF, …) are rejected upstream and fail the call — convert them to one of the supported formats first.
+
 
 ### Editing an existing image
 
