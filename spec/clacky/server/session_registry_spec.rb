@@ -33,6 +33,73 @@ RSpec.describe Clacky::Server::SessionRegistry do
                JSON.pretty_generate(data))
   end
 
+  describe "#total_count" do
+    it "counts every stored session regardless of source or project" do
+      Dir.mktmpdir("clacky_total_spec") do |dir|
+        write_session_file(dir, session_id: "sess_man00001", name: "manual-1",
+                           created_at: "2026-04-01T00:00:00+00:00")
+        write_session_file(dir, session_id: "sess_man00002", name: "manual-2",
+                           created_at: "2026-04-02T00:00:00+00:00")
+        write_session_file(dir, session_id: "sess_manproj1", name: "manual-in-project",
+                           created_at: "2026-04-03T00:00:00+00:00", project_id: "proj_a")
+        write_session_file(dir, session_id: "sess_cron0001", name: "cron-loose",
+                           created_at: "2026-04-04T00:00:00+00:00", source: "cron")
+        write_session_file(dir, session_id: "sess_ext00001", name: "ext-loose",
+                           created_at: "2026-04-05T00:00:00+00:00", source: "ext")
+        write_session_file(dir, session_id: "sess_extproj1", name: "ext-in-project",
+                           created_at: "2026-04-06T00:00:00+00:00", source: "ext", project_id: "proj_a")
+        write_session_file(dir, session_id: "sess_cronprj1", name: "cron-in-project",
+                           created_at: "2026-04-07T00:00:00+00:00", source: "cron", project_id: "proj_b")
+
+        manager  = Clacky::SessionManager.new(sessions_dir: dir)
+        registry = described_class.new(session_manager: manager, agent_config: default_config)
+
+        expect(registry.total_count).to eq(7)
+      end
+    end
+
+    it "keeps counting sessions that fold into a group summary row" do
+      Dir.mktmpdir("clacky_total_spec") do |dir|
+        5.times do |i|
+          write_session_file(dir, session_id: "sess_ext0000#{i}", name: "ext-#{i}",
+                             created_at: "2026-04-0#{i + 1}T00:00:00+00:00", source: "ext")
+        end
+
+        manager  = Clacky::SessionManager.new(sessions_dir: dir)
+        registry = described_class.new(session_manager: manager, agent_config: default_config)
+
+        expect(registry.total_count).to eq(5)
+        expect(registry.group_stats("ext")[:count]).to eq(5)
+      end
+    end
+
+    it "never reports fewer sessions than any single sidebar view can show" do
+      Dir.mktmpdir("clacky_total_spec") do |dir|
+        write_session_file(dir, session_id: "sess_man00001", name: "manual-1",
+                           created_at: "2026-04-01T00:00:00+00:00")
+        3.times do |i|
+          write_session_file(dir, session_id: "sess_ext0000#{i}", name: "ext-#{i}",
+                             created_at: "2026-04-1#{i}T00:00:00+00:00", source: "ext")
+        end
+        write_session_file(dir, session_id: "sess_extproj1", name: "ext-in-project",
+                           created_at: "2026-04-20T00:00:00+00:00", source: "ext", project_id: "proj_a")
+        write_session_file(dir, session_id: "sess_cron0001", name: "cron-loose",
+                           created_at: "2026-04-21T00:00:00+00:00", source: "cron")
+
+        manager  = Clacky::SessionManager.new(sessions_dir: dir)
+        registry = described_class.new(session_manager: manager, agent_config: default_config)
+
+        # Rows tickable in the ext sub-view: the folded ext sessions plus the
+        # project tree, which stays visible and selectable while drilled in.
+        ext_view_rows = registry.group_stats("ext")[:count] +
+                        registry.list(project_id: "proj_a").size
+
+        expect(registry.total_count).to be >= ext_view_rows
+        expect(registry.total_count).to be >= registry.group_stats("cron")[:count]
+      end
+    end
+  end
+
   describe "#snapshot" do
     it "returns a row with the same shape as #list for the given session" do
       Dir.mktmpdir("clacky_snapshot_spec") do |dir|
