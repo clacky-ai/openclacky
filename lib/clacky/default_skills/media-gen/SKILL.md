@@ -1,8 +1,8 @@
 ---
 name: media-gen
 name_zh: 媒体生成
-description_zh: 生成或编辑图片、视频，以及文字转语音，适用于封面、海报、插画、配音等。
-description: 'Generate or edit images, videos, or audio (text-to-speech) in the current task. Use whenever the user asks to create/generate/produce or edit/modify a picture / image / illustration / cover / poster / icon / artwork, a video / clip / animation, or speech / voiceover / narration / TTS — e.g. generate image, draw, design a cover, edit this image, change the background, text-to-video, generate speech; 画一张, 配图, 编辑图片, 改图, 换背景, 做个视频, 配音, 文字转语音. Also use when a document (slides, poster, README hero) needs an inline image.'
+description_zh: 生成或编辑图片、视频和音频，适用于封面、海报、插画、配音、环境音等。
+description: 'Generate or edit images, videos, or audio in the current task. Use whenever the user asks to create/generate/produce or edit/modify a picture / image / illustration / cover / poster / icon / artwork, a video / clip / animation, or speech / voiceover / narration / TTS / ambient audio / soundscapes — e.g. generate image, draw, design a cover, edit this image, change the background, text-to-video, generate speech; 画一张, 配图, 编辑图片, 改图, 换背景, 做个视频, 配音, 文字转语音, 环境音. Also use when a document (slides, poster, README hero) needs an inline image.'
 disable-model-invocation: false
 user-invocable: true
 always-show: true
@@ -481,6 +481,12 @@ done
 - ⏱️ If polling exceeds ~15 minutes and status is still `running`, stop
   polling and tell the user the task is still rendering in the background,
   give them the `task_id`, and let them check again later — do NOT resubmit.
+
+## Generating ambient audio
+
+Ambient audio includes rain, ocean waves, wind, and café background
+sounds. Generate it programmatically, verify the audio, and provide
+it for playback or download.
 
 ## Generating speech (Gemini TTS)
 
