@@ -115,6 +115,13 @@ module Clacky
       def show_user_message(content)
         return if content.nil? || content.to_s.strip.empty?
 
+        # A web-originated message starts a brand-new turn. Only web messages
+        # reach this method (IM inbound is not mirrored back), so detach any
+        # progress card left in a terminal state by a previous IM-initiated
+        # task. Without this, finalize_progress sees progress_finished? and
+        # silently swallows the new turn's final reply (#603).
+        reset_progress if progress_finished?
+
         send_text("[USER] #{content}")
       end
 
