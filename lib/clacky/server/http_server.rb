@@ -3742,10 +3742,11 @@ module Clacky
           !output.match?(%r{mirrors\.|aliyun|tuna|ustc|ruby-china})
       end
 
-      # Upgrade via `gem update openclacky --no-document` (official RubyGems source).
+      # Upgrade via `gem update openclacky --no-document` (official RubyGems source,
+      # and the fallback when the OSS CDN step fails).
       private def upgrade_via_gem_update
         cmd = "gem update openclacky --no-document"
-        Clacky::Logger.info("[Upgrade] Official source — running: #{cmd}")
+        Clacky::Logger.info("[Upgrade] Running: #{cmd}")
         broadcast_all(type: "upgrade_log", line: "Starting upgrade: #{cmd}\n")
 
         output, exit_code = run_shell(cmd, timeout: 600, env: gem_install_env)
@@ -3760,6 +3761,7 @@ module Clacky
       end
 
       # Upgrade via OSS CDN: fetch latest.txt → download .gem → gem install (bypasses mirror lag).
+      # Falls back to upgrade_via_gem_update when the CDN step fails (issue #583).
       private def upgrade_via_oss_cdn
         require "net/http"
         require "uri"
@@ -3773,9 +3775,10 @@ module Clacky
         # Step 1: fetch latest version from OSS
         latest_version = fetch_oss_latest_version(latest_url)
         unless latest_version
-          broadcast_all(type: "upgrade_log", line: "✗ Failed to fetch latest version from OSS CDN\n")
-          broadcast_all(type: "upgrade_complete", success: false)
-          return
+          Clacky::Logger.warn("[Upgrade] OSS CDN latest.txt unavailable, falling back to gem update")
+          broadcast_all(type: "upgrade_log",
+                        line: "✗ Failed to fetch latest version from OSS CDN\nFalling back to gem update...\n")
+          return upgrade_via_gem_update
         end
 
         broadcast_all(type: "upgrade_log", line: "Latest version: #{latest_version}\n")
@@ -3793,12 +3796,14 @@ module Clacky
         broadcast_all(type: "upgrade_log", line: "Downloading openclacky-#{latest_version}.gem from OSS...\n")
         Clacky::Logger.info("[Upgrade] Downloading #{gem_url}")
 
-        shell_cmd = "curl -fsSL '#{gem_url}' -o '#{gem_file}'"
+        # Bound the transfer below run_shell's 300s limit so a slow CDN link fails with a real curl error.
+        shell_cmd = "curl -fsSL --connect-timeout 15 --max-time 240 '#{gem_url}' -o '#{gem_file}'"
         dl_out, dl_exit = run_shell(shell_cmd, timeout: 300)
         unless dl_exit&.zero?
-          broadcast_all(type: "upgrade_log", line: "✗ Download failed: #{dl_out}\n")
-          broadcast_all(type: "upgrade_complete", success: false)
-          return
+          Clacky::Logger.warn("[Upgrade] OSS CDN download failed (exit #{dl_exit.inspect}): " \
+                              "#{dl_out.to_s.strip[0, 300]}")
+          broadcast_all(type: "upgrade_log", line: "✗ Download failed: #{dl_out}\nFalling back to gem update...\n")
+          return upgrade_via_gem_update
         end
 
         # Step 3: install the downloaded .gem (dependencies resolved via configured gem source)

@@ -102,4 +102,38 @@ RSpec.describe Clacky::Server::HttpServer do
       end
     end
   end
+
+  describe "#upgrade_via_oss_cdn fallback (issue #583)" do
+    let(:commands) { [] }
+
+    # Runs the CDN upgrade with stubbed latest.txt and curl results.
+    # Returns every shell command the upgrade ran, in order.
+    def run_cdn_upgrade(latest, curl_result = ["", 0])
+      cfg = agent_config
+      with_server(agent_config: cfg) do |server|
+        allow(server).to receive_messages(fetch_oss_latest_version: latest, broadcast_all: nil, finish_upgrade: nil)
+        allow(server).to receive(:run_shell) do |cmd, **_opts|
+          commands << cmd
+          cmd.start_with?("curl") ? curl_result : ["ok", 0]
+        end
+        server.send(:upgrade_via_oss_cdn)
+        commands
+      end
+    end
+
+    it "runs gem update and logs a WARN when latest.txt cannot be fetched" do
+      expect(Clacky::Logger).to receive(:warn).with(a_string_including("[Upgrade] OSS CDN latest.txt"))
+      expect(run_cdn_upgrade(nil)).to eq(["gem update openclacky --no-document"])
+    end
+
+    it "runs gem update instead of gem install and logs a WARN when the .gem download fails" do
+      expect(Clacky::Logger).to receive(:warn).with(a_string_including("(exit 28): curl: (28)"))
+      expect(run_cdn_upgrade("99.0.0", ["curl: (28) Operation timed out", 28]).drop(1))
+        .to eq(["gem update openclacky --no-document"])
+    end
+
+    it "bounds the curl download with connect and total timeouts" do
+      expect(run_cdn_upgrade("99.0.0").first).to include("--connect-timeout 15", "--max-time 240")
+    end
+  end
 end
