@@ -31,6 +31,7 @@ RSpec.describe "replay_history web_search ui payload" do
   let(:registry) do
     reg = Clacky::ToolRegistry.new
     reg.register(Clacky::Tools::WebSearch.new)
+    reg.register(Clacky::Tools::Visualize.new)
     reg.register(Clacky::Tools::Terminal.new)
     reg
   end
@@ -88,6 +89,28 @@ RSpec.describe "replay_history web_search ui payload" do
     ], ui)
 
     expect(ui.tool_results.last[:ui]).to include(type: "web_search", count: 1)
+  end
+
+  it "rebuilds an artifact card while its raw tool result remains in history" do
+    artifact_payload = {
+      artifact_id: "a" * 64,
+      title: "Architecture map",
+      height: 480,
+      bytes: 120,
+      error: nil
+    }
+    host.replay([
+      assistant_call("call_artifact", "visualize"),
+      { role: "tool", tool_call_id: "call_artifact", content: JSON.generate(artifact_payload) }
+    ], ui)
+
+    expect(ui.tool_results.last[:ui]).to eq(
+      type: "artifact",
+      kind: "html",
+      artifact_id: "a" * 64,
+      title: "Architecture map",
+      height: 480
+    )
   end
 
   it "keeps the plain-text path for tools without a ui_result" do

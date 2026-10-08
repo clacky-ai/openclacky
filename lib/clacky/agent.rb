@@ -2040,6 +2040,7 @@ module Clacky
       @tool_registry.register(Tools::Grep.new)
       @tool_registry.register(Tools::WebSearch.new)
       @tool_registry.register(Tools::WebFetch.new)
+      @tool_registry.register(Tools::Visualize.new)
       @tool_registry.register(Tools::TodoManager.new)
       @tool_registry.register(Tools::AskUser.new)
       @tool_registry.register(Tools::InvokeSkill.new)

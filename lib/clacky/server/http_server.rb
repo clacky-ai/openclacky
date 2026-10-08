@@ -766,7 +766,9 @@ module Clacky
         when ["PATCH",  "/api/sessions/:id/model"] then api_switch_session_model(req, res)
         when ["PATCH",  "/api/sessions/:id/working_dir"] then api_change_session_working_dir(req, res)
         else
-          if method == "POST" && path.match?(%r{^/api/channels/[^/]+/send$})
+          if method == "GET" && path.match?(%r{\A/api/artifacts/[0-9a-f]{64}\z})
+            api_serve_artifact(path.delete_prefix("/api/artifacts/"), req, res)
+          elsif method == "POST" && path.match?(%r{^/api/channels/[^/]+/send$})
             platform = path.sub("/api/channels/", "").sub("/send", "")
             api_send_channel_message(platform, req, res)
           elsif method == "GET" && path.match?(%r{^/api/channels/group_history/})
@@ -4696,6 +4698,129 @@ module Clacky
         end
       rescue => e
         json_response(res, 500, { error: e.message })
+      end
+
+      # GET /api/artifacts/:id
+      #
+      # Serves a content-addressed HTML fragment inside a locked-down wrapper.
+      # The frontend adds an iframe sandbox without allow-same-origin; this CSP
+      # provides the second boundary and blocks external subresources and fetches.
+      def api_serve_artifact(artifact_id, req, res)
+        store = ArtifactStore.new
+        html = store.read(artifact_id)
+        return json_response(res, 404, { error: "artifact not found" }) unless html
+
+        etag = %Q("#{artifact_id}")
+        res["Cache-Control"] = "private, max-age=31536000, immutable"
+        res["ETag"] = etag
+        if req["If-None-Match"] == etag
+          res.status = 304
+          res.body = ""
+          return
+        end
+
+        res.status = 200
+        res["Content-Type"] = "text/html; charset=utf-8"
+        res["Content-Security-Policy"] = [
+          "default-src 'none'",
+          "script-src 'unsafe-inline'",
+          "style-src 'unsafe-inline'",
+          "img-src data: blob:",
+          "media-src data: blob:",
+          "font-src data:",
+          "connect-src 'none'",
+          "object-src 'none'",
+          "frame-src 'none'",
+          "worker-src 'none'",
+          "navigate-to 'none'",
+          "base-uri 'none'",
+          "form-action 'none'",
+          "frame-ancestors 'self'"
+        ].join("; ")
+        res["Referrer-Policy"] = "no-referrer"
+        res["X-Content-Type-Options"] = "nosniff"
+        res.body = artifact_document(artifact_id, html)
+      end
+
+      private def artifact_document(artifact_id, fragment)
+        <<~HTML
+          <!doctype html>
+          <html lang="en">
+          <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1">
+            <style>
+              :root {
+                color-scheme: light;
+                --clacky-bg: #ffffff;
+                --clacky-surface: #f7f7f8;
+                --clacky-text: #22252a;
+                --clacky-muted: #6f7580;
+                --clacky-border: #dedfe3;
+                --clacky-accent: #6257e8;
+              }
+              :root[data-theme="dark"] {
+                color-scheme: dark;
+                --clacky-bg: #191a1d;
+                --clacky-surface: #222328;
+                --clacky-text: #ececf1;
+                --clacky-muted: #a4a6af;
+                --clacky-border: #3a3c43;
+                --clacky-accent: #8b82f6;
+              }
+              :root[data-theme="dim"] {
+                color-scheme: dark;
+                --clacky-bg: #242a31;
+                --clacky-surface: #2c333b;
+                --clacky-text: #e6edf3;
+                --clacky-muted: #9ca8b3;
+                --clacky-border: #46515d;
+                --clacky-accent: #8b82f6;
+              }
+              :root[data-theme="warm"] {
+                color-scheme: light;
+                --clacky-bg: #faf6ef;
+                --clacky-surface: #f2eadf;
+                --clacky-text: #302b26;
+                --clacky-muted: #756b60;
+                --clacky-border: #ded3c4;
+                --clacky-accent: #6759d9;
+              }
+              html, body { margin: 0; min-height: 100%; background: var(--clacky-bg); color: var(--clacky-text); }
+              body { font: 14px/1.5 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+              *, *::before, *::after { box-sizing: border-box; }
+              #clacky-artifact-root { width: 100%; overflow: hidden; }
+            </style>
+            <script>
+              (() => {
+                const artifactId = "#{artifact_id}";
+                const send = (type, data = {}) => parent.postMessage({ type, artifact_id: artifactId, ...data }, "*");
+                const applyTheme = (theme) => {
+                  const supported = ["light", "dark", "dim", "warm"];
+                  document.documentElement.dataset.theme = supported.includes(theme) ? theme : "light";
+                };
+                const reportHeight = () => {
+                  const root = document.getElementById("clacky-artifact-root");
+                  if (!root) return;
+                  send("clacky:artifact-resize", { height: Math.ceil(root.getBoundingClientRect().height) });
+                };
+                addEventListener("message", (event) => {
+                  if (event.data?.type !== "clacky:artifact-theme") return;
+                  applyTheme(event.data.theme);
+                  requestAnimationFrame(reportHeight);
+                });
+                addEventListener("DOMContentLoaded", () => {
+                  const root = document.getElementById("clacky-artifact-root");
+                  if (typeof ResizeObserver === "function") new ResizeObserver(reportHeight).observe(root);
+                  send("clacky:artifact-ready");
+                  reportHeight();
+                });
+              })();
+            </script>
+          </head>
+          <body><main id="clacky-artifact-root">#{fragment}</main></body>
+          </html>
+        HTML
       end
 
       # POST /api/channels/:platform

@@ -1,6 +1,6 @@
 "use strict";
 
-// Regression harness for promoting web_search results into their own card.
+// Regression harness for promoting structured tool UIs into their own card.
 //
 // The structured result used to be injected into the tool-item's stdout, which
 // _completeToolItem hides the moment the tool finishes — so the card was only
@@ -34,6 +34,7 @@ class Element {
     this._className = "";
     this._innerHTML = "";
     this.textContent = "";
+    this.contentWindow = { postMessage() {} };
     this.classList = {
       add: n => this.classes.add(n),
       remove: n => this.classes.delete(n),
@@ -123,6 +124,7 @@ class Element {
 
 function boot() {
   const nodes = {};
+  const windowHandlers = {};
   const unrefTimeout = (fn, ms, ...args) => {
     const timer = setTimeout(fn, ms, ...args);
     if (timer.unref) timer.unref();
@@ -136,6 +138,7 @@ function boot() {
     querySelector: () => null,
     querySelectorAll: () => [],
     body: new Element(),
+    documentElement: { getAttribute: () => "light" },
   };
 
   const context = {
@@ -163,7 +166,9 @@ function boot() {
     Composer: autoStub({ text: () => "", chips: () => [] }),
     IME: autoStub({ track: () => ({ isComposing: () => false, dispose() {} }) }),
     alert() {},
+    addEventListener(type, handler) { windowHandlers[type] = handler; },
   };
+  context.__windowHandlers = windowHandlers;
   context.window = context;
   context.globalThis = context;
   vm.createContext(context);
@@ -195,7 +200,16 @@ const PAYLOAD = {
   ],
 };
 
+const ARTIFACT_PAYLOAD = {
+  type: "artifact",
+  kind: "html",
+  artifact_id: "d".repeat(64),
+  title: "Release timeline",
+  height: 480,
+};
+
 const cardsIn = messages => messages.children.filter(c => c.classes.has("search-card"));
+const artifactsIn = messages => messages.children.filter(c => c.classes.has("artifact-card"));
 
 async function tests() {
   // 1. Live search: the card is a sibling of the tool group, not stdout content.
@@ -357,6 +371,83 @@ async function tests() {
     onClick({ target: btn, preventDefault() {}, stopPropagation() {} });
     assert.ok(card.classes.has("is-collapsed"), "clicking again collapses the card");
     assert.match(btn.textContent, /Show all 5 results/, "the button offers the full list again");
+  }
+
+  // 11. Live artifact UI is promoted through the same renderer path, while
+  //     the raw tool result stays out of the compact tool stdout.
+  {
+    const { Sessions, messages } = boot();
+    Sessions.appendToolCall("visualize", { title: ARTIFACT_PAYLOAD.title }, null);
+    Sessions.appendToolResult("[OK] Created visualization", ARTIFACT_PAYLOAD);
+
+    const cards = artifactsIn(messages);
+    assert.equal(cards.length, 1, "one standalone artifact card is appended");
+    assert.match(cards[0].innerHTML, /Release timeline/, "the visualization title is shown");
+    assert.match(cards[0].innerHTML, /src="\/api\/artifacts\/d{64}"/, "the content-addressed endpoint is used");
+    assert.match(cards[0].innerHTML, /sandbox="allow-scripts"/, "the iframe permits scripts only");
+    assert.ok(!cards[0].innerHTML.includes("allow-same-origin"), "the iframe keeps an opaque origin");
+
+    const group = messages.children.find(c => c.classes.has("tool-group"));
+    assert.equal(group.querySelector(".tool-item-stdout").innerHTML, "",
+      "the formatted tool result never lands in stdout");
+  }
+
+  // 12. History replay renders the same artifact card as the live path.
+  {
+    const { Sessions, messages, context } = boot();
+    context.__historyEvents = [
+      { type: "tool_call", name: "visualize", args: { title: ARTIFACT_PAYLOAD.title } },
+      { type: "tool_result", result: "[OK] Created visualization", ui: ARTIFACT_PAYLOAD },
+    ];
+    Sessions._setActiveId("sess-artifact");
+    await Sessions.loadHistory("sess-artifact");
+
+    assert.equal(artifactsIn(messages).length, 1, "replayed artifact renders one standalone card");
+  }
+
+  // 13. The card expand control grows and restores the visualization inline.
+  {
+    const { Sessions, messages } = boot();
+    Sessions.appendToolCall("visualize", { title: ARTIFACT_PAYLOAD.title }, null);
+    Sessions.appendToolResult("[OK] Created visualization", ARTIFACT_PAYLOAD);
+
+    const card = artifactsIn(messages)[0];
+    const btn = new Element("button");
+    btn.className = "artifact-card-expand";
+    card.appendChild(btn);
+
+    const onClick = messages.handlers.click;
+    onClick({ target: btn, preventDefault() {}, stopPropagation() {} });
+    assert.ok(card.classes.has("is-expanded"), "the visualization expands inline");
+    assert.equal(btn.attrs["aria-label"], "Restore visualization");
+
+    onClick({ target: btn, preventDefault() {}, stopPropagation() {} });
+    assert.ok(!card.classes.has("is-expanded"), "the visualization restores inline");
+    assert.equal(btn.attrs["aria-label"], "Expand visualization");
+  }
+
+  // 14. A ResizeObserver message also marks the artifact ready. In a fast
+  //     iframe, this can arrive after the initial ready post raced the parent.
+  {
+    const { Sessions, messages, context } = boot();
+    Sessions.appendToolCall("visualize", { title: ARTIFACT_PAYLOAD.title }, null);
+    Sessions.appendToolResult("[OK] Created visualization", ARTIFACT_PAYLOAD);
+
+    const card = artifactsIn(messages)[0];
+    const frame = card.querySelector(".artifact-card-frame");
+    card.classList.add("is-error");
+    context.__windowHandlers.message({
+      source: frame.contentWindow,
+      data: {
+        type: "clacky:artifact-resize",
+        artifact_id: ARTIFACT_PAYLOAD.artifact_id,
+        height: 388,
+      },
+    });
+
+    assert.ok(card.classes.has("is-ready"), "a valid resize proves the frame loaded");
+    assert.ok(!card.classes.has("is-error"), "a late valid message clears the timeout error");
+    assert.equal(frame.style.height, "388px", "the measured artifact height is applied");
   }
 }
 
