@@ -11,6 +11,10 @@ RSpec.describe Clacky::ToolRegistry do
   let(:mock_tool3) do
     Struct.new(:name, :category, :to_function_definition).new("web_search", "general", {})
   end
+  let(:artifact_tool) do
+    Struct.new(:name, :category, :to_function_definition, :required_output_capability)
+          .new("visualize", "general", { function: { name: "visualize" } }, :artifact)
+  end
 
   describe "#register and #get" do
     it "registers and retrieves a tool by exact name" do
@@ -146,6 +150,32 @@ RSpec.describe Clacky::ToolRegistry do
       registry.register(mock_tool)
       registry.register(mock_tool2)
       expect(registry.all).to contain_exactly(mock_tool, mock_tool2)
+    end
+  end
+
+  describe "#definitions_for" do
+    let(:registry) do
+      described_class.new.tap do |r|
+        r.register(mock_tool)
+        r.register(artifact_tool)
+      end
+    end
+
+    it "keeps ordinary tools visible without output capabilities" do
+      expect(registry.definitions_for).to include(mock_tool.to_function_definition)
+    end
+
+    it "hides tools whose required output capability is unavailable" do
+      definitions = registry.definitions_for
+
+      expect(definitions).not_to include(artifact_tool.to_function_definition)
+      expect(registry.get("visualize")).to eq(artifact_tool)
+    end
+
+    it "exposes tools when the required output capability is available" do
+      definitions = registry.definitions_for(output_capabilities: [:artifact])
+
+      expect(definitions).to include(artifact_tool.to_function_definition)
     end
   end
 end

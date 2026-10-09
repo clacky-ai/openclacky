@@ -16,15 +16,21 @@ module Clacky
     class WebUIController
       include Clacky::UIInterface
 
+      DEFAULT_OUTPUT_CAPABILITIES = [:artifact].freeze
+
       def show_input_queue(entries)
         @broadcaster.call(@session_id, { type: "input_queue", session_id: @session_id, entries: entries })
       end
 
       attr_reader :session_id
 
-      def initialize(session_id, broadcaster)
+      def initialize(session_id, broadcaster, output_capabilities: DEFAULT_OUTPUT_CAPABILITIES)
         @session_id  = session_id
         @broadcaster = broadcaster   # callable: broadcaster.call(session_id, event_hash)
+        # Accept a callable so capability visibility can follow the active
+        # delivery surface (for example, a browser subscribing or leaving)
+        # without rebuilding the Agent or its tool registry.
+        @output_capabilities = output_capabilities
         @mutex       = Mutex.new
 
         # Pending confirmation state: { id => ConditionVariable, result => value }
@@ -54,6 +60,23 @@ module Clacky
       # @return [Boolean] true if any channel subscribers are registered
       def channel_subscribed?
         @subscribers_mutex.synchronize { !@channel_subscribers.empty? }
+      end
+
+      # A structured result is safe to expose only when every active output
+      # target can deliver it. Channel subscribers currently inherit the empty
+      # default from UIInterface; a future image renderer can opt into :artifact.
+      def output_capabilities
+        configured = @output_capabilities.respond_to?(:call) ? @output_capabilities.call : @output_capabilities
+        capabilities = Array(configured).map(&:to_sym).uniq
+        subscribers = @subscribers_mutex.synchronize { @channel_subscribers.dup }
+        subscribers.reduce(capabilities) do |supported_capabilities, subscriber|
+          supported = if subscriber.respond_to?(:output_capabilities)
+                        Array(subscriber.output_capabilities).map(&:to_sym)
+                      else
+                        []
+                      end
+          supported_capabilities & supported
+        end
       end
 
       # Deliver a confirmation answer received from the browser.

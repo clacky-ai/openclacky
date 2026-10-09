@@ -49,3 +49,30 @@ RSpec.describe Clacky::Server::HttpServer, "artifact route" do
     expect(response.status).to eq(404)
   end
 end
+
+RSpec.describe Clacky::Server::HttpServer, "artifact output capabilities" do
+  let(:server) do
+    described_class.allocate.tap do |instance|
+      instance.instance_variable_set(:@ws_mutex, Mutex.new)
+      instance.instance_variable_set(:@ws_clients, {})
+    end
+  end
+
+  it "disables artifacts without an active browser subscriber" do
+    expect(server.send(:web_output_capabilities_for, "session-1")).to eq([])
+  end
+
+  it "enables artifacts for any session with an active browser subscriber" do
+    active = double("active_connection", closed?: false)
+    server.instance_variable_get(:@ws_clients)["extension-session"] = [active]
+
+    expect(server.send(:web_output_capabilities_for, "extension-session")).to eq([:artifact])
+  end
+
+  it "ignores stale closed browser connections" do
+    closed = double("closed_connection", closed?: true)
+    server.instance_variable_get(:@ws_clients)["session-1"] = [closed]
+
+    expect(server.send(:web_output_capabilities_for, "session-1")).to eq([])
+  end
+end

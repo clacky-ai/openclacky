@@ -26,6 +26,55 @@ RSpec.describe Clacky::Agent do
     end
   end
 
+  describe "output capability tool visibility" do
+    let(:output_capabilities) { [] }
+    let(:ui) do
+      capabilities = output_capabilities
+      Class.new do
+        include Clacky::UIInterface
+
+        define_method(:output_capabilities) { capabilities }
+      end.new
+    end
+    let(:agent) do
+      described_class.new(
+        client,
+        config,
+        working_dir: Dir.pwd,
+        ui: ui,
+        profile: "coding",
+        session_id: Clacky::SessionManager.generate_id,
+        source: :manual
+      )
+    end
+    let(:final_response) { mock_api_response(content: "Done") }
+
+    before do
+      allow(Clacky::Utils::ScriptsManager).to receive(:setup!)
+      allow(client).to receive(:send_messages_with_tools).and_return(final_response)
+    end
+
+    it "does not send visualize to models when the output cannot render artifacts" do
+      agent.run("Hello")
+
+      expect(client).to have_received(:send_messages_with_tools) do |_messages, tools:, **_opts|
+        expect(tools.map { |definition| definition.dig(:function, :name) }).not_to include("visualize")
+      end
+    end
+
+    context "when every output target supports artifacts" do
+      let(:output_capabilities) { [:artifact] }
+
+      it "sends visualize to the model" do
+        agent.run("Hello")
+
+        expect(client).to have_received(:send_messages_with_tools) do |_messages, tools:, **_opts|
+          expect(tools.map { |definition| definition.dig(:function, :name) }).to include("visualize")
+        end
+      end
+    end
+  end
+
   describe "#run" do
     let(:tool_call_response) do
       mock_api_response(

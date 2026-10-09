@@ -9,11 +9,16 @@ module Clacky
 
       self.tool_name = "visualize"
       self.tool_description = <<~DESC.strip
-        Render a self-contained interactive HTML visualization in the conversation. Use this when
-        interaction materially improves understanding, and include the key conclusion in your text
-        response too. The HTML must not depend on external scripts, styles, fonts, or network requests.
+        Render a self-contained interactive HTML visualization directly in the conversation. When
+        the user asks to show or present an interactive UI, demo, diagram, mind map, simulation,
+        dashboard, chart, or controls in the current reply, call this tool instead of returning HTML
+        source or a fenced HTML code block. Calling this tool does not read or modify project files.
+        Use it when interaction materially improves understanding, and include the key conclusion in
+        your text response too. The HTML must not depend on external scripts, styles, fonts, or network
+        requests.
       DESC
       self.tool_category = "general"
+      self.required_output_capability = :artifact
       self.tool_parameters = {
         type: "object",
         properties: {

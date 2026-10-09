@@ -4,6 +4,10 @@ RSpec.describe Clacky::Tools::Visualize do
   let(:store) { instance_double(Clacky::ArtifactStore) }
   let(:tool) { described_class.new(store: store) }
 
+  it "requires artifact output support" do
+    expect(tool.required_output_capability).to eq(:artifact)
+  end
+
   it "stores a self-contained HTML fragment and exposes an artifact UI payload" do
     allow(store).to receive(:write).with("<button>Go</button>").and_return(
       id: "a" * 64,
@@ -41,7 +45,9 @@ RSpec.describe Clacky::Tools::Visualize do
   it "describes the no-network, text-fallback contract to the model" do
     description = tool.description
 
-    expect(description).to match(/include the key conclusion in your text\s+response/)
+    expect(description).to include("instead of returning HTML")
+    expect(description).to include("does not read or modify project files")
+    expect(description).to match(/include the key conclusion in\s+your text response/)
     expect(description).to include("must not depend on external")
   end
 end

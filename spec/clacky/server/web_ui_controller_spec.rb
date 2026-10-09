@@ -108,6 +108,63 @@ RSpec.describe Clacky::Server::WebUIController, "#show_complete" do
   end
 end
 
+RSpec.describe Clacky::Server::WebUIController, "#output_capabilities" do
+  let(:controller) do
+    described_class.new("test-session", ->(_sid, _event) {})
+  end
+
+  it "supports artifacts for a Web-only session" do
+    expect(controller.output_capabilities).to eq([:artifact])
+  end
+
+  it "tracks dynamic output capability changes without rebuilding the controller" do
+    browser_connected = false
+    controller = described_class.new(
+      "test-session",
+      ->(_sid, _event) {},
+      output_capabilities: -> { browser_connected ? [:artifact] : [] }
+    )
+
+    expect(controller.output_capabilities).to eq([])
+
+    browser_connected = true
+    expect(controller.output_capabilities).to eq([:artifact])
+  end
+
+  it "returns only capabilities supported by every channel subscriber" do
+    browser_connected = true
+    controller = described_class.new(
+      "test-session",
+      ->(_sid, _event) {},
+      output_capabilities: -> { browser_connected ? [:artifact] : [] }
+    )
+    supported = double("supported_channel", output_capabilities: [:artifact])
+    unsupported = double("unsupported_channel", output_capabilities: [])
+
+    controller.subscribe_channel(supported)
+    expect(controller.output_capabilities).to eq([:artifact])
+
+    controller.subscribe_channel(unsupported)
+    expect(controller.output_capabilities).to eq([])
+
+    controller.unsubscribe_channel(unsupported)
+    expect(controller.output_capabilities).to eq([:artifact])
+
+    browser_connected = false
+    expect(controller.output_capabilities).to eq([])
+  end
+
+  it "can disable artifact output for non-interactive server sessions" do
+    controller = described_class.new(
+      "test-session",
+      ->(_sid, _event) {},
+      output_capabilities: []
+    )
+
+    expect(controller.output_capabilities).to eq([])
+  end
+end
+
 RSpec.describe Clacky::Server::WebUIController, "#show_tool_call" do
   let(:events) { [] }
   let(:controller) do

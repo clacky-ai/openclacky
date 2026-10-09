@@ -6,6 +6,12 @@ module Clacky
   # UIInterface defines the standard interface between Agent/CLI and UI implementations.
   # All UI controllers (UIController, JsonUIController) must implement these methods.
   module UIInterface
+    # Structured output types supported by this UI. Composite UIs should
+    # return the intersection across every active delivery target.
+    def output_capabilities
+      []
+    end
+
     # === Output display ===
     # @param content [String] text portion of the assistant reply (file:// links stripped)
     # @param files   [Array<Hash>] extracted file refs: [{ name:, path:, inline: }]

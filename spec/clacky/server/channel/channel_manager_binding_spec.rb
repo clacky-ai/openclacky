@@ -104,10 +104,12 @@ RSpec.describe Clacky::Channel::ChannelManager do
   describe "/unbind" do
     it "detaches channel_ui from the session web_ui so outbound events stop reaching the chat" do
       expect(web_ui.channel_subscribed?).to be true
+      expect(web_ui.output_capabilities).to eq([])
 
       unbind
 
       expect(web_ui.channel_subscribed?).to be false
+      expect(web_ui.output_capabilities).to eq([:artifact])
       expect(session).not_to have_key(:channel_ui)
       expect(sent).to eq(["Unbound."])
     end

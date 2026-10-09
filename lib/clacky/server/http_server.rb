@@ -8401,7 +8401,11 @@ module Clacky
         )
 
         broadcaster = method(:broadcast)
-        ui = WebUIController.new(session_id, broadcaster)
+        ui = WebUIController.new(
+          session_id,
+          broadcaster,
+          output_capabilities: -> { web_output_capabilities_for(session_id) }
+        )
         agent = Clacky::Agent.new(client, config, working_dir: working_dir, ui: ui, profile: profile,
                                   session_id: session_id, source: source)
         agent.rename(name) unless name.nil? || name.empty?
@@ -8430,7 +8434,12 @@ module Clacky
         config = @agent_config.deep_copy
         config.permission_mode = permission_mode
         broadcaster = method(:broadcast)
-        ui = WebUIController.new(original_id, broadcaster)
+        source = session_data[:source] || session_data["source"] || "manual"
+        ui = WebUIController.new(
+          original_id,
+          broadcaster,
+          output_capabilities: -> { web_output_capabilities_for(original_id) }
+        )
         # Restore the agent profile from the persisted session; fall back to "general"
         # for sessions saved before the agent_profile field was introduced.
         profile = session_data[:agent_profile].to_s
@@ -8449,6 +8458,17 @@ module Clacky
         end
 
         original_id
+      end
+
+      # Output capabilities follow the active delivery environment rather than
+      # the persisted session source/profile. A session can render artifacts
+      # while at least one live browser is subscribed; channel subscribers are
+      # intersected separately by WebUIController.
+      private def web_output_capabilities_for(session_id)
+        browser_subscribed = @ws_mutex.synchronize do
+          Array(@ws_clients[session_id]).any? { |conn| !conn.closed? }
+        end
+        browser_subscribed ? [:artifact] : []
       end
 
       # Build an IdleCompressionTimer for a session.
