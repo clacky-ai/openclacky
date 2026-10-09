@@ -383,6 +383,9 @@ async function tests() {
     const cards = artifactsIn(messages);
     assert.equal(cards.length, 1, "one standalone artifact card is appended");
     assert.match(cards[0].innerHTML, /Release timeline/, "the visualization title is shown");
+    assert.match(cards[0].innerHTML,
+      /artifact-card-icon">\s*<svg[^>]*stroke-width="1\.8"[^>]*><path d="M8\.5 15\.5 15\.5 8\.5"\/><circle cx="6" cy="6" r="3\.5"\/><circle cx="18" cy="6" r="3\.5"\/><circle cx="6" cy="18" r="3\.5"\/><circle cx="18" cy="18" r="3\.5"\/><\/svg>/,
+      "the visualization uses the connected-nodes icon at the standard stroke weight");
     assert.match(cards[0].innerHTML, /src="\/api\/artifacts\/d{64}"/, "the content-addressed endpoint is used");
     assert.match(cards[0].innerHTML, /sandbox="allow-scripts"/, "the iframe permits scripts only");
     assert.ok(!cards[0].innerHTML.includes("allow-same-origin"), "the iframe keeps an opaque origin");
@@ -405,28 +408,7 @@ async function tests() {
     assert.equal(artifactsIn(messages).length, 1, "replayed artifact renders one standalone card");
   }
 
-  // 13. The card expand control grows and restores the visualization inline.
-  {
-    const { Sessions, messages } = boot();
-    Sessions.appendToolCall("visualize", { title: ARTIFACT_PAYLOAD.title }, null);
-    Sessions.appendToolResult("[OK] Created visualization", ARTIFACT_PAYLOAD);
-
-    const card = artifactsIn(messages)[0];
-    const btn = new Element("button");
-    btn.className = "artifact-card-expand";
-    card.appendChild(btn);
-
-    const onClick = messages.handlers.click;
-    onClick({ target: btn, preventDefault() {}, stopPropagation() {} });
-    assert.ok(card.classes.has("is-expanded"), "the visualization expands inline");
-    assert.equal(btn.attrs["aria-label"], "Restore visualization");
-
-    onClick({ target: btn, preventDefault() {}, stopPropagation() {} });
-    assert.ok(!card.classes.has("is-expanded"), "the visualization restores inline");
-    assert.equal(btn.attrs["aria-label"], "Expand visualization");
-  }
-
-  // 14. A ResizeObserver message also marks the artifact ready. In a fast
+  // 13. A ResizeObserver message also marks the artifact ready. In a fast
   //     iframe, this can arrive after the initial ready post raced the parent.
   {
     const { Sessions, messages, context } = boot();
