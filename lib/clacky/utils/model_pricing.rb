@@ -278,16 +278,28 @@ module Clacky
       },
 
       # Xiaomi MiMo — USD per 1M tokens, international (海外) list price.
-      # Source: https://platform.xiaomimimo.com/docs/zh-CN/price/pay-as-you-go
-      # Effective 2026-05-27 (V2.5 launch price cut). Cache write is "limited-
-      # time free" per Xiaomi's notice; per the project's "displayed ≤ actual"
-      # convention we bill writes at the input-miss rate so that when the
-      # promo ends users won't see a cost spike. Cache hits use the explicit
-      # cache-hit rate.
+      # Source: https://mimo.mi.com/docs/zh-CN/price/pay-as-you-go
+      # V2.6 prices effective 2026-09-22; V2.5 prices effective 2026-05-27.
+      # Cache write is "limited-time free" per Xiaomi's notice; per the
+      # project's "displayed ≤ actual" convention we bill writes at the
+      # input-miss rate so that when the promo ends users won't see a cost
+      # spike. Cache hits use the explicit cache-hit rate.
       #
       # As of 2026-06-01, mimo-v2-pro/omni are forwarded to the V2.5 series
       # and billed at V2.5 rates; mimo-v2-pro mirrors mimo-v2.5-pro and
-      # mimo-v2-omni mirrors mimo-v2.5. Both will be retired 2026-06-30.
+      # mimo-v2-omni mirrors mimo-v2.5. Both were retired on 2026-06-30.
+      "mimo-v2.6-pro" => {
+        input:  { default: 0.435,   over_200k: 0.435 },
+        output: { default: 0.87,    over_200k: 0.87 },
+        cache:  { write: 0.435,     read: 0.0036 }
+      },
+
+      "mimo-v2.6-flash" => {
+        input:  { default: 0.14,    over_200k: 0.14 },
+        output: { default: 0.28,    over_200k: 0.28 },
+        cache:  { write: 0.14,      read: 0.0028 }
+      },
+
       "mimo-v2.5-pro" => {
         input:  { default: 0.435,   over_200k: 0.435 },
         output: { default: 0.87,    over_200k: 0.87 },
@@ -1157,11 +1169,12 @@ module Clacky
         when /^deepseek-chat$/i, /^deepseek-reasoner$/i
           "deepseek-v4-flash"
         # Xiaomi MiMo — strict anchored match per registered model id in
-        # providers.rb (currently mimo-v2.5-pro / mimo-v2-pro / mimo-v2-omni).
-        # mimo-v2.5 / mimo-v2-flash are also priced ahead of provider-side
-        # registration. Per Xiaomi's 2026-06 schedule, mimo-v2-pro/omni are
-        # transparently routed to V2.5 — keys are listed independently so
-        # both old and new ids resolve to the right rate.
+        # providers.rb. Retired V2 ids remain priced for historical records and
+        # manually configured legacy ids, but are not exposed by the preset.
+        when /^mimo-v2\.?6-pro$/i
+          "mimo-v2.6-pro"
+        when /^mimo-v2\.?6-flash$/i
+          "mimo-v2.6-flash"
         when /^mimo-v2\.?5-pro$/i
           "mimo-v2.5-pro"
         when /^mimo-v2\.?5$/i

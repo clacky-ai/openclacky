@@ -497,6 +497,30 @@ RSpec.describe Clacky::ModelPricing do
     end
 
     context "with Xiaomi MiMo models" do
+      it "bills mimo-v2.6-pro at the same rate as mimo-v2.5-pro" do
+        usage = { prompt_tokens: 100_000, completion_tokens: 50_000 }
+        v26pro = described_class.calculate_cost(model: "mimo-v2.6-pro", usage: usage)
+        v25pro = described_class.calculate_cost(model: "mimo-v2.5-pro", usage: usage)
+        expect(v26pro[:cost]).to eq(v25pro[:cost])
+        expect(v26pro[:source]).to eq(:price)
+      end
+
+      it "calculates mimo-v2.6-flash with Xiaomi's official cache-hit rate" do
+        usage = {
+          prompt_tokens: 100_000,
+          completion_tokens: 50_000,
+          cache_read_input_tokens: 30_000
+        }
+
+        # Regular input: ((100_000 - 30_000) / 1_000_000) * $0.14   = $0.0098
+        # Output:        (50_000 / 1_000_000)             * $0.28   = $0.014
+        # Cache read:    (30_000 / 1_000_000)             * $0.0028 = $0.000084
+        # Total: $0.023884
+        result = described_class.calculate_cost(model: "mimo-v2.6-flash", usage: usage)
+        expect(result[:cost]).to be_within(0.00001).of(0.023884)
+        expect(result[:source]).to eq(:price)
+      end
+
       it "calculates mimo-v2.5-pro basic cost" do
         usage = {
           prompt_tokens: 100_000,
@@ -555,6 +579,13 @@ RSpec.describe Clacky::ModelPricing do
         result = described_class.calculate_cost(model: "mimo-v2-flash", usage: usage)
         expect(result[:cost]).to be_within(0.00001).of(0.0223)
         expect(result[:source]).to eq(:price)
+      end
+
+      it "does not confuse retired mimo-v2-flash with mimo-v2.6-flash" do
+        usage = { prompt_tokens: 100_000, completion_tokens: 50_000 }
+        retired = described_class.calculate_cost(model: "mimo-v2-flash", usage: usage)
+        current = described_class.calculate_cost(model: "mimo-v2.6-flash", usage: usage)
+        expect(retired[:cost]).not_to eq(current[:cost])
       end
 
       it "matches MiMo model names case-insensitively" do

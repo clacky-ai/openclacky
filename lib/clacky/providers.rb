@@ -519,27 +519,29 @@ module Clacky
         "name" => "MiMo (Xiaomi)",
         "base_url" => "https://api.xiaomimimo.com/v1",
         "api" => "openai-completions",
-        "default_model" => "mimo-v2.5-pro",
-        # The MiMo-V2 family (mimo-v2-pro / mimo-v2-omni) was retired on
-        # 2026-06-30 and the model ids are no longer accepted by the API. The
-        # current lineup is the V2.5 series:
-        #   - mimo-v2.5-pro: text reasoning flagship, no vision
-        #   - mimo-v2.5: native omni-modal (image/video/audio/text), vision-capable
-        # Source: https://platform.xiaomimimo.com/docs/zh-CN/model
-        "models" => ["mimo-v2.5-pro", "mimo-v2.5"],
-        "capabilities" => { "vision" => false }.freeze,
+        "default_model" => "mimo-v2.6-pro",
+        # The V2.6 chat models are both native omni-modal models. Keep the V2.5
+        # ids available during Xiaomi's migration window; V2.5-Pro remains the
+        # only text-only model in this preset.
+        #   - mimo-v2.6-pro: flagship omni-modal reasoning model
+        #   - mimo-v2.6-flash: efficient omni-modal reasoning model
+        #   - mimo-v2.5-pro: legacy text reasoning flagship, no vision
+        #   - mimo-v2.5: legacy native omni-modal model
+        # Source: https://mimo.mi.com/docs/zh-CN/updates/model
+        "models" => ["mimo-v2.6-pro", "mimo-v2.6-flash", "mimo-v2.5-pro", "mimo-v2.5"],
+        "capabilities" => { "vision" => true }.freeze,
         "model_capabilities" => {
-          "mimo-v2.5" => { "vision" => true }.freeze
+          "mimo-v2.5-pro" => { "vision" => false }.freeze
         }.freeze,
-        "default_ocr_model" => "mimo-v2.5",
-        # Xiaomi serves the same V2.5 lineup from two billing endpoints: the
+        "default_ocr_model" => "mimo-v2.6-flash",
+        # Xiaomi serves the same chat lineup from two billing endpoints: the
         # pay-as-you-go API (api.xiaomimimo.com) and the Token Plan subscription
         # endpoint (token-plan-cn.xiaomimimo.com). Both accept identical model
         # ids and share one capability profile, so a single preset with
         # endpoint_variants recognises both. Without this, users on the Token
         # Plan endpoint fell through to "unknown provider" and the conservative
         # vision=true default applied to every model — sending images to the
-        # text-only mimo-v2.5-pro, which rejects image input.
+        # text-only legacy mimo-v2.5-pro, which rejects image input.
         "endpoint_variants" => [
           { "label" => "Pay-as-you-go", "label_key" => "settings.models.baseurl.variant.mimo_payg",        "base_url" => "https://api.xiaomimimo.com/v1",          "region" => "cn" }.freeze,
           { "label" => "Token Plan",    "label_key" => "settings.models.baseurl.variant.mimo_token_plan", "base_url" => "https://token-plan-cn.xiaomimimo.com/v1", "region" => "cn" }.freeze
@@ -795,7 +797,7 @@ module Clacky
     # Per-model maximum output token limits.
     #
     # The Agent global default (@max_tokens = 16_384) is tuned for the lowest
-    # common denominator. Strong reasoning models (GLM-5.2, Kimi-K3, MiMo-V2.5)
+    # common denominator. Strong reasoning models (GLM-5.2, Kimi-K3, MiMo-V2.5/V2.6)
     # support 64K–128K output but are artificially throttled to 16K, causing
     # truncation on long reasoning chains and code generation.
     #
@@ -804,8 +806,9 @@ module Clacky
     MODEL_MAX_OUTPUT = [
       { pattern: /glm/i,           limit: 65_536 }, # GLM-5.2: 128K output ceiling; 64K ample for reasoning+answer
       { pattern: /kimi-k3/i,       limit: 65_536 }, # Kimi K3: max_completion_tokens=131072 (max 1M); 64K ample
-      { pattern: /mimo-v2\.5-pro/i, limit: 65_536 }, # MiMo-V2.5-Pro: max_completion_tokens=131072; 64K ample
-      { pattern: /mimo/i,           limit: 32_768 }, # MiMo-V2.5: max_completion_tokens=32768; full default ceiling
+      { pattern: /\Amimo-v2\.6-(?:pro|flash)\z/i, limit: 65_536 }, # MiMo-V2.6: max_completion_tokens=131072; 64K ample
+      { pattern: /mimo-v2\.5-pro/i,                limit: 65_536 }, # MiMo-V2.5-Pro: max_completion_tokens=131072; 64K ample
+      { pattern: /mimo/i,                          limit: 32_768 }, # MiMo-V2.5: max_completion_tokens=32768; full default ceiling
       { pattern: /gemini/i,        limit: 65_536 }  # Gemini 3.x: 64K max output ceiling
     ].freeze
 

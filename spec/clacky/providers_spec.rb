@@ -102,8 +102,12 @@ RSpec.describe Clacky::Providers do
     end
 
     context "for providers with mixed model capabilities" do
-      it "returns false for mimo (default text-only), true for mimo-v2.5 (omni)" do
-        expect(described_class.supports?("mimo", :vision)).to be false
+      it "returns true for the default MiMo V2.6 model and false for legacy V2.5 Pro" do
+        expect(described_class.supports?("mimo", :vision)).to be true
+        expect(described_class.supports?("mimo", :vision,
+                                         model_name: "mimo-v2.6-pro")).to be true
+        expect(described_class.supports?("mimo", :vision,
+                                         model_name: "mimo-v2.6-flash")).to be true
         expect(described_class.supports?("mimo", :vision,
                                          model_name: "mimo-v2.5-pro")).to be false
         expect(described_class.supports?("mimo", :vision,
@@ -447,9 +451,16 @@ RSpec.describe Clacky::Providers do
     context "MiMo (Xiaomi) two billing endpoints" do
       # The Token Plan subscription endpoint (token-plan-cn.xiaomimimo.com) is a
       # distinct domain from the pay-as-you-go API (api.xiaomimimo.com) but
-      # serves the same V2.5 lineup, so both must resolve to "mimo" — otherwise
+      # serves the same chat lineup, so both must resolve to "mimo" — otherwise
       # Token Plan users hit "unknown provider" and the vision=true default
-      # leaks images into the text-only mimo-v2.5-pro.
+      # leaks images into the text-only legacy mimo-v2.5-pro.
+      it "uses V2.6 Pro by default and lists the V2.6 models first" do
+        preset = described_class::PRESETS.fetch("mimo")
+        expect(described_class.default_model("mimo")).to eq("mimo-v2.6-pro")
+        expect(preset["models"].first(2)).to eq(["mimo-v2.6-pro", "mimo-v2.6-flash"])
+        expect(described_class.default_ocr_model("mimo")).to eq("mimo-v2.6-flash")
+      end
+
       it "recognises pay-as-you-go and Token Plan endpoints" do
         %w[
           https://api.xiaomimimo.com/v1
@@ -470,6 +481,10 @@ RSpec.describe Clacky::Providers do
           https://token-plan-cn.xiaomimimo.com/v1
         ].each do |url|
           id = described_class.find_by_base_url(url)
+          expect(described_class.supports?(id, :vision, model_name: "mimo-v2.6-pro"))
+            .to be(true), "expected vision=true at #{url} for mimo-v2.6-pro"
+          expect(described_class.supports?(id, :vision, model_name: "mimo-v2.6-flash"))
+            .to be(true), "expected vision=true at #{url} for mimo-v2.6-flash"
           expect(described_class.supports?(id, :vision, model_name: "mimo-v2.5-pro"))
             .to be(false), "expected vision=false at #{url} for mimo-v2.5-pro"
           expect(described_class.supports?(id, :vision, model_name: "mimo-v2.5"))
@@ -893,6 +908,11 @@ RSpec.describe Clacky::Providers do
 
     it "returns 65_536 for MiMo-V2.5-Pro" do
       expect(described_class.max_output_for("mimo-v2.5-pro")).to eq(65_536)
+    end
+
+    it "returns 65_536 for MiMo-V2.6 chat models" do
+      expect(described_class.max_output_for("mimo-v2.6-pro")).to eq(65_536)
+      expect(described_class.max_output_for("mimo-v2.6-flash")).to eq(65_536)
     end
 
     it "returns 65_536 for Gemini models" do
