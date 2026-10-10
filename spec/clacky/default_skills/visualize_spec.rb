@@ -34,7 +34,7 @@ RSpec.describe "visualize default skill" do
       stdout, stderr, status = Open3.capture3(
         { "HOME" => home },
         RbConfig.ruby,
-        File.join(skill_dir, "publish.rb"),
+        File.join(skill_dir, "scripts", "publish.rb"),
         "--title", "Demo",
         "--height", "999",
         "--delete-source",

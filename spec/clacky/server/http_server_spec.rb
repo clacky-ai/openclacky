@@ -472,8 +472,7 @@ RSpec.describe Clacky::Server::HttpServer do
         res = fake_res
         dispatch(server, req, res)
 
-        session = parsed_body(res)["session"]
-        expect(session["source"]).to eq("manual")
+        expect(parsed_body(res)["session"]["source"]).to eq("manual")
       end
     end
 
@@ -485,8 +484,7 @@ RSpec.describe Clacky::Server::HttpServer do
         dispatch(server, req, res)
 
         expect(res.status).to eq(201)
-        session = parsed_body(res)["session"]
-        expect(session["source"]).to eq("setup")
+        expect(parsed_body(res)["session"]["source"]).to eq("setup")
       end
     end
 

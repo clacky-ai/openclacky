@@ -2,7 +2,7 @@
 
 require "json"
 require "optparse"
-require_relative "../../artifact_store"
+require_relative "../../../artifact_store"
 
 begin
   options = { height: 420, delete_source: false }

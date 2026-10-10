@@ -247,7 +247,7 @@ module Clacky
           created_at: @created_at,
           updated_at: stamp,
           working_dir: @working_dir,
-          source: @source.to_s,                      # "manual" | "ext" | "cron" | "channel" | "setup"
+          source: @source.to_s,                      # "manual" | "cron" | "channel" | "setup"
           agent_profile: @agent_profile&.name || "", # "general" | "coding" | custom
           pending_inputs: pending_inputs,
           todos: @todos,  # Include todos in session data

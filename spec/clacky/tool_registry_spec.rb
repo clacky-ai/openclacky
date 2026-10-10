@@ -148,5 +148,4 @@ RSpec.describe Clacky::ToolRegistry do
       expect(registry.all).to contain_exactly(mock_tool, mock_tool2)
     end
   end
-
 end

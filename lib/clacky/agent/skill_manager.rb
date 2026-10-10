@@ -119,7 +119,7 @@ module Clacky
         # Invalid skills (bad slug / unrecoverable metadata) are excluded from the system
         # prompt — they can't be invoked and should not clutter the context.
         all_skills = @skill_loader.load_all
-        all_skills = filter_skills_for_context(all_skills)
+        all_skills = filter_skills_by_profile(all_skills)
         all_skills = all_skills.reject(&:invalid?)
         auto_invocable = all_skills.select(&:model_invocation_allowed?)
 
@@ -432,18 +432,16 @@ module Clacky
         scored.sort_by { |_, s| -s }.first(3).map(&:first)
       end
 
-      # Whether a skill is valid for the current agent profile.
-      # @param skill [Skill]
-      # @return [Boolean]
-      def skill_available?(skill)
-        !@agent_profile || @agent_profile.skill_allowed?(skill)
-      end
-
-      # Filter skills by their `agent:` scope.
+      # Filter skills by the agent profile name using the skill's own `agent:` field.
+      # Each skill declares which agents it supports via its frontmatter `agent:` field.
+      # If the skill has no `agent:` field (defaults to "all"), it is allowed everywhere.
+      # If no agent profile is set, all skills are allowed (backward-compatible).
       # @param skills [Array<Skill>]
       # @return [Array<Skill>]
-      def filter_skills_for_context(skills)
-        skills.select { |skill| skill_available?(skill) }
+      def filter_skills_by_profile(skills)
+        return skills unless @agent_profile
+
+        skills.select { |skill| @agent_profile.skill_allowed?(skill) }
       end
 
       # Build template context for skill content expansion.
@@ -465,7 +463,7 @@ module Clacky
       # @return [String]
       def load_all_skills_meta
         all = @skill_loader.load_all
-        all = filter_skills_for_context(all)
+        all = filter_skills_by_profile(all)
         all = all.reject(&:invalid?)
         all = all.reject { |s| s.identifier.to_s.start_with?("mcp:") }
 

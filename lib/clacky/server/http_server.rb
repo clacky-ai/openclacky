@@ -253,12 +253,12 @@ module Clacky
         @version_mutex   = Mutex.new
         @scheduler       = Scheduler.new(
           session_registry: @registry,
-          session_builder:  ->(**options) { build_session(**options) },
+          session_builder:  method(:build_session),
           task_runner:      method(:run_agent_task)
         )
         @channel_manager = Clacky::Channel::ChannelManager.new(
           session_registry:  @registry,
-          session_builder:   ->(**options) { build_session(**options) },
+          session_builder:   method(:build_session),
           run_agent_task:    method(:run_agent_task),
           interrupt_session: method(:interrupt_session),
           # No updated_at: clearing a stale channel_info must not bump the session's
@@ -1051,13 +1051,7 @@ module Clacky
         # Allow multiple sessions in the same directory
         FileUtils.mkdir_p(working_dir)
 
-        session_id = build_session(
-          name: name,
-          working_dir: working_dir,
-          profile: profile,
-          source: source,
-          model_id: model_id_override
-        )
+        session_id = build_session(name: name, working_dir: working_dir, profile: profile, source: source, model_id: model_id_override)
 
         # Persist project_id into the session file right away if provided
         if project_id_override
@@ -5179,12 +5173,7 @@ module Clacky
         working_dir  = File.expand_path("~/clacky_workspace")
         FileUtils.mkdir_p(working_dir)
 
-        session_id = build_session(
-          name: session_name,
-          working_dir: working_dir,
-          permission_mode: :auto_approve,
-          source: :cron
-        )
+        session_id = build_session(name: session_name, working_dir: working_dir, permission_mode: :auto_approve)
         @registry.update(session_id, pending_task: prompt, pending_working_dir: working_dir, pending_cron_task: name)
         broadcast_session_update(session_id, created: true)
 
@@ -7914,6 +7903,7 @@ module Clacky
         return unless @registry.exist?(session_id)
 
         session = @registry.get(session_id)
+        
         mode = @agent_config.input_behavior
         queued = false
         queued_created_at = nil

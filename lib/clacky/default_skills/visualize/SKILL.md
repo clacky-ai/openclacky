@@ -111,7 +111,7 @@ Choose the smallest composition that fits.
 3. Run the bundled publisher:
 
 ```bash
-ruby "<skill_dir>/publish.rb" --title "SHORT TITLE" --height 420 --delete-source "/tmp/clacky-visualization-<%= session_id %>.html"
+ruby "<skill_dir>/scripts/publish.rb" --title "SHORT TITLE" --height 420 --delete-source "/tmp/clacky-visualization-<%= session_id %>.html"
 ```
 
 - `--height` is optional and is clamped to 240–720 pixels.

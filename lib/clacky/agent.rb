@@ -125,6 +125,7 @@ module Clacky
       @pending_error_rollback = false  # Deferred rollback flag set by restore_session on error
       @last_run_interrupted = false    # Set when run() exits via AgentInterrupted; tells the next run() to keep the task-start snapshot (continuation of the same task across a relay, not a brand-new task)
       @cancel_flag = CancelFlag.new # Cooperative cancel: set by fan_out_labeled when the parent is interrupted; subagents on worker threads observe it via check_stale!
+
       # Compression tracking
       @compression_level = 0  # Tracks how many times we've compressed (for progressive summarization)
       @compressed_summaries = []  # Store summaries from previous compressions for reference
@@ -572,7 +573,7 @@ module Clacky
         end
       end
 
-      # Add the initial system prompt
+      # Add system prompt as the first message if this is the first run
       if @history.empty?
         system_prompt = build_system_prompt
         @history.append({ role: "system", content: system_prompt })

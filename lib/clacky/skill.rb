@@ -95,6 +95,7 @@ module Clacky
       @warnings        = []
       @invalid         = false
       @invalid_reason  = nil
+
       load_skill
     end
 

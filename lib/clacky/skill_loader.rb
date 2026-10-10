@@ -207,8 +207,7 @@ module Clacky
     # @return [Array<Skill>]
     def user_invocable_skills(profile = nil)
       skills = all_skills.select(&:user_invocable?)
-      skills = skills.select { |skill| profile.skill_allowed?(skill) } if profile
-      skills
+      profile ? skills.select { |s| profile.skill_allowed?(s) } : skills
     end
 
     # Get the count of loaded skills
