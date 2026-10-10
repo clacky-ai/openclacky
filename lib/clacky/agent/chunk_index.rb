@@ -41,6 +41,7 @@ module Clacky
         nested = []
         section_count = 0
         user_start = nil
+        user_task_id = nil
         archived_at = nil
         front_matter = false
         directory = File.dirname(path)
@@ -61,6 +62,7 @@ module Clacky
               section_count += 1
               nested << header[:nested_chunk] if header[:nested_chunk]
               user_start = header[:role] == "user" ? start : nil
+              user_task_id = header[:role] == "user" ? header[:task_id] : nil
             elsif user_start && !text.strip.empty?
               # Match replay's empty/metadata-only user handling without
               # retaining the rest of the user message or any assistant text.
@@ -69,8 +71,9 @@ module Clacky
               next if visible.empty? && events.empty? && files.empty?
 
               rounds.last[:length] = user_start - rounds.last[:start] if rounds.any?
-              rounds << { start: user_start }
+              rounds << { start: user_start, task_id: user_task_id }
               user_start = nil
+              user_task_id = nil
             end
           end
           rounds.last[:length] = position - rounds.last[:start] if rounds.any?

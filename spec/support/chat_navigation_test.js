@@ -95,9 +95,16 @@ function markdownPreviewTests() {
 }
 
 async function navigatorTests() {
-  const nodes = Object.fromEntries(["nav", "track", "canvas", "popup", "userPreview", "answerPreview", "messages", "chatMain"].map(key => [key, new Element()]));
+  const nodes = Object.fromEntries(["nav", "track", "canvas", "popup", "popupContent", "bookmarkButton",
+    "userPreview", "answerPreview", "messages", "chatMain"].map(key => [key, new Element()]));
+  const storage = new Map();
+  const localStorage = {
+    getItem: key => storage.has(key) ? storage.get(key) : null,
+    setItem: (key, value) => storage.set(key, value),
+    removeItem: key => storage.delete(key),
+  };
   const context = vm.createContext({
-    window: {}, document, console, URLSearchParams, AbortController,
+    window: { localStorage }, document, console, URLSearchParams, AbortController,
     setTimeout, clearTimeout, I18n: { t: key => key },
     Sessions: { activeId: "test", jumpToHistory: async () => true, isHistoricalWindow: () => false },
     getComputedStyle: () => ({ width: "40px", getPropertyValue: () => "12px" }),
@@ -108,14 +115,16 @@ async function navigatorTests() {
   let source = fs.readFileSync(sourcePath("components/chat-navigator.js"), "utf8");
   source = source.replace("window.ChatNavigator = {", `window.testing = {
     configure(data, nodes, cached = true) {
-      items = data; ({nav, track, canvas, popup, userPreview, answerPreview, messages, chatMain} = nodes);
+      items = data; ({nav, track, canvas, popup, popupContent, bookmarkButton, userPreview, answerPreview, messages, chatMain} = nodes);
       sessionId = 'test'; hoveredIdx = -1; pointerY = null;
+      _loadBookmarks();
       _cancelPreview(); clearTimeout(hideTimer); loading = failed = jumping = false;
       previews.clear(); if (cached) data.forEach(item => previews.set(item.id, item));
     },
     _hover, _hide, _nearest, _tickY, _visibleBounds, _renderTicks, _renderPreview, _jump,
-    _loadIndex, _syncBounds, _cancelPreview,
-    state() { return {items, activeIdx, hoveredIdx, loading, failed, previewFailure, cacheSize: previews.size}; },
+    _loadIndex, _syncBounds, _cancelPreview, _toggleBookmark, _bookmarkKey,
+    state() { return {items, activeIdx, hoveredIdx, loading, failed, previewFailure,
+      cacheSize: previews.size, bookmarks: [...bookmarks]}; },
     requestPreviewNow() { clearTimeout(previewTimer); previewDue = true; return _loadPreview(); },
     setLoaded(value) { loaded = value; },
     setLoading(value) { loading = value; },
@@ -123,7 +132,8 @@ async function navigatorTests() {
   }; window.ChatNavigator = {`);
   vm.runInContext(source, context);
   const api = context.window.testing;
-  const entries = Array.from({ length: 1000 }, (_, i) => ({ id: JSON.stringify(["live", i, "v1"]), user: `Question ${i}`, assistant: `Answer ${i}` }));
+  const entries = Array.from({ length: 1000 }, (_, i) => ({ id: JSON.stringify(["live", i, "v1"]),
+    bookmarkKey: `task:${i + 1}`, user: `Question ${i}`, assistant: `Answer ${i}` }));
   api.configure(entries, nodes);
   api._renderTicks();
   assert.ok(nodes.canvas.children.length < 50, "virtualizes thousands of ticks");
@@ -200,6 +210,29 @@ async function navigatorTests() {
   const hoveredTick = nodes.canvas.children.find(tick => tick.id === `chat-nav-tick-${index}`);
   assert.equal(nodes.userPreview.innerHTML, `Question ${index}`);
   assert.equal(nodes.answerPreview.innerHTML, `Answer ${index}`);
+  let prevented = false;
+  let stopped = false;
+  api._toggleBookmark({ preventDefault: () => { prevented = true; }, stopPropagation: () => { stopped = true; } });
+  assert.ok(prevented && stopped, "bookmarking does not activate the popup navigation action");
+  assert.deepEqual(Array.from(api.state().bookmarks), [entries[index].bookmarkKey]);
+  assert.equal(storage.get("clacky-chat-nav-bookmarks:test"), JSON.stringify([entries[index].bookmarkKey]),
+    "bookmarks persist per session in browser storage");
+  assert.ok(hoveredTick.classes.has("bookmarked"), "the matching tick reflects its bookmark");
+  assert.ok(nodes.bookmarkButton.classes.has("bookmarked"), "the popup icon switches to its filled state");
+  assert.equal(nodes.bookmarkButton.attrs["aria-pressed"], "true");
+  assert.equal(api._bookmarkKey({ key: "live" }, 0, [20, 7]), "task:7",
+    "live rounds use their stable task id as the bookmark identity");
+  assert.equal(api._bookmarkKey({ key: "archive", task_ids: [7] }, 0, null), "task:7",
+    "compressed rounds retain the same bookmark identity");
+  api._toggleBookmark({ preventDefault() {}, stopPropagation() {} });
+  assert.equal(storage.has("clacky-chat-nav-bookmarks:test"), false, "removing the last bookmark clears storage");
+  storage.set("clacky-chat-nav-bookmarks:removed", JSON.stringify(["task:7"]));
+  storage.set("clacky-chat-nav-bookmarks:other", JSON.stringify(["task:8"]));
+  context.window.ChatNavigator.clearBookmarks("removed");
+  assert.equal(storage.has("clacky-chat-nav-bookmarks:removed"), false,
+    "deleting a session removes only its bookmark storage");
+  assert.equal(storage.get("clacky-chat-nav-bookmarks:other"), JSON.stringify(["task:8"]),
+    "bookmark storage remains isolated between sessions");
   const renderCalls = vm.runInContext("renderCalls", context);
   api._renderPreview();
   assert.equal(vm.runInContext("renderCalls", context), renderCalls, "unchanged preview is not parsed again");
@@ -222,17 +255,28 @@ async function navigatorTests() {
   assert.match(hoveredStyle, /opacity:\s*1;/);
   const activeStyle = css.match(/\.chat-nav-bar\.active\s*\{([^}]+)\}/)[1];
   assert.match(activeStyle, /background:\s*var\(--color-accent-primary\)/);
+  const bookmarkedStyle = css.match(/\.chat-nav-bar\.bookmarked\s*\{([^}]+)\}/)[1];
+  assert.match(bookmarkedStyle, /background:\s*var\(--color-accent-primary\)/,
+    "bookmarked ticks use the current theme accent");
+  assert.match(css, /\.chat-nav-bar\.bookmarked::after\s*\{[^}]*left:\s*calc\(100% \+ 0\.25rem\);[^}]*background:\s*var\(--color-accent-primary\)/s,
+    "the theme-colored bookmark dot sits after the right-growing tick");
   assert.equal(hoveredTick.style.width, "30px");
   assert.equal(nodes.canvas.children.find(tick => tick.id === `chat-nav-tick-${index + 1}`).style.width, "24px",
     "neighbors expand horizontally");
   assert.match(css, /\.chat-nav-popup\s*\{[^}]*width:\s*20rem;[^}]*height:\s*7rem;/s,
     "every hover preview uses the same dimensions");
+  assert.match(css, /\.chat-nav-bookmark\s*\{[^}]*position:\s*absolute;/s,
+    "the bookmark floats over the title row instead of reserving a full-height column");
+  assert.doesNotMatch(css, /\.chat-nav-popup\s*\{[^}]*grid-template-columns:/s,
+    "the bookmark does not narrow the assistant preview");
   assert.match(css, /\.chat-nav-user\s*\{[^}]*-webkit-line-clamp:\s*1;/s,
     "user messages stay on one line");
   assert.match(css, /\.chat-nav-answer\s*\{[^}]*-webkit-line-clamp:\s*3;[^}]*color:\s*var\(--color-text-muted\);/s,
     "AI content is truncated and visually secondary");
   assert.doesNotMatch(css, /chat-nav-popup-label/, "the popup has no redundant AI reply label");
   assert.doesNotMatch(source, /chat\.nav\.aiReply/, "the removed label has no runtime translation lookup");
+  assert.match(source, /chat-nav-popup-content[\s\S]*chat-nav-bookmark/,
+    "preview navigation and bookmark actions use separate buttons");
   assert.match(css, /@media \(max-width: 768px\)\s*\{[\s\S]*?\.chat-navigator\s*\{[^}]*display:\s*none !important;/,
     "the existing mobile breakpoint hides the navigator");
   assert.match(css, /\.chat-nav-bar\.nearby/, "neighbor-wave styling is present");
