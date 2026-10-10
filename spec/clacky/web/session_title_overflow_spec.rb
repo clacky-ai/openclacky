@@ -10,7 +10,7 @@ RSpec.describe "Session title overflow" do
       '<span class="session-name__text"><span class="session-name__content">${nameHtml}</span></span>${badgeHtml}'
     )
     expect(sessions).to include('content.scrollWidth - viewport.clientWidth')
-    expect(sessions).to include('item.classList.add("session-name-scrolling")')
+    expect(sessions).to include('activeClass: "session-name-scrolling"')
   end
 
   it "fades clipped titles and scrolls only while hovered" do
