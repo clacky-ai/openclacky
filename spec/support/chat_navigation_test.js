@@ -306,9 +306,12 @@ async function navigatorTests() {
     "left-edge ticks expand toward the message content");
   assert.doesNotMatch(source, /chat-nav-scrollbar-space|chat-nav-overlay-space/,
     "right-edge scrollbar compensation is fully removed");
-  api.configure(entries.slice(0, 1), nodes);
+  api.configure(entries.slice(0, 4), nodes);
   api._renderTicks();
-  assert.equal(nodes.nav.style.display, "none", "a single turn hides ticks without changing the message gutter");
+  assert.equal(nodes.nav.style.display, "none", "fewer than five turns hide ticks without changing the message gutter");
+  api.configure(entries.slice(0, 5), nodes);
+  api._renderTicks();
+  assert.equal(nodes.nav.style.display, "", "the navigator appears when the fifth turn is available");
   assert.doesNotMatch(source, /has-chat-navigator/, "async index loading cannot toggle the message layout");
   api.configure(entries, nodes, false);
 
