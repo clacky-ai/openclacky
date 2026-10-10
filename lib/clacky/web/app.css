@@ -14101,12 +14101,12 @@ body.setup-mode {
   stroke-width: 1;
 }
 .billing-trend-y-label {
-  font-size: 9px;
+  font-size: 7px;
   fill: var(--color-text-secondary);
   text-anchor: end;
 }
 .billing-trend-x-label {
-  font-size: 9px;
+  font-size: 7px;
   fill: var(--color-text-secondary);
   text-anchor: middle;
 }
@@ -14260,7 +14260,7 @@ body.setup-mode {
 .billing-bar-date {
   position: absolute;
   bottom: -1.25rem;
-  font-size: 0.5625rem;
+  font-size: 0.6875rem;
   color: var(--color-text-secondary);
   white-space: nowrap;
   min-height: 0.75rem;
