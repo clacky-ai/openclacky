@@ -324,14 +324,20 @@ Rules & caveats:
   chaining is the practical option today; Veo's native server-side `extend`
   (148s) is not wired into this endpoint yet.
 
-### Seedance (Volcengine Ark) — multimodal video
+### Seedance — multimodal video
 
 When the configured `type=video` model is a ByteDance **Doubao Seedance**
-model on Volcengine Ark (its Base URL is under `*.volces.com`, e.g.
-`https://ark.cn-beijing.volces.com/api/v3`), the **same**
-`POST /api/media/video` endpoint drives it. No separate endpoint — the server
-routes by Base URL automatically. Seedance adds richer inputs on top of the
-common fields; all are optional and only apply to Seedance:
+model, the **same** `POST /api/media/video` endpoint drives it. No separate
+endpoint — the server routes by Base URL automatically. Seedance adds richer
+inputs on top of the common fields; all are optional and only apply to
+Seedance. **Which inputs are available depends on the Base URL** (check
+`video.base_url` from `GET /api/media/types`): the native Volcengine Ark
+transport (`*.volces.com`) exposes the full set below, while any other
+OpenAI-compatible gateway serving Seedance (e.g. an OpenRouter-style host for
+`bytedance/seedance-2.5`) supports **`first_frame` and `reference_images`
+only** — `last_frame` / `reference_videos` / `reference_audios` and the
+`resolution` / `generate_audio` / `watermark` / `seed` controls take effect on
+the Ark transport only.
 
 > **Cost gate — ask before EVERY generation.** Resolution is the main driver
 > of Seedance's price (4k costs far more than 720p). So **once you've confirmed
@@ -348,10 +354,10 @@ common fields; all are optional and only apply to Seedance:
 > **When editing or continuing/extending an existing video, default to that
 > source video's resolution — never silently upgrade it (e.g. don't turn a
 > 720p source into a 4k render).** If the user gave no answer and you didn't
-> ask, the server pins `720p`. **These Seedance-only fields (`resolution`,
-> `generate_audio`, `watermark`, `seed`, `first_frame`, `last_frame`,
-> `reference_*`) have NO effect on Veo or Qwen/DashScope backends — never send
-> them unless the Base URL is `*.volces.com`.**
+> ask, the server pins `720p`. **These Seedance-only fields have NO effect on
+> Veo or Qwen/DashScope backends — never send them there. On an
+> OpenAI-compatible Seedance gateway only `first_frame` / `reference_images`
+> apply; the rest take effect only when the Base URL is `*.volces.com`.**
 
 | Field              | Values                                   | Notes |
 |--------------------|------------------------------------------|-------|
@@ -423,6 +429,22 @@ curl -s -X POST http://${CLACKY_SERVER_HOST}:${CLACKY_SERVER_PORT}/api/media/vid
     "prompt": "Add a small wooden fishing boat with a warm lantern drifting slowly across the lake in the foreground, keep everything else unchanged",
     "resolution": "720p",
     "reference_videos": ["'"$(pwd)"'/assets/original.mp4"],
+    "output_dir": "'"$(pwd)"'/assets/generated",
+    "session_id": "<%= session_id %>"
+  }'
+```
+
+Example — **multimodal generation from reference images** (keep the subject /
+style of one or more stills; no `first_frame` — the references guide
+appearance, they are not an exact first frame):
+
+```bash
+curl -s -X POST http://${CLACKY_SERVER_HOST}:${CLACKY_SERVER_PORT}/api/media/video \
+  -H "Content-Type: application/json" \
+  -d '{
+    "prompt": "The same backpack character from the references walks through a neon-lit night market, cinematic, smooth camera push-in",
+    "duration_seconds": 8,
+    "reference_images": ["'"$(pwd)"'/assets/char_front.png", "'"$(pwd)"'/assets/char_side.png"],
     "output_dir": "'"$(pwd)"'/assets/generated",
     "session_id": "<%= session_id %>"
   }'

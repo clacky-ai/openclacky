@@ -78,6 +78,87 @@ RSpec.describe Clacky::Media::OpenAICompat, "#generate_video" do
         )
       end
     end
+
+    it "forwards reference_images as input_references (non-exact guidance)" do
+      expect(fake_conn).to receive(:post) do |&blk|
+        req = double("req", headers: {})
+        captured = nil
+        allow(req).to receive(:body=) { |b| captured = b }
+        blk.call(req)
+        payload = JSON.parse(captured)
+        expect(payload["input_references"]).to eq([
+          "https://cdn.example.com/ref.png",
+          "data:image/jpeg;base64,ABC"
+        ])
+        # References do not populate the first-frame channel.
+        expect(payload).not_to have_key("image")
+        fake_response
+      end
+      Dir.mktmpdir do |tmp|
+        provider.generate_video(
+          prompt: "same backpack, neon city", output_dir: tmp,
+          reference_images: [
+            "https://cdn.example.com/ref.png",
+            { "b64_json" => "ABC", "mime_type" => "image/jpeg" }
+          ]
+        )
+      end
+    end
+
+    it "treats a bare first_frame string as the first frame" do
+      expect(fake_conn).to receive(:post) do |&blk|
+        req = double("req", headers: {})
+        captured = nil
+        allow(req).to receive(:body=) { |b| captured = b }
+        blk.call(req)
+        payload = JSON.parse(captured)
+        expect(payload["image"]).to eq({ "b64_json" => "data:image/png;base64,FF" })
+        fake_response
+      end
+      Dir.mktmpdir do |tmp|
+        provider.generate_video(
+          prompt: "animate", output_dir: tmp,
+          first_frame: "data:image/png;base64,FF"
+        )
+      end
+    end
+
+    it "carries a first frame and references together on independent channels" do
+      expect(fake_conn).to receive(:post) do |&blk|
+        req = double("req", headers: {})
+        captured = nil
+        allow(req).to receive(:body=) { |b| captured = b }
+        blk.call(req)
+        payload = JSON.parse(captured)
+        expect(payload["image"]).to eq({ "b64_json" => "IMG" })
+        expect(payload["input_references"]).to eq(["https://cdn.example.com/ref.png"])
+        fake_response
+      end
+      Dir.mktmpdir do |tmp|
+        provider.generate_video(
+          prompt: "keep the subject", output_dir: tmp,
+          image: { "b64_json" => "IMG" },
+          reference_images: ["https://cdn.example.com/ref.png"]
+        )
+      end
+    end
+  end
+
+  context "unsupported Ark-only reference families" do
+    let(:response_body) { "{}" }
+
+    %w[last_frame reference_videos reference_audios].each do |field|
+      it "rejects #{field} with a clear invalid_argument on this OpenAI-compatible facade" do
+        result = provider.generate_video(
+          prompt: "x",
+          field.to_sym => ["https://cdn.example.com/thing"]
+        )
+        expect(result["success"]).to be false
+        expect(result["error_type"]).to eq("invalid_argument")
+        expect(result["error"]).to include(field)
+        expect(result["error"]).to include("volces.com")
+      end
+    end
   end
 
   context "validation and errors" do

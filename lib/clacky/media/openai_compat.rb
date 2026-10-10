@@ -160,7 +160,10 @@ module Clacky
         )
       end
 
-      def generate_video(prompt:, aspect_ratio: DEFAULT_ASPECT, duration_seconds: nil, output_dir: nil, image: nil, **_kwargs)
+      def generate_video(prompt:, aspect_ratio: DEFAULT_ASPECT, duration_seconds: nil, output_dir: nil,
+                          image: nil, first_frame: nil, last_frame: nil,
+                          reference_images: nil, reference_videos: nil, reference_audios: nil,
+                          **_kwargs)
         provider_id = Clacky::Providers.find_by_base_url(@base_url) || "custom"
         aspect      = VIDEO_ASPECTS.include?(aspect_ratio) ? aspect_ratio : DEFAULT_ASPECT
         duration    = duration_seconds.to_i
@@ -179,8 +182,42 @@ module Clacky
           )
         end
 
+        # The OpenAI-compatible video endpoint has two independent image channels:
+        #   • the first frame (exact anchor), carried as `image` — Veo-style
+        #     image-to-video, and the only thing this facade honored before.
+        #   • reference images (non-exact subject/identity/style guidance),
+        #     carried as `input_references` — forwarded to Seedance 2.x's
+        #     reference-to-video. `last_frame` and video/audio references are
+        #     NOT representable on this facade (only the native Volcengine Ark
+        #     path supports them); callers wanting those must use an Ark model.
+        # A bare `first_frame` (no explicit `image`) acts as the first frame.
+        first_frame_image = normalize_video_first_frame(image, first_frame)
+        begin
+          references = normalize_video_references(reference_images)
+        rescue ArgumentError => e
+          return video_error_response(
+            error: e.message,
+            error_type: "invalid_argument", provider: provider_id, prompt: prompt, aspect_ratio: aspect
+          )
+        end
+        unsupported = []
+        unsupported << "last_frame" unless to_list(last_frame).empty?
+        unsupported << "reference_videos" unless to_list(reference_videos).empty?
+        unsupported << "reference_audios" unless to_list(reference_audios).empty?
+        unless unsupported.empty?
+          return video_error_response(
+            error: "#{unsupported.join('/')} #{unsupported.length == 1 ? 'is' : 'are'} only " \
+                   "supported by the native Volcengine (Seedance Ark) video backend, not by this " \
+                   "OpenAI-compatible video model '#{@model}'. Use first_frame and/or " \
+                   "reference_images here, or configure a *.volces.com video model for " \
+                   "last_frame / reference_videos / reference_audios.",
+            error_type: "invalid_argument", provider: provider_id, prompt: prompt, aspect_ratio: aspect
+          )
+        end
+
         payload = { model: @model, prompt: prompt, aspect_ratio: aspect, duration_seconds: duration }
-        payload[:image] = image if image.is_a?(Hash) && image["b64_json"]
+        payload[:image] = first_frame_image unless first_frame_image.nil?
+        payload[:input_references] = references unless references.empty?
 
         begin
           response = video_connection.post("videos/generations") do |req|
@@ -545,6 +582,56 @@ module Clacky
           next if s.empty?
           to_data_url(s)
         end
+      end
+
+      # Coerce one video media ref into the first-frame image hash the gateway's
+      # /videos endpoint expects: { "b64_json" => "<base64 or data URL>",
+      # "mime_type" => "image/..." }. An explicit `image` (already that hash)
+      # wins; otherwise a `first_frame` string (file path / data URL / bare
+      # base64) or hash is accepted. Returns nil when neither is given.
+      private def normalize_video_first_frame(image, first_frame)
+        if image.is_a?(Hash) && !image["b64_json"].to_s.strip.empty?
+          return image
+        end
+        source = first_frame
+        source = first_frame.first if first_frame.is_a?(Array) && !first_frame.empty?
+        return nil if source.nil?
+
+        if source.is_a?(Hash)
+          return source unless source["b64_json"].to_s.strip.empty?
+          return nil
+        end
+        s = source.to_s.strip
+        return nil if s.empty?
+        { "b64_json" => to_data_url(s) }
+      end
+
+      # Normalise reference images into the gateway `input_references` array:
+      # a list of data-URL / https strings. Accepts a single value or an array,
+      # where each entry is a file path, a data URL, a bare base64 string, an
+      # http(s) URL, or a { "b64_json", "mime_type" } hash. Raises ArgumentError
+      # on an undecodable local input (same contract as normalize_input_images).
+      private def normalize_video_references(reference_images)
+        to_list(reference_images).filter_map do |item|
+          if item.is_a?(Hash)
+            b64 = item["b64_json"].to_s.strip
+            next if b64.empty?
+            next b64 if b64.start_with?("data:")
+            mime = item["mime_type"].to_s.strip
+            mime = "image/png" if mime.empty?
+            next "data:#{mime};base64,#{b64}"
+          end
+          s = item.to_s.strip
+          next if s.empty?
+          next s if s.start_with?("http://", "https://")
+          to_data_url(s)
+        end
+      end
+
+      # Coerce a nil / scalar / array value into an array, dropping a nil.
+      private def to_list(value)
+        return [] if value.nil?
+        value.is_a?(Array) ? value : [value]
       end
 
       private def to_data_url(input)
