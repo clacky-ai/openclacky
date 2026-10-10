@@ -356,8 +356,9 @@ input[type="checkbox"] { accent-color: var(--color-accent-primary); }
   z-index: 99999;
   pointer-events: none;
   padding: 0.3125rem 0.5625rem;
-  background: var(--color-bg-inverse, #1a1a1a);
-  color: var(--color-text-inverse, #f5f5f5);
+  background: var(--color-bg-secondary, #ffffff);
+  color: var(--color-text-primary, #344054);
+  border: 1px solid var(--color-border-primary);
   font-size: 0.75rem;
   line-height: 1.5;
   border-radius: 6px;
@@ -375,19 +376,19 @@ input[type="checkbox"] { accent-color: var(--color-accent-primary); }
 }
 #tooltip[data-pos="top"]::after {
   top: 100%; left: 50%; transform: translateX(-50%);
-  border-top-color: var(--color-bg-inverse, #1a1a1a);
+  border-top-color: var(--color-bg-secondary, #ffffff);
 }
 #tooltip[data-pos="bottom"]::after {
   bottom: 100%; left: 50%; transform: translateX(-50%);
-  border-bottom-color: var(--color-bg-inverse, #1a1a1a);
+  border-bottom-color: var(--color-bg-secondary, #ffffff);
 }
 #tooltip[data-pos="left"]::after {
   left: 100%; top: 50%; transform: translateY(-50%);
-  border-left-color: var(--color-bg-inverse, #1a1a1a);
+  border-left-color: var(--color-bg-secondary, #ffffff);
 }
 #tooltip[data-pos="right"]::after {
   right: 100%; top: 50%; transform: translateY(-50%);
-  border-right-color: var(--color-bg-inverse, #1a1a1a);
+  border-right-color: var(--color-bg-secondary, #ffffff);
 }
 
 /* ── Skeleton screen — reusable shimmer utility ──────────────────────────
