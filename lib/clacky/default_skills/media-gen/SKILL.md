@@ -329,15 +329,10 @@ Rules & caveats:
 When the configured `type=video` model is a ByteDance **Doubao Seedance**
 model, the **same** `POST /api/media/video` endpoint drives it. No separate
 endpoint — the server routes by Base URL automatically. Seedance adds richer
-inputs on top of the common fields; all are optional and only apply to
-Seedance. **Which inputs are available depends on the Base URL** (check
-`video.base_url` from `GET /api/media/types`): the native Volcengine Ark
-transport (`*.volces.com`) exposes the full set below, while any other
-OpenAI-compatible gateway serving Seedance (e.g. an OpenRouter-style host for
-`bytedance/seedance-2.5`) supports **`first_frame` and `reference_images`
-only** — `last_frame` / `reference_videos` / `reference_audios` and the
-`resolution` / `generate_audio` / `watermark` / `seed` controls take effect on
-the Ark transport only.
+inputs on top of the common fields (all optional, Seedance-only). A few of
+them only take effect on the native Volcengine Ark transport (Base URL under
+`*.volces.com`); the field table below marks those **Ark-only**. On any other
+OpenAI-compatible Seedance gateway, stick to the fields not so marked.
 
 > **Cost gate — ask before EVERY generation.** Resolution is the main driver
 > of Seedance's price (4k costs far more than 720p). So **once you've confirmed
@@ -355,23 +350,23 @@ the Ark transport only.
 > source video's resolution — never silently upgrade it (e.g. don't turn a
 > 720p source into a 4k render).** If the user gave no answer and you didn't
 > ask, the server pins `720p`. **These Seedance-only fields have NO effect on
-> Veo or Qwen/DashScope backends — never send them there. On an
-> OpenAI-compatible Seedance gateway only `first_frame` / `reference_images`
-> apply; the rest take effect only when the Base URL is `*.volces.com`.**
+> Veo or Qwen/DashScope backends — never send them there.** (Within Seedance,
+> the Ark-only fields marked below additionally require a `*.volces.com` Base
+> URL.)
 
 | Field              | Values                                   | Notes |
 |--------------------|------------------------------------------|-------|
 | `aspect_ratio`     | `landscape`/`portrait`/`square`, or a raw Ark ratio like `16:9`, `9:16`, `4:3`, `3:4`, `21:9`, `adaptive` | Raw ratios pass through unchanged. |
 | `duration_seconds` | integer, or `-1`                         | `-1` lets the model pick the length (Seedance 2.0 / 1.5 Pro). |
-| `resolution`       | `480p` / `720p` / `1080p` / `4k`         | **Defaults to `720p` when omitted** (cost control). Ask the user before every generation — never reuse a prior answer. See the cost gate above. Model-dependent; unsupported values are rejected upstream. |
-| `generate_audio`   | `true` / `false`                         | Seedance 2.0 / 1.5 Pro can synthesize a synced audio track. |
-| `watermark`        | `true` / `false`                         | |
-| `seed`             | integer                                  | Reproducibility. |
+| `resolution`       | `480p` / `720p` / `1080p` / `4k`         | **Ark-only.** **Defaults to `720p` when omitted** (cost control). Ask the user before every generation — never reuse a prior answer. See the cost gate above. Model-dependent; unsupported values are rejected upstream. |
+| `generate_audio`   | `true` / `false`                         | **Ark-only.** Seedance 2.0 / 1.5 Pro can synthesize a synced audio track. |
+| `watermark`        | `true` / `false`                         | **Ark-only.** |
+| `seed`             | integer                                  | **Ark-only.** Reproducibility. |
 | `first_frame`      | media ref (see below)                    | First frame → image-to-video. |
-| `last_frame`       | media ref                                | Together with `first_frame` → first+last-frame video. |
+| `last_frame`       | media ref                                | **Ark-only.** Together with `first_frame` → first+last-frame video. |
 | `reference_images` | array of media refs (0–9)                | Reference images. |
-| `reference_videos` | array of media refs (0–3)                | Reference videos. |
-| `reference_audios` | array of media refs (0–3)                | Reference audio (background music / voice). |
+| `reference_videos` | array of media refs (0–3)                | **Ark-only.** Reference videos. |
+| `reference_audios` | array of media refs (0–3)                | **Ark-only.** Reference audio (background music / voice). |
 
 **Which fields for which task** — Seedance covers six capabilities; pick the
 fields by intent, and never mix the two families below:
@@ -429,22 +424,6 @@ curl -s -X POST http://${CLACKY_SERVER_HOST}:${CLACKY_SERVER_PORT}/api/media/vid
     "prompt": "Add a small wooden fishing boat with a warm lantern drifting slowly across the lake in the foreground, keep everything else unchanged",
     "resolution": "720p",
     "reference_videos": ["'"$(pwd)"'/assets/original.mp4"],
-    "output_dir": "'"$(pwd)"'/assets/generated",
-    "session_id": "<%= session_id %>"
-  }'
-```
-
-Example — **multimodal generation from reference images** (keep the subject /
-style of one or more stills; no `first_frame` — the references guide
-appearance, they are not an exact first frame):
-
-```bash
-curl -s -X POST http://${CLACKY_SERVER_HOST}:${CLACKY_SERVER_PORT}/api/media/video \
-  -H "Content-Type: application/json" \
-  -d '{
-    "prompt": "The same backpack character from the references walks through a neon-lit night market, cinematic, smooth camera push-in",
-    "duration_seconds": 8,
-    "reference_images": ["'"$(pwd)"'/assets/char_front.png", "'"$(pwd)"'/assets/char_side.png"],
     "output_dir": "'"$(pwd)"'/assets/generated",
     "session_id": "<%= session_id %>"
   }'
