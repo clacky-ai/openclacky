@@ -4759,50 +4759,159 @@ body {
 .tool-name     { color: var(--color-warning); font-weight: 500; }
 .progress-msg  { color: var(--color-accent-primary); font-size: 0.75rem; align-self: center; }
 
-/* ── Todo / task list panel ────────────────────────────────────────────────
-   Fixed panel above the composer, driven by `todo_update` WS events.
-   Mirrors the CLI TodoArea: shows progress count + each task with a
-   done/pending marker. Hidden automatically when no todos are active. */
+/* ── Todo / task list ──────────────────────────────────────────────────────
+   Compact session-bar entry driven by `todo_update` WS events. The icon
+   remains as a stable anchor while progress + caret expand only when a list
+   exists; the list itself opens in a fixed popover above the bar. */
 .todo-panel {
-  max-height: 12rem;
-  overflow-y: auto;
-  padding: 0.625rem 24px 0.625rem;
-  background: transparent;
-  font-size: 0.8125rem;
-}
-.todo-header {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 0.375rem;
-  color: var(--color-text-tertiary);
-  font-weight: 500;
-  font-size: 0.75rem;
-  margin-bottom: 0.5rem;
-  cursor: pointer;
-  user-select: none;
+  flex-shrink: 0;
 }
-.todo-header:hover { color: var(--color-text-secondary); }
-.todo-toggle {
-  width: 0.7rem;
-  height: 0.7rem;
+.todo-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  width: 1.375rem;
+  height: 1.375rem;
+  padding: 0.1875rem 0.25rem;
+  overflow: hidden;
+  color: var(--color-text-tertiary);
+  background: transparent;
+  border: 0;
+  border-radius: 3px;
+  font: inherit;
+  white-space: nowrap;
+  cursor: default;
+  transition: width 0.18s ease, color 0.15s ease, background-color 0.15s ease;
+}
+.todo-panel.has-todos .todo-trigger {
+  cursor: pointer;
+  opacity: 0.75;
+}
+.todo-panel.has-todos .todo-trigger:hover,
+.todo-panel.has-todos .todo-trigger:focus-visible,
+.todo-panel.is-open .todo-trigger {
+  color: var(--color-accent-primary);
+  background: var(--color-bg-hover);
+  opacity: 1;
+  outline: none;
+}
+.todo-trigger:disabled {
+  color: var(--color-text-muted);
+  opacity: 0.65;
+}
+.todo-status-icon {
+  width: 0.875rem;
+  height: 0.875rem;
+  flex: 0 0 0.875rem;
+}
+.todo-trigger-detail {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.1875rem;
+  max-width: 0;
+  margin-left: 0;
+  overflow: hidden;
+  opacity: 0;
+  transform: translateX(-0.1875rem);
+  transition: max-width 0.18s ease, margin-left 0.18s ease,
+              opacity 0.12s ease, transform 0.18s ease;
+}
+.todo-panel.has-todos .todo-trigger-detail {
+  max-width: 5rem;
+  margin-left: 0.3125rem;
+  opacity: 1;
+  transform: translateX(0);
+}
+.todo-count {
+  color: inherit;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+.todo-caret {
+  width: 0.625rem;
+  height: 0.625rem;
   flex-shrink: 0;
   transition: transform 0.15s ease;
 }
-.todo-panel.collapsed .todo-list { display: none; }
-.todo-panel.collapsed .todo-toggle { transform: rotate(-90deg); }
-.todo-panel.collapsed .todo-header { margin-bottom: 0; }
-.todo-count {
-  font-weight: 500;
-  color: var(--color-text-muted, var(--color-text-tertiary));
+.todo-panel:not(.is-open) .todo-caret { transform: rotate(180deg); }
+
+.todo-popover {
+  position: fixed;
+  display: flex;
+  flex-direction: column;
+  z-index: 1000;
+  width: min(22rem, calc(100vw - 1.5rem));
+  max-height: min(24rem, calc(100vh - 7rem));
+  overflow: hidden;
+  transform: translate(-50%, -100%);
+  font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  white-space: normal;
 }
-.todo-list { display: flex; flex-direction: column; gap: 1px; }
+.todo-popover[hidden] { display: none; }
+.todo-popover-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.4375rem 0.5rem 0.4375rem 0.75rem;
+  border-bottom: 1px solid var(--color-border-primary);
+}
+.todo-popover-heading {
+  display: flex;
+  align-items: baseline;
+  min-width: 0;
+  gap: 0.5rem;
+  white-space: nowrap;
+}
+.todo-popover-title {
+  color: var(--color-text-primary);
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+.todo-summary {
+  color: var(--color-text-tertiary);
+  font-size: 0.6875rem;
+}
+.todo-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  padding: 0;
+  color: var(--color-text-tertiary);
+  background: transparent;
+  border: 0;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.todo-close:hover,
+.todo-close:focus-visible {
+  color: var(--color-text-primary);
+  background: var(--color-bg-hover);
+  outline: none;
+}
+.todo-close svg { width: 0.875rem; height: 0.875rem; }
+.todo-list {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  gap: 1px;
+  min-height: 0;
+  max-height: 18rem;
+  overflow-y: auto;
+  padding: 0.375rem;
+}
 .todo-item {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  padding: 0.2rem 0.5rem;
+  padding: 0.4375rem 0.5rem;
   border-radius: var(--radius-sm, 6px);
   color: var(--color-text-secondary);
+  font-size: 0.75rem;
   line-height: 1.4;
   transition: background 0.12s ease;
 }
@@ -4817,7 +4926,33 @@ body {
 .todo-item:not(.done) .todo-icon {
   color: var(--color-border-strong, #d4d4ce);
 }
-.todo-text { flex: 1; word-break: break-word; }
+.todo-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 1rem), transparent);
+  mask-image: linear-gradient(to right, #000 calc(100% - 1rem), transparent);
+}
+.todo-text__content {
+  display: inline-block;
+  min-width: max-content;
+  transform: translateX(0);
+  transition: transform 0.18s ease-out;
+}
+.todo-item.todo-text-scrolling .todo-text__content {
+  transform: translateX(calc(-1 * var(--todo-text-scroll-distance)));
+  transition-duration: var(--todo-text-scroll-duration);
+  transition-delay: 0.3s;
+  transition-timing-function: linear;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .todo-trigger,
+  .todo-trigger-detail,
+  .todo-caret,
+  .todo-text__content { transition: none; }
+}
 
 /* ── Token usage line ────────────────────────────────────────────────────── */
 .token-usage-line {
@@ -5253,7 +5388,7 @@ body {
 /*
  * Visual hierarchy (3 tiers):
  *   Tier 1 primary   (opacity 1.00)  — status, model      → "what am I and is it running"
- *   Tier 2 secondary (opacity ~0.75) — dir, tasks         → "contextual info"
+ *   Tier 2 secondary (opacity ~0.75) — dir, todo          → "contextual info"
  *   Tier 3 tertiary  (opacity ~0.45) — id, mode, cost, │  → "can be glanced over"
  * Base bar opacity is kept high so primary tier stays fully readable; the
  * hover :hover rule lifts everything to 1.0 for detail inspection.
@@ -5459,7 +5594,6 @@ body {
 
 #sib-mode  { opacity: 0.45; flex-shrink: 0; }   /* tier 3 */
 #sib-model { opacity: 1;    flex-shrink: 0; }   /* tier 1 — the model is primary */
-#sib-tasks { opacity: 0.75; flex-shrink: 0; }   /* tier 2 */
 #sib-cost  { opacity: 0.45; flex-shrink: 0; }   /* tier 3 */
 
 /* ── Latency signal (right after model name) ──────────────────────────────
