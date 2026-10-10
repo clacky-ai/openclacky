@@ -365,8 +365,11 @@ OpenAI-compatible host):
 | `first_frame`      | media ref (see below)                    | First frame → image-to-video. |
 | `reference_images` | array of media refs (0–9)                | Reference images. |
 
-**Ark-only fields** — take effect only when `video.base_url` is under
-`*.volces.com` (ignored on any other gateway, so don't send them there):
+**Ark-only fields** — only take effect on the native Volcengine Ark transport
+(`video.base_url` under `*.volces.com`). On any other OpenAI-compatible
+Seedance gateway, `resolution` / `generate_audio` / `watermark` / `seed` are
+silently ignored, and `last_frame` / `reference_videos` / `reference_audios`
+are rejected outright — so don't send any of them there:
 
 | Field              | Values                                   | Notes |
 |--------------------|------------------------------------------|-------|
