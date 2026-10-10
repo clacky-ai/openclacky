@@ -208,6 +208,16 @@ RSpec.describe Clacky::Channel::Adapters::Qq::Adapter do
     adapter.instance_variable_set(:@on_message, block)
   end
 
+  describe "load order" do
+    it "defines QrBinder once the channel layer is loaded" do
+      lib = File.expand_path("../../../../lib", __dir__)
+      script = "require \"clacky\"; require \"clacky/server/channel\"; " \
+               "print Clacky::Channel::Adapters::Qq::QrBinder"
+      out = IO.popen([RbConfig.ruby, "-I", lib, "-e", script], err: [:child, :out], &:read)
+      expect(out).to eq("Clacky::Channel::Adapters::Qq::QrBinder"), out
+    end
+  end
+
   describe "#remember_msg_id / #last_msg_id_for" do
     it "stores and retrieves the last inbound msg id" do
       adapter.remember_msg_id("c2c:u1", "in-1")

@@ -8,6 +8,7 @@ require "net/http"
 require_relative "../../adapters/base"
 require_relative "api_client"
 require_relative "gateway_client"
+require_relative "qr_binder"
 
 module Clacky
   module Channel
