@@ -243,9 +243,9 @@ async function navigatorTests() {
   const css = fs.readFileSync(sourcePath("app.css"), "utf8");
   const defaultStyle = css.match(/\.chat-nav-bar\s*\{([^}]+)\}/)[1];
   assert.match(defaultStyle, /background:\s*var\(--color-text-muted\)/);
-  assert.match(defaultStyle, /opacity:\s*0\.62;/, "default ticks remain visible without competing with active state");
+  assert.match(defaultStyle, /opacity:\s*0\.45;/, "default ticks stay subtle against the chat surface");
   const nearbyStyle = css.match(/\.chat-nav-bar\.nearby\s*\{([^}]+)\}/)[1];
-  assert.match(nearbyStyle, /opacity:\s*0\.82;/, "nearby ticks remain stronger than the darker baseline");
+  assert.match(nearbyStyle, /opacity:\s*0\.62;/, "nearby ticks remain stronger than the default baseline");
   assert.doesNotMatch(css, /\.chat-navigator::(?:before|after)/,
     "overflow fades do not paint a mismatched background rectangle");
   assert.match(css, /\.chat-navigator\.can-scroll-up\.can-scroll-down \.chat-nav-track\s*\{[^}]*mask-image:/s,

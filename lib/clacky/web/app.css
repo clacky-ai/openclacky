@@ -3775,11 +3775,11 @@ body {
   border-radius: 0.125rem;
   background: var(--color-text-muted);
   pointer-events: none;
-  opacity: 0.62;
+  opacity: 0.45;
   transition: width 0.12s ease, opacity 0.12s ease, background 0.12s ease;
 }
 .chat-nav-bar.nearby {
-  opacity: 0.82;
+  opacity: 0.62;
   background: var(--color-text-muted);
 }
 .chat-nav-bar.hovered {
