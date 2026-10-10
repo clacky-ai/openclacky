@@ -12,7 +12,12 @@ module Clacky
         manifest = sources.map do |source|
           entry = { key: source[:key], version: source[:version], count: navigation_source_count(source),
                     volatile: !!source[:rounds] || source[:continuation].to_a.any? }
-          entry[:identities] = source[:rounds].map { |round| round[:user_msg].values_at(:created_at, :task_id) } if source[:rounds]
+          if source[:rounds]
+            entry[:identities] = source[:rounds].map { |round| round[:user_msg].values_at(:created_at, :task_id) }
+          else
+            task_ids = source[:index][:rounds].map { |round| round[:task_id] }
+            entry[:task_ids] = task_ids if task_ids.any?
+          end
           entry
         end
         { sources: manifest, total: manifest.sum { |source| source[:count] } }

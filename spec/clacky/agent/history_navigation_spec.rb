@@ -102,6 +102,16 @@ RSpec.describe Clacky::Agent::HistoryNavigation do
     expect(JSON.generate(manifest)).not_to include("Archived answer", "Live answer")
   end
 
+  it "exposes stable task ids for bookmarks across live and archived navigation" do
+    live = agent_for([user("Live", 20).merge(task_id: 7)])
+    expect(live.history_navigation[:sources].last[:identities]).to eq([[20, 7]])
+    expect(live.history_navigation[:sources].last).not_to have_key(:task_ids)
+
+    path = chunk(1, "## User [Task 7]\nArchived\n## Assistant\nAnswer\n")
+    archived = archived_agent(path)
+    expect(archived.history_navigation[:sources].first[:task_ids]).to eq([7])
+  end
+
   it "does not use colliding archived timestamps as navigation identities" do
     chunk(1, "## User\nFirst\n## Assistant\nOne\n")
     path = chunk(2, "## User\nSecond\n## Assistant\nTwo\n")
