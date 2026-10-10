@@ -9399,6 +9399,23 @@ button:focus-visible { outline: 2px solid var(--color-accent-primary); outline-o
   gap: 0.25rem;
 }
 
+/* Single tab: keep the toolbar row, but don't render it as a tab strip */
+#skills-tabs.is-single-tab {
+  border-bottom-color: transparent;
+}
+#skills-tabs.is-single-tab .skills-tabs-left {
+  display: none;
+}
+#skills-tabs.is-single-tab .skills-tabs-controls {
+  justify-content: flex-start;
+}
+#skills-tabs.is-single-tab .skills-search-box {
+  max-width: 24rem;
+}
+#skills-tabs.is-single-tab .skills-filter-toggle {
+  margin-left: auto;
+}
+
 .skills-tabs-controls {
   display: flex;
   align-items: center;
