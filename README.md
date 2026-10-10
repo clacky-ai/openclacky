@@ -207,6 +207,19 @@ Set your **API Key**, **Model**, and **Base URL** (any OpenAI-compatible provide
 
 Supported out of the box: **Claude (Anthropic) · GPT (OpenAI) · DeepSeek · Kimi (Moonshot) · MiniMax · OpenRouter · OrcaRouter · Requesty** — or any custom endpoint.
 
+In `auto_approve` mode, the terminal waits 10 seconds for an `ask_user` answer
+before continuing automatically. To change the wait, add this to the existing
+`settings` section in `~/.clacky/config.yml` and restart OpenClacky:
+
+```yaml
+settings:
+  ask_user_countdown_seconds: 30
+```
+
+Use a non-negative integer; `0` continues immediately. Starting to type during
+the countdown still cancels the timeout and waits for your answer. Other
+permission modes continue to wait for user input.
+
 ## Coding use case
 
 OpenClacky works as a general AI coding assistant — scaffold full-stack apps, add features, or explore unfamiliar codebases:

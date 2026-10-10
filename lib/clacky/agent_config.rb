@@ -157,6 +157,9 @@ module Clacky
     # typically lower compression_threshold to fit their server's context window.
     DEFAULT_COMPRESSION_THRESHOLD = 150_000
     DEFAULT_MESSAGE_COUNT_THRESHOLD = 200
+    DEFAULT_ASK_USER_COUNTDOWN_SECONDS = 10
+
+    attr_reader :ask_user_countdown_seconds
 
     attr_accessor :input_behavior, :permission_mode, :max_tokens, :verbose,
                   :enable_compression, :enable_idle_compression, :enable_prompt_caching,
@@ -171,6 +174,8 @@ module Clacky
     def initialize(options = {})
       @permission_mode = validate_permission_mode(options[:permission_mode])
       @input_behavior = %w[queue steer interrupt].include?(options[:input_behavior].to_s) ? options[:input_behavior].to_s : "queue"
+      self.ask_user_countdown_seconds = options[:ask_user_countdown_seconds].nil? ?
+        DEFAULT_ASK_USER_COUNTDOWN_SECONDS : options[:ask_user_countdown_seconds]
       @max_tokens = options[:max_tokens] || 16384
       @verbose = options[:verbose] || false
       @enable_compression = options[:enable_compression].nil? ? true : options[:enable_compression]
@@ -455,7 +460,7 @@ module Clacky
     CONFIG_SETTINGS_KEYS = %w[
       enable_compression enable_idle_compression enable_prompt_caching
       compression_threshold message_count_threshold
-      memory_update_enabled input_behavior
+      memory_update_enabled input_behavior ask_user_countdown_seconds
       skill_evolution max_running_agents max_idle_agents
       default_working_dir
       proxy_url clacky_license_server
@@ -470,6 +475,7 @@ module Clacky
       end
       settings = {
         "input_behavior" => @input_behavior,
+        "ask_user_countdown_seconds" => @ask_user_countdown_seconds,
         "enable_compression" => @enable_compression,
         "enable_idle_compression" => @enable_idle_compression,
         "enable_prompt_caching" => @enable_prompt_caching,
@@ -1347,6 +1353,15 @@ module Clacky
       end
 
       true
+    end
+
+    # Seconds to wait for ask_user feedback in auto_approve mode; zero skips the wait.
+    def ask_user_countdown_seconds=(seconds)
+      unless seconds.is_a?(Integer) && seconds >= 0
+        raise ArgumentError, "ask_user_countdown_seconds must be a non-negative integer"
+      end
+
+      @ask_user_countdown_seconds = seconds
     end
 
     private def validate_permission_mode(mode)

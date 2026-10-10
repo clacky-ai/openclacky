@@ -1740,6 +1740,82 @@ RSpec.describe Clacky::Agent do
     end
   end
 
+  describe "ask_user countdown in auto_approve mode" do
+    let(:ui) { double("UI", show_tool_call: nil) }
+    let(:call) do
+      { id: "ask", name: "ask_user", arguments: JSON.generate(question: "Which option?") }
+    end
+
+    before do
+      agent.instance_variable_set(:@ui, ui)
+      allow(ui).to receive(:with_progress).and_yield
+    end
+
+    def ask_result
+      result = agent.send(:act, [call])
+      expect(result[:tool_results].size).to eq(1)
+      expect(JSON.parse(result[:tool_results].first[:content])).not_to have_key("error")
+      result
+    end
+
+    [10, 30].each do |seconds|
+      it "uses #{seconds} seconds and auto-replies after timeout" do
+        config.ask_user_countdown_seconds = seconds unless seconds == 10
+        expect(ui).to receive(:request_feedback_with_countdown).with(seconds: seconds).and_return(:timeout)
+
+        result = ask_result
+        expect(result[:awaiting_feedback]).to be false
+        expect(result[:denied]).to be false
+        expect(result[:tool_results].first[:content]).to include("No user is available")
+      end
+    end
+
+    it "skips the UI countdown at zero and continues automatically" do
+      config.ask_user_countdown_seconds = 0
+      expect(ui).not_to receive(:request_feedback_with_countdown)
+
+      result = ask_result
+      expect(result[:awaiting_feedback]).to be false
+      expect(result[:tool_results].first[:content]).to include("No user is available")
+    end
+
+    it "routes an intervening answer back as feedback" do
+      config.ask_user_countdown_seconds = 30
+      expect(ui).to receive(:request_feedback_with_countdown).with(seconds: 30).and_return("Use option A")
+
+      expect(ask_result).to include(denied: true, feedback: "Use option A", awaiting_feedback: false)
+    end
+
+    it "waits for an answer after an intervention without text" do
+      allow(ui).to receive(:request_feedback_with_countdown).and_return("")
+
+      expect(ask_result).to include(denied: false, awaiting_feedback: true)
+    end
+
+    [:confirm_all, :confirm_safes].each do |mode|
+      it "still waits for user input in #{mode} mode even at zero seconds" do
+        config.permission_mode = mode
+        config.ask_user_countdown_seconds = 0
+        expect(ui).not_to receive(:request_feedback_with_countdown)
+
+        expect(ask_result).to include(denied: false, awaiting_feedback: true)
+      end
+    end
+
+    it "continues automatically with no UI" do
+      agent.instance_variable_set(:@ui, nil)
+      expect(ask_result[:tool_results].first[:content]).to include("No user is available")
+    end
+
+    it "uses the configured duration for the legacy feedback tool name" do
+      config.ask_user_countdown_seconds = 30
+      call[:name] = "request_user_feedback"
+      expect(ui).to receive(:request_feedback_with_countdown).with(seconds: 30).and_return(:timeout)
+
+      expect(ask_result[:awaiting_feedback]).to be false
+    end
+  end
+
   describe "awaiting_user_feedback in run result" do
     def build_agent(tmpdir, permission_mode)
       cfg = Clacky::AgentConfig.new(permission_mode: permission_mode)

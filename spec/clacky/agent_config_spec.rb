@@ -1286,6 +1286,69 @@ RSpec.describe Clacky::AgentConfig do
     end
   end
 
+  describe "#ask_user_countdown_seconds" do
+    it "defaults to 10 seconds" do
+      expect(described_class.new.ask_user_countdown_seconds).to eq(10)
+    end
+
+    [0, 30].each do |seconds|
+      it "round-trips #{seconds} seconds through YAML save/load" do
+        with_temp_config do |config_file|
+          described_class.new(ask_user_countdown_seconds: seconds).save(config_file)
+
+          expect(YAML.load_file(config_file).dig("settings", "ask_user_countdown_seconds")).to eq(seconds)
+          expect(described_class.load(config_file).ask_user_countdown_seconds).to eq(seconds)
+        end
+      end
+    end
+
+    [[], { "models" => [] }, { "settings" => {}, "models" => [] }].each do |data|
+      it "keeps the default for existing config format #{data.inspect}" do
+        with_temp_config(data) do |config_file|
+          expect(described_class.load(config_file).ask_user_countdown_seconds).to eq(10)
+        end
+      end
+    end
+
+    [-1, 1.5, "30", true, []].each do |value|
+      it "rejects invalid duration #{value.inspect}" do
+        expect { described_class.new(ask_user_countdown_seconds: value) }
+          .to raise_error(ArgumentError, /ask_user_countdown_seconds must be a non-negative integer/)
+
+        with_temp_config("settings" => { "ask_user_countdown_seconds" => value }) do |config_file|
+          expect { described_class.load(config_file) }.to raise_error(ArgumentError)
+        end
+      end
+    end
+
+    it "validates runtime assignments without replacing the previous value" do
+      config = described_class.new
+      config.ask_user_countdown_seconds = 30
+
+      expect { config.ask_user_countdown_seconds = -1 }.to raise_error(ArgumentError)
+      expect(config.ask_user_countdown_seconds).to eq(30)
+    end
+
+    it "copies the duration to session configs" do
+      config = described_class.new(ask_user_countdown_seconds: 30)
+      copy = config.deep_copy
+      expect(copy.ask_user_countdown_seconds).to eq(30)
+
+      copy.ask_user_countdown_seconds = 0
+      expect(config.ask_user_countdown_seconds).to eq(30)
+    end
+
+    it "reloads the duration from disk" do
+      with_temp_config do |config_file|
+        config = described_class.new
+        described_class.new(ask_user_countdown_seconds: 30).save(config_file)
+
+        expect(config.reload!(config_file)).to be true
+        expect(config.ask_user_countdown_seconds).to eq(30)
+      end
+    end
+  end
+
   describe "#compression_threshold" do
     it "defaults to AgentConfig::DEFAULT_COMPRESSION_THRESHOLD" do
       config = described_class.new(models: [])
