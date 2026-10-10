@@ -40,6 +40,7 @@ module Clacky
           "dsk-deepseek-v4-pro",
           "oc-glm-5.3",
           "oc-kimi-k3",
+          "oc-minimax-m2.7",
           "abs-claude-fable-5-1",
           "abs-claude-fable-5",
           "abs-claude-opus-5-5",
@@ -147,11 +148,15 @@ module Clacky
         # (it accepts image/audio/video input natively via OpenRouter).
         # oc-glm-5.3 is likewise text-only: its upstream rejects any content
         # block other than `type: "text"`, so images must never be sent
-        # inline. oc-kimi-k3 is natively multimodal and keeps vision=true.
+        # inline. oc-minimax-m2.7 is also text-only, but its upstream accepts
+        # the image block and silently ignores it — a worse failure mode,
+        # since the model then answers as if no image had been attached.
+        # oc-kimi-k3 is natively multimodal and keeps vision=true.
         "model_capabilities" => {
           "dsk-deepseek-flash"  => { "vision" => true }.freeze,
           "dsk-deepseek-v4-pro" => { "vision" => false }.freeze,
-          "oc-glm-5.3"          => { "vision" => false }.freeze
+          "oc-glm-5.3"          => { "vision" => false }.freeze,
+          "oc-minimax-m2.7"      => { "vision" => false }.freeze
         }.freeze,
         # Bedrock GPT models (abs-gpt-*) are served through the OpenAI
         # Responses API — their Chat Completions endpoint rejects function
@@ -803,15 +808,16 @@ module Clacky
     # Per-model maximum output token limits.
     #
     # The Agent global default (@max_tokens = 16_384) is tuned for the lowest
-    # common denominator. Strong reasoning models (GLM-5.2, Kimi-K3, MiMo-V2.5/V2.6)
-    # support 64K–128K output but are artificially throttled to 16K, causing
-    # truncation on long reasoning chains and code generation.
+    # common denominator. Strong reasoning models (GLM-5.2, Kimi-K3, MiniMax-M2.7,
+    # MiMo-V2.5/V2.6) support 64K–128K output but are artificially throttled to
+    # 16K, causing truncation on long reasoning chains and code generation.
     #
     # Entries are matched top-to-bottom; the first match wins. Models not
     # listed here fall back to the global default.
     MODEL_MAX_OUTPUT = [
       { pattern: /glm/i,           limit: 65_536 }, # GLM-5.2: 128K output ceiling; 64K ample for reasoning+answer
       { pattern: /kimi-k3/i,       limit: 65_536 }, # Kimi K3: max_completion_tokens=131072 (max 1M); 64K ample
+      { pattern: /minimax-m2\.7/i, limit: 65_536 }, # MiniMax M2.7: max_tokens ceiling 196608; 64K ample
       { pattern: /\Amimo-v2\.6-(?:pro|flash)\z/i, limit: 65_536 }, # MiMo-V2.6: max_completion_tokens=131072; 64K ample
       { pattern: /mimo-v2\.5-pro/i,                limit: 65_536 }, # MiMo-V2.5-Pro: max_completion_tokens=131072; 64K ample
       { pattern: /mimo/i,                          limit: 32_768 }, # MiMo-V2.5: max_completion_tokens=32768; full default ceiling

@@ -1535,6 +1535,22 @@ RSpec.describe Clacky::AgentConfig do
       expect(result["primary"]).to be_nil
     end
 
+    it "routes openclacky oc-minimax-m2.7 through the Gemini sidecar (upstream drops images)" do
+      anchor = {
+        "type"        => "default",
+        "provider_id" => "openclacky",
+        "model"       => "oc-minimax-m2.7",
+        "base_url"    => "https://api.openclacky.com",
+        "api_key"     => "clacky-test"
+      }
+      config = described_class.new(models: [anchor, { "type" => "ocr", "mode" => "auto" }])
+
+      result = config.effective_ocr_entry
+      expect(result["model"]).to eq("or-gemini-3-8-flash")
+      expect(result["auto_injected"]).to be true
+      expect(result["primary"]).to be_nil
+    end
+
     it "reuses openclacky oc-kimi-k3 as its own OCR path (it is vision-capable)" do
       anchor = {
         "type"        => "default",

@@ -96,7 +96,7 @@ RSpec.describe Clacky::Server::ModelPrices do
       end
 
       it "applies the TokHub promotion to the oc-prefixed aliases" do
-        result = described_class.build("oc-glm-5.3,oc-kimi-k3")
+        result = described_class.build("oc-glm-5.3,oc-kimi-k3,oc-minimax-m2.7")
 
         expect(result[:prices]["oc-glm-5.3"]).to eq(
           in: 1.0849, out: 3.8, ratio: (1.0849 + 3.8) / base_total,
@@ -105,6 +105,10 @@ RSpec.describe Clacky::Server::ModelPrices do
         expect(result[:prices]["oc-kimi-k3"]).to eq(
           in: 2.85, out: 14.25,
           ratio: (2.85 + 14.25) / base_total, discount: { rate: 0.95 }
+        )
+        expect(result[:prices]["oc-minimax-m2.7"]).to eq(
+          in: 0.285, out: 1.14,
+          ratio: (0.285 + 1.14) / base_total, discount: { rate: 0.95 }
         )
       end
 

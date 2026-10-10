@@ -418,6 +418,23 @@ module Clacky
         }
       },
 
+      # MiniMax M2.7 served through the openclacky gateway (oc- prefix, TokHub
+      # upstream). Same list price as the BYOK minimax-m2.7 entry above.
+      "oc-minimax-m2.7" => {
+        input: {
+          default: 0.30,                   # $0.30/MTok cache miss
+          over_200k: 0.30
+        },
+        output: {
+          default: 1.20,                   # $1.20/MTok
+          over_200k: 1.20
+        },
+        cache: {
+          write: 0.30,                     # no separate write charge; bill at miss rate
+          read: 0.06                       # $0.06/MTok cache hit
+        }
+      },
+
       # Kimi K2.7 Code (256K context, multimodal coding model).
       # Source: https://platform.moonshot.ai (USD / 1M tokens)
       "kimi-k2.7-code" => {
@@ -1045,9 +1062,10 @@ module Clacky
     # the BYOK ids leaning on the same list price.
     # The gateway mirrors this list - see seriesDiscount in llm_proxy.
     DISCOUNT_RULES = [
-      { match: /\Aabs-claude-/, rate: 0.8 },  # Claude series - 20% off
-      { match: /\Aoc-glm-/, rate: 0.95 },     # GLM via TokHub - 5% off
-      { match: /\Aoc-kimi-/, rate: 0.95 }     # Kimi via TokHub - 5% off
+      { match: /\Aabs-claude-/,   rate: 0.8 },  # Claude series - 20% off
+      { match: /\Aoc-glm-/,       rate: 0.95 }, # GLM via TokHub - 5% off
+      { match: /\Aoc-kimi-/,      rate: 0.95 }, # Kimi via TokHub - 5% off
+      { match: /\Aoc-minimax-/,   rate: 0.95 }  # MiniMax via TokHub - 5% off
     ].freeze
 
     class << self
