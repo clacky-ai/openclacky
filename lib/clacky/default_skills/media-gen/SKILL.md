@@ -324,14 +324,16 @@ Rules & caveats:
   chaining is the practical option today; Veo's native server-side `extend`
   (148s) is not wired into this endpoint yet.
 
-### Seedance (Volcengine Ark) — multimodal video
+### Seedance — multimodal video
 
 When the configured `type=video` model is a ByteDance **Doubao Seedance**
-model on Volcengine Ark (its Base URL is under `*.volces.com`, e.g.
-`https://ark.cn-beijing.volces.com/api/v3`), the **same**
-`POST /api/media/video` endpoint drives it. No separate endpoint — the server
-routes by Base URL automatically. Seedance adds richer inputs on top of the
-common fields; all are optional and only apply to Seedance:
+model, the **same** `POST /api/media/video` endpoint drives it. No separate
+endpoint — the server routes by Base URL automatically. Seedance adds richer
+inputs on top of the common fields (all optional, Seedance-only), split below
+into a **common** set that works on any Seedance gateway and an **Ark-only**
+set that takes effect only on the native Volcengine Ark transport (Base URL
+under `*.volces.com`). On any other OpenAI-compatible Seedance gateway, stick
+to the common fields.
 
 > **Cost gate — ask before EVERY generation.** Resolution is the main driver
 > of Seedance's price (4k costs far more than 720p). So **once you've confirmed
@@ -348,22 +350,34 @@ common fields; all are optional and only apply to Seedance:
 > **When editing or continuing/extending an existing video, default to that
 > source video's resolution — never silently upgrade it (e.g. don't turn a
 > 720p source into a 4k render).** If the user gave no answer and you didn't
-> ask, the server pins `720p`. **These Seedance-only fields (`resolution`,
-> `generate_audio`, `watermark`, `seed`, `first_frame`, `last_frame`,
-> `reference_*`) have NO effect on Veo or Qwen/DashScope backends — never send
-> them unless the Base URL is `*.volces.com`.**
+> ask, the server pins `720p`. **These Seedance-only fields have NO effect on
+> Veo or Qwen/DashScope backends — never send them there.** (And within
+> Seedance, the Ark-only table additionally requires a `*.volces.com` Base
+> URL.)
+
+**Common fields** — work on any Seedance gateway (native Ark or an
+OpenAI-compatible host):
 
 | Field              | Values                                   | Notes |
 |--------------------|------------------------------------------|-------|
 | `aspect_ratio`     | `landscape`/`portrait`/`square`, or a raw Ark ratio like `16:9`, `9:16`, `4:3`, `3:4`, `21:9`, `adaptive` | Raw ratios pass through unchanged. |
 | `duration_seconds` | integer, or `-1`                         | `-1` lets the model pick the length (Seedance 2.0 / 1.5 Pro). |
+| `first_frame`      | media ref (see below)                    | First frame → image-to-video. |
+| `reference_images` | array of media refs (0–9)                | Reference images. |
+
+**Ark-only fields** — only take effect on the native Volcengine Ark transport
+(`video.base_url` under `*.volces.com`). On any other OpenAI-compatible
+Seedance gateway, `resolution` / `generate_audio` / `watermark` / `seed` are
+silently ignored, and `last_frame` / `reference_videos` / `reference_audios`
+are rejected outright — so don't send any of them there:
+
+| Field              | Values                                   | Notes |
+|--------------------|------------------------------------------|-------|
 | `resolution`       | `480p` / `720p` / `1080p` / `4k`         | **Defaults to `720p` when omitted** (cost control). Ask the user before every generation — never reuse a prior answer. See the cost gate above. Model-dependent; unsupported values are rejected upstream. |
 | `generate_audio`   | `true` / `false`                         | Seedance 2.0 / 1.5 Pro can synthesize a synced audio track. |
 | `watermark`        | `true` / `false`                         | |
 | `seed`             | integer                                  | Reproducibility. |
-| `first_frame`      | media ref (see below)                    | First frame → image-to-video. |
 | `last_frame`       | media ref                                | Together with `first_frame` → first+last-frame video. |
-| `reference_images` | array of media refs (0–9)                | Reference images. |
 | `reference_videos` | array of media refs (0–3)                | Reference videos. |
 | `reference_audios` | array of media refs (0–3)                | Reference audio (background music / voice). |
 
