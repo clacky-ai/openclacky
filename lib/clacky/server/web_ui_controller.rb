@@ -108,11 +108,15 @@ module Clacky
         # Rewrite local image paths (file:// and bare absolute) to /api/local-image
         # proxy URLs only for the browser, which runs on http://localhost and is
         # blocked by browser security policy from loading file:// directly.
-        # Channel subscribers receive the original content so they can deliver
-        # local images as native attachments via send_file().
+        # Channel subscribers receive the original file links so they can
+        # deliver local images as native attachments via send_file(). Web-only
+        # artifact references are removed at this delivery boundary.
         web_content = Clacky::Utils::FileProcessor.rewrite_local_image_urls(content.to_s)
         emit("assistant_message", content: web_content, files: files, created_at: created_at, interim: interim)
-        forward_to_subscribers { |sub| sub.show_assistant_message(content, files: files, interim: interim) }
+        channel_content = content.to_s.gsub(/visualize.*?/m, "").strip
+        forward_to_subscribers do |sub|
+          sub.show_assistant_message(channel_content, files: files, interim: interim) unless channel_content.empty? && files.empty?
+        end
       end
 
       def show_feedback_request(question, context, options, questions: nil)

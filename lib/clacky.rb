@@ -119,6 +119,7 @@ require_relative "clacky/utils/file_ignore_helper"
 require_relative "clacky/utils/string_matcher"
 require_relative "clacky/utils/channel_prompt"
 require_relative "clacky/utils/login_shell"
+require_relative "clacky/artifact_store"
 require_relative "clacky/tools/base"
 require_relative "clacky/utils/file_processor"
 
