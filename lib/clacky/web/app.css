@@ -1608,6 +1608,23 @@ body {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.session-item:not(.group-item) .session-name .session-name__text {
+  text-overflow: clip;
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 1rem), transparent);
+  mask-image: linear-gradient(to right, #000 calc(100% - 1rem), transparent);
+}
+.session-name__content {
+  display: inline-block;
+  min-width: max-content;
+  transform: translateX(0);
+  transition: transform 0.18s ease-out;
+}
+.session-item.session-name-scrolling .session-name__content {
+  transform: translateX(calc(-1 * var(--session-name-scroll-distance)));
+  transition-duration: var(--session-name-scroll-duration);
+  transition-delay: 0.3s;
+  transition-timing-function: linear;
+}
 .session-item .session-name .session-cron-icon {
   flex-shrink: 0;
   margin-top: 0.0625rem;
@@ -1965,6 +1982,10 @@ body {
 
 @media (prefers-reduced-motion: reduce) {
   .dot-running { animation: none; }
+  .session-name__content {
+    transition-duration: 0s !important;
+    transition-delay: 0s !important;
+  }
 }
 
 /* ── Task items in sidebar ───────────────────────────────────────────────── */
