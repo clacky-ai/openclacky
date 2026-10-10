@@ -38,6 +38,9 @@ module Clacky
         # Find skill by name
         skill = skill_loader.find_by_name(skill_name)
         return { error: "Skill not found: #{skill_name}" } unless skill
+        unless agent.skill_available?(skill)
+          return { error: "Skill is not available in the current output context: #{skill_name}" }
+        end
 
         # Execute skill based on its configuration.
         # Note: disable-model-invocation only prevents the skill from appearing in AVAILABLE SKILLS

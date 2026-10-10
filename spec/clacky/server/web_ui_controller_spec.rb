@@ -108,6 +108,26 @@ RSpec.describe Clacky::Server::WebUIController, "#show_complete" do
   end
 end
 
+RSpec.describe Clacky::Server::WebUIController, "#show_assistant_message" do
+  let(:events) { [] }
+  let(:controller) do
+    described_class.new("test-session", ->(_sid, event) { events << event })
+  end
+  let(:subscriber) { double("channel_ui") }
+
+  before { controller.subscribe_channel(subscriber) }
+
+  it "keeps visualization references on Web while stripping them at the channel boundary" do
+    reference = "visualize{\"artifact_id\":\"#{"a" * 64}\",\"title\":\"Demo\"}"
+    expect(subscriber).to receive(:show_assistant_message)
+      .with("Summary", files: [], interim: false)
+
+    controller.show_assistant_message("Summary\n\n#{reference}", files: [])
+
+    expect(events.last[:content]).to include(reference)
+  end
+end
+
 RSpec.describe Clacky::Server::WebUIController, "#output_capabilities" do
   let(:controller) do
     described_class.new("test-session", ->(_sid, _event) {})
@@ -117,27 +137,17 @@ RSpec.describe Clacky::Server::WebUIController, "#output_capabilities" do
     expect(controller.output_capabilities).to eq([:artifact])
   end
 
-  it "tracks dynamic output capability changes without rebuilding the controller" do
-    browser_connected = false
-    controller = described_class.new(
-      "test-session",
-      ->(_sid, _event) {},
-      output_capabilities: -> { browser_connected ? [:artifact] : [] }
-    )
+  it "keeps configured capabilities separate from subscriber intersections" do
+    controller = described_class.new("session-1", ->(_session_id, _event) {})
+    unsupported = double("unsupported_channel", output_capabilities: [])
+
+    controller.subscribe_channel(unsupported)
 
     expect(controller.output_capabilities).to eq([])
-
-    browser_connected = true
-    expect(controller.output_capabilities).to eq([:artifact])
+    expect(controller.configured_output_capabilities).to eq([:artifact])
   end
 
   it "returns only capabilities supported by every channel subscriber" do
-    browser_connected = true
-    controller = described_class.new(
-      "test-session",
-      ->(_sid, _event) {},
-      output_capabilities: -> { browser_connected ? [:artifact] : [] }
-    )
     supported = double("supported_channel", output_capabilities: [:artifact])
     unsupported = double("unsupported_channel", output_capabilities: [])
 
@@ -149,9 +159,6 @@ RSpec.describe Clacky::Server::WebUIController, "#output_capabilities" do
 
     controller.unsubscribe_channel(unsupported)
     expect(controller.output_capabilities).to eq([:artifact])
-
-    browser_connected = false
-    expect(controller.output_capabilities).to eq([])
   end
 
   it "can disable artifact output for non-interactive server sessions" do
@@ -162,6 +169,45 @@ RSpec.describe Clacky::Server::WebUIController, "#output_capabilities" do
     )
 
     expect(controller.output_capabilities).to eq([])
+  end
+
+  it "keeps a legacy output contract unknown until a task surface resolves it" do
+    controller = described_class.new(
+      "test-session",
+      ->(_sid, _event) {},
+      output_capabilities: nil
+    )
+
+    expect(controller.output_capabilities_configured?).to be(false)
+    expect(controller.configured_output_capabilities).to be_nil
+    expect(controller.output_capabilities).to eq([])
+
+    expect(controller.resolve_output_capabilities!([:artifact])).to eq([:artifact])
+    expect(controller.output_capabilities_configured?).to be(true)
+    expect(controller.configured_output_capabilities).to eq([:artifact])
+  end
+
+  it "does not overwrite an explicit empty output contract" do
+    controller = described_class.new(
+      "test-session",
+      ->(_sid, _event) {},
+      output_capabilities: []
+    )
+
+    expect(controller.resolve_output_capabilities!([:artifact])).to eq([])
+    expect(controller.configured_output_capabilities).to eq([])
+  end
+
+  it "resolves a legacy channel-bound session to the subscriber intersection" do
+    controller = described_class.new(
+      "test-session",
+      ->(_sid, _event) {},
+      output_capabilities: nil
+    )
+    controller.subscribe_channel(double("channel", output_capabilities: []))
+
+    expect(controller.resolve_output_capabilities!([:artifact])).to eq([])
+    expect(controller.configured_output_capabilities).to eq([])
   end
 end
 

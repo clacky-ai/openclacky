@@ -49,12 +49,7 @@ module Clacky
         # Transition :fallback_active → :probing if cooling-off has expired.
         @config.maybe_start_probing
 
-        output_capabilities = if @ui.respond_to?(:output_capabilities)
-                                @ui.output_capabilities
-                              else
-                                []
-                              end
-        tools_to_send = @tool_registry.definitions_for(output_capabilities: output_capabilities)
+        tools_to_send = @tool_registry.all_definitions
 
         max_retries = 10
         retry_delay = 5

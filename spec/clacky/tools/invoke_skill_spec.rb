@@ -8,11 +8,15 @@ RSpec.describe Clacky::Tools::InvokeSkill do
 
   # ── helpers ──────────────────────────────────────────────────────────────────
 
-  def create_skill(dir, name:, content: "Skill content.", fork_agent: false)
+  def create_skill(dir, name:, content: "Skill content.", fork_agent: false, required_output_capabilities: nil)
     skill_dir = File.join(dir, ".clacky", "skills", name)
     FileUtils.mkdir_p(skill_dir)
     frontmatter = ["---", "name: #{name}", "description: Test skill #{name}"]
     frontmatter << "fork_agent: true" if fork_agent
+    if required_output_capabilities
+      frontmatter << "required-output-capabilities:"
+      required_output_capabilities.each { |capability| frontmatter << "  - #{capability}" }
+    end
     frontmatter << "---"
     File.write(File.join(skill_dir, "SKILL.md"), (frontmatter + ["", content]).join("\n"))
     skill_dir
@@ -51,6 +55,18 @@ RSpec.describe Clacky::Tools::InvokeSkill do
 
       result = tool.execute(skill_name: "nonexistent", task: "do it", agent: agent, skill_loader: loader)
       expect(result[:error]).to match(/not found/)
+    end
+  end
+
+  it "rejects a skill whose output cannot be rendered by the current UI" do
+    Dir.mktmpdir do |tmpdir|
+      create_skill(tmpdir, name: "artifact-skill", required_output_capabilities: ["artifact"])
+      agent = build_agent(tmpdir)
+      loader = agent.instance_variable_get(:@skill_loader)
+
+      result = tool.execute(skill_name: "artifact-skill", task: "run it", agent: agent, skill_loader: loader)
+
+      expect(result[:error]).to match(/not available in the current output context/)
     end
   end
 

@@ -51,28 +51,22 @@ RSpec.describe Clacky::Server::HttpServer, "artifact route" do
 end
 
 RSpec.describe Clacky::Server::HttpServer, "artifact output capabilities" do
-  let(:server) do
-    described_class.allocate.tap do |instance|
-      instance.instance_variable_set(:@ws_mutex, Mutex.new)
-      instance.instance_variable_set(:@ws_clients, {})
-    end
+  let(:server) { described_class.allocate }
+
+  it "restores explicitly persisted artifact support" do
+    data = { "source" => "ext", "output_capabilities" => ["artifact"] }
+
+    expect(server.send(:persisted_output_capabilities, data)).to eq([:artifact])
   end
 
-  it "disables artifacts without an active browser subscriber" do
-    expect(server.send(:web_output_capabilities_for, "session-1")).to eq([])
+  it "normalizes persisted capabilities" do
+    data = { output_capabilities: [:artifact, "artifact", ""] }
+
+    expect(server.send(:persisted_output_capabilities, data)).to eq([:artifact])
   end
 
-  it "enables artifacts for any session with an active browser subscriber" do
-    active = double("active_connection", closed?: false)
-    server.instance_variable_get(:@ws_clients)["extension-session"] = [active]
-
-    expect(server.send(:web_output_capabilities_for, "extension-session")).to eq([:artifact])
-  end
-
-  it "ignores stale closed browser connections" do
-    closed = double("closed_connection", closed?: true)
-    server.instance_variable_get(:@ws_clients)["session-1"] = [closed]
-
-    expect(server.send(:web_output_capabilities_for, "session-1")).to eq([])
+  it "keeps a legacy session's output contract unknown" do
+    expect(server.send(:persisted_output_capabilities, { source: "manual" })).to be_nil
+    expect(server.send(:persisted_output_capabilities, { output_capabilities: nil })).to be_nil
   end
 end

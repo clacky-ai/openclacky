@@ -19,6 +19,7 @@ RSpec.describe "UIInterface#emit" do
 
     it "declares no structured output capabilities by default" do
       expect(bare_ui.output_capabilities).to eq([])
+      expect(bare_ui.resolve_output_capabilities!([:artifact])).to eq([])
     end
 
     it "is inherited by UIs with no event channel" do

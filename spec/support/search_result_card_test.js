@@ -201,12 +201,11 @@ const PAYLOAD = {
 };
 
 const ARTIFACT_PAYLOAD = {
-  type: "artifact",
-  kind: "html",
   artifact_id: "d".repeat(64),
   title: "Release timeline",
   height: 480,
 };
+const ARTIFACT_REFERENCE = `visualize${JSON.stringify(ARTIFACT_PAYLOAD)}`;
 
 const cardsIn = messages => messages.children.filter(c => c.classes.has("search-card"));
 const artifactsIn = messages => messages.children.filter(c => c.classes.has("artifact-card"));
@@ -373,12 +372,11 @@ async function tests() {
     assert.match(btn.textContent, /Show all 5 results/, "the button offers the full list again");
   }
 
-  // 11. Live artifact UI is promoted through the same renderer path, while
-  //     the raw tool result stays out of the compact tool stdout.
+  // 11. A live assistant content reference becomes an artifact card while
+  //     the surrounding Markdown remains an ordinary assistant message.
   {
     const { Sessions, messages } = boot();
-    Sessions.appendToolCall("visualize", { title: ARTIFACT_PAYLOAD.title }, null);
-    Sessions.appendToolResult("[OK] Created visualization", ARTIFACT_PAYLOAD);
+    Sessions.appendMsg("assistant", `Here is the timeline.\n\n${ARTIFACT_REFERENCE}`);
 
     const cards = artifactsIn(messages);
     assert.equal(cards.length, 1, "one standalone artifact card is appended");
@@ -389,18 +387,16 @@ async function tests() {
     assert.match(cards[0].innerHTML, /src="\/api\/artifacts\/d{64}"/, "the content-addressed endpoint is used");
     assert.match(cards[0].innerHTML, /sandbox="allow-scripts"/, "the iframe permits scripts only");
     assert.ok(!cards[0].innerHTML.includes("allow-same-origin"), "the iframe keeps an opaque origin");
-
-    const group = messages.children.find(c => c.classes.has("tool-group"));
-    assert.equal(group.querySelector(".tool-item-stdout").innerHTML, "",
-      "the formatted tool result never lands in stdout");
+    const bubble = messages.children.find(c => c.classes.has("msg-assistant"));
+    assert.match(bubble.innerHTML, /Here is the timeline/, "the text explanation remains visible");
+    assert.ok(!bubble.dataset.raw.includes("visualize"), "copy text excludes the host-only reference");
   }
 
-  // 12. History replay renders the same artifact card as the live path.
+  // 12. History replay parses the same persisted assistant content reference.
   {
     const { Sessions, messages, context } = boot();
     context.__historyEvents = [
-      { type: "tool_call", name: "visualize", args: { title: ARTIFACT_PAYLOAD.title } },
-      { type: "tool_result", result: "[OK] Created visualization", ui: ARTIFACT_PAYLOAD },
+      { type: "assistant_message", content: `Saved view.\n\n${ARTIFACT_REFERENCE}` },
     ];
     Sessions._setActiveId("sess-artifact");
     await Sessions.loadHistory("sess-artifact");
@@ -412,8 +408,7 @@ async function tests() {
   //     iframe, this can arrive after the initial ready post raced the parent.
   {
     const { Sessions, messages, context } = boot();
-    Sessions.appendToolCall("visualize", { title: ARTIFACT_PAYLOAD.title }, null);
-    Sessions.appendToolResult("[OK] Created visualization", ARTIFACT_PAYLOAD);
+    Sessions.appendMsg("assistant", ARTIFACT_REFERENCE);
 
     const card = artifactsIn(messages)[0];
     const frame = card.querySelector(".artifact-card-frame");

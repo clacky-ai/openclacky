@@ -28,6 +28,7 @@ module Clacky
       forbidden_tools
       auto_summarize
       always-show
+      required-output-capabilities
     ].freeze
 
     attr_reader :directory, :frontmatter, :source_path
@@ -37,6 +38,7 @@ module Clacky
     attr_reader :fork_agent, :model, :forbidden_tools, :auto_summarize
     attr_reader :brand_skill, :brand_config
     attr_reader :always_show
+    attr_reader :required_output_capabilities
 
     # Source location of this skill — set by SkillLoader after registration.
     # One of: :default, :global_claude, :global_clacky, :project_claude, :project_clacky, :brand
@@ -95,6 +97,7 @@ module Clacky
       @warnings        = []
       @invalid         = false
       @invalid_reason  = nil
+      @required_output_capabilities = []
 
       load_skill
     end
@@ -172,6 +175,16 @@ module Clacky
     def allowed_for_agent?(profile_name)
       scope = agents_scope
       scope.include?("all") || scope.include?(profile_name.to_s)
+    end
+
+    # Check whether every structured-output capability required by this skill
+    # is supported by the current delivery surface. Skills without a
+    # requirement remain available everywhere.
+    # @param capabilities [Array<String, Symbol>]
+    # @return [Boolean]
+    def available_for_output_capabilities?(capabilities)
+      available = Array(capabilities).map(&:to_sym)
+      (Array(required_output_capabilities).map(&:to_sym) - available).empty?
     end
 
     # Get the slash command for this skill
@@ -346,6 +359,7 @@ module Clacky
         forbidden_tools: @forbidden_tools,
         allowed_tools: @allowed_tools,
         argument_hint: @argument_hint,
+        required_output_capabilities: @required_output_capabilities,
         content_length: encrypted? ? nil : @content&.length
       }
     end
@@ -530,6 +544,11 @@ module Clacky
       @forbidden_tools = @frontmatter["forbidden_tools"]
       @auto_summarize  = @frontmatter["auto_summarize"]
       @always_show     = @frontmatter["always-show"]
+      @required_output_capabilities = Array(@frontmatter["required-output-capabilities"])
+                                      .map { |value| value.to_s.strip }
+                                      .reject(&:empty?)
+                                      .map(&:to_sym)
+                                      .uniq
     end
 
     # Sanitize and auto-correct frontmatter fields instead of raising on bad data.

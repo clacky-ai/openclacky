@@ -86,6 +86,10 @@ module Clacky
           return { matched: true, found: false, skill_name: skill_name, reason: :agent_not_allowed, skill: skill }
         end
 
+        unless skill.available_for_output_capabilities?(output_capabilities)
+          return { matched: true, found: false, skill_name: skill_name, reason: :output_not_supported, skill: skill }
+        end
+
         { matched: true, found: true, skill_name: skill_name, skill: skill, arguments: arguments }
       end
 
@@ -119,7 +123,7 @@ module Clacky
         # Invalid skills (bad slug / unrecoverable metadata) are excluded from the system
         # prompt — they can't be invoked and should not clutter the context.
         all_skills = @skill_loader.load_all
-        all_skills = filter_skills_by_profile(all_skills)
+        all_skills = filter_skills_for_context(all_skills)
         all_skills = all_skills.reject(&:invalid?)
         auto_invocable = all_skills.select(&:model_invocation_allowed?)
 
@@ -292,6 +296,9 @@ module Clacky
           when :agent_not_allowed
             "[SYSTEM] The user entered the slash command /#{skill_name} but this skill is not available in the current context. " \
             "Please inform the user in their language that this skill is not enabled for the current session."
+          when :output_not_supported
+            "[SYSTEM] The user entered the slash command /#{skill_name} but the current output surface cannot render its result. " \
+            "Please inform the user in their language that this skill is not available in the current session."
           end
           notice += " Do not attempt to execute any skill or tool. Just explain the situation clearly and helpfully."
 
@@ -432,16 +439,32 @@ module Clacky
         scored.sort_by { |_, s| -s }.first(3).map(&:first)
       end
 
-      # Filter skills by the agent profile name using the skill's own `agent:` field.
-      # Each skill declares which agents it supports via its frontmatter `agent:` field.
-      # If the skill has no `agent:` field (defaults to "all"), it is allowed everywhere.
-      # If no agent profile is set, all skills are allowed (backward-compatible).
+      # Structured output capabilities supported by every active delivery target.
+      # Plain CLI/JSON UIs inherit the empty default from UIInterface.
+      # @return [Array<Symbol>]
+      def output_capabilities
+        return [] unless @ui.respond_to?(:output_capabilities)
+
+        Array(@ui.output_capabilities).map(&:to_sym).uniq
+      end
+
+      # Whether a skill is valid for both the current agent profile and the
+      # active delivery surface. This is also used by invoke_skill at execution
+      # time, so a stale model suggestion cannot bypass a capability change.
+      # @param skill [Skill]
+      # @return [Boolean]
+      def skill_available?(skill)
+        return false if @agent_profile && !@agent_profile.skill_allowed?(skill)
+
+        skill.available_for_output_capabilities?(output_capabilities)
+      end
+
+      # Filter skills by both their `agent:` scope and optional structured
+      # output requirements.
       # @param skills [Array<Skill>]
       # @return [Array<Skill>]
-      def filter_skills_by_profile(skills)
-        return skills unless @agent_profile
-
-        skills.select { |skill| @agent_profile.skill_allowed?(skill) }
+      def filter_skills_for_context(skills)
+        skills.select { |skill| skill_available?(skill) }
       end
 
       # Build template context for skill content expansion.
@@ -463,7 +486,7 @@ module Clacky
       # @return [String]
       def load_all_skills_meta
         all = @skill_loader.load_all
-        all = filter_skills_by_profile(all)
+        all = filter_skills_for_context(all)
         all = all.reject(&:invalid?)
         all = all.reject { |s| s.identifier.to_s.start_with?("mcp:") }
 

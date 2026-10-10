@@ -26,7 +26,7 @@ RSpec.describe Clacky::Agent do
     end
   end
 
-  describe "output capability tool visibility" do
+  describe "output capability skill visibility" do
     let(:output_capabilities) { [] }
     let(:ui) do
       capabilities = output_capabilities
@@ -47,30 +47,27 @@ RSpec.describe Clacky::Agent do
         source: :manual
       )
     end
-    let(:final_response) { mock_api_response(content: "Done") }
-
     before do
       allow(Clacky::Utils::ScriptsManager).to receive(:setup!)
-      allow(client).to receive(:send_messages_with_tools).and_return(final_response)
     end
 
-    it "does not send visualize to models when the output cannot render artifacts" do
-      agent.run("Hello")
+    it "does not advertise visualize when the output cannot render artifacts" do
+      expect(agent.send(:build_skill_context)).not_to include("name: visualize")
+    end
 
-      expect(client).to have_received(:send_messages_with_tools) do |_messages, tools:, **_opts|
-        expect(tools.map { |definition| definition.dig(:function, :name) }).not_to include("visualize")
-      end
+    it "persists an empty output contract" do
+      expect(agent.to_session_data[:output_capabilities]).to eq([])
     end
 
     context "when every output target supports artifacts" do
       let(:output_capabilities) { [:artifact] }
 
-      it "sends visualize to the model" do
-        agent.run("Hello")
+      it "advertises visualize to every web agent profile" do
+        expect(agent.send(:build_skill_context)).to include("name: visualize")
+      end
 
-        expect(client).to have_received(:send_messages_with_tools) do |_messages, tools:, **_opts|
-          expect(tools.map { |definition| definition.dig(:function, :name) }).to include("visualize")
-        end
+      it "persists the output contract" do
+        expect(agent.to_session_data[:output_capabilities]).to eq(["artifact"])
       end
     end
   end
@@ -118,6 +115,32 @@ RSpec.describe Clacky::Agent do
       expect(result[:status]).to eq(:success)
       expect(result[:iterations]).to be > 0
       expect(client).to have_received(:send_messages_with_tools).at_least(:once)
+    end
+
+    it "resolves an unknown output contract before building the task prompt" do
+      resolving_ui = Class.new do
+        include Clacky::UIInterface
+
+        attr_reader :resolved
+
+        def resolve_output_capabilities!
+          @resolved = true
+          []
+        end
+      end.new
+      resolving_agent = described_class.new(
+        client,
+        config,
+        working_dir: Dir.pwd,
+        ui: resolving_ui,
+        profile: "coding",
+        session_id: Clacky::SessionManager.generate_id,
+        source: :manual
+      )
+
+      resolving_agent.run("Calculate 1+1")
+
+      expect(resolving_ui.resolved).to be(true)
     end
 
     it "tracks iteration count" do

@@ -125,6 +125,7 @@ module Clacky
       @pending_error_rollback = false  # Deferred rollback flag set by restore_session on error
       @last_run_interrupted = false    # Set when run() exits via AgentInterrupted; tells the next run() to keep the task-start snapshot (continuation of the same task across a relay, not a brand-new task)
       @cancel_flag = CancelFlag.new # Cooperative cancel: set by fan_out_labeled when the parent is interrupted; subagents on worker threads observe it via check_stale!
+      @system_prompt_output_capabilities = nil
 
       # Compression tracking
       @compression_level = 0  # Tracks how many times we've compressed (for progressive summarization)
@@ -508,6 +509,12 @@ module Clacky
         broadcast_goal_status
       end
 
+      # A restored legacy session may not yet know which structured outputs its
+      # delivery surface supports. Web entry points resolve their capability
+      # before dispatch; every other surface resolves to its effective UI
+      # capabilities here, immediately before the prompt is built.
+      @ui.resolve_output_capabilities! if @ui&.respond_to?(:resolve_output_capabilities!)
+
       # Show the "thinking" indicator as early as possible so the user gets
       # immediate feedback after sending a message. Without this the UI stays
       # silent during synchronous setup work (system prompt assembly, file
@@ -573,11 +580,17 @@ module Clacky
         end
       end
 
-      # Add system prompt as the first message if this is the first run
+      # Add the initial system prompt, or refresh it when the active delivery
+      # surface changes. Capability-scoped skills must not remain advertised
+      # after a Web session is bound to an IM channel (or vice versa).
+      current_output_capabilities = output_capabilities.sort
       if @history.empty?
         system_prompt = build_system_prompt
         @history.append({ role: "system", content: system_prompt })
+      elsif @system_prompt_output_capabilities != current_output_capabilities
+        @history.replace_system_prompt(build_system_prompt)
       end
+      @system_prompt_output_capabilities = current_output_capabilities
 
       # Inject session context (date + model) if not yet present or date has changed
       inject_session_context_if_needed
@@ -2040,7 +2053,6 @@ module Clacky
       @tool_registry.register(Tools::Grep.new)
       @tool_registry.register(Tools::WebSearch.new)
       @tool_registry.register(Tools::WebFetch.new)
-      @tool_registry.register(Tools::Visualize.new)
       @tool_registry.register(Tools::TodoManager.new)
       @tool_registry.register(Tools::AskUser.new)
       @tool_registry.register(Tools::InvokeSkill.new)

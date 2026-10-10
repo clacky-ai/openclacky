@@ -129,19 +129,6 @@ module Clacky
       @tools.values.map(&:to_function_definition)
     end
 
-    # Return only tools whose output requirements are supported by the active
-    # delivery targets. Registration remains unchanged so stored tool results
-    # can still be replayed when a capability is unavailable.
-    def definitions_for(output_capabilities: [])
-      capabilities = Array(output_capabilities).map(&:to_sym)
-      @tools.values
-            .select do |tool|
-              required = tool.respond_to?(:required_output_capability) ? tool.required_output_capability : nil
-              required.nil? || capabilities.include?(required.to_sym)
-            end
-            .map(&:to_function_definition)
-    end
-
     def allowed_definitions(allowed_tools = nil)
       return all_definitions if allowed_tools.nil? || allowed_tools.include?("all")
 

@@ -12,6 +12,13 @@ module Clacky
       []
     end
 
+    # Finalize an output contract that was unknown when a persisted session was
+    # restored. Stateless UIs already know their capabilities and simply return
+    # them; composite UIs may override this to persist a one-time resolution.
+    def resolve_output_capabilities!(_capabilities = output_capabilities)
+      output_capabilities
+    end
+
     # === Output display ===
     # @param content [String] text portion of the assistant reply (file:// links stripped)
     # @param files   [Array<Hash>] extracted file refs: [{ name:, path:, inline: }]

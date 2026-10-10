@@ -204,10 +204,13 @@ module Clacky
     # declaration). Centralizes profile filtering so consumers never have to
     # assemble their own select chains.
     # @param profile [Clacky::AgentProfile, nil] When nil, no profile filtering.
+    # @param output_capabilities [Array<String, Symbol>] capabilities supported
+    #   by the current delivery surface.
     # @return [Array<Skill>]
-    def user_invocable_skills(profile = nil)
+    def user_invocable_skills(profile = nil, output_capabilities: [])
       skills = all_skills.select(&:user_invocable?)
-      profile ? skills.select { |s| profile.skill_allowed?(s) } : skills
+      skills = skills.select { |skill| profile.skill_allowed?(skill) } if profile
+      skills.select { |skill| skill.available_for_output_capabilities?(output_capabilities) }
     end
 
     # Get the count of loaded skills

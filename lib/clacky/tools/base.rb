@@ -7,7 +7,6 @@ module Clacky
     class Base
       class << self
         attr_accessor :tool_name, :tool_description, :tool_parameters, :tool_category
-        attr_accessor :required_output_capability
 
         # Opt in to receive the current call's id as :tool_call_id. Needed by
         # tools that fan out to subagents so their transcripts can be anchored
@@ -33,13 +32,6 @@ module Clacky
 
       def category
         self.class.tool_category || "general"
-      end
-
-      # Optional capability required from every active output target before
-      # this tool is exposed to the model. Tools without a requirement remain
-      # available everywhere.
-      def required_output_capability
-        self.class.required_output_capability
       end
 
       # Execute the tool - must be implemented by subclasses

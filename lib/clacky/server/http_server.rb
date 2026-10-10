@@ -253,12 +253,12 @@ module Clacky
         @version_mutex   = Mutex.new
         @scheduler       = Scheduler.new(
           session_registry: @registry,
-          session_builder:  method(:build_session),
+          session_builder:  ->(**options) { build_session(**options.merge(output_capabilities: [])) },
           task_runner:      method(:run_agent_task)
         )
         @channel_manager = Clacky::Channel::ChannelManager.new(
           session_registry:  @registry,
-          session_builder:   method(:build_session),
+          session_builder:   ->(**options) { build_session(**options.merge(output_capabilities: [])) },
           run_agent_task:    method(:run_agent_task),
           interrupt_session: method(:interrupt_session),
           # No updated_at: clearing a stale channel_info must not bump the session's
@@ -1051,7 +1051,15 @@ module Clacky
         # Allow multiple sessions in the same directory
         FileUtils.mkdir_p(working_dir)
 
-        session_id = build_session(name: name, working_dir: working_dir, profile: profile, source: source, model_id: model_id_override)
+        output_capabilities = source == :manual ? WebUIController::DEFAULT_OUTPUT_CAPABILITIES : []
+        session_id = build_session(
+          name: name,
+          working_dir: working_dir,
+          profile: profile,
+          source: source,
+          model_id: model_id_override,
+          output_capabilities: output_capabilities
+        )
 
         # Persist project_id into the session file right away if provided
         if project_id_override
@@ -5173,7 +5181,13 @@ module Clacky
         working_dir  = File.expand_path("~/clacky_workspace")
         FileUtils.mkdir_p(working_dir)
 
-        session_id = build_session(name: session_name, working_dir: working_dir, permission_mode: :auto_approve)
+        session_id = build_session(
+          name: session_name,
+          working_dir: working_dir,
+          permission_mode: :auto_approve,
+          source: :cron,
+          output_capabilities: []
+        )
         @registry.update(session_id, pending_task: prompt, pending_working_dir: working_dir, pending_cron_task: name)
         broadcast_session_update(session_id, created: true)
 
@@ -5273,7 +5287,10 @@ module Clacky
         end
 
         agent.skill_loader.load_all
-        skills = agent.skill_loader.user_invocable_skills(agent.agent_profile)
+        skills = agent.skill_loader.user_invocable_skills(
+          agent.agent_profile,
+          output_capabilities: agent.output_capabilities
+        )
 
         loader      = agent.skill_loader
         loaded_from = loader.loaded_from
@@ -5306,7 +5323,7 @@ module Clacky
         end
 
         @skill_loader.load_all
-        skills = @skill_loader.user_invocable_skills(profile)
+        skills = @skill_loader.user_invocable_skills(profile, output_capabilities: [:artifact])
 
         loaded_from = @skill_loader.loaded_from
         skill_data = skills.map do |skill|
@@ -7882,6 +7899,8 @@ module Clacky
         entry = agent&.remove_pending_input(id, for_execution: true)
         return unless entry
 
+        resolve_web_output_capabilities(session_id)
+
         started = false
         begin
           if session[:status] == :running
@@ -7903,7 +7922,8 @@ module Clacky
         return unless @registry.exist?(session_id)
 
         session = @registry.get(session_id)
-        
+        resolve_web_output_capabilities(session_id)
+
         mode = @agent_config.input_behavior
         queued = false
         queued_created_at = nil
@@ -8069,6 +8089,8 @@ module Clacky
       def run_session_task(session_id, prompt, display_message: nil)
         return unless @registry.exist?(session_id)
 
+        resolve_web_output_capabilities(session_id)
+
         agent = nil
         web_ui = nil
         @registry.with_session(session_id) do |s|
@@ -8094,6 +8116,8 @@ module Clacky
         display_message = session[:pending_display_message]
         cron_task       = session[:pending_cron_task]
         return unless prompt  # nothing pending
+
+        resolve_web_output_capabilities(session_id) unless cron_task
 
         # Clear the pending fields so a re-connect doesn't re-run
         @registry.update(session_id, pending_task: nil, pending_working_dir: nil, pending_display_message: nil, pending_cron_task: nil)
@@ -8365,7 +8389,8 @@ module Clacky
       # @param working_dir [String] working directory for the agent
       # @param permission_mode [Symbol] :confirm_all (default, human present) or
       #   :auto_approve (unattended — suppresses ask_user waits)
-      def build_session(name:, working_dir: nil, permission_mode: :confirm_all, profile: "general", source: :manual, model_id: nil)
+      def build_session(name:, working_dir: nil, permission_mode: :confirm_all, profile: "general", source: :manual, model_id: nil,
+                        output_capabilities: WebUIController::DEFAULT_OUTPUT_CAPABILITIES)
         working_dir ||= default_working_dir
         FileUtils.mkdir_p(working_dir) unless Dir.exist?(working_dir)
         session_id = Clacky::SessionManager.generate_id
@@ -8404,7 +8429,7 @@ module Clacky
         ui = WebUIController.new(
           session_id,
           broadcaster,
-          output_capabilities: -> { web_output_capabilities_for(session_id) }
+          output_capabilities: output_capabilities
         )
         agent = Clacky::Agent.new(client, config, working_dir: working_dir, ui: ui, profile: profile,
                                   session_id: session_id, source: source)
@@ -8434,11 +8459,10 @@ module Clacky
         config = @agent_config.deep_copy
         config.permission_mode = permission_mode
         broadcaster = method(:broadcast)
-        source = session_data[:source] || session_data["source"] || "manual"
         ui = WebUIController.new(
           original_id,
           broadcaster,
-          output_capabilities: -> { web_output_capabilities_for(original_id) }
+          output_capabilities: persisted_output_capabilities(session_data)
         )
         # Restore the agent profile from the persisted session; fall back to "general"
         # for sessions saved before the agent_profile field was introduced.
@@ -8460,15 +8484,30 @@ module Clacky
         original_id
       end
 
-      # Output capabilities follow the active delivery environment rather than
-      # the persisted session source/profile. A session can render artifacts
-      # while at least one live browser is subscribed; channel subscribers are
-      # intersected separately by WebUIController.
-      private def web_output_capabilities_for(session_id)
-        browser_subscribed = @ws_mutex.synchronize do
-          Array(@ws_clients[session_id]).any? { |conn| !conn.closed? }
-        end
-        browser_subscribed ? [:artifact] : []
+      # Output capabilities are an explicit part of the persisted delivery
+      # contract. A missing/null value is preserved as unknown until the next
+      # real task entry point resolves the active delivery surface.
+      private def persisted_output_capabilities(session_data)
+        has_symbol_key = session_data.key?(:output_capabilities)
+        has_string_key = session_data.key?("output_capabilities")
+        return nil unless has_symbol_key || has_string_key
+
+        raw = has_symbol_key ? session_data[:output_capabilities] : session_data["output_capabilities"]
+        return nil if raw.nil?
+
+        Array(raw).each_with_object([]) do |capability, capabilities|
+          value = capability.to_s.strip
+          capabilities << value.to_sym unless value.empty?
+        end.uniq
+      end
+
+      # The HTTP/WebSocket boundary is the authoritative signal that a task is
+      # being delivered through the browser. Explicit contracts are immutable;
+      # this only resolves sessions created before output capabilities existed.
+      private def resolve_web_output_capabilities(session_id)
+        ui = nil
+        @registry.with_session(session_id) { |session| ui = session[:ui] }
+        ui.resolve_output_capabilities!(WebUIController::DEFAULT_OUTPUT_CAPABILITIES) if ui&.respond_to?(:resolve_output_capabilities!)
       end
 
       # Build an IdleCompressionTimer for a session.

@@ -210,6 +210,21 @@ module Clacky
         @config.models.find { |m| m["id"] == card_id }&.dig(key)
       end
 
+      private def persisted_output_capabilities
+        if @ui.respond_to?(:output_capabilities_configured?) && !@ui.output_capabilities_configured?
+          return nil
+        end
+
+        capabilities = if @ui.respond_to?(:configured_output_capabilities)
+                         @ui.configured_output_capabilities
+                       else
+                         output_capabilities
+                       end
+        return nil if capabilities.nil?
+
+        Array(capabilities).map(&:to_s).uniq
+      end
+
       # Generate session data for saving
       # @param status [Symbol] Status of the last task: :success, :error, or :interrupted
       # @param error_message [String] Error message if status is :error
@@ -247,7 +262,8 @@ module Clacky
           created_at: @created_at,
           updated_at: stamp,
           working_dir: @working_dir,
-          source: @source.to_s,                      # "manual" | "cron" | "channel" | "setup"
+          source: @source.to_s,                      # "manual" | "ext" | "cron" | "channel" | "setup"
+          output_capabilities: persisted_output_capabilities,
           agent_profile: @agent_profile&.name || "", # "general" | "coding" | custom
           pending_inputs: pending_inputs,
           todos: @todos,  # Include todos in session data
@@ -924,6 +940,7 @@ module Clacky
 
         fresh_prompt = build_system_prompt
         @history.replace_system_prompt(fresh_prompt)
+        @system_prompt_output_capabilities = output_capabilities.sort
       rescue StandardError => e
         # Log and continue — a stale system prompt is better than a broken restore
         Clacky::Logger.warn("refresh_system_prompt failed during session restore: #{e.message}")

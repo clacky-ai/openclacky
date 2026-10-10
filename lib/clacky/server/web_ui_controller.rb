@@ -27,9 +27,6 @@ module Clacky
       def initialize(session_id, broadcaster, output_capabilities: DEFAULT_OUTPUT_CAPABILITIES)
         @session_id  = session_id
         @broadcaster = broadcaster   # callable: broadcaster.call(session_id, event_hash)
-        # Accept a callable so capability visibility can follow the active
-        # delivery surface (for example, a browser subscribing or leaving)
-        # without rebuilding the Agent or its tool registry.
         @output_capabilities = output_capabilities
         @mutex       = Mutex.new
 
@@ -66,9 +63,44 @@ module Clacky
       # target can deliver it. Channel subscribers currently inherit the empty
       # default from UIInterface; a future image renderer can opt into :artifact.
       def output_capabilities
-        configured = @output_capabilities.respond_to?(:call) ? @output_capabilities.call : @output_capabilities
-        capabilities = Array(configured).map(&:to_sym).uniq
+        capabilities = configured_output_capabilities || []
         subscribers = @subscribers_mutex.synchronize { @channel_subscribers.dup }
+        intersect_output_capabilities(capabilities, subscribers)
+      end
+
+      # Legacy sessions may not have persisted an output contract. Keep that
+      # state distinct from an explicit empty contract until a real task entry
+      # point identifies the delivery surface.
+      def output_capabilities_configured?
+        !@output_capabilities.nil?
+      end
+
+      # Capabilities declared by this session before active output targets are
+      # intersected. Session persistence uses this value so a temporary channel
+      # subscription cannot permanently downgrade a Web conversation.
+      def configured_output_capabilities
+        return nil if @output_capabilities.nil?
+
+        Array(@output_capabilities).map(&:to_sym).uniq
+      end
+
+      # Resolve a legacy session's unknown output contract exactly once. The
+      # requested capabilities are intersected with active channel subscribers
+      # so an IM-bound conversation can never persist a capability its current
+      # delivery targets cannot render.
+      def resolve_output_capabilities!(capabilities = output_capabilities)
+        return configured_output_capabilities || [] if output_capabilities_configured?
+
+        requested = Array(capabilities).map(&:to_sym).uniq
+        @subscribers_mutex.synchronize do
+          if @output_capabilities.nil?
+            @output_capabilities = intersect_output_capabilities(requested, @channel_subscribers)
+          end
+        end
+        configured_output_capabilities || []
+      end
+
+      private def intersect_output_capabilities(capabilities, subscribers)
         subscribers.reduce(capabilities) do |supported_capabilities, subscriber|
           supported = if subscriber.respond_to?(:output_capabilities)
                         Array(subscriber.output_capabilities).map(&:to_sym)
@@ -131,11 +163,15 @@ module Clacky
         # Rewrite local image paths (file:// and bare absolute) to /api/local-image
         # proxy URLs only for the browser, which runs on http://localhost and is
         # blocked by browser security policy from loading file:// directly.
-        # Channel subscribers receive the original content so they can deliver
-        # local images as native attachments via send_file().
+        # Channel subscribers receive the original file links so they can
+        # deliver local images as native attachments via send_file(). Web-only
+        # artifact references are removed at this delivery boundary.
         web_content = Clacky::Utils::FileProcessor.rewrite_local_image_urls(content.to_s)
         emit("assistant_message", content: web_content, files: files, created_at: created_at, interim: interim)
-        forward_to_subscribers { |sub| sub.show_assistant_message(content, files: files, interim: interim) }
+        channel_content = content.to_s.gsub(/visualize.*?/m, "").strip
+        forward_to_subscribers do |sub|
+          sub.show_assistant_message(channel_content, files: files, interim: interim) unless channel_content.empty? && files.empty?
+        end
       end
 
       def show_feedback_request(question, context, options, questions: nil)
