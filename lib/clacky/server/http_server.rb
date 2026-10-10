@@ -3356,7 +3356,7 @@ module Clacky
         require_relative "../billing/billing_store"
 
         query = URI.decode_www_form(req.query_string.to_s).to_h
-        days  = [(query["days"] || "30").to_i, 90].min
+        days  = [(query["days"] || "30").to_i, 365].min
         model = query["model"]
 
         store = Clacky::Billing::BillingStore.new

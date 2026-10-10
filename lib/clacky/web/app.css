@@ -459,7 +459,7 @@ input[type="checkbox"] { accent-color: var(--color-accent-primary); }
 .skel-label    { height: 0.75rem;  width: 4rem;  margin-top: 0.375rem; }
 .skel-block    { height: 9rem;  width: 100%; }
 .skel-block-sm { height: 5rem;  width: 100%; }
-.skel-heatmap  { height: 5rem;  width: 178px; }
+.skel-heatmap  { height: 7rem;  width: 100%; }
 
 
 
@@ -13725,7 +13725,7 @@ body.setup-mode {
 .segmented-control {
   display: flex;
   gap: 2px;
-  background: var(--color-bg-hover);
+  background: color-mix(in srgb, var(--color-bg-hover) 70%, var(--color-bg-secondary));
   border-radius: 8px;
   padding: 3px;
 }
@@ -13777,7 +13777,7 @@ body.setup-mode {
   padding: 1.75rem 2.25rem;
 }
 #billing-content {
-  max-width: 1000px;
+  max-width: 920px;
   margin: 0 auto;
 }
 .billing-loading,
@@ -13959,10 +13959,80 @@ body.setup-mode {
 /* ── Heatmap ─────────────────────────────────────────────────────────── */
 .billing-heatmap-row {
   display: grid;
-  grid-template-columns: auto 1fr;
+  grid-template-columns: minmax(0, 1fr);
   gap: 1rem;
   width: 100%;
 }
+
+/* Year-view heatmap (GitHub-style) */
+.billing-heatmap-year {
+  width: 100%;
+}
+.billing-heatmap-year .billing-heat-year-wrap {
+  display: flex;
+  gap: 6px;
+  padding: 4px 0;
+  width: 100%;
+}
+.billing-heat-dow-year {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-top: 24px;
+  width: 18px;
+  flex-shrink: 0;
+}
+.billing-heat-dow-year .billing-heat-dow {
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  font-size: 0.625rem;
+  line-height: 1;
+  color: var(--color-text-secondary);
+  opacity: 0.7;
+}
+.billing-heat-content {
+  flex: 1;
+  min-width: 0;
+  position: relative;
+}
+.billing-heat-months {
+  height: 20px;
+  position: relative;
+  margin-bottom: 4px;
+}
+.billing-heat-month {
+  position: absolute;
+  font-size: 0.625rem;
+  color: var(--color-text-secondary);
+  opacity: 0.7;
+  white-space: nowrap;
+}
+.billing-heat-grid-year {
+  display: flex;
+  gap: 2px;
+  justify-content: space-between;
+  width: 100%;
+}
+.billing-heat-week {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1 1 0;
+  min-width: 0;
+}
+.billing-heat-week .billing-heat-cell {
+  flex: 0 0 auto;
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: 2px;
+  max-width: 12px;
+  max-height: 12px;
+}
+
+/* Old monthly grid (keep for backwards compatibility) */
 .billing-heat-dow-row {
   display: grid;
   grid-template-columns: repeat(7, 28px);
@@ -14006,6 +14076,7 @@ body.setup-mode {
   width: 12px;
   height: 12px;
   aspect-ratio: auto;
+  padding-bottom: 0;
 }
 
 /* ── Heatmap + Trend two-column row ──────────────────────────────────── */
@@ -14041,7 +14112,7 @@ body.setup-mode {
 }
 .billing-trend-line {
   stroke: var(--color-accent-primary);
-  stroke-width: 1.5;
+  stroke-width: 1;
   stroke-linecap: round;
   stroke-linejoin: round;
 }
@@ -15959,7 +16030,6 @@ body.setup-mode {
       padding-inline: 0.5rem;
     }
   }
-  .billing-heatmap-row { grid-template-columns: 1fr; }
 
   /* ── MCP page ── */
   #mcp-panel {
