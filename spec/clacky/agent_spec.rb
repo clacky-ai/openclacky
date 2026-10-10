@@ -1741,7 +1741,7 @@ RSpec.describe Clacky::Agent do
   end
 
   describe "ask_user countdown in auto_approve mode" do
-    let(:ui) { double("UI", show_tool_call: nil) }
+    let(:ui) { double("UI", show_tool_call: nil, show_tool_result: nil) }
     let(:call) do
       { id: "ask", name: "ask_user", arguments: JSON.generate(question: "Which option?") }
     end
@@ -1770,6 +1770,69 @@ RSpec.describe Clacky::Agent do
       end
     end
 
+    it "overrides the global duration for one call without changing subsequent calls" do
+      config.ask_user_countdown_seconds = 30
+      call[:arguments] = JSON.generate(question: "Which option?", countdown_seconds: 60)
+      expect(ui).to receive(:request_feedback_with_countdown).with(seconds: 60).ordered.and_return(:timeout)
+      expect(ui).to receive(:request_feedback_with_countdown).with(seconds: 30).ordered.and_return(:timeout)
+
+      expect(ask_result[:awaiting_feedback]).to be false
+      expect(config.ask_user_countdown_seconds).to eq(30)
+
+      call[:arguments] = JSON.generate(question: "Which next option?")
+      expect(ask_result[:awaiting_feedback]).to be false
+    end
+
+    it "uses the global duration when the per-call override is null" do
+      config.ask_user_countdown_seconds = 30
+      call[:arguments] = JSON.generate(question: "Which option?", countdown_seconds: nil)
+      expect(ui).to receive(:request_feedback_with_countdown).with(seconds: 30).and_return(:timeout)
+
+      expect(ask_result[:awaiting_feedback]).to be false
+    end
+
+    it "skips the countdown when this call overrides a positive global duration with zero" do
+      config.ask_user_countdown_seconds = 30
+      call[:arguments] = JSON.generate(question: "Which option?", countdown_seconds: 0)
+      expect(ui).not_to receive(:request_feedback_with_countdown)
+
+      result = ask_result
+      expect(result[:awaiting_feedback]).to be false
+      expect(result[:tool_results].first[:content]).to include("No user is available")
+      expect(config.ask_user_countdown_seconds).to eq(30)
+    end
+
+    it "waits when this call overrides a zero global duration" do
+      config.ask_user_countdown_seconds = 0
+      call[:arguments] = JSON.generate(question: "Which option?", countdown_seconds: 60)
+      expect(ui).to receive(:request_feedback_with_countdown).with(seconds: 60).and_return(:timeout)
+
+      expect(ask_result[:awaiting_feedback]).to be false
+      expect(config.ask_user_countdown_seconds).to eq(0)
+    end
+
+    it "uses one countdown for a multi-question call" do
+      call[:arguments] = JSON.generate(
+        questions: [{ question: "Which DB?" }, { question: "Which host?" }],
+        countdown_seconds: 60
+      )
+      expect(ui).to receive(:request_feedback_with_countdown).with(seconds: 60).once.and_return(:timeout)
+
+      expect(ask_result[:awaiting_feedback]).to be false
+    end
+
+    [-1, 1.5, "60", false].each do |value|
+      it "returns an error for per-call duration #{value.inspect} without a countdown" do
+        call[:arguments] = JSON.generate(question: "Which option?", countdown_seconds: value)
+        expect(ui).not_to receive(:request_feedback_with_countdown)
+
+        result = agent.send(:act, [call])
+        content = JSON.parse(result[:tool_results].first[:content])
+        expect(content).to include("success" => false, "error" => "countdown_seconds must be a non-negative integer.")
+        expect(result[:awaiting_feedback]).to be false
+      end
+    end
+
     it "skips the UI countdown at zero and continues automatically" do
       config.ask_user_countdown_seconds = 0
       expect(ui).not_to receive(:request_feedback_with_countdown)
@@ -1781,7 +1844,8 @@ RSpec.describe Clacky::Agent do
 
     it "routes an intervening answer back as feedback" do
       config.ask_user_countdown_seconds = 30
-      expect(ui).to receive(:request_feedback_with_countdown).with(seconds: 30).and_return("Use option A")
+      call[:arguments] = JSON.generate(question: "Which option?", countdown_seconds: 60)
+      expect(ui).to receive(:request_feedback_with_countdown).with(seconds: 60).and_return("Use option A")
 
       expect(ask_result).to include(denied: true, feedback: "Use option A", awaiting_feedback: false)
     end
@@ -1796,6 +1860,7 @@ RSpec.describe Clacky::Agent do
       it "still waits for user input in #{mode} mode even at zero seconds" do
         config.permission_mode = mode
         config.ask_user_countdown_seconds = 0
+        call[:arguments] = JSON.generate(question: "Which option?", countdown_seconds: 60)
         expect(ui).not_to receive(:request_feedback_with_countdown)
 
         expect(ask_result).to include(denied: false, awaiting_feedback: true)
@@ -1811,6 +1876,15 @@ RSpec.describe Clacky::Agent do
       config.ask_user_countdown_seconds = 30
       call[:name] = "request_user_feedback"
       expect(ui).to receive(:request_feedback_with_countdown).with(seconds: 30).and_return(:timeout)
+
+      expect(ask_result[:awaiting_feedback]).to be false
+    end
+
+    it "accepts a per-call duration for the legacy feedback tool name" do
+      config.ask_user_countdown_seconds = 30
+      call[:name] = "request_user_feedback"
+      call[:arguments] = JSON.generate(question: "Which option?", countdown_seconds: 60)
+      expect(ui).to receive(:request_feedback_with_countdown).with(seconds: 60).and_return(:timeout)
 
       expect(ask_result[:awaiting_feedback]).to be false
     end

@@ -66,6 +66,11 @@ module Clacky
             type: "array",
             items: { type: "string" },
             description: "Options for the single-question shorthand."
+          },
+          countdown_seconds: {
+            type: "integer",
+            minimum: 0,
+            description: "Optional countdown duration for this call in auto_approve mode. Overrides the configured ask_user_countdown_seconds; 0 continues immediately. Other permission modes still wait for user input."
           }
         }
       }
@@ -160,7 +165,14 @@ module Clacky
         parts.join("\n")
       end
 
-      def execute(questions: nil, question: nil, context: nil, options: nil, working_dir: nil)
+      def execute(questions: nil, question: nil, context: nil, options: nil, countdown_seconds: nil, working_dir: nil)
+        unless countdown_seconds.nil? || (countdown_seconds.is_a?(Integer) && countdown_seconds >= 0)
+          return {
+            success: false,
+            error: "countdown_seconds must be a non-negative integer."
+          }
+        end
+
         normalized = self.class.normalize_questions(
           questions: questions, question: question, options: options
         )

@@ -220,6 +220,21 @@ Use a non-negative integer; `0` continues immediately. Starting to type during
 the countdown still cancels the timeout and waits for your answer. Other
 permission modes continue to wait for user input.
 
+Each `ask_user` call can override the global default with `countdown_seconds`:
+
+```json
+{
+  "question": "Which database should I use?",
+  "options": ["SQLite", "Postgres"],
+  "countdown_seconds": 60
+}
+```
+
+This duration applies to all questions in that call only; subsequent calls use
+the global setting unless they provide their own override. The same
+non-negative integer rule applies, and `0` continues immediately. Omitting the
+parameter or passing `null` uses the global setting.
+
 ## Coding use case
 
 OpenClacky works as a general AI coding assistant — scaffold full-stack apps, add features, or explore unfamiliar codebases:

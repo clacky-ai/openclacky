@@ -120,6 +120,32 @@ RSpec.describe Clacky::Tools::AskUser do
   end
 
   describe "#execute" do
+    [0, 60, nil].each do |seconds|
+      it "accepts a per-call countdown of #{seconds.inspect}" do
+        result = tool.execute(question: "Which DB?", countdown_seconds: seconds)
+
+        expect(result).to include(success: true, awaiting_feedback: true)
+      end
+    end
+
+    it "accepts a countdown for a call containing multiple questions" do
+      result = tool.execute(
+        questions: [{ question: "Which DB?" }, { question: "Which host?" }],
+        countdown_seconds: 60
+      )
+
+      expect(result).to include(success: true, awaiting_feedback: true)
+    end
+
+    [-1, 1.5, "60", false, [], {}].each do |value|
+      it "rejects invalid countdown #{value.inspect} without awaiting feedback" do
+        result = tool.execute(question: "Which DB?", countdown_seconds: value)
+
+        expect(result).to include(success: false, error: "countdown_seconds must be a non-negative integer.")
+        expect(result[:awaiting_feedback]).to be_nil
+      end
+    end
+
     it "renders a single question" do
       result = tool.execute(question: "What color scheme should I use?")
 
@@ -207,6 +233,13 @@ RSpec.describe Clacky::Tools::AskUser do
 
     it "exposes the tool as ask_user" do
       expect(definition[:function][:name]).to eq("ask_user")
+    end
+
+    it "exposes a non-negative integer countdown override" do
+      countdown = definition[:function][:parameters][:properties][:countdown_seconds]
+
+      expect(countdown).to include(type: "integer", minimum: 0)
+      expect(countdown[:description]).to include("auto_approve", "Overrides")
     end
 
     it "declares questions as an array so double-serialized payloads get unwrapped" do

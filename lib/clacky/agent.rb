@@ -1698,7 +1698,7 @@ module Clacky
               # human MAY be watching the terminal. Show a short interactive
               # countdown: if the user steps in, hand control over and wait for
               # their answer; otherwise auto-decide and keep going.
-              seconds = @config.ask_user_countdown_seconds
+              seconds = args[:countdown_seconds] || @config.ask_user_countdown_seconds
               countdown = seconds.zero? ? :timeout : @ui&.request_feedback_with_countdown(seconds: seconds)
 
               if @ui.nil? || countdown == :timeout
