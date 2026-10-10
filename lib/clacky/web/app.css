@@ -5950,6 +5950,36 @@ body {
   white-space: nowrap;
 }
 
+/* ── Model picker header ───────────────────────────────────────────────────
+   The dropdown lists models from every provider, so the header states which
+   provider and model are live — otherwise the rows read as a provider chooser.
+   It scrolls away with the list; .sib-model-bench below is the sticky row. */
+.sib-picker-head {
+  padding: 0.5rem 0.875rem 0.4375rem;
+  border-bottom: 1px solid var(--color-border-primary);
+}
+.sib-picker-title {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+.sib-picker-sub {
+  margin-top: 0.1875rem;
+  font-size: 0.625rem;
+  color: var(--color-text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sib-picker-sub-value {
+  font-family: var(--font-mono, monospace);
+  color: var(--color-text-primary);
+}
+.sib-picker-sub-sep {
+  padding: 0 0.3125rem;
+  color: var(--color-text-tertiary);
+}
+
 /* ── Model switcher benchmark banner & latency column ──────────────────────
    The banner sits at the top of the dropdown with a subtle border so it
    visually separates from the scrollable model list below. The ⚡ button is
