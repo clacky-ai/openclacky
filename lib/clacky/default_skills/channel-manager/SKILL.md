@@ -1,13 +1,13 @@
 ---
 name: channel-manager
 name_zh: 渠道管理
-description_zh: 接入飞书、企业微信、微信、钉钉、Discord、Telegram 等 IM 渠道，支持配置、启停、诊断和发消息。
+description_zh: 接入飞书、企业微信、微信、钉钉、Discord、Telegram、QQ 等 IM 渠道，支持配置、启停、诊断和发消息。
 description: |
-  Configure IM platform channels (Feishu, WeCom, Weixin, Discord, Telegram, DingTalk) for openclacky.
+  Configure IM platform channels (Feishu, WeCom, Weixin, Discord, Telegram, DingTalk, QQ) for openclacky.
   Uses browser automation for navigation; guides the user to paste credentials and perform UI steps.
-  Trigger on: "channel setup", "setup feishu", "setup wecom", "setup weixin", "setup wechat", "setup discord", "setup telegram", "setup dingtalk",
+  Trigger on: "channel setup", "setup feishu", "setup wecom", "setup weixin", "setup wechat", "setup discord", "setup telegram", "setup dingtalk", "setup qq",
   "channel config", "channel status", "channel enable", "channel disable", "channel reconfigure", "channel doctor",
-  "send message to weixin", "send message to feishu", "send message to wecom", "send message to discord", "send message to telegram", "send message to dingtalk".
+  "send message to weixin", "send message to feishu", "send message to wecom", "send message to discord", "send message to telegram", "send message to dingtalk", "send message to qq".
   Subcommands: setup, status, enable <platform>, disable <platform>, reconfigure, doctor, send.
 argument-hint: "setup | status | enable <platform> | disable <platform> | reconfigure | doctor | send <platform> <message>"
 allowed-tools:
@@ -30,13 +30,13 @@ Configure IM platform channels for openclacky.
 
 | User says | Subcommand |
 |---|---|
-| `channel setup`, `setup feishu`, `setup wecom`, `setup weixin`, `setup wechat`, `setup discord`, `setup telegram`, `setup dingtalk` | setup |
+| `channel setup`, `setup feishu`, `setup wecom`, `setup weixin`, `setup wechat`, `setup discord`, `setup telegram`, `setup dingtalk`, `setup qq` | setup |
 | `channel status` | status |
-| `channel enable feishu/wecom/weixin/discord/telegram/dingtalk` | enable |
-| `channel disable feishu/wecom/weixin/discord/telegram/dingtalk` | disable |
+| `channel enable feishu/wecom/weixin/discord/telegram/dingtalk/qq` | enable |
+| `channel disable feishu/wecom/weixin/discord/telegram/dingtalk/qq` | disable |
 | `channel reconfigure` | reconfigure |
 | `channel doctor` | doctor |
-| `send <message> to weixin/feishu/wecom/discord/telegram/dingtalk` | send |
+| `send <message> to weixin/feishu/wecom/discord/telegram/dingtalk/qq` | send |
 
 ---
 
@@ -80,6 +80,7 @@ dingtalk   ✅ yes    ✅ yes    client_id: ding_xxx...
 - Discord: show `has_token: true/false` (token value is never displayed)
 - Telegram: show `has_token: true/false` (bot token is never displayed)
 - DingTalk: show `client_id` (truncated to 12 chars)
+- QQ: show `app_id` (truncated to 12 chars) and `sandbox: true/false`
 
 If the API is unreachable or returns an empty list: "No channels configured yet. Run `/channel-manager setup` to get started."
 
@@ -96,6 +97,7 @@ Ask:
 > 4. Discord
 > 5. Telegram (Bot API)
 > 6. DingTalk
+> 7. QQ (official bot, C2C & group @)
 
 ---
 
@@ -391,6 +393,56 @@ On success:
 
 ---
 
+### QQ setup (official QQ bot)
+
+QQ bots are created on the QQ Open Platform (q.qq.com). The user registers a bot, enables the C2C / group-message scopes, and pastes the App ID / App Secret here. The adapter connects over the QQ Gateway WebSocket; no browser automation is required from this skill.
+
+#### Step 1 — Create the bot on the QQ Open Platform
+
+Tell the user (localize if they are chatting in Chinese):
+
+> 1. Open the QQ Open Platform: https://q.qq.com (sandbox testing: use the sandbox toggle / sandbox AppID in the bot admin console).
+> 2. Register / log in and create a robot (机器人). After creation you will find **AppID** and **AppSecret** in the bot's "开发设置 / Development Settings" page.
+> 3. In "功能配置 / 配置" (or the sandbox panel), make sure the bot has the private-chat (C2C) and group @ message permissions enabled; add yourself as a sandbox tester if you are testing before release.
+> 4. Paste the credentials back here in one line:
+>
+> `app_id=YOUR_APPID app_secret=YOUR_APPSECRET sandbox=true_or_false`
+
+Wait for the reply. Parse with tolerant regex (`app_id=\S+`, `app_secret=\S+`, `sandbox=(true|false)`; default `sandbox=false` when omitted).
+
+Optionally validate the credentials before saving (best-effort; requires outbound access to api.bot.qq.com). The token endpoint is shared by production and sandbox — only the openapi host differs — so validation takes no `--sandbox` flag:
+
+```bash
+ruby "SKILL_DIR/qq_setup.rb" --validate "<APP_ID> <APP_SECRET>"
+```
+
+#### Step 2 — Save credentials
+
+The server persists the credentials and immediately opens the gateway WebSocket:
+
+```bash
+curl -s -X POST http://${CLACKY_SERVER_HOST}:${CLACKY_SERVER_PORT}/api/channels/qq \
+  -H "Content-Type: application/json" \
+  -d '{"app_id":"<APP_ID>","app_secret":"<APP_SECRET>","sandbox":<TRUE_OR_FALSE>}'
+```
+
+- `200` — credentials saved; the QQ gateway session starts.
+- `4xx` — show the returned error (bad AppID/Secret, or permission not granted) and offer to retry.
+
+#### Step 3 — Verify
+
+Tell the user:
+
+> ✅ QQ channel configured. Send your bot a private message, or @ it in a group.
+>
+> Notes:
+> - Before release, only accounts added as sandbox testers can reach the bot.
+> - QQ bots reply in the passive window (5 minutes after the user's message); very long tasks may reply after the window closes.
+> - Channel (频道 / guild) messages are parsed but outbound replies are not supported yet — use C2C or groups.
+> - Optional: restrict who can use the bot via the `allowed_users` list (QQ openid values).
+
+---
+
 ## `enable`
 
 Call the server API to re-enable the platform (this reads from disk, sets enabled, saves, and hot-reloads):
@@ -466,6 +518,7 @@ Check each item, report ✅ / ❌ with remediation:
    - Weixin: `token` present and non-empty in `channels.yml`
    - Discord: `bot_token` present and non-empty in `channels.yml`
    - Telegram: `bot_token` present and non-empty
+   - QQ: `app_id`, `app_secret` present and non-empty
 3. **Feishu credentials** (if enabled) — run the token API call, check `code=0`.
 4. **Weixin token** (if enabled) — call `GET /api/channels` and check `has_token: true` for the weixin entry.
 5. **Telegram credentials** (if enabled) — call `getMe` against the Bot API:
@@ -495,6 +548,13 @@ Check each item, report ✅ / ❌ with remediation:
    ```
    - `WebSocket connected` → ✅
    - `Stream endpoint error` or `token error` → ❌ "DingTalk credentials invalid — re-run setup"
+8. **QQ credentials** (if enabled) — search today's log:
+   ```bash
+   grep -iE "QQ gateway|qq gateway|gateway ready|AppID|app_id.*invalid" \
+     ~/.clacky/logger/clacky-$(date +%Y-%m-%d).log
+   ```
+   - gateway ready / identified → ✅
+   - invalid app_id / app_secret or identify failed → ❌ "QQ credentials invalid — re-run setup"
 
 ---
 
@@ -505,7 +565,7 @@ Proactively send a message to a user via an IM channel adapter.
 ### Parse the request
 
 Extract two things from the user's instruction:
-- **platform** — one of `weixin`, `feishu`, `wecom`, `discord`, `telegram`, `dingtalk`
+- **platform** — one of `weixin`, `feishu`, `wecom`, `discord`, `telegram`, `dingtalk`, `qq`
 - **message** — the text content to send
 
 If the platform cannot be inferred, ask the user to clarify.
@@ -545,6 +605,7 @@ curl -s -X POST http://${CLACKY_SERVER_HOST}:${CLACKY_SERVER_PORT}/api/channels/
 ### Constraints & notes
 
 - **Weixin (iLink protocol)**: Every outbound message requires a `context_token` that is obtained from the most recent inbound message from that user. The token is cached in memory and reset on server restart. If the server was restarted since the user last wrote, the token is gone and the send will fail — the user must message the bot again.
+- **QQ**: C2C/group replies reuse the recent inbound `msg_id` (passive reply window, ~5 minutes); proactive sends outside that window may be rejected.
 - **Feishu / WeCom / Discord / Telegram**: No per-message token required. As long as the adapter is running and the `user_id` / `chat_id` (or Discord channel/user id) is valid, the message will be delivered. For Telegram specifically, the `user_id` must be a Telegram chat_id that the bot can write to — the user must have sent at least one message to the bot first.
 - This feature is intended for **proactive notifications** (e.g. task completion, reminders). It is not a replacement for the normal reply flow triggered by inbound messages.
 

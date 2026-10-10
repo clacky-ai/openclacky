@@ -136,6 +136,15 @@ module Clacky
           parse_mode:    raw.key?("parse_mode") ? raw["parse_mode"] : "Markdown",
           allowed_users: raw["allowed_users"]
         }.compact
+      when :qq
+        {
+          app_id:        raw["app_id"],
+          app_secret:    raw["app_secret"],
+          base_url:      raw["base_url"],
+          sandbox:       raw.key?("sandbox") ? raw["sandbox"] : nil,
+          intents:       raw["intents"],
+          allowed_users: raw["allowed_users"]
+        }.compact
       else
         # Unknown platform — pass all non-meta keys as symbol-keyed hash
         raw.reject { |k, _| k == "enabled" }

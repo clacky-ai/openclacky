@@ -27,6 +27,7 @@ require_relative "channel/adapters/weixin/adapter"
 require_relative "channel/adapters/discord/adapter"
 require_relative "channel/adapters/telegram/adapter"
 require_relative "channel/adapters/dingtalk/adapter"
+require_relative "channel/adapters/qq/adapter"
 
 require_relative "channel/channel_config"
 require_relative "channel/channel_ui_controller"

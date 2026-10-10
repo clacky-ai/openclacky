@@ -775,6 +775,10 @@ module Clacky
           elsif method == "GET" && path.match?(%r{^/api/channels/[^/]+/users$})
             platform = path.sub("/api/channels/", "").sub("/users", "")
             api_list_channel_users(platform, res)
+          elsif method == "POST" && path.match?(%r{^/api/channels/qq/qr/start$})
+            api_qq_qr_start(res)
+          elsif method == "POST" && path.match?(%r{^/api/channels/qq/qr/poll$})
+            api_qq_qr_poll(req, res)
           elsif method == "POST" && path.match?(%r{^/api/channels/[^/]+/test$})
             platform = path.sub("/api/channels/", "").sub("/test", "")
             api_test_channel(platform, req, res)
@@ -4737,6 +4741,85 @@ module Clacky
         json_response(res, 422, { ok: false, error: e.message })
       end
 
+      # POST /api/channels/qq/qr/start
+      # Creates a QQ "lite bind" task and returns the official connect URL
+      # (Tencent renders the QR). The AES key is held server-side, keyed by
+      # task_id, so the poll step can decrypt the returned AppSecret.
+      def api_qq_qr_start(res)
+        binder = Clacky::Channel::Adapters::Qq::QrBinder.new
+        task   = binder.create_task
+        qr_bind_store[task[:task_id]] = { "key" => task[:key], "created_at" => Time.now.to_i }
+        prune_qr_bind_store
+
+        json_response(res, 200, { ok: true, task_id: task[:task_id], connect_url: task[:connect_url] })
+      rescue StandardError => e
+        json_response(res, 422, { ok: false, error: e.message })
+      end
+
+      # POST /api/channels/qq/qr/poll
+      # Body: { task_id }. On completion, decrypts the secret, persists the
+      # credentials (enabled, scanning user whitelisted) and hot-reloads QQ.
+      def api_qq_qr_poll(req, res)
+        task_id = parse_json_body(req)["task_id"].to_s
+        stored  = qr_bind_store[task_id]
+        return json_response(res, 422, { ok: false, error: "bind session not found or expired, please restart" }) if stored.nil?
+
+        binder = Clacky::Channel::Adapters::Qq::QrBinder.new
+        result = binder.poll(task_id)
+
+        case result[:status]
+        when Clacky::Channel::Adapters::Qq::QrBinder::STATUS_PENDING, Clacky::Channel::Adapters::Qq::QrBinder::STATUS_NONE
+          json_response(res, 200, { ok: true, status: "pending" })
+        when Clacky::Channel::Adapters::Qq::QrBinder::STATUS_EXPIRED
+          qr_bind_store.delete(task_id)
+          json_response(res, 200, { ok: true, status: "expired" })
+        when Clacky::Channel::Adapters::Qq::QrBinder::STATUS_COMPLETED
+          creds = binder.extract_credentials(
+            bot_app_id: result[:bot_app_id],
+            encrypt_secret: result[:encrypt_secret],
+            user_openid: result[:user_openid],
+            key: stored["key"]
+          )
+          persist_qq_qr_credentials(creds)
+          qr_bind_store.delete(task_id)
+          json_response(res, 200, { ok: true, status: "completed", app_id: creds[:app_id] })
+        else
+          json_response(res, 200, { ok: true, status: "pending" })
+        end
+      rescue StandardError => e
+        json_response(res, 502, { ok: false, error: e.message })
+      end
+
+      # Persist scanned QQ credentials and ensure the scanning user can talk
+      # to the bot (merged with any existing whitelist).
+      def persist_qq_qr_credentials(creds)
+        config = Clacky::ChannelConfig.load
+        existing = config.platform_config(:qq) || {}
+        whitelist = Array(existing[:allowed_users]).map(&:to_s)
+        whitelist << creds[:user_openid] unless creds[:user_openid].to_s.empty?
+
+        config.set_platform(
+          :qq,
+          app_id: creds[:app_id],
+          app_secret: creds[:app_secret],
+          allowed_users: whitelist.uniq
+        )
+        config.save
+        @channel_manager.reload_platform(:qq, config)
+      end
+
+      def qr_bind_store
+        @qr_bind_store ||= {}
+        @qr_bind_store
+      end
+
+      # Drop bind sessions older than 10 minutes so the in-memory map cannot
+      # grow without bound.
+      def prune_qr_bind_store
+        cutoff = Time.now.to_i - 600
+        qr_bind_store.delete_if { |_, v| v["created_at"].to_i < cutoff }
+      end
+
       # DELETE /api/channels/:platform
       # Disables the platform (keeps credentials, sets enabled: false).
       def api_delete_channel(platform, res)
@@ -4891,6 +4974,16 @@ module Clacky
           {
             client_id:     raw["client_id"] || "",
             allowed_users: raw["allowed_users"] || []
+          }
+        when :qq
+          {
+            app_id:         raw["app_id"] || "",
+            base_url:       raw["base_url"] || Clacky::Channel::Adapters::Qq::ApiClient::DEFAULT_BASE_URL,
+            sandbox:        raw["sandbox"] == true,
+            intents:        (raw["intents"] || Clacky::Channel::Adapters::Qq::Adapter::DEFAULT_INTENTS).to_i,
+            allowed_users:  raw["allowed_users"] || [],
+            has_secret:     !raw["app_secret"].to_s.strip.empty?,
+            secret_updated_at: raw["secret_updated_at"]
           }
         else
           {}

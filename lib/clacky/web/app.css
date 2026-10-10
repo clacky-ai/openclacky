@@ -12397,6 +12397,11 @@ body.setup-mode {
   color: #fff;
 }
 
+.channel-logo-qq {
+  background: linear-gradient(135deg, #12b7f5, #0092e0);
+  color: #fff;
+}
+
 /* Loading / error placeholders */
 .channel-loading,
 .channel-error {
@@ -16842,3 +16847,14 @@ body.setup-mode {
 .input-queue-row.editing .input-queue-status, .input-queue-row.editing .input-queue-files { display: none; }
 .input-queue-row button:focus-visible { outline: 2px solid var(--color-accent-primary); outline-offset: 2px; }
 @media (hover: none), (pointer: coarse) { .input-queue-actions .btn-icon-sm { width: 36px; height: 36px; } }
+
+/* ── QQ one-click bind modal ─────────────────────────────────────────── */
+.qq-qr-modal { position: relative; max-width: 420px; text-align: center; }
+.qq-qr-modal .modal-close-btn { position: absolute; top: 10px; right: 14px; }
+.qq-qr-hint { color: var(--color-text-secondary); font-size: 13px; margin: 8px 0 14px; }
+.qq-qr-status { min-height: 22px; font-size: 14px; font-weight: 600; margin-bottom: 16px; color: var(--color-accent-primary); }
+.qq-qr-actions { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+.qq-qr-open-btn { display: inline-flex; align-items: center; padding: 8px 16px; border-radius: 8px; background: var(--color-accent-primary); color: #fff; text-decoration: none; font-size: 14px; }
+.qq-qr-open-btn:hover { opacity: 0.92; }
+.qq-qr-copy-btn { padding: 8px 16px; border-radius: 8px; border: 1px solid var(--color-border); background: var(--color-bg-secondary); color: var(--color-text-primary); font-size: 14px; cursor: pointer; }
+.qq-qr-copy-btn:hover { border-color: var(--color-accent-primary); }
