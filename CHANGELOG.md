@@ -4,6 +4,47 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
+## [1.5.19] - 2026-10-10
+
+### Added
+- Add the built-in QQ official-bot channel (#615 - @chengoak)
+- Drag a session onto a project to move it (#610)
+- Add bookmarks to the chat navigator and tighten its layout (#617)
+- Scroll an overflowing session title on hover so it can be read in full (#618)
+- Add session lifecycle hooks (#607)
+- Rework the billing charts with a year heatmap and a 365-day range
+- Add an "Add Model" button to the model picker
+- Show an API Key hint in the model dialog and restyle the key link
+- Add oc-glm-5.3 and oc-kimi-k3 aliases with pricing and capability caps
+- Add abs-claude-sonnet-5-5 and abs-gpt-6.1-sol with corrected pricing
+- Add Xiaomi MiMo V2.6 models (#614)
+- Add the oc-minimax-m2.7 alias with its launch discount
+- Show a GLM/Kimi series promotion with a badge in the model picker
+- Forward Seedance reference images over the OpenAI-compatible video gateway (#616 - @codevoyager1984)
+- Document the input image limits and the content_filter retry in the media skill (#593 - @codevoyager1984)
+
+### Improved
+- Make the model picker visually distinct from the variant switcher
+- Explain model price discounts with a tooltip
+- Soften the chat navigator tick color
+- Hide the skills tab strip when only one tab is available
+- Tune the billing chart axis labels
+- Clarify ambient audio generation in the media skill (#606 - @YeEmrick)
+
+### Fixed
+- Stop the workspace file tree from flickering on reload
+- Deliver web-originated replies to IM after a finished progress card (#603, #605 - @chengoak)
+- Fall back to gem update when the OSS CDN fails (#583, #608 - @theluckystrike)
+- Keep the chat position when toggling preview fullscreen (#613)
+- Stop opening an empty variant panel for custom models
+- Use a white background for the context bar popovers
+- Point a rate limit error at switching models
+- Skip reasoning fields for non-Anthropic Converse models
+
+### More
+- Rename the billing panel title to Usage
+- Use 服务商 instead of 供应商 in model settings
+
 ## [1.5.18] - 2026-10-02
 
 ### Fixed
