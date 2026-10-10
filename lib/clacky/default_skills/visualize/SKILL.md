@@ -3,8 +3,6 @@ name: visualize
 name_zh: 可视化交互
 description: Create visualizations and interactive tools directly in conversation. Proactively use to show how something works; explore 'what happens when', 'what changes', or 'help me understand'; compare or inspect; create simulations, maps, charts, graphs, and mockups.
 description_zh: 直接在对话中创建可视化和交互工具，用于演示原理、探索变化、比较检查，以及制作模拟、地图、图表和原型。
-required-output-capabilities:
-  - artifact
 ---
 
 # Visualize

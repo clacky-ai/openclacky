@@ -26,12 +26,6 @@ RSpec.describe "visualize default skill" do
     expect(skill.context_description).to eq(skill.description)
   end
 
-  it "is only available when the output can render artifacts" do
-    expect(skill.required_output_capabilities).to eq([:artifact])
-    expect(skill.available_for_output_capabilities?([])).to be false
-    expect(skill.available_for_output_capabilities?([:artifact])).to be true
-  end
-
   it "publishes HTML as a content reference and removes its temporary source" do
     Dir.mktmpdir("visualize_skill_spec") do |home|
       input = File.join(home, "visualization.html")

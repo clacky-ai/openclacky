@@ -16,18 +16,15 @@ module Clacky
     class WebUIController
       include Clacky::UIInterface
 
-      DEFAULT_OUTPUT_CAPABILITIES = [:artifact].freeze
-
       def show_input_queue(entries)
         @broadcaster.call(@session_id, { type: "input_queue", session_id: @session_id, entries: entries })
       end
 
       attr_reader :session_id
 
-      def initialize(session_id, broadcaster, output_capabilities: DEFAULT_OUTPUT_CAPABILITIES)
+      def initialize(session_id, broadcaster)
         @session_id  = session_id
         @broadcaster = broadcaster   # callable: broadcaster.call(session_id, event_hash)
-        @output_capabilities = output_capabilities
         @mutex       = Mutex.new
 
         # Pending confirmation state: { id => ConditionVariable, result => value }
@@ -57,58 +54,6 @@ module Clacky
       # @return [Boolean] true if any channel subscribers are registered
       def channel_subscribed?
         @subscribers_mutex.synchronize { !@channel_subscribers.empty? }
-      end
-
-      # A structured result is safe to expose only when every active output
-      # target can deliver it. Channel subscribers currently inherit the empty
-      # default from UIInterface; a future image renderer can opt into :artifact.
-      def output_capabilities
-        capabilities = configured_output_capabilities || []
-        subscribers = @subscribers_mutex.synchronize { @channel_subscribers.dup }
-        intersect_output_capabilities(capabilities, subscribers)
-      end
-
-      # Legacy sessions may not have persisted an output contract. Keep that
-      # state distinct from an explicit empty contract until a real task entry
-      # point identifies the delivery surface.
-      def output_capabilities_configured?
-        !@output_capabilities.nil?
-      end
-
-      # Capabilities declared by this session before active output targets are
-      # intersected. Session persistence uses this value so a temporary channel
-      # subscription cannot permanently downgrade a Web conversation.
-      def configured_output_capabilities
-        return nil if @output_capabilities.nil?
-
-        Array(@output_capabilities).map(&:to_sym).uniq
-      end
-
-      # Resolve a legacy session's unknown output contract exactly once. The
-      # requested capabilities are intersected with active channel subscribers
-      # so an IM-bound conversation can never persist a capability its current
-      # delivery targets cannot render.
-      def resolve_output_capabilities!(capabilities = output_capabilities)
-        return configured_output_capabilities || [] if output_capabilities_configured?
-
-        requested = Array(capabilities).map(&:to_sym).uniq
-        @subscribers_mutex.synchronize do
-          if @output_capabilities.nil?
-            @output_capabilities = intersect_output_capabilities(requested, @channel_subscribers)
-          end
-        end
-        configured_output_capabilities || []
-      end
-
-      private def intersect_output_capabilities(capabilities, subscribers)
-        subscribers.reduce(capabilities) do |supported_capabilities, subscriber|
-          supported = if subscriber.respond_to?(:output_capabilities)
-                        Array(subscriber.output_capabilities).map(&:to_sym)
-                      else
-                        []
-                      end
-          supported_capabilities & supported
-        end
       end
 
       # Deliver a confirmation answer received from the browser.

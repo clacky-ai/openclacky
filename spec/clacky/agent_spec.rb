@@ -26,52 +26,6 @@ RSpec.describe Clacky::Agent do
     end
   end
 
-  describe "output capability skill visibility" do
-    let(:output_capabilities) { [] }
-    let(:ui) do
-      capabilities = output_capabilities
-      Class.new do
-        include Clacky::UIInterface
-
-        define_method(:output_capabilities) { capabilities }
-      end.new
-    end
-    let(:agent) do
-      described_class.new(
-        client,
-        config,
-        working_dir: Dir.pwd,
-        ui: ui,
-        profile: "coding",
-        session_id: Clacky::SessionManager.generate_id,
-        source: :manual
-      )
-    end
-    before do
-      allow(Clacky::Utils::ScriptsManager).to receive(:setup!)
-    end
-
-    it "does not advertise visualize when the output cannot render artifacts" do
-      expect(agent.send(:build_skill_context)).not_to include("name: visualize")
-    end
-
-    it "persists an empty output contract" do
-      expect(agent.to_session_data[:output_capabilities]).to eq([])
-    end
-
-    context "when every output target supports artifacts" do
-      let(:output_capabilities) { [:artifact] }
-
-      it "advertises visualize to every web agent profile" do
-        expect(agent.send(:build_skill_context)).to include("name: visualize")
-      end
-
-      it "persists the output contract" do
-        expect(agent.to_session_data[:output_capabilities]).to eq(["artifact"])
-      end
-    end
-  end
-
   describe "#run" do
     let(:tool_call_response) do
       mock_api_response(
@@ -115,32 +69,6 @@ RSpec.describe Clacky::Agent do
       expect(result[:status]).to eq(:success)
       expect(result[:iterations]).to be > 0
       expect(client).to have_received(:send_messages_with_tools).at_least(:once)
-    end
-
-    it "resolves an unknown output contract before building the task prompt" do
-      resolving_ui = Class.new do
-        include Clacky::UIInterface
-
-        attr_reader :resolved
-
-        def resolve_output_capabilities!
-          @resolved = true
-          []
-        end
-      end.new
-      resolving_agent = described_class.new(
-        client,
-        config,
-        working_dir: Dir.pwd,
-        ui: resolving_ui,
-        profile: "coding",
-        session_id: Clacky::SessionManager.generate_id,
-        source: :manual
-      )
-
-      resolving_agent.run("Calculate 1+1")
-
-      expect(resolving_ui.resolved).to be(true)
     end
 
     it "tracks iteration count" do

@@ -86,10 +86,6 @@ module Clacky
           return { matched: true, found: false, skill_name: skill_name, reason: :agent_not_allowed, skill: skill }
         end
 
-        unless skill.available_for_output_capabilities?(output_capabilities)
-          return { matched: true, found: false, skill_name: skill_name, reason: :output_not_supported, skill: skill }
-        end
-
         { matched: true, found: true, skill_name: skill_name, skill: skill, arguments: arguments }
       end
 
@@ -296,9 +292,6 @@ module Clacky
           when :agent_not_allowed
             "[SYSTEM] The user entered the slash command /#{skill_name} but this skill is not available in the current context. " \
             "Please inform the user in their language that this skill is not enabled for the current session."
-          when :output_not_supported
-            "[SYSTEM] The user entered the slash command /#{skill_name} but the current output surface cannot render its result. " \
-            "Please inform the user in their language that this skill is not available in the current session."
           end
           notice += " Do not attempt to execute any skill or tool. Just explain the situation clearly and helpfully."
 
@@ -439,28 +432,14 @@ module Clacky
         scored.sort_by { |_, s| -s }.first(3).map(&:first)
       end
 
-      # Structured output capabilities supported by every active delivery target.
-      # Plain CLI/JSON UIs inherit the empty default from UIInterface.
-      # @return [Array<Symbol>]
-      def output_capabilities
-        return [] unless @ui.respond_to?(:output_capabilities)
-
-        Array(@ui.output_capabilities).map(&:to_sym).uniq
-      end
-
-      # Whether a skill is valid for both the current agent profile and the
-      # active delivery surface. This is also used by invoke_skill at execution
-      # time, so a stale model suggestion cannot bypass a capability change.
+      # Whether a skill is valid for the current agent profile.
       # @param skill [Skill]
       # @return [Boolean]
       def skill_available?(skill)
-        return false if @agent_profile && !@agent_profile.skill_allowed?(skill)
-
-        skill.available_for_output_capabilities?(output_capabilities)
+        !@agent_profile || @agent_profile.skill_allowed?(skill)
       end
 
-      # Filter skills by both their `agent:` scope and optional structured
-      # output requirements.
+      # Filter skills by their `agent:` scope.
       # @param skills [Array<Skill>]
       # @return [Array<Skill>]
       def filter_skills_for_context(skills)

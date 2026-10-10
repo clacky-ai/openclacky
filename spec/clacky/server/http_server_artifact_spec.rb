@@ -49,24 +49,3 @@ RSpec.describe Clacky::Server::HttpServer, "artifact route" do
     expect(response.status).to eq(404)
   end
 end
-
-RSpec.describe Clacky::Server::HttpServer, "artifact output capabilities" do
-  let(:server) { described_class.allocate }
-
-  it "restores explicitly persisted artifact support" do
-    data = { "source" => "ext", "output_capabilities" => ["artifact"] }
-
-    expect(server.send(:persisted_output_capabilities, data)).to eq([:artifact])
-  end
-
-  it "normalizes persisted capabilities" do
-    data = { output_capabilities: [:artifact, "artifact", ""] }
-
-    expect(server.send(:persisted_output_capabilities, data)).to eq([:artifact])
-  end
-
-  it "keeps a legacy session's output contract unknown" do
-    expect(server.send(:persisted_output_capabilities, { source: "manual" })).to be_nil
-    expect(server.send(:persisted_output_capabilities, { output_capabilities: nil })).to be_nil
-  end
-end

@@ -474,10 +474,6 @@ RSpec.describe Clacky::Server::HttpServer do
 
         session = parsed_body(res)["session"]
         expect(session["source"]).to eq("manual")
-
-        agent = nil
-        server.instance_variable_get(:@registry).with_session(session["id"]) { |entry| agent = entry[:agent] }
-        expect(agent.to_session_data[:output_capabilities]).to eq(["artifact"])
       end
     end
 
@@ -491,10 +487,6 @@ RSpec.describe Clacky::Server::HttpServer do
         expect(res.status).to eq(201)
         session = parsed_body(res)["session"]
         expect(session["source"]).to eq("setup")
-
-        agent = nil
-        server.instance_variable_get(:@registry).with_session(session["id"]) { |entry| agent = entry[:agent] }
-        expect(agent.to_session_data[:output_capabilities]).to eq([])
       end
     end
 
@@ -649,90 +641,6 @@ RSpec.describe Clacky::Server::HttpServer do
         dispatch(server, req, res)
 
         expect(res.status).to eq(404)
-      end
-    end
-  end
-
-  describe "persisted output capabilities" do
-    it "enables artifacts for extension-created Web sessions" do
-      with_server(agent_config: agent_config) do |server|
-        session_id = server.send(:build_session, name: "extension", source: :ext)
-
-        ui = nil
-        server.instance_variable_get(:@registry).with_session(session_id) { |entry| ui = entry[:ui] }
-        expect(ui.configured_output_capabilities).to eq([:artifact])
-      end
-    end
-
-    it "keeps scheduler and channel session builders text-only" do
-      with_server(agent_config: agent_config) do |server|
-        scheduler = server.instance_variable_get(:@scheduler)
-        channel_manager = server.instance_variable_get(:@channel_manager)
-        cron_id = scheduler.instance_variable_get(:@session_builder).call(name: "cron", source: :cron)
-        channel_id = channel_manager.instance_variable_get(:@session_builder).call(name: "channel", source: :channel)
-
-        registry = server.instance_variable_get(:@registry)
-        [cron_id, channel_id].each do |session_id|
-          ui = nil
-          registry.with_session(session_id) { |entry| ui = entry[:ui] }
-          expect(ui.configured_output_capabilities).to eq([])
-        end
-      end
-    end
-
-    it "restores a Web session's explicit artifact contract" do
-      Dir.mktmpdir("clacky_capability_spec") do |dir|
-        session_id = nil
-        with_server(agent_config: agent_config, sessions_dir: dir) do |server|
-          res = fake_res
-          dispatch(server, fake_req(method: "POST", path: "/api/sessions", body: { name: "web" }), res)
-          session_id = parsed_body(res)["session"]["id"]
-        end
-
-        with_server(agent_config: agent_config, sessions_dir: dir) do |server|
-          registry = server.instance_variable_get(:@registry)
-          expect(registry.ensure(session_id)).to be true
-
-          ui = nil
-          registry.with_session(session_id) { |entry| ui = entry[:ui] }
-          expect(ui.configured_output_capabilities).to eq([:artifact])
-        end
-      end
-    end
-
-    it "resolves a legacy manual session when its next task comes from Web" do
-      Dir.mktmpdir("clacky_capability_spec") do |dir|
-        session_id = nil
-        with_server(agent_config: agent_config, sessions_dir: dir) do |server|
-          res = fake_res
-          dispatch(server, fake_req(method: "POST", path: "/api/sessions", body: { name: "legacy" }), res)
-          session_id = parsed_body(res)["session"]["id"]
-        end
-
-        path = Dir[File.join(dir, "*.json")].first
-        data = JSON.parse(File.read(path))
-        data.delete("output_capabilities")
-        File.write(path, JSON.pretty_generate(data))
-
-        with_server(agent_config: agent_config, sessions_dir: dir) do |server|
-          registry = server.instance_variable_get(:@registry)
-          expect(registry.ensure(session_id)).to be true
-
-          ui = nil
-          agent = nil
-          registry.with_session(session_id) do |entry|
-            ui = entry[:ui]
-            agent = entry[:agent]
-          end
-          expect(ui.output_capabilities_configured?).to be(false)
-          expect(ui.configured_output_capabilities).to be_nil
-          expect(agent.to_session_data[:output_capabilities]).to be_nil
-
-          server.send(:resolve_web_output_capabilities, session_id)
-
-          expect(ui.configured_output_capabilities).to eq([:artifact])
-          expect(agent.to_session_data[:output_capabilities]).to eq(["artifact"])
-        end
       end
     end
   end
@@ -2084,7 +1992,6 @@ RSpec.describe Clacky::Server::HttpServer do
                      history: [], name: "My Chat")
       ui = double("ui")
       allow(ui).to receive(:show_user_message)
-      allow(ui).to receive(:resolve_output_capabilities!)
       server.instance_variable_get(:@registry).with_session(sid) do |s|
         s[:agent] = agent
         s[:ui] = ui
@@ -2113,7 +2020,6 @@ RSpec.describe Clacky::Server::HttpServer do
           skill_command: "slides",
           skill_command_display: "幻灯片"
         )
-        expect(ui).to have_received(:resolve_output_capabilities!).with([:artifact])
         expect(skill).to have_received(:display_name).with("zh")
       end
     end

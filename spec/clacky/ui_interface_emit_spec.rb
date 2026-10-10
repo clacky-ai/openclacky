@@ -17,11 +17,6 @@ RSpec.describe "UIInterface#emit" do
       expect { bare_ui.emit("ext.demo.tick", step: 1) }.not_to raise_error
     end
 
-    it "declares no structured output capabilities by default" do
-      expect(bare_ui.output_capabilities).to eq([])
-      expect(bare_ui.resolve_output_capabilities!([:artifact])).to eq([])
-    end
-
     it "is inherited by UIs with no event channel" do
       expect(Clacky::NullUIController.new).to respond_to(:emit)
       expect { Clacky::NullUIController.new.emit("ext.demo.tick", step: 1) }.not_to raise_error

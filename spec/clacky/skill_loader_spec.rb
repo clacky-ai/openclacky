@@ -546,14 +546,10 @@ RSpec.describe Clacky::SkillLoader do
       expect(unfiltered).to include("skill-add")
     end
 
-    it "filters skills by the active output capabilities" do
+    it "includes visualize as a normal user-invocable skill" do
       loader = described_class.new(working_dir: working_dir, brand_config: nil)
 
-      text_only = loader.user_invocable_skills.map(&:identifier)
-      artifact = loader.user_invocable_skills(output_capabilities: [:artifact]).map(&:identifier)
-
-      expect(text_only).not_to include("visualize")
-      expect(artifact).to include("visualize")
+      expect(loader.user_invocable_skills.map(&:identifier)).to include("visualize")
     end
   end
 

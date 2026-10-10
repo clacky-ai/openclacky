@@ -39,7 +39,7 @@ module Clacky
         skill = skill_loader.find_by_name(skill_name)
         return { error: "Skill not found: #{skill_name}" } unless skill
         unless agent.skill_available?(skill)
-          return { error: "Skill is not available in the current output context: #{skill_name}" }
+          return { error: "Skill is not available for the current agent profile: #{skill_name}" }
         end
 
         # Execute skill based on its configuration.
