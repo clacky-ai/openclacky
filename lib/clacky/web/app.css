@@ -3057,7 +3057,6 @@ body {
 #chat-panel { flex: 1; display: flex; flex-direction: row; overflow: hidden; position: relative; }
 #chat-main {
   --chat-nav-width: 2.5rem;
-  --chat-nav-scrollbar-space: 12px;
   flex: 1;
   display: flex;
   flex-direction: column;
@@ -3719,16 +3718,16 @@ body {
   flex-direction: column;
   gap: 0.75rem;
 }
-.has-chat-navigator > .chat-messages-scroll {
-  padding-right: calc(var(--chat-nav-width) + var(--chat-nav-overlay-space, var(--chat-nav-scrollbar-space)) + 0.5rem);
+#chat-main > .chat-messages-scroll {
+  padding-left: calc(var(--chat-nav-width) + 0.5rem);
 }
 
-/* ── Chat navigator (right-edge minimap) ───────────────────────────────────
+/* ── Chat navigator (left-edge minimap) ────────────────────────────────────
    Absolutely positioned inside #chat-main, vertically synced to #messages
    via JS (ResizeObserver). The track scrolls independently of the chat. */
 .chat-navigator {
   position: absolute;
-  right: var(--chat-nav-scrollbar-space);
+  left: 0;
   width: var(--chat-nav-width);
   z-index: 10;
   pointer-events: none;
@@ -3769,7 +3768,7 @@ body {
 }
 .chat-nav-bar {
   position: absolute;
-  right: 0.5rem;
+  left: 0.5rem;
   height: 0.1875rem;
   transform: translateY(-50%);
   border-radius: 0.125rem;
@@ -3794,7 +3793,7 @@ body {
 /* ── Hover popup ─────────────────────────────────────────────────────────── */
 .chat-nav-popup {
   position: absolute;
-  right: 100%;
+  left: 100%;
   top: 0;
   width: 20rem;
   height: 7rem;
@@ -15484,8 +15483,8 @@ body.setup-mode {
   .chat-navigator {
     display: none !important;
   }
-  .has-chat-navigator > .chat-messages-scroll {
-    padding-right: 1.25rem;
+  #chat-main > .chat-messages-scroll {
+    padding-left: 1.25rem;
   }
 
   /* Directory picker: full-screen layout with horizontally scrollable places. */

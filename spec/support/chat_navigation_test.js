@@ -147,7 +147,6 @@ async function navigatorTests() {
   api.setViewport(true);
   api._renderTicks();
   assert.equal(nodes.nav.style.display, "none", "the navigator is hidden at the mobile breakpoint");
-  assert.ok(!nodes.chatMain.classes.has("has-chat-navigator"), "mobile messages do not reserve navigator space");
   api.setViewport(false);
   api._renderTicks();
 
@@ -294,20 +293,23 @@ async function navigatorTests() {
 
   api.configure(entries, nodes, false);
   api._syncBounds();
-  assert.equal(nodes.nav.style.right, "12px", "overlay scrollbar retains its own hit area");
-  assert.equal(nodes.chatMain.style["--chat-nav-overlay-space"], "12px", "content leaves room for the overlay scrollbar");
-  assert.ok(nodes.chatMain.classes.has("has-chat-navigator"), "visible navigation reserves content space");
+  assert.equal(nodes.nav.style.left, "0px", "the navigator is anchored to the message viewport's left edge");
   nodes.messages.clientWidth = 480;
   api._syncBounds();
-  assert.equal(nodes.nav.style.right, "20px", "classic scrollbar uses its actual width");
-  assert.equal(nodes.chatMain.style["--chat-nav-overlay-space"], "0px", "classic scrollbar width is not counted twice");
+  assert.equal(nodes.nav.style.left, "0px", "scrollbar width does not affect left-edge placement");
   nodes.messages.clientWidth = 500;
-  assert.match(css, /\.has-chat-navigator > \.chat-messages-scroll\s*\{\s*padding-right:\s*calc\(var\(--chat-nav-width\)/,
-    "message content and navigation share the same width variable");
-  assert.match(css, /\.chat-navigator\s*\{[^}]*width:\s*var\(--chat-nav-width\)/);
+  assert.match(css, /#chat-main > \.chat-messages-scroll\s*\{\s*padding-left:\s*calc\(var\(--chat-nav-width\)/,
+    "the message area permanently reserves the navigator width");
+  assert.match(css, /\.chat-navigator\s*\{[^}]*left:\s*0;[^}]*width:\s*var\(--chat-nav-width\)/s);
+  assert.match(css, /\.chat-nav-popup\s*\{[^}]*left:\s*100%;/s, "previews open toward the message content");
+  assert.match(css, /\.chat-nav-bar\s*\{[^}]*left:\s*0\.5rem;/s,
+    "left-edge ticks expand toward the message content");
+  assert.doesNotMatch(source, /chat-nav-scrollbar-space|chat-nav-overlay-space/,
+    "right-edge scrollbar compensation is fully removed");
   api.configure(entries.slice(0, 1), nodes);
   api._renderTicks();
-  assert.ok(!nodes.chatMain.classes.has("has-chat-navigator"), "hidden navigation restores normal content spacing");
+  assert.equal(nodes.nav.style.display, "none", "a single turn hides ticks without changing the message gutter");
+  assert.doesNotMatch(source, /has-chat-navigator/, "async index loading cannot toggle the message layout");
   api.configure(entries, nodes, false);
 
   const opener = new Element();
