@@ -7725,6 +7725,13 @@ module Clacky
             conn.send_json(type: "error", message: "Session not found: #{session_id}")
           end
 
+        when "feedback_mode"
+          session_id = msg["session_id"] || conn.session_id
+          ui = @registry.ensure(session_id) && @registry.get(session_id)&.dig(:ui)
+          raise ArgumentError, "Session not found: #{session_id}" unless ui
+          ui.set_feedback_mode(msg["value"], timeout_seconds: msg["timeout_seconds"])
+          conn.send_json(type: "feedback_mode", session_id: session_id, value: msg["value"], timeout_seconds: 300)
+
         when "input_behavior"
           mode = msg["value"]
           raise ArgumentError, "Invalid input behavior" unless %w[queue interrupt steer].include?(mode)
@@ -7871,6 +7878,8 @@ module Clacky
         return unless @registry.exist?(session_id)
 
         session = @registry.get(session_id)
+        return if session[:ui].respond_to?(:deliver_feedback) &&
+                  session[:ui].deliver_feedback(content, files: files, references_display: references, reference_contexts: build_reference_contexts(references))
         
         mode = @agent_config.input_behavior
         queued = false

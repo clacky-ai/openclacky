@@ -29,6 +29,8 @@ module Clacky
 
         # Pending confirmation state: { id => ConditionVariable, result => value }
         @pending_confirmations = {}
+        @feedback_mode = "ask"
+        @pending_feedback = nil
 
         # Channel subscribers: array of objects implementing UIInterface.
         # All emitted events are forwarded to each subscriber after WebSocket broadcast.
@@ -65,6 +67,71 @@ module Clacky
 
           pending[:result] = result
           pending[:cond].signal
+        end
+      end
+
+      def set_feedback_mode(value, timeout_seconds: 300)
+        raise ArgumentError, "Invalid feedback mode" unless %w[auto ask].include?(value) && timeout_seconds == 300
+        @mutex.synchronize do
+          @feedback_mode = value
+          pending = @pending_feedback
+          if value == "ask" && pending && !pending[:answer] && pending[:countdown]
+            emit("feedback_countdown_resolved", request_id: pending[:id], resolution: "interrupted")
+            pending[:countdown] = pending[:deadline] = nil
+            pending[:cond].signal
+          end
+          emit("feedback_mode", value: value, timeout_seconds: 300)
+        end
+      end
+
+      def deliver_feedback(answer, **options)
+        @mutex.synchronize do
+          pending = @pending_feedback
+          return false unless pending && !pending[:answer] && !answer.strip.empty?
+          return false if pending[:deadline] && Process.clock_gettime(Process::CLOCK_MONOTONIC) >= pending[:deadline]
+          pending[:answer], pending[:resolution], pending[:options] = answer, "human", options
+          pending[:cond].signal
+          true
+        end
+      end
+
+      # The agent's existing task thread owns the wait, independently of sockets.
+      def wait_for_feedback(question: nil, recommended_label: nil)
+        pending = nil
+        @mutex.synchronize do
+          old = @pending_feedback
+          old[:cond].signal if old
+          emit("feedback_countdown_resolved", request_id: old[:id], resolution: "superseded") if old && old[:countdown]
+          if @feedback_mode == "auto" && recommended_label
+            id = SecureRandom.uuid
+            pending = { id: id, cond: ConditionVariable.new,
+                        deadline: Process.clock_gettime(Process::CLOCK_MONOTONIC) + 300,
+                        countdown: { request_id: id, question: question, recommended_label: recommended_label,
+                                     deadline_ms: (Time.now.to_f * 1000).to_i + 300_000, duration_seconds: 300 } }
+          end
+          @pending_feedback = pending
+          yield
+          return nil unless pending
+          emit("feedback_countdown_started", **pending[:countdown])
+          while @pending_feedback.equal?(pending) && !pending[:answer]
+            remaining = pending[:deadline] && pending[:deadline] - Process.clock_gettime(Process::CLOCK_MONOTONIC)
+            if remaining && remaining <= 0
+              pending[:answer], pending[:resolution] = recommended_label, "timeout"
+            else
+              pending[:cond].wait(@mutex, remaining)
+            end
+          end
+          return nil unless @pending_feedback.equal?(pending)
+          emit("feedback_countdown_resolved", request_id: pending[:id], resolution: pending[:resolution], answer: pending[:answer]) if pending[:countdown]
+          pending[:countdown] = nil
+          [pending[:answer], pending.fetch(:options, {}), pending[:resolution]]
+        end
+      ensure
+        @mutex.synchronize do
+          if pending && @pending_feedback.equal?(pending)
+            emit("feedback_countdown_resolved", request_id: pending[:id], resolution: "interrupted") if pending[:countdown]
+            @pending_feedback = nil
+          end
         end
       end
 
@@ -336,6 +403,10 @@ module Clacky
       # The frontend's appendToolStdout will attach to the last visible .tool-item
       # even when _liveLastToolItem is null (after the tab re-loaded).
       def replay_live_state
+        @mutex.synchronize do
+          emit("feedback_mode", value: @feedback_mode, timeout_seconds: 300)
+          emit("feedback_countdown_started", **@pending_feedback[:countdown]) if @pending_feedback && @pending_feedback[:countdown]
+        end
         return unless @live_progress_state
 
         # Replay complete progress state (not just message).

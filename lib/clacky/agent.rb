@@ -123,6 +123,7 @@ module Clacky
       @subagent_transcripts_mutex = Mutex.new # fan-out collects from worker threads
       @pending_script_tmpdirs = [] # Decrypted-script tmpdirs that live for the agent's lifetime
       @pending_error_rollback = false  # Deferred rollback flag set by restore_session on error
+      @feedback_inputs = {}
       @last_run_interrupted = false    # Set when run() exits via AgentInterrupted; tells the next run() to keep the task-start snapshot (continuation of the same task across a relay, not a brand-new task)
       @cancel_flag = CancelFlag.new # Cooperative cancel: set by fan_out_labeled when the parent is interrupted; subagents on worker threads observe it via check_stale!
 
@@ -888,6 +889,7 @@ module Clacky
       if run_context && !completion_sent && task_id == @current_task_id
         complete_run_hook(result, run_context)
       end
+      remove_pending_input(@feedback_inputs.delete(task_id)) if @feedback_inputs[task_id]
       if run_turn_started && task_id == @current_task_id
         @input_mutex.synchronize do
           @accepting_steering = false
@@ -1691,9 +1693,30 @@ module Clacky
             # can extract the questions and emit a "request_feedback" event
             # (renders as a clickable card in the browser).
             # Fallback UIs (terminal, IM channels) receive the formatted text message.
-            @ui&.show_tool_call(call[:name], call[:arguments])
-
-            if @config.permission_mode == :auto_approve
+            if @ui.respond_to?(:wait_for_feedback)
+              questions = Tools::AskUser.normalize_questions(args)
+              q = questions.first
+              raw = args[:questions].is_a?(Array) ? args[:questions] : [args]
+              recommended = Tools::AskUser.fetch_key(raw.first, :recommended)
+              eligible = raw.one? && questions.one? && !q[:multi] && recommended.is_a?(Integer) && q[:recommended] == recommended
+              label = eligible && Tools::AskUser.fetch_key(raw.first, :options)[recommended]
+              eligible &&= label.is_a?(String) && !label.strip.empty? && label.strip == q[:options][recommended]
+              task_id = @current_task_id
+              answer, feedback_options, resolution = @ui.wait_for_feedback(question: q&.dig(:question), recommended_label: eligible ? q[:options][recommended] : nil) do
+                @ui.show_tool_call(call[:name], call[:arguments])
+              end
+              check_stale!
+              if answer && task_id == @current_task_id
+                Thread.handle_interrupt(Clacky::AgentInterrupted => :never) do
+                  id = @feedback_inputs[task_id] = enqueue_input("Answer: #{answer}", delivery: :queue, display_text: resolution == "human" && answer.include?("Q：#{q[:question]}\nA：") ? answer : "Q：#{q[:question]}\nA：#{answer}", created_at: Time.now.to_f, **(feedback_options || {}))
+                  result[:awaiting_feedback] = awaiting_feedback = !steer_pending_input(id, expected_task_id: task_id)
+                  remove_pending_input(id) if awaiting_feedback
+                end
+              else
+                awaiting_feedback = true
+              end
+            elsif @config.permission_mode == :auto_approve
+              @ui&.show_tool_call(call[:name], call[:arguments])
               # auto_approve means the agent runs unattended by default, but a
               # human MAY be watching the terminal. Show a short interactive
               # countdown: if the user steps in, hand control over and wait for
@@ -1716,6 +1739,7 @@ module Clacky
               end
             else
               # confirm_all / confirm_safes — a human is present, truly wait for user input.
+              @ui&.show_tool_call(call[:name], call[:arguments])
               awaiting_feedback = true
             end
           else

@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require "clacky/server/web_ui_controller"
+
 RSpec.describe Clacky::Agent do
   let(:client) do
     instance_double(Clacky::Client).tap do |c|
@@ -79,6 +81,113 @@ RSpec.describe Clacky::Agent do
     it "tracks cost" do
       agent.run("test")
       expect(agent.total_cost).to be > 0
+    end
+
+    context 'native WebUI feedback' do
+      let(:events) { [] }
+      let(:ui) { Clacky::Server::WebUIController.new(agent.session_id, ->(_sid, event) { events << event }) }
+      let(:questions) { [{ question: 'Pick?', options: ['Recommended', 'Alternative'], recommended: 0 }] }
+      let(:tool_call_response) { mock_api_response(content: nil, tool_calls: [mock_tool_call(name: 'ask_user', args: JSON.generate(questions: questions))]) }
+      before { agent.instance_variable_set(:@ui, ui) }
+      def expire_countdown
+        ui.set_feedback_mode('auto')
+        allow(Process).to receive(:clock_gettime).and_call_original
+        allow(Process).to receive(:clock_gettime).with(Process::CLOCK_MONOTONIC).and_return(10.0, 310.0)
+      end
+      it 'steers the exact recommendation into the same run and persists Q&A for replay' do
+        expire_countdown
+        result = agent.run('Build something')
+        expect(result[:awaiting_user_feedback]).to be(false)
+        expect(client).to have_received(:send_messages_with_tools).twice
+        answer = agent.history.to_a.find { |m| m[:display_text] == "Q：Pick?\nA：Recommended" }
+        expect(answer).to include(role: 'user', content: 'Answer: Recommended', task_id: result[:task_id])
+        expect(events).to include(hash_including(type: 'feedback_countdown_resolved', resolution: 'timeout', answer: 'Recommended'))
+        expect(events.count { |e| e[:type] == 'history_user_message' && e[:content] == "Q：Pick?\nA：Recommended" }).to eq(1)
+        expect(agent.pending_inputs).to be_empty
+        ask_result = agent.history.to_a.find { |m| m[:role] == 'tool' }
+        expect(JSON.parse(ask_result[:content])['awaiting_feedback']).to be(false)
+      end
+      context 'with a slash-prefixed recommended label' do
+        let(:questions) { [{ question: 'Pick?', options: ['/start', 'Alternative'], recommended: 0 }] }
+        it 'steers the literal answer instead of treating it as a run-level slash command' do
+          expire_countdown
+          result = agent.run('Build something')
+          answer = agent.history.to_a.find { |m| m[:display_text] == "Q：Pick?\nA：/start" }
+          expect(answer).to include(content: 'Answer: /start', task_id: result[:task_id])
+          expect(result[:awaiting_user_feedback]).to be(false)
+          expect(agent.pending_inputs).to be_empty
+        end
+      end
+      it 'preserves an already formatted human Q&A reply for the existing receipt and history path' do
+        reply = "Q：Pick?\nA：Alternative"
+        allow(ui).to receive(:wait_for_feedback) do |**_options, &show|
+          show.call
+          [reply, {}, 'human']
+        end
+        result = agent.run('Build something')
+        messages = events.select { |e| e[:type] == 'history_user_message' && e[:steering] }
+        expect(messages).to contain_exactly(hash_including(content: reply))
+        expect(agent.history.to_a).to include(hash_including(display_text: reply, task_id: result[:task_id]))
+        expect(agent.pending_inputs).to be_empty
+      end
+      it 'carries native human reference context into the existing steering history' do
+        allow(ui).to receive(:wait_for_feedback) do |**_options, &show|
+          show.call
+          ['Alternative', { reference_contexts: ['Previous chat context'], references_display: [{ type: 'chat', name: 'previous' }] }]
+        end
+        result = agent.run('Build something')
+        expect(result[:awaiting_user_feedback]).to be(false)
+        expect(agent.history.to_a).to include(hash_including(content: 'Previous chat context', system_injected: true, task_id: result[:task_id]))
+        expect(agent.pending_inputs).to be_empty
+      end
+      it 'uses native Ask even with auto_approve tool permissions' do
+        expect(agent.run('Build something')[:awaiting_user_feedback]).to be(true)
+        expect(config.permission_mode).to eq(:auto_approve)
+        expect(events.map { |e| e[:type] }).not_to include('feedback_countdown_started')
+      end
+      [
+        [{ question: 'Pick?', options: ['A'], recommended: 0, multi: true }],
+        [{ question: 'Pick?', options: ['A'] }],
+        [{ question: 'Pick?', options: ['A'], recommended: 5 }],
+        [{ question: 'Pick?', options: ['A'], recommended: -1 }],
+        [{ question: 'Pick?', options: ['A'], recommended: 0.5 }],
+        [{ question: 'Pick?', options: ['', 'A'], recommended: 0 }],
+        [{ question: 'Pick?', options: [42], recommended: 0 }],
+        [{ question: 'Pick?', options: ['A'], recommended: 0 }, { question: 'Next?', options: ['B'], recommended: 0 }],
+        [{ question: 'Pick?', options: ['A'], recommended: 0 }, {}]
+      ].each do |invalid|
+        context "with ineligible questions #{invalid.inspect}" do
+          let(:questions) { invalid }
+          it 'waits for manual input without a countdown or extra model call' do
+            expire_countdown
+            expect(agent.run('Build something')[:awaiting_user_feedback]).to be(true)
+            expect(events.map { |e| e[:type] }).not_to include('feedback_countdown_started')
+            expect(client).to have_received(:send_messages_with_tools).once
+          end
+        end
+      end
+      it 'cleans up an answer if cancellation arrives after enqueue and before steering' do
+        expire_countdown
+        allow(agent).to receive(:steer_pending_input) { raise Clacky::AgentInterrupted, 'cancelled' }
+        expect { agent.run('Build something') }.to raise_error(Clacky::AgentInterrupted)
+        expect(agent.pending_inputs).to be_empty
+      end
+      it 'rejects an answer when the task was replaced while waiting' do
+        allow(ui).to receive(:wait_for_feedback) do |**_options, &show|
+          show.call
+          agent.instance_variable_set(:@current_task_id, 999)
+          'Recommended'
+        end
+        expect(agent).not_to receive(:enqueue_input)
+        agent.run('Build something')
+        expect(agent.pending_inputs).to be_empty
+      end
+      it 'removes a rejected steering entry so an old answer cannot start another task' do
+        expire_countdown
+        allow(agent).to receive(:steer_pending_input).and_return(false)
+        agent.run('Build something')
+        expect(agent.pending_inputs).to be_empty
+      end
     end
 
     context "when the tool call is a terminal command" do
