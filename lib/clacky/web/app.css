@@ -17026,3 +17026,14 @@ body.setup-mode {
 .qq-qr-open-btn:hover { opacity: 0.92; }
 .qq-qr-copy-btn { padding: 8px 16px; border-radius: 8px; border: 1px solid var(--color-border); background: var(--color-bg-secondary); color: var(--color-text-primary); font-size: 14px; cursor: pointer; }
 .qq-qr-copy-btn:hover { border-color: var(--color-accent-primary); }
+.qq-qr-frame-wrap { position: relative; width: 320px; max-width: 100%; height: 460px; margin: 0 auto 12px; border-radius: 12px; overflow: hidden; }
+.qq-qr-frame { width: 100%; height: 100%; border: 0; display: block; }
+.qq-qr-frame-wrap.expired .qq-qr-frame { filter: blur(4px); opacity: 0.35; pointer-events: none; }
+.qq-qr-refresh { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; border: 0; background: transparent; color: #1f2329; font-size: 14px; font-weight: 600; cursor: pointer; }
+.qq-qr-refresh[hidden] { display: none; }
+.qq-qr-refresh:disabled { cursor: progress; opacity: 0.7; }
+.qq-qr-refresh-icon { width: 48px; height: 48px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: var(--color-accent-primary); color: #fff; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15); }
+.qq-qr-refresh:hover .qq-qr-refresh-icon { opacity: 0.92; }
+.qq-qr-success { padding: 8px 0 4px; }
+.qq-qr-success-title { font-size: 18px; font-weight: 600; color: var(--color-accent-primary); margin-top: 8px; }
+.qq-qr-success .qq-qr-open-btn { border: 0; cursor: pointer; margin-top: 4px; }
