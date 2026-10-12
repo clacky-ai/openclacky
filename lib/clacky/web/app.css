@@ -3271,12 +3271,13 @@ body {
   justify-content: center;
   width: 2rem;
   height: 2rem;
-  border: none;
+  border: 1px solid var(--color-border-primary);
   background: var(--color-bg-secondary);
-  color: var(--color-text-tertiary);
+  color: var(--color-text-secondary);
   border-radius: var(--radius-sm);
   cursor: pointer;
-  transition: background-color var(--transition-fast), color var(--transition-fast);
+  box-shadow: var(--shadow-sm, 0 2px 8px rgba(0,0,0,0.06));
+  transition: background-color var(--transition-base), color var(--transition-base);
 }
 .session-aside-opener:hover { background: var(--color-bg-hover); color: var(--color-text-primary); }
 
