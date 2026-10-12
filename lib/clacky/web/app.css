@@ -3259,24 +3259,24 @@ body {
 .aside-panel { flex: 1; min-height: 0; overflow: auto; display: none; flex-direction: column; }
 .aside-panel.active { display: flex; }
 
-/* Floating opener shown when the column is collapsed. */
+/* Floating opener shown when the column is collapsed. Sits exactly where
+   #btn-aside-collapse sits in the 40px tab bar so the toggle never jumps. */
 .session-aside-opener {
   position: absolute;
-  top: 0.5rem;
-  right: 0.5rem;
+  top: 3.5px;
+  right: 12px;
   z-index: 100;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   width: 2rem;
   height: 2rem;
-  border: 1px solid var(--color-border-primary);
+  border: none;
   background: var(--color-bg-secondary);
-  color: var(--color-text-secondary);
+  color: var(--color-text-tertiary);
   border-radius: var(--radius-sm);
   cursor: pointer;
-  box-shadow: var(--shadow-sm, 0 2px 8px rgba(0,0,0,0.06));
-  transition: background-color var(--transition-base), color var(--transition-base);
+  transition: background-color var(--transition-fast), color var(--transition-fast);
 }
 .session-aside-opener:hover { background: var(--color-bg-hover); color: var(--color-text-primary); }
 
