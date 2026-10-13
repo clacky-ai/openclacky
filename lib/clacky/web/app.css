@@ -1658,7 +1658,7 @@ body {
   border-radius: 0 2px 2px 0;
 }
 
-/* Actions button (⋯) on session list items — visible only on hover */
+/* Actions button (⋯) on session list items — visible on hover or keyboard focus */
 .session-actions-btn {
   flex-shrink: 0;
   display: flex;
@@ -1679,7 +1679,7 @@ body {
   align-self: center;
 }
 .session-item:hover .session-actions-btn,
-.session-item.active .session-actions-btn {
+.session-actions-btn:focus-visible {
   width: 1.5rem;
   opacity: 1;
   pointer-events: auto;
