@@ -99,7 +99,20 @@ module Clacky
         last_error = session_data.dig(:stats, :last_error)
 
         if last_status == "error" && last_error
-          @pending_error_rollback = true
+          real_users = @history.real_user_messages
+          task_tagged_history = real_users.any? { |message| !message[:task_id].nil? }
+          failed_turn_persisted = real_users.any? do |message|
+            message[:task_id].to_s == @current_task_id.to_s
+          end
+
+          # Modern sessions identify each user turn by task_id. Only schedule
+          # the legacy deferred rollback when the failed task's user message
+          # actually survived in history. Attachment setup can now roll its
+          # staged turn back before the error snapshot is saved; blindly
+          # removing the last user message after restore would then delete the
+          # preceding successful turn. Sessions without task ids keep the old
+          # fallback for backward compatibility.
+          @pending_error_rollback = true if !task_tagged_history || failed_turn_persisted
         end
 
         saved_reasoning = session_data.dig(:config, :reasoning_effort)

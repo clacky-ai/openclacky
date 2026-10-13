@@ -65,6 +65,20 @@ module Clacky
       self
     end
 
+    # Replace one real user turn after its attachments have been resolved.
+    # task_id alone is not unique for steering messages, so created_at is part
+    # of the identity shared by live rendering, replay, and persistence.
+    def replace_user_message(task_id:, created_at:, message:)
+      idx = @messages.rindex do |m|
+        m[:role] == "user" && !m[:system_injected] &&
+          m[:task_id].to_s == task_id.to_s && m[:created_at].to_s == created_at.to_s
+      end
+      return false unless idx
+
+      @messages[idx] = deep_sanitize_utf8(message)
+      true
+    end
+
     # Replace the entire message list (used by compression rebuild).
     def replace_all(new_messages)
       @messages = new_messages.map { |m| deep_sanitize_utf8(m) }

@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "tmpdir"
+require "timeout"
 
 RSpec.describe "Agent file processing" do
   let(:client) do
@@ -27,6 +28,74 @@ RSpec.describe "Agent file processing" do
   end
 
   describe "disk file parsing is called during agent.run" do
+    it "keeps the accepted user turn serializable while file parsing is still running" do
+      Dir.mktmpdir do |dir|
+        path = File.join(dir, "large.pdf")
+        preview = "#{path}.preview.md"
+        File.binwrite(path, "%PDF-1.4")
+
+        parsing_started = Queue.new
+        continue_parsing = Queue.new
+        ref = Clacky::Utils::FileProcessor::FileRef.new(
+          name: "large.pdf", type: :pdf,
+          original_path: path, preview_path: preview
+        )
+        allow(Clacky::Utils::FileProcessor).to receive(:process_path) do
+          parsing_started << true
+          continue_parsing.pop
+          ref
+        end
+        stub_llm_reply("Done")
+        test_agent = agent
+
+        run_thread = Thread.new do
+          test_agent.run("analyze this", files: [{ name: "large.pdf", path: path }])
+        end
+        Timeout.timeout(5) { parsing_started.pop }
+
+        user_message = test_agent.history.to_a.find { |message| message[:role] == "user" && !message[:system_injected] }
+        expect(user_message).to include(content: "analyze this")
+        expect(user_message[:display_files]).to eq([{ name: "large.pdf", type: "file", path: path, preview_path: nil }])
+        expect(test_agent.to_session_data[:messages]).to include(hash_including(content: "analyze this"))
+
+        continue_parsing << true
+        run_thread.value
+
+        user_messages = test_agent.history.to_a.select { |message| message[:role] == "user" && !message[:system_injected] }
+        expect(user_messages.size).to eq(1)
+        expect(user_messages.first[:display_files]).to eq([{ name: "large.pdf", type: "pdf", path: path, preview_path: preview }])
+      end
+    end
+
+    it "rolls back the staged turn when attachment processing raises" do
+      Dir.mktmpdir do |dir|
+        path = File.join(dir, "broken.pdf")
+        File.binwrite(path, "%PDF-1.4")
+        allow(Clacky::Utils::FileProcessor).to receive(:process_path).and_raise("parser crashed")
+
+        expect {
+          agent.run("read this", files: [{ name: "broken.pdf", path: path }])
+        }.to raise_error("parser crashed")
+
+        user_messages = agent.history.to_a.select { |message| message[:role] == "user" && !message[:system_injected] }
+        expect(user_messages).to be_empty
+        expect(agent.to_session_data[:messages]).not_to include(hash_including(content: "read this"))
+        expect(agent.total_tasks).to eq(1)
+
+        messages_sent = nil
+        allow(client).to receive(:send_messages_with_tools) do |messages, **_opts|
+          messages_sent = messages
+          mock_api_response(content: "Recovered")
+        end
+        allow(client).to receive(:format_tool_results).and_return([])
+
+        expect(agent.run("continue without the file")[:status]).to eq(:success)
+        expect(messages_sent).to include(hash_including(role: "user", content: "continue without the file"))
+        expect(messages_sent).not_to include(hash_including(content: "read this"))
+        expect(messages_sent.none? { |message| message[:content].to_s.include?("broken.pdf") }).to be true
+      end
+    end
+
     it "calls FileProcessor.process_path for each non-image disk file" do
       Dir.mktmpdir do |dir|
         path = File.join(dir, "report.pdf")

@@ -833,6 +833,39 @@ RSpec.describe Clacky::Agent do
         expect(hook_data[:reason]).to eq("Previous session ended with error — rolling back before new message")
         expect(hook_data[:rolled_back_message_index]).to eq(3)
       end
+
+      it "does not roll back the preceding successful turn when the failed task was already removed" do
+        modern_error_session = session_data.merge(
+          messages: [
+            { role: "system", content: "System prompt" },
+            { role: "user", content: "Successful request", task_id: 1 },
+            { role: "assistant", content: "Successful response", task_id: 1 }
+          ],
+          time_machine: {
+            current_task_id: 2,
+            active_task_id: 2,
+            task_parents: { 1 => 0, 2 => 1 }
+          },
+          stats: session_data[:stats].merge(
+            last_status: "error",
+            last_error: "Attachment processing failed"
+          )
+        )
+
+        restored_agent = described_class.from_session(client, config, modern_error_session, profile: "coding")
+        expect(restored_agent.instance_variable_get(:@pending_error_rollback)).to be false
+
+        messages_sent = nil
+        allow(client).to receive(:send_messages_with_tools) do |messages, **_opts|
+          messages_sent = messages
+          mock_api_response(content: "Recovered")
+        end
+        allow(client).to receive(:format_tool_results).and_return([])
+
+        expect(restored_agent.run("Next request")[:status]).to eq(:success)
+        expect(messages_sent).to include(hash_including(role: "user", content: "Successful request"))
+        expect(messages_sent).to include(hash_including(role: "user", content: "Next request"))
+      end
     end
   end
 

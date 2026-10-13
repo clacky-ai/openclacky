@@ -97,6 +97,34 @@ RSpec.describe Clacky::MessageHistory do
     end
   end
 
+  describe "#replace_user_message" do
+    it "replaces only the user turn matching both task id and timestamp" do
+      history.append(user_msg("first", task_id: "task-1", created_at: 1.0))
+      history.append(user_msg("second", task_id: "task-1", created_at: 2.0))
+
+      replaced = history.replace_user_message(
+        task_id: "task-1",
+        created_at: 1.0,
+        message: user_msg("resolved", task_id: "task-1", created_at: 1.0,
+                          display_files: [{ name: "report.pdf", type: "pdf" }])
+      )
+
+      expect(replaced).to be(true)
+      expect(history.to_a.map { |message| message[:content] }).to eq(%w[resolved second])
+      expect(history.to_a.first[:display_files]).to eq([{ name: "report.pdf", type: "pdf" }])
+    end
+
+    it "returns false without changing history when the turn is absent" do
+      history.append(user_msg("original", task_id: "task-1", created_at: 1.0))
+
+      expect(history.replace_user_message(
+        task_id: "task-2", created_at: 1.0,
+        message: user_msg("replacement", task_id: "task-2", created_at: 1.0)
+      )).to be(false)
+      expect(history.to_a.first[:content]).to eq("original")
+    end
+  end
+
   # ─────────────────────────────────────────────
   # pop_last
   # ─────────────────────────────────────────────
