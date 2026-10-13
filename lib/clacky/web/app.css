@@ -16238,6 +16238,66 @@ body.setup-mode {
   #billing-body { padding: 1rem 1rem 1rem; }
   #trash-body   { padding: 1rem 1rem 1rem; }
 
+  .billing-chart-card {
+    padding: 0.875rem;
+  }
+  .billing-heatmap-year .billing-heat-year-wrap {
+    gap: 0;
+    overflow-x: auto;
+    padding-bottom: 0.5rem;
+    scrollbar-width: thin;
+    -webkit-overflow-scrolling: touch;
+  }
+  .billing-heat-dow-year {
+    position: sticky;
+    left: 0;
+    z-index: 1;
+    width: 24px;
+    padding-right: 6px;
+    background: var(--color-bg-secondary);
+  }
+  .billing-heat-content {
+    flex: 0 0 auto;
+    width: max-content;
+  }
+  .billing-heat-grid-year {
+    justify-content: flex-start;
+    width: max-content;
+    gap: 3px;
+  }
+  .billing-heat-week {
+    flex: 0 0 13px;
+    width: 13px;
+    gap: 3px;
+  }
+  .billing-heat-week .billing-heat-cell {
+    width: 13px;
+    height: 13px;
+    max-width: none;
+    max-height: none;
+    aspect-ratio: auto;
+  }
+  .billing-heat-week .billing-heat-cell.is-active {
+    outline: 2px solid var(--color-accent-primary);
+    outline-offset: 1px;
+  }
+  .billing-trend-card {
+    min-height: 13.75rem;
+  }
+  .billing-trend-chart {
+    min-height: 10rem;
+  }
+  .billing-trend-y-label,
+  .billing-trend-x-label {
+    font-size: 10px;
+  }
+  .billing-trend-line {
+    stroke-width: 2;
+  }
+  .billing-trend-dot {
+    opacity: 1;
+  }
+
   .billing-controls .segmented-control {
     flex: 1 0 100%;
   }
