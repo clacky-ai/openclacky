@@ -6597,6 +6597,7 @@ body {
   height: 100%;
   object-fit: cover;
 }
+.img-preview-thumb { cursor: zoom-in; }
 .img-preview-remove {
   position: absolute;
   top: 2px;
