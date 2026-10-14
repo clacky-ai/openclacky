@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require "clacky/server/web_ui_controller"
+
 RSpec.describe Clacky::Agent do
   let(:client) do
     instance_double(Clacky::Client).tap do |c|
@@ -79,6 +81,92 @@ RSpec.describe Clacky::Agent do
     it "tracks cost" do
       agent.run("test")
       expect(agent.total_cost).to be > 0
+    end
+
+    context 'native WebUI feedback' do
+      let(:events) { [] }
+      let(:ui) { Clacky::Server::WebUIController.new(agent.session_id, ->(_sid, event) { events << event }) }
+      let(:questions) { [{ question: 'Pick?', options: ['Recommended', 'Alternative'], recommended: 0 }] }
+      let(:tool_call_response) { mock_api_response(content: nil, tool_calls: [mock_tool_call(name: 'ask_user', args: JSON.generate(questions: questions))]) }
+      before do
+        agent.instance_variable_set(:@ui, ui)
+        allow(Process).to receive(:clock_gettime).and_call_original
+        allow(Process).to receive(:clock_gettime).with(Process::CLOCK_MONOTONIC).and_return(10.0, 70.0)
+      end
+      it 'steers the exact recommendation into the same run and persists Q&A for replay' do
+        result = agent.run('Build something', feedback: { timeout_seconds: 60 })
+        expect(result[:awaiting_user_feedback]).to be(false)
+        expect(client).to have_received(:send_messages_with_tools).twice
+        answer = agent.history.to_a.find { |m| m[:content] == "Answer: Recommended" }
+        expect(answer).to include(role: 'user', content: 'Answer: Recommended', task_id: result[:task_id])
+        expect(events).to include(hash_including(type: 'feedback_countdown_resolved', resolution: 'timeout', answer: 'Recommended'))
+        expect(events.count { |e| e[:type] == 'history_user_message' && e[:content] == "Answer: Recommended" }).to eq(1)
+        expect(agent.pending_inputs).to be_empty
+        ask_result = agent.history.to_a.find { |m| m[:role] == 'tool' }
+        expect(JSON.parse(ask_result[:content])['awaiting_feedback']).to be(false)
+      end
+      it 'carries native human reference context into the existing steering history' do
+        allow(ui).to receive(:wait_for_feedback) do |**_options, &show|
+          show.call
+          ['Alternative', { reference_contexts: ['Previous chat context'], references_display: [{ type: 'chat', name: 'previous' }] }]
+        end
+        result = agent.run('Build something', feedback: { timeout_seconds: 60 })
+        expect(result[:awaiting_user_feedback]).to be(false)
+        expect(agent.history.to_a).to include(hash_including(content: 'Previous chat context', system_injected: true, task_id: result[:task_id]))
+        expect(agent.pending_inputs).to be_empty
+      end
+      it 'preserves existing behavior when no feedback options are supplied' do
+        expect(agent.run('Build something')[:awaiting_user_feedback]).to be(false)
+        expect(events.map { |event| event[:type] }).not_to include('feedback_countdown_started')
+      end
+      it 'does not carry feedback policy into the next task' do
+        allow(client).to receive(:send_messages_with_tools).and_return(tool_call_response, final_response, tool_call_response, final_response)
+        agent.run('First task', feedback: { timeout_seconds: 0 })
+        events.clear
+        agent.run('Next task')
+        expect(events.map { |event| event[:type] }).not_to include('feedback_countdown_started')
+      end
+      it 'uses a nil timeout for manual Ask independently from tool permissions' do
+        expect(agent.run('Build something', feedback: { timeout_seconds: nil })[:awaiting_user_feedback]).to be(true)
+        expect(config.permission_mode).to eq(:auto_approve)
+        expect(events.map { |e| e[:type] }).not_to include('feedback_countdown_started')
+      end
+      [
+        [[{ question: 'Pick?', options: ['A'], recommended: 0, multi: true }], nil],
+        [[{ question: 'Pick?', options: ['A'] }], nil],
+        [[{ question: 'Pick?', options: ['A'], recommended: 5 }], nil],
+        [[{ question: 'Pick?', options: ['A'], recommended: -1 }], nil],
+        [[{ question: 'Pick?', options: ['', ' '], recommended: 0 }], nil],
+        [[{ question: 'Pick?', options: ['A'], recommended: 0 }, { question: 'Next?', options: ['B'], recommended: 0 }], nil],
+        [[{ question: 'Pick?', options: ['A'], recommended: '0' }], 'A'],
+        [[{ question: 'Pick?', options: ['', ' A '], recommended: 0 }], 'A'],
+        [[{ question: 'Pick?', options: [42], recommended: 0 }], '42'],
+        [[{ question: 'Pick?', options: ['A'], recommended: 0 }, {}], 'A'],
+        [[{ question: 'Pick?', options: ['/start'], recommended: 0 }], '/start']
+      ].each do |payload, expected|
+        context "with normalized questions #{payload.inspect}" do
+          let(:questions) { payload }
+          it 'continues only when the displayed question has one recommended answer' do
+            result = agent.run('Build something', feedback: { timeout_seconds: 60 })
+            expect(result[:awaiting_user_feedback]).to eq(expected.nil?)
+            countdown = events.find { |event| event[:type] == 'feedback_countdown_started' }
+            expect(countdown&.dig(:recommended_label)).to eq(expected)
+            expect(client).to have_received(:send_messages_with_tools).exactly(expected ? 2 : 1).times
+            expect(agent.history.to_a).to include(hash_including(content: "Answer: #{expected}", task_id: result[:task_id])) if expected
+            expect(agent.pending_inputs).to be_empty
+          end
+        end
+      end
+      it 'keeps the existing stale-thread check before accepting feedback' do
+        allow(ui).to receive(:wait_for_feedback) do |**_options, &show|
+          show.call
+          agent.instance_variable_set(:@task_thread, double('replacement thread'))
+          ['Recommended', {}]
+        end
+        expect(agent).not_to receive(:enqueue_input)
+        expect { agent.run('Build something', feedback: { timeout_seconds: 60 }) }.to raise_error(Clacky::AgentInterrupted)
+        expect(agent.pending_inputs).to be_empty
+      end
     end
 
     context "when the tool call is a terminal command" do

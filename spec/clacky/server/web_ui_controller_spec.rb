@@ -2,6 +2,7 @@
 
 require "spec_helper"
 require "tmpdir"
+require "timeout"
 require "fileutils"
 require "clacky/server/web_ui_controller"
 
@@ -128,5 +129,81 @@ RSpec.describe Clacky::Server::WebUIController, "#show_tool_call" do
     ev = events.find { |e| e[:type] == "request_feedback" }
     expect(ev[:question]).to eq("Pick one?")
     expect(ev[:options]).to eq(%w[a b])
+  end
+end
+
+RSpec.describe Clacky::Server::WebUIController, 'native feedback countdown' do
+  let(:events) { [] }
+  let(:started) { Queue.new }
+  let(:controller) do
+    described_class.new('s', lambda { |_sid, event|
+      events << event
+      started << event if event[:type] == 'feedback_countdown_started'
+    })
+  end
+  let(:question) { { question: 'Pick?', recommended_label: 'Recommended' } }
+  before do
+    @now = 10.0
+    allow(Process).to receive(:clock_gettime).and_call_original
+    allow(Process).to receive(:clock_gettime).with(Process::CLOCK_MONOTONIC) { @now }
+  end
+  after do
+    @worker&.kill
+    @worker&.join
+  end
+  def start_wait
+    @worker = Thread.new { controller.wait_for_feedback(timeout_seconds: 60, **question) {} }
+    Timeout.timeout(1) { started.pop }
+  end
+  def advance(seconds)
+    controller.instance_variable_get(:@mutex).synchronize do
+      @now += seconds
+      controller.instance_variable_get(:@pending_feedback)[:cond].signal
+    end
+  end
+  it 'shows manual questions without creating a countdown' do
+    shown = false
+    expect(controller.wait_for_feedback(timeout_seconds: nil, **question) { shown = true }).to be_nil
+    expect(shown).to be(true)
+    expect(events).to be_empty
+  end
+  it 'uses the supplied timeout and recommended answer' do
+    event = start_wait
+    expect(event).to include(duration_seconds: 60, question: 'Pick?', recommended_label: 'Recommended')
+    expect(event[:deadline_ms]).to be_within(100).of((Time.now.to_f * 1000).to_i + 60_000)
+    advance(59)
+    expect(controller.instance_variable_get(:@pending_feedback)[:answer]).to be_nil
+    advance(1)
+    expect(Timeout.timeout(1) { @worker.value.first }).to eq('Recommended')
+    expect(events).to include(hash_including(type: 'feedback_countdown_resolved', resolution: 'timeout', answer: 'Recommended'))
+  end
+  it 'preserves caller-provided presentation, attachments and references' do
+    start_wait
+    options = { display_text: 'My answer', files: [{ path: '/tmp/answer.png' }], references_display: [{ name: 'previous chat' }] }
+    expect(controller.deliver_feedback('Use this', **options)).to be(true)
+    expect(Timeout.timeout(1) { @worker.value }).to eq(['Use this', options])
+    expect(events).to include(hash_including(type: 'feedback_countdown_resolved', resolution: 'human'))
+  end
+  it 'replays the original deadline without restarting the wait' do
+    event = start_wait
+    advance(50)
+    controller.replay_live_state
+    expect(events.select { |e| e[:type] == 'feedback_countdown_started' }).to eq([event, event])
+    advance(10)
+    expect(Timeout.timeout(1) { @worker.value.first }).to eq('Recommended')
+  end
+  it 'cleans up cancellation with one generic cancelled outcome' do
+    start_wait
+    @worker.kill
+    @worker.join
+    expect(events).to include(hash_including(type: 'feedback_countdown_resolved', resolution: 'cancelled'))
+    controller.replay_live_state
+    expect(events.count { |e| e[:type] == 'feedback_countdown_started' }).to eq(1)
+  end
+  it 'rejects invalid timeouts without starting a wait' do
+    [-1, 0.5, '60'].each do |timeout|
+      expect { controller.wait_for_feedback(timeout_seconds: timeout, **question) {} }.to raise_error(ArgumentError)
+    end
+    expect(events).to be_empty
   end
 end

@@ -29,6 +29,7 @@ module Clacky
 
         # Pending confirmation state: { id => ConditionVariable, result => value }
         @pending_confirmations = {}
+        @pending_feedback = nil
 
         # Channel subscribers: array of objects implementing UIInterface.
         # All emitted events are forwarded to each subscriber after WebSocket broadcast.
@@ -65,6 +66,52 @@ module Clacky
 
           pending[:result] = result
           pending[:cond].signal
+        end
+      end
+
+      def deliver_feedback(answer, **options)
+        @mutex.synchronize do
+          pending = @pending_feedback
+          return false unless pending && !answer.strip.empty?
+          pending[:answer], pending[:resolution], pending[:options] = answer, "human", options
+          pending[:cond].signal
+          true
+        end
+      end
+
+      # The caller supplies a timeout for this wait; nil keeps manual feedback.
+      def wait_for_feedback(timeout_seconds:, question: nil, recommended_label: nil)
+        unless recommended_label && !timeout_seconds.nil?
+          yield
+          return
+        end
+        raise ArgumentError, "Invalid feedback timeout" unless timeout_seconds.is_a?(Integer) && timeout_seconds >= 0
+
+        pending = { id: SecureRandom.uuid, cond: ConditionVariable.new }
+        countdown = { request_id: pending[:id], question: question, recommended_label: recommended_label,
+                      deadline_ms: (Time.now.to_f * 1000).to_i + timeout_seconds * 1000,
+                      duration_seconds: timeout_seconds }
+        deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + timeout_seconds
+        pending[:countdown] = countdown
+        @mutex.synchronize { @pending_feedback = pending }
+        yield
+        emit("feedback_countdown_started", **countdown)
+        @mutex.synchronize do
+          until pending[:answer]
+            remaining = deadline - Process.clock_gettime(Process::CLOCK_MONOTONIC)
+            if remaining <= 0
+              pending.merge!(answer: recommended_label, resolution: "timeout")
+            else
+              pending[:cond].wait(@mutex, remaining)
+            end
+          end
+          [pending[:answer], pending.fetch(:options, {})]
+        end
+      ensure
+        if pending
+          @mutex.synchronize { @pending_feedback = nil }
+          emit("feedback_countdown_resolved", request_id: pending[:id],
+               resolution: pending[:resolution] || "cancelled", answer: pending[:answer])
         end
       end
 
@@ -336,6 +383,8 @@ module Clacky
       # The frontend's appendToolStdout will attach to the last visible .tool-item
       # even when _liveLastToolItem is null (after the tab re-loaded).
       def replay_live_state
+        countdown = @mutex.synchronize { @pending_feedback&.dig(:countdown) }
+        emit("feedback_countdown_started", **countdown) if countdown
         return unless @live_progress_state
 
         # Replay complete progress state (not just message).

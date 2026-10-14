@@ -20,6 +20,34 @@ RSpec.describe Clacky::Server::HttpServer, "input behavior routing" do
     registry.with_session("s") { |s| s[:agent] = agent; s[:status] = :running }
   end
 
+  context 'native feedback routing' do
+    let(:events) { [] }
+    let(:ui) { Clacky::Server::WebUIController.new('s', ->(_sid, event) { events << event }) }
+    let(:connection) { double('connection', session_id: 's', send_json: nil) }
+    before { registry.with_session('s') { |s| s[:ui] = ui } }
+    it 'passes feedback options with the message rather than setting session mode' do
+      expect(server).to receive(:handle_user_message).with('s', 'Build', [], references: [], feedback: { timeout_seconds: 45 })
+      server.on_ws_message(connection, JSON.generate(type: 'message', session_id: 's', content: 'Build', feedback: { timeout_seconds: 45 }))
+      expect(config.permission_mode).to eq(:confirm_safes)
+    end
+    it 'keeps feedback options on queued tasks' do
+      expect(agent).to receive(:enqueue_input).with('next task', hash_including(feedback: { timeout_seconds: nil }))
+      server.send(:handle_user_message, 's', 'next task', feedback: { timeout_seconds: nil })
+    end
+    it 'delivers explicit feedback without starting a new run' do
+      files = [{ 'path' => '/tmp/answer.png', 'name' => 'answer.png' }]
+      expect(ui).to receive(:deliver_feedback).with('answer', hash_including(files: files, display_text: 'My answer'))
+      expect(agent).not_to receive(:enqueue_input)
+      server.on_ws_message(connection, JSON.generate(type: 'feedback_response', session_id: 's', content: 'answer', display_text: 'My answer', files: files))
+    end
+    it 'keeps ordinary messages on the existing input queue path' do
+      expect(ui).not_to receive(:deliver_feedback)
+      expect(agent).to receive(:enqueue_input).with('new instruction', hash_including(delivery: :queue))
+      server.send(:handle_user_message, 's', 'new instruction')
+    end
+
+  end
+
   it "queues an opted-in message without interrupting or spawning another run" do
     expect(agent).to receive(:enqueue_input).with("extra", hash_including(files: [], references_display: []))
     expect(server).not_to receive(:interrupt_session)

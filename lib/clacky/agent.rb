@@ -485,7 +485,7 @@ module Clacky
       @name = new_name.to_s.strip
     end
 
-    def run(user_input, files: nil, reference_contexts: nil, display_text: nil, created_at: nil, references_display: nil)
+    def run(user_input, files: nil, reference_contexts: nil, display_text: nil, created_at: nil, references_display: nil, feedback: nil)
       # Initialized here (not mid-body) because run's rescue/ensure are
       # method-level and must be able to reference them on any exit path.
       result = nil
@@ -522,6 +522,7 @@ module Clacky
 
       # Start new task for Time Machine
       task_id = start_new_task(title: display_text.to_s.empty? ? user_input.to_s : display_text.to_s)
+      @feedback = feedback
       run_context = { session_id: @session_id, run_id: task_id.to_s,
                       source: @source.to_s, input_created_at: created_at,
                       observed_at: Time.now.utc.iso8601(6), status: "running" }
@@ -1276,6 +1277,7 @@ module Clacky
       end
       entries.each do |entry|
         options = entry[:options].dup
+        options.delete(:feedback)
         source = options.delete(:source) || :web
         history_size = @history.size
         begin
@@ -1691,9 +1693,20 @@ module Clacky
             # can extract the questions and emit a "request_feedback" event
             # (renders as a clickable card in the browser).
             # Fallback UIs (terminal, IM channels) receive the formatted text message.
-            @ui&.show_tool_call(call[:name], call[:arguments])
-
-            if @config.permission_mode == :auto_approve
+            if @feedback && @ui.respond_to?(:wait_for_feedback)
+              questions = Tools::AskUser.normalize_questions(args)
+              question = questions.first
+              label = if questions.one? && !question[:multi] && question[:recommended]
+                question[:options][question[:recommended]]
+              end
+              answer, feedback_options = @ui.wait_for_feedback(timeout_seconds: @feedback[:timeout_seconds], question: question[:question], recommended_label: label) do
+                @ui.show_tool_call(call[:name], call[:arguments])
+              end
+              check_stale!
+              result[:awaiting_feedback] = awaiting_feedback = !answer
+              enqueue_input("Answer: #{answer}", delivery: :steer, created_at: Time.now.to_f, **(feedback_options || {})) if answer
+            elsif @config.permission_mode == :auto_approve
+              @ui&.show_tool_call(call[:name], call[:arguments])
               # auto_approve means the agent runs unattended by default, but a
               # human MAY be watching the terminal. Show a short interactive
               # countdown: if the user steps in, hand control over and wait for
@@ -1716,6 +1729,7 @@ module Clacky
               end
             else
               # confirm_all / confirm_safes — a human is present, truly wait for user input.
+              @ui&.show_tool_call(call[:name], call[:arguments])
               awaiting_feedback = true
             end
           else
