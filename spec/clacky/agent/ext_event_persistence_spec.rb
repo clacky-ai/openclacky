@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "spec_helper"
+require "clacky/server/http_server"
 
 RSpec.describe "extension custom events" do
   # UIInterface is a module, not a class — include it and stub the rest of the
@@ -93,6 +94,43 @@ RSpec.describe "extension custom events" do
   end
 
   describe "replay after reload" do
+    it "keeps a run error through JSON persistence and replays it in its round" do
+      agent.record_error_event("Request failed", code: "insufficient_credit",
+                               top_up_url: "https://example.com/top-up", raw_message: "upstream detail")
+      agent.history.append({ role: "user", content: "next", created_at: Time.now.to_f })
+      raw = JSON.parse(JSON.generate(agent.to_session_data(status: :success)), symbolize_names: true)
+      restored = build_agent
+      restored.restore_session(raw)
+      events = []
+      restored.replay_history(Clacky::Server::HistoryCollector.new("s", events))
+
+      expect(events.map { |ev| ev[:type] }).to eq(["history_user_message", "error", "history_user_message"])
+      expect(events[1]).to include(message: "Request failed", code: "insufficient_credit",
+                                  top_up_url: "https://example.com/top-up", raw_message: "upstream detail")
+      expect(restored.history.to_api.first).not_to have_key(:ext_events)
+    end
+
+    it "records the failure before the server saves the session" do
+      registry = Clacky::Server::SessionRegistry.new(agent_config: Clacky::AgentConfig.new)
+      registry.create(session_id: "s")
+      registry.with_session("s") { |session| session[:agent] = agent }
+      manager = double("session manager")
+      saved = nil
+      allow(manager).to receive(:save) { |data| saved = data }
+      server = Clacky::Server::HttpServer.allocate
+      server.instance_variable_set(:@registry, registry)
+      server.instance_variable_set(:@session_manager, manager)
+      allow(server).to receive(:broadcast_session_update)
+      allow(registry).to receive(:evict_excess_idle!)
+
+      thread = server.send(:run_agent_task, "s", agent) { raise "upstream failed" }
+      expect(thread.join(3)).to eq(thread)
+      expect(saved[:stats][:last_status]).to eq("error")
+      expect(saved[:messages].last[:ext_events]).to eq([
+        { type: "error", data: { message: "upstream failed" } }
+      ])
+    end
+
     it "re-emits events recorded on a user message" do
       agent.emit_event("ext.demo.on_user", v: 1, persist: true)
       restored = reload(agent)

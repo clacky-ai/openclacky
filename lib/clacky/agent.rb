@@ -333,6 +333,14 @@ module Clacky
       self
     end
 
+    # Built-in run failures share the persisted event trail, without exposing
+    # built-in event types through the extension API.
+    def record_error_event(message, code: nil, top_up_url: nil, raw_message: nil)
+      data = { message: message, code: code, top_up_url: top_up_url, raw_message: raw_message }.compact
+      @history.append_ext_event({ type: "error", data: data })
+      self
+    end
+
     # Resolve the model name the goal judge should use. Prefer the provider's
     # lite model (cheap/fast for a one-line verdict); fall back to the primary
     # model when no lite is resolvable.

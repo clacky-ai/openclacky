@@ -8288,6 +8288,7 @@ module Clacky
           raw_message  = e.respond_to?(:raw_message) ? e.raw_message : nil
           next unless @registry.update_if_epoch(session_id, epoch, status: :error, error: user_message, error_code: code, top_up_url: top_up_url, raw_message: raw_message)
           broadcast_session_update(session_id)
+          agent.record_error_event(user_message, code: code, top_up_url: top_up_url, raw_message: raw_message)
           web_ui&.show_error(user_message, code: code, top_up_url: top_up_url, raw_message: raw_message)
           @session_manager.save(agent.to_session_data(status: :error, error_message: user_message, raw_message: raw_message, updated_at: Time.now))
         end

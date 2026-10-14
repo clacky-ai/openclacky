@@ -4755,6 +4755,11 @@ body {
   flex-direction: column;
   gap: 0.5rem;
 }
+.msg-error.msg-history-error {
+  background: transparent;
+  border-color: var(--color-border-primary);
+  color: var(--color-text-secondary);
+}
 .msg-error-actions {
   display: flex;
   align-items: center;
