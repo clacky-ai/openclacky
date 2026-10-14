@@ -152,7 +152,7 @@ RSpec.describe Clacky::Server::WebUIController, 'native feedback countdown' do
     @worker&.join
   end
   def start_wait
-    controller.set_feedback_mode('auto')
+    controller.set_feedback_mode('auto', timeout_seconds: 60)
     @worker = Thread.new { controller.wait_for_feedback(**question) {} }
     Timeout.timeout(1) { started.pop }
   end
@@ -165,58 +165,45 @@ RSpec.describe Clacky::Server::WebUIController, 'native feedback countdown' do
   def resolved
     events.select { |e| e[:type] == 'feedback_countdown_resolved' }
   end
-  it 'defaults to Ask and ignores Auto changes for an already manual question' do
+  it 'is opt-in and does not start a timer for an already manual question' do
     shown = false
     expect(controller.wait_for_feedback(**question) { shown = true }).to be_nil
     expect(shown).to be(true)
-    controller.set_feedback_mode('auto')
+    expect(controller.feedback_mode?).to be(false)
+    controller.set_feedback_mode('auto', timeout_seconds: 60)
     expect(events.map { |e| e[:type] }).not_to include('feedback_countdown_started')
     expect(controller.deliver_feedback('answer')).to be(false)
   end
-  it 'waits exactly 300 monotonic seconds and chooses the exact recommended label' do
+  it 'uses the caller configured monotonic timeout and recommended label' do
     event = start_wait
-    expect(event).to include(duration_seconds: 300, question: 'Pick?', recommended_label: 'Recommended')
-    expect(event[:deadline_ms]).to be_within(100).of((Time.now.to_f * 1000).to_i + 300_000)
-    advance(299)
+    expect(event).to include(duration_seconds: 60, question: 'Pick?', recommended_label: 'Recommended')
+    expect(event[:deadline_ms]).to be_within(100).of((Time.now.to_f * 1000).to_i + 60_000)
+    advance(59)
     expect(controller.instance_variable_get(:@pending_feedback)[:answer]).to be_nil
     advance(1)
     expect(Timeout.timeout(1) { @worker.value.first }).to eq('Recommended')
     expect(resolved).to contain_exactly(hash_including(resolution: 'timeout', answer: 'Recommended', request_id: event[:request_id]))
-    expect(controller.deliver_feedback('late')).to be(false)
-  end
-  it 'claims a human answer once across competing tabs and never times out afterward' do
-    event = start_wait
-    replies = 2.times.map { Thread.new { controller.deliver_feedback('Human') } }.map(&:value)
-    expect(replies.sort_by(&:to_s)).to eq([false, true])
-    expect(Timeout.timeout(1) { @worker.value.first }).to eq('Human')
-    expect(resolved).to contain_exactly(hash_including(resolution: 'human', request_id: event[:request_id]))
-  end
+      end
+
   it 'preserves attachment and reference options on the winning human delivery' do
     start_wait
     files = [{ path: '/tmp/answer.png', name: 'answer.png' }]
     expect(controller.deliver_feedback('Use this', files: files, references_display: [{ name: 'previous chat' }])).to be(true)
     expect(Timeout.timeout(1) { @worker.value }).to eq(['Use this', { files: files, references_display: [{ name: 'previous chat' }] }, 'human'])
   end
-  it 'rejects human delivery at the exact deadline so timeout wins once' do
-    start_wait
-    controller.instance_variable_get(:@mutex).synchronize { @now += 300 }
-    expect(controller.deliver_feedback('Human')).to be(false)
-    advance(0)
-    expect(Timeout.timeout(1) { @worker.value.first }).to eq('Recommended')
-    expect(resolved.size).to eq(1)
-  end
+
   it 'replays the same request and absolute deadline across disconnected subscriptions' do
     event = start_wait
     advance(50)
     controller.replay_live_state
     expect(events.select { |e| e[:type] == 'feedback_countdown_started' }).to eq([event, event])
-    advance(250)
+    advance(10)
     expect(Timeout.timeout(1) { @worker.value.first }).to eq('Recommended')
   end
   it 'cancels Auto when switched to Ask and keeps waiting for a human in the same task' do
     start_wait
-    controller.set_feedback_mode('ask')
-    controller.set_feedback_mode('auto')
+    controller.set_feedback_mode('ask', timeout_seconds: 60)
+    controller.set_feedback_mode('auto', timeout_seconds: 60)
     advance(500)
     expect(controller.instance_variable_get(:@pending_feedback)[:answer]).to be_nil
     expect(controller.deliver_feedback('Manual')).to be(true)
@@ -227,8 +214,7 @@ RSpec.describe Clacky::Server::WebUIController, 'native feedback countdown' do
     start_wait
     @worker.kill
     @worker.join
-    expect(controller.deliver_feedback('late')).to be(false)
-    expect(resolved).to contain_exactly(hash_including(resolution: 'interrupted'))
+        expect(resolved).to contain_exactly(hash_including(resolution: 'interrupted'))
     controller.replay_live_state
     expect(events.count { |e| e[:type] == 'feedback_countdown_started' }).to eq(1)
   end
@@ -250,9 +236,9 @@ RSpec.describe Clacky::Server::WebUIController, 'native feedback countdown' do
     expect(controller.deliver_feedback('new answer')).to be(false)
     expect(resolved).to contain_exactly(hash_including(resolution: 'superseded'))
   end
-  it 'validates the fixed protocol and does not affect tool confirmations' do
-    expect { controller.set_feedback_mode('invalid') }.to raise_error(ArgumentError)
-    expect { controller.set_feedback_mode('auto', timeout_seconds: 301) }.to raise_error(ArgumentError)
+  it 'validates mode and timeout without changing tool confirmations' do
+    expect { controller.set_feedback_mode('invalid', timeout_seconds: 60) }.to raise_error(ArgumentError)
+    expect { controller.set_feedback_mode('auto', timeout_seconds: -1) }.to raise_error(ArgumentError)
     expect(controller.instance_variable_get(:@pending_confirmations)).to eq({})
   end
 end

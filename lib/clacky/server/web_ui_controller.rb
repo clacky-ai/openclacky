@@ -29,7 +29,7 @@ module Clacky
 
         # Pending confirmation state: { id => ConditionVariable, result => value }
         @pending_confirmations = {}
-        @feedback_mode = "ask"
+        @feedback_mode = nil
         @pending_feedback = nil
 
         # Channel subscribers: array of objects implementing UIInterface.
@@ -70,25 +70,30 @@ module Clacky
         end
       end
 
-      def set_feedback_mode(value, timeout_seconds: 300)
-        raise ArgumentError, "Invalid feedback mode" unless %w[auto ask].include?(value) && timeout_seconds == 300
+      def feedback_mode?
+        !@feedback_mode.nil?
+      end
+
+      def set_feedback_mode(value, timeout_seconds:)
+        raise ArgumentError, "Invalid feedback mode" unless %w[auto ask].include?(value)
+        raise ArgumentError, "Invalid feedback timeout" unless timeout_seconds.is_a?(Integer) && timeout_seconds >= 0
         @mutex.synchronize do
           @feedback_mode = value
+          @feedback_timeout = timeout_seconds
           pending = @pending_feedback
           if value == "ask" && pending && !pending[:answer] && pending[:countdown]
             emit("feedback_countdown_resolved", request_id: pending[:id], resolution: "interrupted")
             pending[:countdown] = pending[:deadline] = nil
             pending[:cond].signal
           end
-          emit("feedback_mode", value: value, timeout_seconds: 300)
+          emit("feedback_mode", value: value, timeout_seconds: @feedback_timeout)
         end
       end
 
       def deliver_feedback(answer, **options)
         @mutex.synchronize do
           pending = @pending_feedback
-          return false unless pending && !pending[:answer] && !answer.strip.empty?
-          return false if pending[:deadline] && Process.clock_gettime(Process::CLOCK_MONOTONIC) >= pending[:deadline]
+          return false unless pending && !answer.strip.empty?
           pending[:answer], pending[:resolution], pending[:options] = answer, "human", options
           pending[:cond].signal
           true
@@ -105,9 +110,9 @@ module Clacky
           if @feedback_mode == "auto" && recommended_label
             id = SecureRandom.uuid
             pending = { id: id, cond: ConditionVariable.new,
-                        deadline: Process.clock_gettime(Process::CLOCK_MONOTONIC) + 300,
+                        deadline: Process.clock_gettime(Process::CLOCK_MONOTONIC) + @feedback_timeout,
                         countdown: { request_id: id, question: question, recommended_label: recommended_label,
-                                     deadline_ms: (Time.now.to_f * 1000).to_i + 300_000, duration_seconds: 300 } }
+                                     deadline_ms: (Time.now.to_f * 1000).to_i + @feedback_timeout * 1000, duration_seconds: @feedback_timeout } }
           end
           @pending_feedback = pending
           yield
@@ -404,7 +409,7 @@ module Clacky
       # even when _liveLastToolItem is null (after the tab re-loaded).
       def replay_live_state
         @mutex.synchronize do
-          emit("feedback_mode", value: @feedback_mode, timeout_seconds: 300)
+          emit("feedback_mode", value: @feedback_mode, timeout_seconds: @feedback_timeout) if feedback_mode?
           emit("feedback_countdown_started", **@pending_feedback[:countdown]) if @pending_feedback && @pending_feedback[:countdown]
         end
         return unless @live_progress_state

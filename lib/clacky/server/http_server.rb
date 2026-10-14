@@ -7730,7 +7730,7 @@ module Clacky
           ui = @registry.ensure(session_id) && @registry.get(session_id)&.dig(:ui)
           raise ArgumentError, "Session not found: #{session_id}" unless ui
           ui.set_feedback_mode(msg["value"], timeout_seconds: msg["timeout_seconds"])
-          conn.send_json(type: "feedback_mode", session_id: session_id, value: msg["value"], timeout_seconds: 300)
+          conn.send_json(type: "feedback_mode", session_id: session_id, value: msg["value"], timeout_seconds: msg["timeout_seconds"])
 
         when "input_behavior"
           mode = msg["value"]
@@ -7775,6 +7775,13 @@ module Clacky
             { "data_url" => data_url, "name" => "image.jpg", "mime_type" => "image/jpeg" }
           end
           handle_user_message(session_id, msg["content"].to_s, (msg["files"] || []) + raw_images, references: msg["references"] || [])
+
+        when "feedback_response"
+          session_id = msg["session_id"] || conn.session_id
+          @registry.get(session_id)&.dig(:ui)&.deliver_feedback(
+            msg["content"].to_s, files: msg["files"] || [], display_text: msg["display_text"],
+            references_display: msg["references"] || [],
+            reference_contexts: build_reference_contexts(msg["references"] || []))
 
         when "confirmation"
           session_id = msg["session_id"] || conn.session_id
@@ -7878,8 +7885,6 @@ module Clacky
         return unless @registry.exist?(session_id)
 
         session = @registry.get(session_id)
-        return if session[:ui].respond_to?(:deliver_feedback) &&
-                  session[:ui].deliver_feedback(content, files: files, references_display: references, reference_contexts: build_reference_contexts(references))
         
         mode = @agent_config.input_behavior
         queued = false

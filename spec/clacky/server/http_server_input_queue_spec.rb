@@ -30,10 +30,10 @@ RSpec.describe Clacky::Server::HttpServer, "input behavior routing" do
       registry.create(session_id: 'other')
       registry.with_session('other') { |s| s[:ui] = other }
       previous = config.permission_mode
-      expect(connection).to receive(:send_json).with(type: 'feedback_mode', session_id: 's', value: 'auto', timeout_seconds: 300)
-      server.on_ws_message(connection, JSON.generate(type: 'feedback_mode', session_id: 's', value: 'auto', timeout_seconds: 300))
-      expect(events.last).to include(type: 'feedback_mode', value: 'auto', timeout_seconds: 300, session_id: 's')
-      expect(other.instance_variable_get(:@feedback_mode)).to eq('ask')
+      expect(connection).to receive(:send_json).with(type: 'feedback_mode', session_id: 's', value: 'auto', timeout_seconds: 45)
+      server.on_ws_message(connection, JSON.generate(type: 'feedback_mode', session_id: 's', value: 'auto', timeout_seconds: 45))
+      expect(events.last).to include(type: 'feedback_mode', value: 'auto', timeout_seconds: 45, session_id: 's')
+      expect(other.instance_variable_get(:@feedback_mode)).to be_nil
       expect(config.permission_mode).to eq(previous)
     end
     it 'hydrates a restored session through the existing registry before a mode frame that precedes subscription' do
@@ -42,34 +42,28 @@ RSpec.describe Clacky::Server::HttpServer, "input behavior routing" do
         registry.with_session('s') { |s| s[:ui] = ui }
         true
       end
-      expect(connection).to receive(:send_json).with(type: 'feedback_mode', session_id: 's', value: 'auto', timeout_seconds: 300)
-      server.on_ws_message(connection, JSON.generate(type: 'feedback_mode', value: 'auto', timeout_seconds: 300))
+      expect(connection).to receive(:send_json).with(type: 'feedback_mode', session_id: 's', value: 'auto', timeout_seconds: 45)
+      server.on_ws_message(connection, JSON.generate(type: 'feedback_mode', value: 'auto', timeout_seconds: 45))
       expect(events.last).to include(type: 'feedback_mode', value: 'auto')
     end
     it 'rejects unsupported modes and durations over the socket' do
       expect(connection).to receive(:send_json).with(hash_including(type: 'error')).twice
-      server.on_ws_message(connection, JSON.generate(type: 'feedback_mode', value: 'invalid', timeout_seconds: 300))
-      server.on_ws_message(connection, JSON.generate(type: 'feedback_mode', value: 'auto', timeout_seconds: 999))
-      expect(ui.instance_variable_get(:@feedback_mode)).to eq('ask')
+      server.on_ws_message(connection, JSON.generate(type: 'feedback_mode', value: 'invalid', timeout_seconds: 45))
+      server.on_ws_message(connection, JSON.generate(type: 'feedback_mode', value: 'auto', timeout_seconds: -1))
+      expect(ui.instance_variable_get(:@feedback_mode)).to be_nil
     end
-    it 'consumes an active answer before the ordinary input queue or replacement path' do
-      expect(ui).to receive(:deliver_feedback).with('answer', hash_including(files: [], references_display: [], reference_contexts: [])).and_return(true)
-      expect(agent).not_to receive(:enqueue_input)
-      expect(server).not_to receive(:interrupt_session)
-      server.send(:handle_user_message, 's', 'answer')
-    end
-    it 'delivers an attached answer without dropping its file or falling through to a new run' do
+    it 'delivers explicit feedback without starting a new run' do
       files = [{ 'path' => '/tmp/answer.png', 'name' => 'answer.png' }]
-      expect(ui).to receive(:deliver_feedback).with('Use this', hash_including(files: files)).and_return(true)
+      expect(ui).to receive(:deliver_feedback).with('answer', hash_including(files: files, display_text: 'My answer'))
       expect(agent).not_to receive(:enqueue_input)
-      expect(server).not_to receive(:interrupt_session)
-      server.send(:handle_user_message, 's', 'Use this', files)
+      server.on_ws_message(connection, JSON.generate(type: 'feedback_response', session_id: 's', content: 'answer', display_text: 'My answer', files: files))
     end
-    it 'routes duplicate or inactive feedback through the existing input queue' do
-      expect(ui).to receive(:deliver_feedback).with('late', hash_including(files: [], references_display: [])).and_return(false)
-      expect(agent).to receive(:enqueue_input).with('late', hash_including(delivery: :queue))
-      server.send(:handle_user_message, 's', 'late')
+    it 'keeps ordinary messages on the existing input queue path' do
+      expect(ui).not_to receive(:deliver_feedback)
+      expect(agent).to receive(:enqueue_input).with('new instruction', hash_including(delivery: :queue))
+      server.send(:handle_user_message, 's', 'new instruction')
     end
+
   end
 
   it "queues an opted-in message without interrupting or spawning another run" do
