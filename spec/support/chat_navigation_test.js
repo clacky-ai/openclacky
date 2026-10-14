@@ -269,8 +269,12 @@ async function navigatorTests() {
     "the bookmark floats over the title row instead of reserving a full-height column");
   assert.doesNotMatch(css, /\.chat-nav-popup\s*\{[^}]*grid-template-columns:/s,
     "the bookmark does not narrow the assistant preview");
-  assert.match(css, /\.chat-nav-user\s*\{[^}]*-webkit-line-clamp:\s*1;/s,
-    "user messages stay on one line");
+  assert.match(css, /\.chat-nav-user\s*\{[^}]*display:\s*block;[^}]*text-overflow:\s*ellipsis;[^}]*white-space:\s*nowrap;/s,
+    "user messages fill the available width before single-line truncation");
+  assert.doesNotMatch(css, /\.chat-nav-user\s*\{[^}]*-webkit-line-clamp:/s,
+    "single-line previews do not use multi-line clamping");
+  assert.match(css, /\.chat-nav-popup \.chat-nav-user code\s*\{[^}]*white-space:\s*inherit;/s,
+    "inline code cannot wrap the user preview before the available width is used");
   assert.match(css, /\.chat-nav-answer\s*\{[^}]*-webkit-line-clamp:\s*3;[^}]*color:\s*var\(--color-text-muted\);/s,
     "AI content is truncated and visually secondary");
   assert.doesNotMatch(css, /chat-nav-popup-label/, "the popup has no redundant AI reply label");

@@ -4016,20 +4016,22 @@ body {
 .chat-nav-bookmark.bookmarked svg { fill: currentColor; }
 .chat-nav-user,
 .chat-nav-answer {
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
   overflow: hidden;
   overflow-wrap: anywhere;
   font-size: 0.8125rem;
   line-height: 1.5;
 }
 .chat-nav-user {
-  -webkit-line-clamp: 1;
+  display: block;
   padding-right: 2rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   color: var(--color-text-primary);
   font-weight: 500;
 }
 .chat-nav-answer {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
   -webkit-line-clamp: 3;
   color: var(--color-text-muted);
 }
@@ -4040,6 +4042,7 @@ body {
   font-size: 0.9em;
   white-space: normal;
 }
+.chat-nav-popup .chat-nav-user code { white-space: inherit; }
 .chat-nav-popup.loading span {
   width: 100%;
   border-radius: 0.25rem;
