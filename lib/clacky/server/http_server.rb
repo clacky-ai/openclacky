@@ -7725,13 +7725,6 @@ module Clacky
             conn.send_json(type: "error", message: "Session not found: #{session_id}")
           end
 
-        when "feedback_mode"
-          session_id = msg["session_id"] || conn.session_id
-          ui = @registry.ensure(session_id) && @registry.get(session_id)&.dig(:ui)
-          raise ArgumentError, "Session not found: #{session_id}" unless ui
-          ui.set_feedback_mode(msg["value"], timeout_seconds: msg["timeout_seconds"])
-          conn.send_json(type: "feedback_mode", session_id: session_id, value: msg["value"], timeout_seconds: msg["timeout_seconds"])
-
         when "input_behavior"
           mode = msg["value"]
           raise ArgumentError, "Invalid input behavior" unless %w[queue interrupt steer].include?(mode)
@@ -7774,7 +7767,7 @@ module Clacky
           raw_images = (msg["images"] || []).map do |data_url|
             { "data_url" => data_url, "name" => "image.jpg", "mime_type" => "image/jpeg" }
           end
-          handle_user_message(session_id, msg["content"].to_s, (msg["files"] || []) + raw_images, references: msg["references"] || [])
+          handle_user_message(session_id, msg["content"].to_s, (msg["files"] || []) + raw_images, references: msg["references"] || [], feedback: msg["feedback"]&.transform_keys(&:to_sym))
 
         when "feedback_response"
           session_id = msg["session_id"] || conn.session_id
@@ -7881,11 +7874,12 @@ module Clacky
         end
       end
 
-      def handle_user_message(session_id, content, files = [], references: [])
+      def handle_user_message(session_id, content, files = [], references: [], feedback: nil)
         return unless @registry.exist?(session_id)
 
         session = @registry.get(session_id)
-        
+        feedback_options = feedback ? { feedback: feedback } : {}
+
         mode = @agent_config.input_behavior
         queued = false
         queued_created_at = nil
@@ -7893,7 +7887,7 @@ module Clacky
           if s[:status] == :running && %w[queue steer].include?(mode)
             queued_created_at = Time.now.to_f
             s[:agent].enqueue_input(content, delivery: mode.to_sym, files: files, references_display: references,
-                                    reference_contexts: build_reference_contexts(references), created_at: queued_created_at)
+                                    reference_contexts: build_reference_contexts(references), created_at: queued_created_at, **feedback_options)
             queued = true
           end
         end
@@ -7916,7 +7910,7 @@ module Clacky
           if old_thread && !old_thread.join(2)
             retained_created_at = Time.now.to_f
             session[:agent].enqueue_input(content, files: files, references_display: references,
-                                          reference_contexts: build_reference_contexts(references), created_at: retained_created_at)
+                                          reference_contexts: build_reference_contexts(references), created_at: retained_created_at, **feedback_options)
             broadcast(session_id, { type: "input_enqueued", session_id: session_id, created_at: retained_created_at })
             broadcast(session_id, { type: "input_queue_notice", session_id: session_id, key: "chat.input.stoppingDelayed" })
             return
@@ -7974,7 +7968,7 @@ module Clacky
           # "Thinking..." forever. A web-originated turn bound to an IM channel gets a
           # card too, so tools/narration render like a native IM turn (#603).
           @channel_manager.channel_ui_for_session(session_id)&.start_task(reply_to: nil)
-          agent.run(content, files: files, reference_contexts: reference_contexts, created_at: msg_created_at, references_display: references)
+          agent.run(content, files: files, reference_contexts: reference_contexts, created_at: msg_created_at, references_display: references, **feedback_options)
         end
       end
 

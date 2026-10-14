@@ -25,32 +25,14 @@ RSpec.describe Clacky::Server::HttpServer, "input behavior routing" do
     let(:ui) { Clacky::Server::WebUIController.new('s', ->(_sid, event) { events << event }) }
     let(:connection) { double('connection', session_id: 's', send_json: nil) }
     before { registry.with_session('s') { |s| s[:ui] = ui } }
-    it 'applies a valid mode to only its session, without changing permission mode' do
-      other = Clacky::Server::WebUIController.new('other', ->(*) {})
-      registry.create(session_id: 'other')
-      registry.with_session('other') { |s| s[:ui] = other }
-      previous = config.permission_mode
-      expect(connection).to receive(:send_json).with(type: 'feedback_mode', session_id: 's', value: 'auto', timeout_seconds: 45)
-      server.on_ws_message(connection, JSON.generate(type: 'feedback_mode', session_id: 's', value: 'auto', timeout_seconds: 45))
-      expect(events.last).to include(type: 'feedback_mode', value: 'auto', timeout_seconds: 45, session_id: 's')
-      expect(other.instance_variable_get(:@feedback_mode)).to be_nil
-      expect(config.permission_mode).to eq(previous)
+    it 'passes feedback options with the message rather than setting session mode' do
+      expect(server).to receive(:handle_user_message).with('s', 'Build', [], references: [], feedback: { timeout_seconds: 45 })
+      server.on_ws_message(connection, JSON.generate(type: 'message', session_id: 's', content: 'Build', feedback: { timeout_seconds: 45 }))
+      expect(config.permission_mode).to eq(:confirm_safes)
     end
-    it 'hydrates a restored session through the existing registry before a mode frame that precedes subscription' do
-      registry.with_session('s') { |s| s[:ui] = nil }
-      expect(registry).to receive(:ensure).with('s') do
-        registry.with_session('s') { |s| s[:ui] = ui }
-        true
-      end
-      expect(connection).to receive(:send_json).with(type: 'feedback_mode', session_id: 's', value: 'auto', timeout_seconds: 45)
-      server.on_ws_message(connection, JSON.generate(type: 'feedback_mode', value: 'auto', timeout_seconds: 45))
-      expect(events.last).to include(type: 'feedback_mode', value: 'auto')
-    end
-    it 'rejects unsupported modes and durations over the socket' do
-      expect(connection).to receive(:send_json).with(hash_including(type: 'error')).twice
-      server.on_ws_message(connection, JSON.generate(type: 'feedback_mode', value: 'invalid', timeout_seconds: 45))
-      server.on_ws_message(connection, JSON.generate(type: 'feedback_mode', value: 'auto', timeout_seconds: -1))
-      expect(ui.instance_variable_get(:@feedback_mode)).to be_nil
+    it 'keeps feedback options on queued tasks' do
+      expect(agent).to receive(:enqueue_input).with('next task', hash_including(feedback: { timeout_seconds: nil }))
+      server.send(:handle_user_message, 's', 'next task', feedback: { timeout_seconds: nil })
     end
     it 'delivers explicit feedback without starting a new run' do
       files = [{ 'path' => '/tmp/answer.png', 'name' => 'answer.png' }]

@@ -29,7 +29,6 @@ module Clacky
 
         # Pending confirmation state: { id => ConditionVariable, result => value }
         @pending_confirmations = {}
-        @feedback_mode = nil
         @pending_feedback = nil
 
         # Channel subscribers: array of objects implementing UIInterface.
@@ -70,26 +69,6 @@ module Clacky
         end
       end
 
-      def feedback_mode?
-        !@feedback_mode.nil?
-      end
-
-      def set_feedback_mode(value, timeout_seconds:)
-        raise ArgumentError, "Invalid feedback mode" unless %w[auto ask].include?(value)
-        raise ArgumentError, "Invalid feedback timeout" unless timeout_seconds.is_a?(Integer) && timeout_seconds >= 0
-        @mutex.synchronize do
-          @feedback_mode = value
-          @feedback_timeout = timeout_seconds
-          pending = @pending_feedback
-          if value == "ask" && pending && !pending[:answer] && pending[:countdown]
-            emit("feedback_countdown_resolved", request_id: pending[:id], resolution: "interrupted")
-            pending[:countdown] = pending[:deadline] = nil
-            pending[:cond].signal
-          end
-          emit("feedback_mode", value: value, timeout_seconds: @feedback_timeout)
-        end
-      end
-
       def deliver_feedback(answer, **options)
         @mutex.synchronize do
           pending = @pending_feedback
@@ -100,43 +79,39 @@ module Clacky
         end
       end
 
-      # The agent's existing task thread owns the wait, independently of sockets.
-      def wait_for_feedback(question: nil, recommended_label: nil)
-        pending = nil
-        @mutex.synchronize do
-          old = @pending_feedback
-          old[:cond].signal if old
-          emit("feedback_countdown_resolved", request_id: old[:id], resolution: "superseded") if old && old[:countdown]
-          if @feedback_mode == "auto" && recommended_label
-            id = SecureRandom.uuid
-            pending = { id: id, cond: ConditionVariable.new,
-                        deadline: Process.clock_gettime(Process::CLOCK_MONOTONIC) + @feedback_timeout,
-                        countdown: { request_id: id, question: question, recommended_label: recommended_label,
-                                     deadline_ms: (Time.now.to_f * 1000).to_i + @feedback_timeout * 1000, duration_seconds: @feedback_timeout } }
-          end
-          @pending_feedback = pending
+      # The caller supplies a timeout for this wait; nil keeps manual feedback.
+      def wait_for_feedback(timeout_seconds:, question: nil, recommended_label: nil)
+        unless recommended_label && !timeout_seconds.nil?
           yield
-          return nil unless pending
-          emit("feedback_countdown_started", **pending[:countdown])
-          while @pending_feedback.equal?(pending) && !pending[:answer]
-            remaining = pending[:deadline] && pending[:deadline] - Process.clock_gettime(Process::CLOCK_MONOTONIC)
-            if remaining && remaining <= 0
-              pending[:answer], pending[:resolution] = recommended_label, "timeout"
+          return
+        end
+        raise ArgumentError, "Invalid feedback timeout" unless timeout_seconds.is_a?(Integer) && timeout_seconds >= 0
+
+        pending = { id: SecureRandom.uuid, cond: ConditionVariable.new }
+        countdown = { request_id: pending[:id], question: question, recommended_label: recommended_label,
+                      deadline_ms: (Time.now.to_f * 1000).to_i + timeout_seconds * 1000,
+                      duration_seconds: timeout_seconds }
+        deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + timeout_seconds
+        pending[:countdown] = countdown
+        @mutex.synchronize { @pending_feedback = pending }
+        yield
+        emit("feedback_countdown_started", **countdown)
+        @mutex.synchronize do
+          until pending[:answer]
+            remaining = deadline - Process.clock_gettime(Process::CLOCK_MONOTONIC)
+            if remaining <= 0
+              pending.merge!(answer: recommended_label, resolution: "timeout")
             else
               pending[:cond].wait(@mutex, remaining)
             end
           end
-          return nil unless @pending_feedback.equal?(pending)
-          emit("feedback_countdown_resolved", request_id: pending[:id], resolution: pending[:resolution], answer: pending[:answer]) if pending[:countdown]
-          pending[:countdown] = nil
-          [pending[:answer], pending.fetch(:options, {}), pending[:resolution]]
+          [pending[:answer], pending.fetch(:options, {})]
         end
       ensure
-        @mutex.synchronize do
-          if pending && @pending_feedback.equal?(pending)
-            emit("feedback_countdown_resolved", request_id: pending[:id], resolution: "interrupted") if pending[:countdown]
-            @pending_feedback = nil
-          end
+        if pending
+          @mutex.synchronize { @pending_feedback = nil }
+          emit("feedback_countdown_resolved", request_id: pending[:id],
+               resolution: pending[:resolution] || "cancelled", answer: pending[:answer])
         end
       end
 
@@ -408,10 +383,8 @@ module Clacky
       # The frontend's appendToolStdout will attach to the last visible .tool-item
       # even when _liveLastToolItem is null (after the tab re-loaded).
       def replay_live_state
-        @mutex.synchronize do
-          emit("feedback_mode", value: @feedback_mode, timeout_seconds: @feedback_timeout) if feedback_mode?
-          emit("feedback_countdown_started", **@pending_feedback[:countdown]) if @pending_feedback && @pending_feedback[:countdown]
-        end
+        countdown = @mutex.synchronize { @pending_feedback&.dig(:countdown) }
+        emit("feedback_countdown_started", **countdown) if countdown
         return unless @live_progress_state
 
         # Replay complete progress state (not just message).

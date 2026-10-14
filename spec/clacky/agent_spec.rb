@@ -90,13 +90,12 @@ RSpec.describe Clacky::Agent do
       let(:tool_call_response) { mock_api_response(content: nil, tool_calls: [mock_tool_call(name: 'ask_user', args: JSON.generate(questions: questions))]) }
       before { agent.instance_variable_set(:@ui, ui) }
       def expire_countdown
-        ui.set_feedback_mode('auto', timeout_seconds: 60)
         allow(Process).to receive(:clock_gettime).and_call_original
         allow(Process).to receive(:clock_gettime).with(Process::CLOCK_MONOTONIC).and_return(10.0, 70.0)
       end
       it 'steers the exact recommendation into the same run and persists Q&A for replay' do
         expire_countdown
-        result = agent.run('Build something')
+        result = agent.run('Build something', feedback: { timeout_seconds: 60 })
         expect(result[:awaiting_user_feedback]).to be(false)
         expect(client).to have_received(:send_messages_with_tools).twice
         answer = agent.history.to_a.find { |m| m[:content] == "Answer: Recommended" }
@@ -111,7 +110,7 @@ RSpec.describe Clacky::Agent do
         let(:questions) { [{ question: 'Pick?', options: ['/start', 'Alternative'], recommended: 0 }] }
         it 'steers the literal answer instead of treating it as a run-level slash command' do
           expire_countdown
-          result = agent.run('Build something')
+          result = agent.run('Build something', feedback: { timeout_seconds: 60 })
           answer = agent.history.to_a.find { |m| m[:content] == "Answer: /start" }
           expect(answer).to include(content: 'Answer: /start', task_id: result[:task_id])
           expect(result[:awaiting_user_feedback]).to be(false)
@@ -123,19 +122,24 @@ RSpec.describe Clacky::Agent do
           show.call
           ['Alternative', { reference_contexts: ['Previous chat context'], references_display: [{ type: 'chat', name: 'previous' }] }]
         end
-        ui.set_feedback_mode('auto', timeout_seconds: 60)
-        result = agent.run('Build something')
+        result = agent.run('Build something', feedback: { timeout_seconds: 60 })
         expect(result[:awaiting_user_feedback]).to be(false)
         expect(agent.history.to_a).to include(hash_including(content: 'Previous chat context', system_injected: true, task_id: result[:task_id]))
         expect(agent.pending_inputs).to be_empty
       end
-      it 'preserves existing auto_approve behavior until feedback mode is configured' do
+      it 'preserves existing behavior when no feedback options are supplied' do
         expect(agent.run('Build something')[:awaiting_user_feedback]).to be(false)
         expect(events.map { |event| event[:type] }).not_to include('feedback_countdown_started')
       end
-      it 'uses explicit Ask independently from tool permissions' do
-        ui.set_feedback_mode('ask', timeout_seconds: 60)
-        expect(agent.run('Build something')[:awaiting_user_feedback]).to be(true)
+      it 'does not carry feedback policy into the next task' do
+        allow(client).to receive(:send_messages_with_tools).and_return(tool_call_response, final_response, tool_call_response, final_response)
+        agent.run('First task', feedback: { timeout_seconds: 0 })
+        events.clear
+        agent.run('Next task')
+        expect(events.map { |event| event[:type] }).not_to include('feedback_countdown_started')
+      end
+      it 'uses a nil timeout for manual Ask independently from tool permissions' do
+        expect(agent.run('Build something', feedback: { timeout_seconds: nil })[:awaiting_user_feedback]).to be(true)
         expect(config.permission_mode).to eq(:auto_approve)
         expect(events.map { |e| e[:type] }).not_to include('feedback_countdown_started')
       end
@@ -154,27 +158,26 @@ RSpec.describe Clacky::Agent do
           let(:questions) { invalid }
           it 'waits for manual input without a countdown or extra model call' do
             expire_countdown
-            expect(agent.run('Build something')[:awaiting_user_feedback]).to be(true)
+            expect(agent.run('Build something', feedback: { timeout_seconds: 60 })[:awaiting_user_feedback]).to be(true)
             expect(events.map { |e| e[:type] }).not_to include('feedback_countdown_started')
             expect(client).to have_received(:send_messages_with_tools).once
           end
         end
       end
       it 'rejects an answer when the task was replaced while waiting' do
-        ui.set_feedback_mode('auto', timeout_seconds: 60)
         allow(ui).to receive(:wait_for_feedback) do |**_options, &show|
           show.call
           agent.instance_variable_set(:@current_task_id, 999)
           'Recommended'
         end
         expect(agent).not_to receive(:enqueue_input)
-        agent.run('Build something')
+        agent.run('Build something', feedback: { timeout_seconds: 60 })
         expect(agent.pending_inputs).to be_empty
       end
       it 'removes a rejected steering entry so an old answer cannot start another task' do
         expire_countdown
         allow(agent).to receive(:steer_pending_input).and_return(false)
-        agent.run('Build something')
+        agent.run('Build something', feedback: { timeout_seconds: 60 })
         expect(agent.pending_inputs).to be_empty
       end
     end

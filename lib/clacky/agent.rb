@@ -485,7 +485,7 @@ module Clacky
       @name = new_name.to_s.strip
     end
 
-    def run(user_input, files: nil, reference_contexts: nil, display_text: nil, created_at: nil, references_display: nil)
+    def run(user_input, files: nil, reference_contexts: nil, display_text: nil, created_at: nil, references_display: nil, feedback: nil)
       # Initialized here (not mid-body) because run's rescue/ensure are
       # method-level and must be able to reference them on any exit path.
       result = nil
@@ -522,6 +522,7 @@ module Clacky
 
       # Start new task for Time Machine
       task_id = start_new_task(title: display_text.to_s.empty? ? user_input.to_s : display_text.to_s)
+      @feedback = feedback
       run_context = { session_id: @session_id, run_id: task_id.to_s,
                       source: @source.to_s, input_created_at: created_at,
                       observed_at: Time.now.utc.iso8601(6), status: "running" }
@@ -1276,6 +1277,7 @@ module Clacky
       end
       entries.each do |entry|
         options = entry[:options].dup
+        options.delete(:feedback)
         source = options.delete(:source) || :web
         history_size = @history.size
         begin
@@ -1691,10 +1693,10 @@ module Clacky
             # can extract the questions and emit a "request_feedback" event
             # (renders as a clickable card in the browser).
             # Fallback UIs (terminal, IM channels) receive the formatted text message.
-            if @ui.respond_to?(:feedback_mode?) && @ui.feedback_mode?
+            if @feedback && @ui.respond_to?(:wait_for_feedback)
               label = Tools::AskUser.recommended_answer(args)
               task_id = @current_task_id
-              answer, feedback_options = @ui.wait_for_feedback(question: Tools::AskUser.normalize_questions(args).first[:question], recommended_label: label) do
+              answer, feedback_options = @ui.wait_for_feedback(timeout_seconds: @feedback[:timeout_seconds], question: Tools::AskUser.normalize_questions(args).first[:question], recommended_label: label) do
                 @ui.show_tool_call(call[:name], call[:arguments])
               end
               check_stale!
