@@ -96,22 +96,6 @@ module Clacky
         list
       end
 
-      # Normalization can remove blank options or coerce indexes. Only use a
-      # recommendation when it still identifies the original displayed option.
-      def self.recommended_answer(args)
-        questions = normalize_questions(args)
-        raw = fetch_key(args, :questions)
-        raw = [args] unless raw.is_a?(Array)
-        return unless raw.one? && questions.one? && !questions.first[:multi]
-
-        index = fetch_key(raw.first, :recommended)
-        options = fetch_key(raw.first, :options)
-        return unless index.is_a?(Integer) && options.is_a?(Array) && index >= 0
-        label = options[index]
-        return unless label.is_a?(String) && !label.strip.empty?
-        label.strip if index == questions.first[:recommended] && label.strip == questions.first[:options][index]
-      end
-
       def self.normalize_question(item)
         return nil unless item.is_a?(Hash)
 

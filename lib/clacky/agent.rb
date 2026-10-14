@@ -1694,21 +1694,17 @@ module Clacky
             # (renders as a clickable card in the browser).
             # Fallback UIs (terminal, IM channels) receive the formatted text message.
             if @feedback && @ui.respond_to?(:wait_for_feedback)
-              label = Tools::AskUser.recommended_answer(args)
-              task_id = @current_task_id
-              answer, feedback_options = @ui.wait_for_feedback(timeout_seconds: @feedback[:timeout_seconds], question: Tools::AskUser.normalize_questions(args).first[:question], recommended_label: label) do
+              questions = Tools::AskUser.normalize_questions(args)
+              question = questions.first
+              label = if questions.one? && !question[:multi] && question[:recommended]
+                question[:options][question[:recommended]]
+              end
+              answer, feedback_options = @ui.wait_for_feedback(timeout_seconds: @feedback[:timeout_seconds], question: question[:question], recommended_label: label) do
                 @ui.show_tool_call(call[:name], call[:arguments])
               end
               check_stale!
-              if answer && task_id == @current_task_id
-                Thread.handle_interrupt(Clacky::AgentInterrupted => :never) do
-                  id = enqueue_input("Answer: #{answer}", delivery: :queue, created_at: Time.now.to_f, **(feedback_options || {}))
-                  result[:awaiting_feedback] = awaiting_feedback = !steer_pending_input(id, expected_task_id: task_id)
-                  remove_pending_input(id) if awaiting_feedback
-                end
-              else
-                awaiting_feedback = true
-              end
+              result[:awaiting_feedback] = awaiting_feedback = !answer
+              enqueue_input("Answer: #{answer}", delivery: :steer, created_at: Time.now.to_f, **(feedback_options || {})) if answer
             elsif @config.permission_mode == :auto_approve
               @ui&.show_tool_call(call[:name], call[:arguments])
               # auto_approve means the agent runs unattended by default, but a
