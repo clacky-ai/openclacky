@@ -3719,6 +3719,33 @@ body {
   background: var(--color-bg-primary);
 }
 
+/* Audio/video: browser-native controls over the existing range-capable local
+   media endpoint. Unsupported codecs fall back to the regular Open action. */
+.wv-pane--media {
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  background: var(--color-bg-primary);
+}
+.wv-media-player--video {
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  max-height: 100%;
+  background: transparent;
+}
+.wv-media-player--audio {
+  width: min(32rem, 100%);
+}
+.wv-media-error {
+  display: none;
+  font-size: 0.8125rem;
+  color: var(--color-text-secondary);
+  text-align: center;
+}
+.wv-pane--media.is-error .wv-media-player { display: none; }
+.wv-pane--media.is-error .wv-media-error { display: block; }
+
 /* CSV/TSV: read-only table view; edit the original via "Open ▾" */
 .wv-pane--table {
   flex-direction: column;

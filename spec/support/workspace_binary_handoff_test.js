@@ -1,6 +1,7 @@
 "use strict";
 
-// Regression harness for the workspace viewer's binary handoff.
+// Regression harness for the workspace viewer's binary handoff and native
+// media previews.
 //
 // Clicking a .docx link used to open a pane that reads "this file type can't be
 // previewed here" and leave the user to find and press Open themselves. The
@@ -58,6 +59,8 @@ class Element {
   contains() { return false; }
   closest() { return null; }
   focus() {}
+  pause() { this.pauseCalls = (this.pauseCalls || 0) + 1; }
+  load() { this.loadCalls = (this.loadCalls || 0) + 1; }
   click() { const fn = this.handlers.click; if (fn) fn({ preventDefault() {}, stopPropagation() {} }); }
 }
 
@@ -65,6 +68,15 @@ function findByClass(root, cls) {
   if ((root.className || "").split(/\s+/).includes(cls)) return root;
   for (const child of root.children || []) {
     const hit = findByClass(child, cls);
+    if (hit) return hit;
+  }
+  return null;
+}
+
+function findByTag(root, tag) {
+  if (root.tagName === tag) return root;
+  for (const child of root.children || []) {
+    const hit = findByTag(child, tag);
     if (hit) return hit;
   }
   return null;
@@ -118,12 +130,13 @@ function boot(opts = {}) {
 
   const WorkspaceView = vm.runInContext("Clacky.WorkspaceView", context);
   const Workspace = vm.runInContext("Clacky.Workspace", context);
+  const CodeEditor = vm.runInContext("CodeEditor", context);
   Workspace.setSession({ id: "s1", working_dir: "/wd" });
 
   const container = new Element("div");
   WorkspaceView.mount(container, {});
 
-  return { WorkspaceView, Workspace, container, fetches, toasts };
+  return { WorkspaceView, Workspace, CodeEditor, container, fetches, toasts };
 }
 
 const settle = () => new Promise(resolve => setTimeout(resolve, 0));
@@ -142,14 +155,53 @@ async function tests() {
   // 1. Policy: formats with no in-browser renderer go to the OS; anything the
   //    system would run or mount instead keeps the manual page.
   {
-    const { WorkspaceView } = boot();
-    ["report.docx", "sheet.xlsx", "deck.pptx", "clip.mp4", "song.mp3", "bundle.zip", "poster.psd"]
+    const { WorkspaceView, CodeEditor } = boot();
+    ["clip.mp4", "clip.webm", "clip.mov"]
+      .forEach(name => assert.equal(CodeEditor.fileKind(name), "video", `${name} gets an inline video player`));
+    ["song.mp3", "song.wav", "song.ogg", "song.aac", "song.flac", "song.m4a"]
+      .forEach(name => assert.equal(CodeEditor.fileKind(name), "audio", `${name} gets an inline audio player`));
+    ["report.docx", "sheet.xlsx", "deck.pptx", "clip.mkv", "song.aiff", "bundle.zip", "poster.psd"]
       .forEach(name => assert.equal(WorkspaceView.autoOpenWithSystem(name), true, `${name} goes to the OS`));
     ["setup.exe", "installer.dmg", "lib.jar", "run.sh", "build.command", "lib.dylib", "mod.wasm"]
       .forEach(name => assert.equal(WorkspaceView.autoOpenWithSystem(name), false, `${name} stays manual`));
   }
 
-  // 2. The reported flow: one click on a .docx launches the default app, and
+  // 2. Browser-native media uses the range-capable local URL directly instead
+  //    of downloading the whole file into a blob or launching another app.
+  {
+    const w = boot();
+    const css = fs.readFileSync(sourcePath("app.css"), "utf8");
+    assert.match(css, /\.wv-media-player--video\s*\{[^}]*width:\s*auto;[^}]*height:\s*auto;[^}]*max-width:\s*100%;[^}]*max-height:\s*100%;[^}]*background:\s*transparent;/s,
+      "video keeps its own aspect ratio against the current theme background");
+    w.WorkspaceView.openFile("/wd/clip.mp4");
+    await settle();
+
+    const video = findByTag(w.container, "video");
+    assert.ok(video, "a video player is rendered");
+    assert.equal(video.src, "/api/local-image?path=%2Fwd%2Fclip.mp4");
+    assert.equal(video.controls, true);
+    assert.equal(video.preload, "metadata");
+    assert.equal(video.playsInline, true);
+    assert.equal(video.getAttribute("aria-label"), "clip.mp4");
+    assert.equal(systemOpens(w).length, 0, "previewing does not launch the system player");
+
+    w.WorkspaceView.openFile("/wd/song.mp3");
+    await settle();
+
+    const audio = findByTag(w.container, "audio");
+    assert.ok(audio, "an audio player is rendered");
+    assert.equal(audio.src, "/api/local-image?path=%2Fwd%2Fsong.mp3");
+    assert.equal(audio.controls, true);
+    assert.equal(audio.preload, "metadata");
+    assert.equal(video.pauseCalls, 1, "switching tabs pauses hidden media");
+    assert.equal(systemOpens(w).length, 0, "audio preview stays inside the workspace");
+
+    audio.handlers.error();
+    assert.equal(audio.parentNode.classList.contains("is-error"), true,
+      "unsupported codecs show the preview fallback");
+  }
+
+  // 3. The reported flow: one click on a .docx launches the default app, and
   //    the pane says so instead of asking for a second click.
   {
     const w = boot();
@@ -162,7 +214,7 @@ async function tests() {
     assert.equal(subhintOf(w), "workspace.openedInSystem", "the pane reports the handoff");
   }
 
-  // 3. Executable formats are never launched by a link click.
+  // 4. Executable formats are never launched by a link click.
   {
     const w = boot();
     w.WorkspaceView.openFile("/wd/lib.jar");
@@ -172,7 +224,7 @@ async function tests() {
     assert.equal(subhintOf(w), "workspace.fallbackSubHint", "the manual page still explains itself");
   }
 
-  // 4. Re-opening a fallback file hands it to the OS again: the pane has no
+  // 5. Re-opening a fallback file hands it to the OS again: the pane has no
   //    content of its own to re-select, and the document was probably closed in
   //    the meantime.
   {
@@ -186,7 +238,7 @@ async function tests() {
     assert.equal(subhintOf(w), "workspace.openedInSystem", "the pane still reports the handoff");
   }
 
-  // 5. A fallback the OS must not launch by itself stays put when re-opened:
+  // 6. A fallback the OS must not launch by itself stays put when re-opened:
   //    nothing is loaded and no program starts.
   {
     const w = boot();
@@ -200,7 +252,7 @@ async function tests() {
     assert.equal(systemOpens(w).length, 0, "no program is started");
   }
 
-  // 6. A machine with no handler for the format keeps the manual fallback.
+  // 7. A machine with no handler for the format keeps the manual fallback.
   {
     const w = boot({ failOpen: true });
     w.WorkspaceView.openFile("/wd/report.docx");

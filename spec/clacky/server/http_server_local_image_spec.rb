@@ -9,7 +9,7 @@ require "clacky/agent_config"
 
 require_relative "../../support/http_server_spec_helpers"
 
-RSpec.describe Clacky::Server::HttpServer, "GET /api/local-image caching" do
+RSpec.describe Clacky::Server::HttpServer, "GET /api/local-image media serving" do
   include HttpServerSpecHelpers
 
   let(:tmpdir) { Dir.mktmpdir("clacky_local_image_spec") }
@@ -40,16 +40,20 @@ RSpec.describe Clacky::Server::HttpServer, "GET /api/local-image caching" do
     res
   end
 
-  def request_image(server, headers: {})
+  def request_local_file(server, path, headers: {})
     req = fake_req(
       method:       "GET",
       path:         "/api/local-image",
-      query_string: "path=#{CGI.escape(image_path)}",
+      query_string: "path=#{CGI.escape(path)}",
       headers:      headers
     )
     res = capturing_res
     dispatch(server, req, res)
     res
+  end
+
+  def request_image(server, headers: {})
+    request_local_file(server, image_path, headers: headers)
   end
 
   before { File.binwrite(image_path, "PNGDATA-v1") }
@@ -106,6 +110,79 @@ RSpec.describe Clacky::Server::HttpServer, "GET /api/local-image caching" do
 
       expect(res.status).to eq(200)
       expect(res.body).to eq("PNGDATA-v1")
+    end
+  end
+
+  it "serves video byte ranges with the correct media headers" do
+    video_path = File.join(tmpdir, "clip.mp4")
+    File.binwrite(video_path, "0123456789")
+
+    with_server(agent_config: agent_config) do |server|
+      res = request_local_file(server, video_path, headers: { "Range" => "bytes=2-5" })
+
+      expect(res.status).to eq(206)
+      expect(res["Content-Type"]).to eq("video/mp4")
+      expect(res["Content-Range"]).to eq("bytes 2-5/10")
+      expect(res["Accept-Ranges"]).to eq("bytes")
+      expect(res["Content-Length"]).to eq("4")
+      expect(res.body).to eq("2345")
+    end
+  end
+
+  it "serves open-ended byte ranges through the end of the file" do
+    video_path = File.join(tmpdir, "clip.mp4")
+    File.binwrite(video_path, "0123456789")
+
+    with_server(agent_config: agent_config) do |server|
+      res = request_local_file(server, video_path, headers: { "Range" => "bytes=6-" })
+
+      expect(res.status).to eq(206)
+      expect(res["Content-Range"]).to eq("bytes 6-9/10")
+      expect(res["Content-Length"]).to eq("4")
+      expect(res.body).to eq("6789")
+    end
+  end
+
+  it "serves suffix byte ranges from the end of the file" do
+    video_path = File.join(tmpdir, "clip.mp4")
+    File.binwrite(video_path, "0123456789")
+
+    with_server(agent_config: agent_config) do |server|
+      res = request_local_file(server, video_path, headers: { "Range" => "bytes=-4" })
+
+      expect(res.status).to eq(206)
+      expect(res["Content-Range"]).to eq("bytes 6-9/10")
+      expect(res["Content-Length"]).to eq("4")
+      expect(res.body).to eq("6789")
+    end
+  end
+
+  it "returns 416 for ranges that start beyond the file" do
+    video_path = File.join(tmpdir, "clip.mp4")
+    File.binwrite(video_path, "0123456789")
+
+    with_server(agent_config: agent_config) do |server|
+      res = request_local_file(server, video_path, headers: { "Range" => "bytes=10-" })
+
+      expect(res.status).to eq(416)
+      expect(res["Content-Range"]).to eq("bytes */10")
+      expect(res["Accept-Ranges"]).to eq("bytes")
+      expect(res["Content-Length"]).to eq("0")
+      expect(res.body).to eq("")
+    end
+  end
+
+  it "returns 416 for byte ranges against an empty media file" do
+    audio_path = File.join(tmpdir, "empty.mp3")
+    File.binwrite(audio_path, "")
+
+    with_server(agent_config: agent_config) do |server|
+      res = request_local_file(server, audio_path, headers: { "Range" => "bytes=0-" })
+
+      expect(res.status).to eq(416)
+      expect(res["Content-Range"]).to eq("bytes */0")
+      expect(res["Content-Length"]).to eq("0")
+      expect(res.body).to eq("")
     end
   end
 end

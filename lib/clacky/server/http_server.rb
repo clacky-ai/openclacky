@@ -4688,19 +4688,39 @@ module Clacky
           return
         end
 
-        # Support HTTP Range requests for video seeking
+        # Support a single HTTP byte range for media seeking. Browsers normally
+        # send an explicit or open-ended start, while other clients may use the
+        # standard suffix form ("bytes=-N").
         range_header = req["Range"]
         if range_header && range_header =~ /\Abytes=(\d*)-(\d*)\z/
-          start_byte = ($1.empty? ? 0 : $1.to_i)
-          end_byte   = ($2.empty? ? file_size - 1 : $2.to_i)
-          end_byte   = [end_byte, file_size - 1].min
+          first, last = $1, $2
+          unsatisfiable = file_size.zero?
 
-          res.status = 206
-          res["Content-Type"]  = mime
-          res["Content-Range"] = "bytes #{start_byte}-#{end_byte}/#{file_size}"
+          if first.empty?
+            suffix_length = last.to_i
+            unsatisfiable ||= suffix_length.zero?
+            start_byte = [file_size - suffix_length, 0].max
+            end_byte = file_size - 1
+          else
+            start_byte = first.to_i
+            end_byte = last.empty? ? file_size - 1 : [last.to_i, file_size - 1].min
+            unsatisfiable ||= start_byte >= file_size || end_byte < start_byte
+          end
+
+          res["Content-Type"] = mime
           res["Accept-Ranges"] = "bytes"
-          res["Content-Length"] = (end_byte - start_byte + 1).to_s
-          IO.binread(path, end_byte - start_byte + 1, start_byte).then { |data| res.body = data }
+          if unsatisfiable
+            res.status = 416
+            res["Content-Range"] = "bytes */#{file_size}"
+            res["Content-Length"] = "0"
+            res.body = ""
+          else
+            length = end_byte - start_byte + 1
+            res.status = 206
+            res["Content-Range"] = "bytes #{start_byte}-#{end_byte}/#{file_size}"
+            res["Content-Length"] = length.to_s
+            res.body = IO.binread(path, length, start_byte)
+          end
         else
           res.status         = 200
           res["Content-Type"] = mime
