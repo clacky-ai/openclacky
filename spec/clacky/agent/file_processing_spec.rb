@@ -57,6 +57,7 @@ RSpec.describe "Agent file processing" do
         expect(user_message).to include(content: "analyze this")
         expect(user_message[:display_files]).to eq([{ name: "large.pdf", type: "file", path: path, preview_path: nil }])
         expect(test_agent.to_session_data[:messages]).to include(hash_including(content: "analyze this"))
+        expect(test_agent.total_tasks).to eq(0)
 
         continue_parsing << true
         run_thread.value
@@ -64,6 +65,7 @@ RSpec.describe "Agent file processing" do
         user_messages = test_agent.history.to_a.select { |message| message[:role] == "user" && !message[:system_injected] }
         expect(user_messages.size).to eq(1)
         expect(user_messages.first[:display_files]).to eq([{ name: "large.pdf", type: "pdf", path: path, preview_path: preview }])
+        expect(test_agent.total_tasks).to eq(1)
       end
     end
 
@@ -80,7 +82,7 @@ RSpec.describe "Agent file processing" do
         user_messages = agent.history.to_a.select { |message| message[:role] == "user" && !message[:system_injected] }
         expect(user_messages).to be_empty
         expect(agent.to_session_data[:messages]).not_to include(hash_including(content: "read this"))
-        expect(agent.total_tasks).to eq(1)
+        expect(agent.total_tasks).to eq(0)
 
         messages_sent = nil
         allow(client).to receive(:send_messages_with_tools) do |messages, **_opts|
@@ -93,6 +95,32 @@ RSpec.describe "Agent file processing" do
         expect(messages_sent).to include(hash_including(role: "user", content: "continue without the file"))
         expect(messages_sent).not_to include(hash_including(content: "read this"))
         expect(messages_sent.none? { |message| message[:content].to_s.include?("broken.pdf") }).to be true
+      end
+    end
+
+    it "rolls back the staged turn when attachment processing is interrupted" do
+      Dir.mktmpdir do |dir|
+        path = File.join(dir, "interrupted.pdf")
+        File.binwrite(path, "%PDF-1.4")
+        parsing_started = Queue.new
+        continue_parsing = Queue.new
+        allow(Clacky::Utils::FileProcessor).to receive(:process_path) do
+          parsing_started << true
+          continue_parsing.pop
+        end
+
+        run_thread = Thread.new do
+          agent.run("read this", files: [{ name: "interrupted.pdf", path: path }])
+        end
+        run_thread.report_on_exception = false
+        Timeout.timeout(5) { parsing_started.pop }
+        run_thread.raise(Clacky::AgentInterrupted, "stopped")
+
+        expect { run_thread.value }.to raise_error(Clacky::AgentInterrupted, "stopped")
+        user_messages = agent.history.to_a.select { |message| message[:role] == "user" && !message[:system_injected] }
+        expect(user_messages).to be_empty
+        expect(agent.to_session_data[:messages]).not_to include(hash_including(content: "read this"))
+        expect(agent.total_tasks).to eq(0)
       end
     end
 

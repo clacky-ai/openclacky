@@ -11,7 +11,7 @@ module Clacky
   class MessageHistory
     # Fields that are internal to the agent and must not be sent to the API.
     INTERNAL_FIELDS = %i[
-      task_id created_at system_injected session_context memory_update
+      message_id task_id created_at system_injected session_context memory_update
       subagent_instructions subagent_result subagent_transcript token_usage
       compressed_summary chunk_path truncated transient
       chunk_index chunk_count ext_events skill_command skill_command_display
@@ -66,12 +66,10 @@ module Clacky
     end
 
     # Replace one real user turn after its attachments have been resolved.
-    # task_id alone is not unique for steering messages, so created_at is part
-    # of the identity shared by live rendering, replay, and persistence.
-    def replace_user_message(task_id:, created_at:, message:)
-      idx = @messages.rindex do |m|
-        m[:role] == "user" && !m[:system_injected] &&
-          m[:task_id].to_s == task_id.to_s && m[:created_at].to_s == created_at.to_s
+    # message_id is the stable identity; created_at remains presentation data.
+    def replace_user_message(message_id:, message:)
+      idx = @messages.index do |m|
+        m[:role] == "user" && !m[:system_injected] && m[:message_id] == message_id
       end
       return false unless idx
 
@@ -188,6 +186,17 @@ module Clacky
     # Removes that message and everything after it. Returns self.
     def truncate_from_created_at(created_at)
       idx = @messages.index { |m| m[:role] == "user" && m[:created_at].to_s == created_at.to_s }
+      return self unless idx
+
+      truncate_from(idx)
+    end
+
+    # Truncate history starting from the message with the given stable ID.
+    # Used to roll back an attachment turn that failed before resolution.
+    def truncate_from_message(message_id)
+      idx = @messages.index do |m|
+        m[:role] == "user" && !m[:system_injected] && m[:message_id] == message_id
+      end
       return self unless idx
 
       truncate_from(idx)

@@ -585,11 +585,11 @@ module Clacky
       # Inject chunk index card if archived chunks exist and index is stale
       inject_chunk_index_if_needed
 
-      @total_tasks += 1
-      run_turn_started = true
       append_user_input(user_input, files: files, reference_contexts: reference_contexts,
                         display_text: display_text, created_at: created_at,
                         references_display: references_display, task_id: task_id)
+      @total_tasks += 1
+      run_turn_started = true
 
       @input_mutex.synchronize { @accepting_steering = true }
       notify_input_queue
@@ -937,10 +937,11 @@ module Clacky
                                 skill_command[:skill].display_name(Thread.current[:lang])
                               end
       created_at ||= Time.now.to_f
+      message_id = SecureRandom.uuid
       staged = Array(files).any?
       staged_display_files = display_files_for(files)
       message_metadata = {
-        role: "user", task_id: task_id, created_at: created_at,
+        role: "user", message_id: message_id, task_id: task_id, created_at: created_at,
         display_text: display_text,
         skill_command: skill_command[:found] ? skill_command[:skill_name] : nil,
         skill_command_display: skill_command_display,
@@ -951,7 +952,7 @@ module Clacky
           content: user_input,
           display_files: staged_display_files.empty? ? nil : staged_display_files
         ))
-        staged_message_created_at = created_at
+        staged_message_id = message_id
       end
 
       # Split files into vision images and disk files; downgrade oversized images to disk
@@ -1032,8 +1033,7 @@ module Clacky
       )
       if staged
         replaced = @history.replace_user_message(
-          task_id: task_id,
-          created_at: created_at,
+          message_id: message_id,
           message: resolved_message
         )
         raise AgentError, "Accepted user message disappeared during attachment processing" unless replaced
@@ -1155,13 +1155,13 @@ module Clacky
       # skill-declared model not found) still stops the progress spinner.
       inject_skill_command_as_assistant_message(skill_command, task_id)
 
-    rescue StandardError
+    rescue Clacky::AgentInterrupted, StandardError
       # The staged turn exists only to make an accepted upload replayable while
       # attachment work is in progress. If that work crashes, remove this turn
       # and anything injected after it so the next request cannot inherit a
       # half-resolved attachment context. Parser failures returned as FileRef
       # metadata do not raise and therefore remain visible/actionable.
-      @history.truncate_from_created_at(staged_message_created_at) if staged_message_created_at
+      @history.truncate_from_message(staged_message_id) if staged_message_id
       raise
     end
 
