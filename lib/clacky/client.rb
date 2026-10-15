@@ -356,10 +356,10 @@ module Clacky
       end
 
       unless response.status == 200
-        recovered_body = response.body.to_s
-        recovered_body = sse_buf.to_s if recovered_body.empty?
-        recovered = Struct.new(:status, :body).new(response.status, recovered_body)
-        raise_error(recovered)
+        # Recover the streamed error body on the original response so headers
+        # remain available to error classification and routed-tier attribution.
+        response.env.body = sse_buf if response.body.to_s.empty?
+        raise_error(response)
       end
 
       result = aggregator.to_h
