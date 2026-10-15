@@ -76,6 +76,9 @@ module Clacky
         @task_parents = raw_parents.each_with_object({}) { |(k, v), h| h[k.to_s.to_i] = v.to_i }
         @current_task_id = (session_data.dig(:time_machine, :current_task_id) || 0).to_i
         @active_task_id = (session_data.dig(:time_machine, :active_task_id) || 0).to_i
+        # Not persisted: assume the latest task's AFTER may be stale so the next
+        # task start re-checkpoints it instead of skipping it.
+        @latest_after_dirty = true
 
         raw_meta = session_data.dig(:time_machine, :task_meta) || {}
         @task_meta = raw_meta.each_with_object({}) do |(k, v), h|

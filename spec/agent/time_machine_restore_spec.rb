@@ -176,7 +176,7 @@ RSpec.describe "Agent time machine session restore" do
       )
       restored.restore_session(saved)
 
-      expect(restored.instance_variable_get(:@latest_after_dirty)).to eq(false)
+      expect(restored.instance_variable_get(:@latest_after_dirty)).to eq(true)
       expect(restored.task_change_count(2)).to be > 0
       expect(restored.task_diff_files(2)).not_to be_empty
     ensure

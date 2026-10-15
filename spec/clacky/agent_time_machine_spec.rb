@@ -428,6 +428,31 @@ RSpec.describe "Clacky::Agent TimeMachine" do
       expect(new_agent.instance_variable_get(:@active_task_id)).to eq(2)
       expect(new_agent.instance_variable_get(:@task_parents)).to eq(agent.instance_variable_get(:@task_parents))
     end
+
+    it "still checkpoints the latest task's result after the session is reloaded" do
+      create_file("old.rb", "a\n")
+      agent.start_new_task
+      agent.record_file_before_change("old.rb")
+      create_file("old.rb", "a\nb\n")
+      agent.record_file_before_change("new.rb")
+      create_file("new.rb", "x\ny\n")
+      session_data = JSON.parse(JSON.generate(agent.to_session_data(status: :success)), symbolize_names: true)
+
+      reloaded = Clacky::Agent.new(client, config, working_dir: working_dir, ui: nil, profile: "coding", session_id: agent.session_id, source: :manual)
+      reloaded.restore_session(session_data)
+      reloaded.start_new_task
+
+      statuses = reloaded.task_diff_files(1).map { |f| [f[:path], f[:status]] }.to_h
+      expect(statuses).to eq("new.rb" => "added", "old.rb" => "modified")
+      expect(reloaded.task_file_diff(1, "new.rb")[:patch]).to include("+x", "+y")
+      expect(reloaded.task_file_diff(1, "old.rb")[:patch]).to include("+b")
+
+      reloaded.record_file_before_change("new.rb")
+      create_file("new.rb", "changed\n")
+      reloaded.start_new_task
+      reloaded.switch_to_task(1)
+      expect(read_file("new.rb")).to eq("x\ny\n")
+    end
   end
 
   describe "file tracking" do
