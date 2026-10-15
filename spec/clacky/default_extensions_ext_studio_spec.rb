@@ -164,3 +164,52 @@ RSpec.describe "ExtStudioExt brand owner publishing" do
     expect(view_source).to include(".studio-skill-badge-unlisted {")
   end
 end
+
+RSpec.describe "ExtStudioExt screenshot upload errors" do
+  let(:view_source) do
+    File.read(File.expand_path(
+      "../../lib/clacky/default_extensions/ext-studio/panels/studio/view.js",
+      __dir__
+    ))
+  end
+
+  it "runs device binding on 428 and retries the same file" do
+    expect(view_source).to include("if (e.status === 428 && e.data && e.data.needs_binding) {\n          needsBinding = true;")
+    expect(view_source).to include("if (needsBinding) await bindThenUploadScreenshot(file);")
+    expect(view_source).to include("if (await runBindingFlow()) return uploadScreenshot(file);")
+  end
+
+  it "offers an authorize link after binding is cancelled" do
+    expect(view_source).to include('showScreenshotError(t("pub.screenshot.err", { msg: t("pub.screenshot.err.unbound") }), file);')
+    expect(view_source).to include("onclick: () => bindThenUploadScreenshot(retryFile),")
+  end
+
+  it "never shows the raw backend error message" do
+    expect(view_source).not_to include('t("pub.screenshot.err", { msg: e.message })')
+    expect(view_source).to include('return t("pub.screenshot.err.generic");')
+    expect(view_source).to include('console.error("[ext-studio] screenshot upload failed:", e);')
+  end
+
+  it "defines every new screenshot key in both languages" do
+    %w[unbound missingFile extId service generic].each do |k|
+      expect(view_source.scan(%("pub.screenshot.err.#{k}":)).size).to eq(2)
+    end
+    expect(view_source.scan('"pub.screenshot.bind":').size).to eq(2)
+  end
+end
+
+RSpec.describe "ExtStudioExt device binding modal" do
+  let(:view_source) do
+    File.read(File.expand_path(
+      "../../lib/clacky/default_extensions/ext-studio/panels/studio/view.js",
+      __dir__
+    ))
+  end
+
+  it "renders the verification link as a primary footer button" do
+    expect(view_source).to include('const link = el("a", { class: "btn-primary", target: "_blank", rel: "noopener", text: t("bind.openLink") });')
+    expect(view_source).to include("modal.footer.appendChild(link);")
+    expect(view_source).to include('body: el("div", null, [status, codeLine]),')
+    expect(view_source).not_to include("studio-modal-link")
+  end
+end
