@@ -207,6 +207,24 @@ Set your **API Key**, **Model**, and **Base URL** (any OpenAI-compatible provide
 
 Supported out of the box: **Claude (Anthropic) · GPT (OpenAI) · DeepSeek · Kimi (Moonshot) · MiniMax · OpenRouter** — or any custom endpoint.
 
+In Web, use the permission selector above the message box to switch the current
+session between **Manual** and **Auto**, including while running. The choice
+is saved for that session. Running tools finish normally; subsequent actions use
+the new mode. Switching to Manual stops an active question countdown. Auto
+approve runs tools without approval.
+
+In auto-approve mode, CLI and Web wait 20 seconds after `ask_user` before the
+agent decides how to continue. Typing or selecting an answer cancels the timer
+and waits for submission. Configure the duration in `~/.clacky/config.yml`:
+
+```yaml
+settings:
+  ask_user_timeout_seconds: 20
+```
+
+Use a non-negative integer (seconds); `0` continues immediately. Missing or
+invalid values use 20 seconds. Other permission modes wait for an answer.
+
 ## Coding use case
 
 OpenClacky works as a general AI coding assistant — scaffold full-stack apps, add features, or explore unfamiliar codebases:

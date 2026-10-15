@@ -71,6 +71,16 @@ module Clacky
       @config&.permission_mode&.to_s || ""
     end
 
+    # Persist an explicit session choice separately from temporary goal mode.
+    def permission_mode=(value)
+      mode = value.to_s
+      raise ArgumentError, "Invalid permission mode" unless %w[confirm_all auto_approve].include?(mode)
+      @permission_mode_override = mode
+      @config.permission_mode = mode.to_sym
+      @pre_goal_permission_mode = nil
+      notify_permission_mode_change(mode.to_sym)
+    end
+
     def reasoning_effort=(value)
       @reasoning_effort = normalize_reasoning_effort(value)
     end
@@ -1751,12 +1761,18 @@ module Clacky
               # human MAY be watching the terminal. Show a short interactive
               # countdown: if the user steps in, hand control over and wait for
               # their answer; otherwise auto-decide and keep going.
-              countdown = @ui&.request_feedback_with_countdown(seconds: 10)
+              countdown = @ui&.request_feedback_with_countdown(seconds: @config.ask_user_timeout_seconds)
 
-              if @ui.nil? || countdown == :timeout
+              if countdown == :timeout && @config.permission_mode != :auto_approve
+                awaiting_feedback = true
+              elsif @ui.nil? || countdown == :timeout
                 result = result.merge(
                   auto_reply: "No user is available. Please make a reasonable decision based on the context and continue."
                 )
+              elsif countdown == :answered
+                # Web answers are queued with their files/references and consumed
+                # at the next steering boundary, after this tool result.
+                result = result.merge(awaiting_feedback: false)
               elsif countdown.is_a?(String) && !countdown.strip.empty?
                 # User stepped in and typed an answer right away. Route it through
                 # the denied+feedback path so the agent responds to it immediately

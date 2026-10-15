@@ -870,6 +870,9 @@ module Clacky
           elsif method == "PATCH" && path.match?(%r{^/api/sessions/[^/]+/project$})
             session_id = path.sub("/api/sessions/", "").sub("/project", "")
             api_update_session_project(session_id, req, res)
+          elsif method == "PATCH" && path.match?(%r{^/api/sessions/[^/]+/permission_mode$})
+            session_id = path.split("/")[3]
+            api_switch_session_permission_mode(session_id, req, res)
           elsif method == "PATCH" && path.match?(%r{^/api/sessions/[^/]+/model$})
             session_id = path.sub("/api/sessions/", "").sub("/model", "")
             api_switch_session_model(session_id, req, res)
@@ -7346,6 +7349,24 @@ module Clacky
         json_response(res, 500, { error: e.message })
       end
 
+      # PATCH /api/sessions/:id/permission_mode — session-only, never global.
+      def api_switch_session_permission_mode(session_id, req, res)
+        mode = parse_json_body(req)["permission_mode"].to_s
+        unless %w[confirm_all auto_approve].include?(mode)
+          return json_response(res, 400, { error: "Invalid permission mode" })
+        end
+        return json_response(res, 404, { error: "Session not found" }) unless @registry.ensure(session_id)
+
+        @registry.with_session(session_id) do |session|
+          agent = session[:agent]
+          return json_response(res, 404, { error: "Session not found" }) unless agent
+          agent.permission_mode = mode
+          @session_manager.save(agent.to_session_data(updated_at: Time.now))
+        end
+        broadcast_session_update(session_id)
+        json_response(res, 200, { ok: true, permission_mode: mode })
+      end
+
       def api_switch_session_model(session_id, req, res)
         body = parse_json_body(req)
         model_id = body["model_id"].to_s.strip
@@ -7843,6 +7864,10 @@ module Clacky
           end
           handle_user_message(session_id, msg["content"].to_s, (msg["files"] || []) + raw_images, references: msg["references"] || [])
 
+        when "feedback_intervene"
+          session_id = msg["session_id"] || conn.session_id
+          @registry.get(session_id)&.dig(:ui)&.intervene_feedback(msg["request_id"])
+
         when "confirmation"
           session_id = msg["session_id"] || conn.session_id
           deliver_confirmation(session_id, msg["id"], msg["result"])
@@ -7945,7 +7970,17 @@ module Clacky
         return unless @registry.exist?(session_id)
 
         session = @registry.get(session_id)
-        
+        feedback_delivered = session[:ui].respond_to?(:deliver_feedback) && session[:ui].deliver_feedback do
+          created_at = Time.now.to_f
+          # A slash-prefixed answer is feedback, not a deferred skill command.
+          answer = content.lstrip.start_with?("/") ? "Answer: #{content}" : content
+          session[:agent].enqueue_input(answer, delivery: :steer, display_text: content, files: files,
+            references_display: references, reference_contexts: build_reference_contexts(references),
+            created_at: created_at)
+          broadcast(session_id, { type: "input_enqueued", session_id: session_id, created_at: created_at })
+        end
+        return if feedback_delivered
+
         mode = @agent_config.input_behavior
         queued = false
         queued_created_at = nil

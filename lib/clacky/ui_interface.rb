@@ -145,9 +145,10 @@ module Clacky
     # Auto-approve countdown for ask_user. Shows a live countdown
     # and lets the user press a key to take over and answer. Returns :timeout
     # when no one intervenes (agent should auto-decide and continue), or a
-    # feedback string / "" when the user steps in. Non-interactive UIs (web,
-    # json, channel) have no human watching a TTY, so they default to :timeout.
-    def request_feedback_with_countdown(seconds: 10)
+    # feedback string / "" when the user steps in, or :answered when Web has
+    # queued a full answer for steering. Non-interactive UIs (json, channel)
+    # default to :timeout.
+    def request_feedback_with_countdown(seconds: 20)
       :timeout
     end
 

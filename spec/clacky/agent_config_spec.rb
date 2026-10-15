@@ -15,6 +15,25 @@ RSpec.describe Clacky::AgentConfig do
     FileUtils.rm_rf(temp_dir) if temp_dir
   end
 
+  describe "ask_user_timeout_seconds" do
+    it "defaults to 20 seconds and rejects invalid values" do
+      expect(described_class.new.ask_user_timeout_seconds).to eq(20)
+      [-1, nil, "30", 2.5].each do |value|
+        expect(described_class.new(ask_user_timeout_seconds: value).ask_user_timeout_seconds).to eq(20)
+      end
+    end
+
+    it "loads and persists configured timeouts, including zero" do
+      [0, 45].each do |seconds|
+        with_temp_config("settings" => { "ask_user_timeout_seconds" => seconds }, "models" => []) do |path|
+          config = described_class.load(path)
+          expect(config.ask_user_timeout_seconds).to eq(seconds)
+          expect(YAML.safe_load(config.to_yaml, permitted_classes: [Symbol]).dig("settings", "ask_user_timeout_seconds")).to eq(seconds)
+        end
+      end
+    end
+  end
+
   describe ".load" do
     context "when config file doesn't exist" do
       it "returns a new config with empty models" do

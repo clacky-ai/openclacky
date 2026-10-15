@@ -1396,7 +1396,7 @@ module Clacky
       #   * the countdown reaches zero with no interaction -> returns :timeout
       # @param seconds [Integer] Countdown duration
       # @return [String, Symbol] feedback text, or :timeout
-      def request_feedback_with_countdown(seconds: 10)
+      def request_feedback_with_countdown(seconds: 20)
         theme = ThemeManager.current_theme
 
         queue = Queue.new

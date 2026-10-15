@@ -528,7 +528,17 @@
         <span class="sib-sep sib-sep-after-signal" style="display:none">│</span>
         <!-- Detail fields: mode, todo, cost -->
         <span class="sib-detail">
-          <span id="sib-mode"></span>
+          <button id="sib-mode" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="sib-mode-menu" data-i18n-title="sib.mode.tooltip">Manual ▾</button>
+          <div id="sib-mode-menu" class="clacky-popover" role="menu" hidden>
+            <button type="button" role="menuitemradio" data-permission-mode="confirm_all" aria-checked="true">
+              <strong data-i18n="sib.mode.confirm_all">Manual</strong>
+              <small data-i18n="sib.mode.manualHelp">Confirm actions; wait for your answer.</small>
+            </button>
+            <button type="button" role="menuitemradio" data-permission-mode="auto_approve" aria-checked="false">
+              <strong data-i18n="sib.mode.auto_approve">Auto</strong>
+              <small data-i18n="sib.mode.autoHelp">Approve tools automatically; continue after the question countdown.</small>
+            </button>
+          </div>
           <span class="sib-sep sib-sep-after-mode">│</span>
           <span id="todo-panel" class="todo-panel">
             <button id="todo-trigger" class="todo-trigger" type="button"

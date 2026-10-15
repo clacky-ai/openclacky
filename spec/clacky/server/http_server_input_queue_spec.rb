@@ -20,6 +20,81 @@ RSpec.describe Clacky::Server::HttpServer, "input behavior routing" do
     registry.with_session("s") { |s| s[:agent] = agent; s[:status] = :running }
   end
 
+  describe "permission switching" do
+    let(:response) { WEBrick::HTTPResponse.new(WEBrick::Config::HTTP) }
+    let(:request) { double("request", body: JSON.generate(permission_mode: "auto_approve")) }
+
+    before do
+      server.instance_variable_set(:@session_manager, double("manager", save: true))
+      allow(server).to receive(:broadcast_session_update)
+      allow(agent).to receive(:goal_active?).and_return(false)
+    end
+
+    it "changes and saves an idle session" do
+      registry.with_session("s") { |s| s[:status] = :idle }
+      expect(agent).to receive(:permission_mode=).with("auto_approve")
+      expect(agent).to receive(:to_session_data).and_return({})
+      server.send(:api_switch_session_permission_mode, "s", request, response)
+      expect(response.status).to eq(200)
+    end
+
+    it "changes mode without interrupting a running task" do
+      expect(agent).to receive(:permission_mode=).with("auto_approve")
+      expect(agent).to receive(:to_session_data).and_return({})
+      expect(server).not_to receive(:interrupt_session)
+      server.send(:api_switch_session_permission_mode, "s", request, response)
+      expect(response.status).to eq(200)
+    end
+
+    it "allows switching while a worker thread is alive" do
+      registry.with_session("s") do |session|
+        session[:status] = :idle
+        session[:thread] = double("worker", alive?: true)
+      end
+      expect(agent).to receive(:permission_mode=).with("auto_approve")
+      expect(agent).to receive(:to_session_data).and_return({})
+      server.send(:api_switch_session_permission_mode, "s", request, response)
+      expect(response.status).to eq(200)
+    end
+
+    it "allows switching during an active goal" do
+      registry.with_session("s") { |session| session[:status] = :idle }
+      allow(agent).to receive(:goal_active?).and_return(true)
+      expect(agent).to receive(:permission_mode=).with("auto_approve")
+      expect(agent).to receive(:to_session_data).and_return({})
+      server.send(:api_switch_session_permission_mode, "s", request, response)
+      expect(response.status).to eq(200)
+    end
+
+    it "rejects invalid modes" do
+      allow(request).to receive(:body).and_return(JSON.generate(permission_mode: "unknown"))
+      expect(agent).not_to receive(:permission_mode=)
+      server.send(:api_switch_session_permission_mode, "s", request, response)
+      expect(response.status).to eq(400)
+    end
+  end
+
+  it "routes feedback with attachments through steering even in interrupt mode" do
+    events = Queue.new
+    ui = Clacky::Server::WebUIController.new("s", ->(_sid, event) { events << event })
+    registry.with_session("s") { |session| session[:ui] = ui }
+    config.input_behavior = "interrupt"
+    worker = Thread.new { ui.request_feedback_with_countdown(seconds: 20) }
+    Timeout.timeout(2) { events.pop }
+    files = [{ "name" => "answer.txt", "path" => "/tmp/answer.txt" }]
+    references = [{ "type" => "file", "path" => "/tmp/context.txt" }]
+    allow(server).to receive(:build_reference_contexts).with(references).and_return(["context"])
+    expect(agent).to receive(:enqueue_input).with("my answer", hash_including(
+      delivery: :steer, files: files, references_display: references, reference_contexts: ["context"]))
+    expect(server).not_to receive(:interrupt_session)
+    expect(server).not_to receive(:run_agent_task)
+    server.send(:handle_user_message, "s", "my answer", files, references: references)
+    expect(worker.join(2).value).to eq(:answered)
+  ensure
+    worker&.kill
+    worker&.join
+  end
+
   it "queues an opted-in message without interrupting or spawning another run" do
     expect(agent).to receive(:enqueue_input).with("extra", hash_including(files: [], references_display: []))
     expect(server).not_to receive(:interrupt_session)

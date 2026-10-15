@@ -43,6 +43,9 @@ module Clacky
         # Restore project association (nil = no project)
         @project_id = session_data[:project_id]
 
+        mode_override = session_data.dig(:config, :permission_mode_override)
+        self.permission_mode = mode_override if %w[confirm_all auto_approve].include?(mode_override)
+
         # Restore standing goal state (nil = no goal). The judge client/model
         # are rebound lazily via #goal_manager when first accessed after
         # restore — but the persisted state must be reattached here so a
@@ -283,6 +286,7 @@ module Clacky
             # model_name is saved so the session can restore its original model on restart
             # (falling back to the current default if the model no longer exists).
             permission_mode: @config.permission_mode.to_s,
+            permission_mode_override: @permission_mode_override,
             enable_compression: @config.enable_compression,
             enable_idle_compression: @config.enable_idle_compression,
             enable_prompt_caching: @config.enable_prompt_caching,

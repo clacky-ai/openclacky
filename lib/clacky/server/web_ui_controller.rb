@@ -68,6 +68,84 @@ module Clacky
         end
       end
 
+      # Use the same contract as the CLI. The server owns the deadline;
+      # typing cancels automatic continuation but keeps the answer wait alive.
+      def request_feedback_with_countdown(seconds: 20)
+        pending = { id: SecureRandom.uuid, cond: ConditionVariable.new,
+                    deadline_ms: (Time.now.to_f * 1000).to_i + seconds * 1000 }
+        pending[:seconds] = seconds
+        pending[:deadline] = Process.clock_gettime(Process::CLOCK_MONOTONIC) + seconds
+        @mutex.synchronize do
+          pending[:manual] = @feedback_permission_mode == :confirm_all
+          @pending_feedback = pending
+        end
+        emit("feedback_countdown", request_id: pending[:id], deadline_ms: pending[:manual] ? nil : pending[:deadline_ms])
+        @mutex.synchronize do
+          until pending[:result]
+            remaining = pending[:deadline] - Process.clock_gettime(Process::CLOCK_MONOTONIC)
+            if !pending[:intervened] && !pending[:manual] && remaining <= 0
+              pending[:result] = :timeout
+            else
+              pending[:cond].wait(@mutex, (pending[:intervened] || pending[:manual]) ? nil : remaining)
+            end
+          end
+          pending[:result]
+        end
+      ensure
+        cleared = @mutex.synchronize do
+          if pending && @pending_feedback.equal?(pending)
+            @pending_feedback = nil
+            true
+          end
+        end
+        if cleared
+          emit("feedback_countdown", request_id: pending[:id], resolved: true,
+               resolution: pending[:result] || :cancelled)
+        end
+      end
+
+      def update_permission_mode(mode)
+        countdown = @mutex.synchronize do
+          @feedback_permission_mode = mode.to_sym
+          pending = @pending_feedback
+          if pending && !pending[:result]
+            if mode.to_sym == :auto_approve && pending[:manual]
+              pending[:deadline] = Process.clock_gettime(Process::CLOCK_MONOTONIC) + pending[:seconds]
+              pending[:deadline_ms] = (Time.now.to_f * 1000).to_i + pending[:seconds] * 1000
+            end
+            pending[:manual] = mode.to_sym != :auto_approve
+            pending[:cond].signal
+            { request_id: pending[:id],
+              deadline_ms: (pending[:manual] || pending[:intervened]) ? nil : pending[:deadline_ms] }
+          end
+        end
+        emit("feedback_countdown", **countdown) if countdown
+      end
+
+      def intervene_feedback(request_id)
+        @mutex.synchronize do
+          pending = @pending_feedback
+          return false unless pending && pending[:id] == request_id && !pending[:result]
+          pending[:intervened] = true
+          pending[:cond].signal
+          emit("feedback_countdown", request_id: pending[:id], deadline_ms: nil)
+          true
+        end
+      end
+
+      # Enqueue the complete message before waking the agent. Holding the lock
+      # makes submission and timeout mutually exclusive.
+      def deliver_feedback
+        @mutex.synchronize do
+          pending = @pending_feedback
+          return false unless pending && !pending[:result]
+          yield
+          pending[:result] = :answered
+          pending[:cond].signal
+          true
+        end
+      end
+
       # === Output display ===
 
       def show_user_message(content, created_at: nil, files: [], source: :web, skill_command: nil, skill_command_display: nil, steering: false, references: [])
@@ -336,6 +414,11 @@ module Clacky
       # The frontend's appendToolStdout will attach to the last visible .tool-item
       # even when _liveLastToolItem is null (after the tab re-loaded).
       def replay_live_state
+        countdown = @mutex.synchronize do
+          pending = @pending_feedback
+          pending ? { request_id: pending[:id], deadline_ms: (pending[:manual] || pending[:intervened]) ? nil : pending[:deadline_ms] } : { resolved: true }
+        end
+        emit("feedback_countdown", **countdown)
         return unless @live_progress_state
 
         # Replay complete progress state (not just message).

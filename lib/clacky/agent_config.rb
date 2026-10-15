@@ -158,7 +158,7 @@ module Clacky
     DEFAULT_COMPRESSION_THRESHOLD = 150_000
     DEFAULT_MESSAGE_COUNT_THRESHOLD = 200
 
-    attr_accessor :input_behavior, :permission_mode, :max_tokens, :verbose,
+    attr_accessor :ask_user_timeout_seconds, :input_behavior, :permission_mode, :max_tokens, :verbose,
                   :enable_compression, :enable_idle_compression, :enable_prompt_caching,
                   :compression_threshold, :message_count_threshold,
                   :models, :current_model_index, :current_model_id,
@@ -171,6 +171,8 @@ module Clacky
     def initialize(options = {})
       @permission_mode = validate_permission_mode(options[:permission_mode])
       @input_behavior = %w[queue steer interrupt].include?(options[:input_behavior].to_s) ? options[:input_behavior].to_s : "queue"
+      timeout = options.fetch(:ask_user_timeout_seconds, 20)
+      @ask_user_timeout_seconds = timeout.is_a?(Integer) && timeout >= 0 ? timeout : 20
       @max_tokens = options[:max_tokens] || 16384
       @verbose = options[:verbose] || false
       @enable_compression = options[:enable_compression].nil? ? true : options[:enable_compression]
@@ -455,7 +457,7 @@ module Clacky
     CONFIG_SETTINGS_KEYS = %w[
       enable_compression enable_idle_compression enable_prompt_caching
       compression_threshold message_count_threshold
-      memory_update_enabled input_behavior
+      memory_update_enabled input_behavior ask_user_timeout_seconds
       skill_evolution max_running_agents max_idle_agents
       default_working_dir
       proxy_url clacky_license_server
@@ -470,6 +472,7 @@ module Clacky
       end
       settings = {
         "input_behavior" => @input_behavior,
+        "ask_user_timeout_seconds" => @ask_user_timeout_seconds,
         "enable_compression" => @enable_compression,
         "enable_idle_compression" => @enable_idle_compression,
         "enable_prompt_caching" => @enable_prompt_caching,

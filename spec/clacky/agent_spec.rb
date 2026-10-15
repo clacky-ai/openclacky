@@ -18,6 +18,25 @@ RSpec.describe Clacky::Agent do
   end
   let(:agent) { described_class.new(client, config, working_dir: Dir.pwd, ui: nil, profile: "coding", session_id: Clacky::SessionManager.generate_id, source: :manual) }
 
+  describe "session permission choice" do
+    it "persists an explicit choice without changing other sessions" do
+      config.permission_mode = :confirm_all
+      local_config = config.deep_copy
+      local = described_class.new(client, local_config, working_dir: Dir.pwd, ui: nil, profile: "coding", session_id: Clacky::SessionManager.generate_id, source: :manual)
+      local.permission_mode = "auto_approve"
+      expect(config.permission_mode).to eq(:confirm_all)
+      data = local.to_session_data
+      restored = described_class.from_session(client, config.deep_copy, data, profile: "coding")
+      expect(restored.permission_mode).to eq("auto_approve")
+      restored.permission_mode = "confirm_all"
+      expect(restored.to_session_data.dig(:config, :permission_mode_override)).to eq("confirm_all")
+    end
+
+    it "rejects invalid modes" do
+      expect { agent.permission_mode = "unknown" }.to raise_error(ArgumentError)
+    end
+  end
+
   describe "#initialize" do
     it "sets initial state" do
       expect(agent.iterations).to eq(0)
@@ -1770,6 +1789,36 @@ RSpec.describe Clacky::Agent do
       msg = ui_collector.messages.first
       expect(msg[:files]).not_to be_empty
       expect(msg[:files].first[:name]).to eq("photo.png")
+    end
+  end
+
+  describe "ask_user countdown" do
+    [:timeout, :answered].each do |outcome|
+      it "uses the configured timeout and continues after #{outcome}" do
+        config.ask_user_timeout_seconds = 37
+        ui = double("ui").as_null_object
+        allow(ui).to receive(:with_progress).and_yield
+        agent.instance_variable_set(:@ui, ui)
+        expect(ui).to receive(:request_feedback_with_countdown).with(seconds: 37) do
+          agent.enqueue_input("Use option B", delivery: :steer) if outcome == :answered
+          outcome
+        end
+        allow(client).to receive(:send_messages_with_tools).and_return(
+          mock_api_response(content: nil, tool_calls: [mock_tool_call(
+            name: "ask_user", args: JSON.generate(question: "Which option?"))]),
+          mock_api_response(content: "Done.")
+        )
+        allow(client).to receive(:format_tool_results).and_return([])
+        allow(agent).to receive(:run_skill_evolution_hooks)
+        allow(agent).to receive(:run_memory_update_subagent)
+        result = agent.run("Make a choice")
+        expect(result[:awaiting_user_feedback]).to be false
+        expect(client).to have_received(:send_messages_with_tools).twice
+        if outcome == :answered
+          expect(agent.history.to_a.any? { |m| m[:content] == "Use option B" }).to be true
+          expect(agent.pending_inputs).to be_empty
+        end
+      end
     end
   end
 

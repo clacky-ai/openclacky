@@ -5755,7 +5755,23 @@ body {
   opacity: 1;
 }
 
-#sib-mode  { opacity: 0.45; flex-shrink: 0; }   /* tier 3 */
+#sib-mode {
+  flex-shrink: 0;
+  width: auto;
+  color: var(--color-text-secondary);
+  background: var(--color-bg-primary);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  padding: 2px 4px;
+  font: inherit;
+  cursor: pointer;
+}
+#sib-mode:disabled { opacity: 0.5; cursor: default; }
+#sib-mode-menu { position: fixed; width: 240px; box-sizing: border-box; white-space: normal; padding: 4px; z-index: 1000; }
+#sib-mode-menu[hidden] { display: none; }
+#sib-mode-menu button { display: block; width: 100%; text-align: left; padding: 9px; border: 0; border-radius: 6px; background: transparent; color: var(--color-text-primary); cursor: pointer; }
+#sib-mode-menu button:hover, #sib-mode-menu button[aria-checked="true"] { background: var(--color-bg-hover); }
+#sib-mode-menu small { display: block; margin-top: 4px; color: var(--color-text-secondary); line-height: 1.5; }
 #sib-model { opacity: 1;    flex-shrink: 0; }   /* tier 1 — the model is primary */
 #sib-cost  { opacity: 0.45; flex-shrink: 0; }   /* tier 3 */
 
@@ -16306,8 +16322,6 @@ body.setup-mode {
   .sib-sep-after-id,
   #sib-dir,
   .sib-sep-after-dir,
-  #sib-mode,
-  .sib-sep-after-mode,
   #sib-reasoning-wrap,
   .sib-sep-after-reasoning,
   #sib-signal-wrap,

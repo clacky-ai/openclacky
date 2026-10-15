@@ -130,3 +130,93 @@ RSpec.describe Clacky::Server::WebUIController, "#show_tool_call" do
     expect(ev[:options]).to eq(%w[a b])
   end
 end
+
+RSpec.describe Clacky::Server::WebUIController, "feedback countdown" do
+  let(:events) { Queue.new }
+  let(:controller) { described_class.new("s", ->(_sid, event) { events << event }) }
+
+  def next_event
+    Timeout.timeout(2) { events.pop }
+  end
+
+  after { @worker&.kill; @worker&.join }
+
+  it "times out without selecting a recommended answer and rejects late submissions" do
+    expect(controller.request_feedback_with_countdown(seconds: 0)).to eq(:timeout)
+    expect(next_event[:deadline_ms]).to be_a(Integer)
+    expect(next_event).to include(resolved: true, resolution: :timeout)
+    expect(controller.deliver_feedback { raise "late answer" }).to be false
+  end
+
+  it "cancels the timeout on intervention, replays it, and accepts one answer" do
+    @worker = Thread.new { controller.request_feedback_with_countdown(seconds: 0.03) }
+    started = next_event
+    expect(controller.intervene_feedback("stale-id")).to be false
+    expect(controller.intervene_feedback(started[:request_id])).to be true
+    expect(next_event[:deadline_ms]).to be_nil
+    sleep 0.05
+    expect(@worker).to be_alive
+    controller.replay_live_state
+    expect(next_event).to include(request_id: started[:request_id], deadline_ms: nil)
+    delivered = []
+    expect(controller.deliver_feedback { delivered << :answer }).to be true
+    expect(controller.deliver_feedback { delivered << :duplicate }).to be false
+    expect(@worker.join(2).value).to eq(:answered)
+    expect(delivered).to eq([:answer])
+    expect(next_event).to include(resolved: true, resolution: :answered)
+  end
+
+  it "pauses a running countdown in manual mode and restarts it in auto mode" do
+    @worker = Thread.new { controller.request_feedback_with_countdown(seconds: 0.08) }
+    started = next_event
+    controller.update_permission_mode(:confirm_all)
+    expect(next_event).to include(request_id: started[:request_id], deadline_ms: nil)
+    sleep 0.1
+    expect(@worker).to be_alive
+    controller.replay_live_state
+    expect(next_event[:deadline_ms]).to be_nil
+    controller.update_permission_mode(:auto_approve)
+    expect(next_event[:deadline_ms]).to be > started[:deadline_ms]
+    expect(@worker.join(2).value).to eq(:timeout)
+  end
+
+  it "does not undo a human's typing intervention when switching back to auto" do
+    @worker = Thread.new { controller.request_feedback_with_countdown(seconds: 0.03) }
+    started = next_event
+    controller.intervene_feedback(started[:request_id])
+    next_event
+    controller.update_permission_mode(:confirm_all)
+    next_event
+    controller.update_permission_mode(:auto_approve)
+    expect(next_event[:deadline_ms]).to be_nil
+    sleep 0.05
+    expect(@worker).to be_alive
+    controller.deliver_feedback {}
+    expect(@worker.join(2).value).to eq(:answered)
+  end
+
+  it "honors a switch to manual immediately before the countdown starts" do
+    controller.update_permission_mode(:confirm_all)
+    @worker = Thread.new { controller.request_feedback_with_countdown(seconds: 0) }
+    expect(next_event[:deadline_ms]).to be_nil
+    controller.deliver_feedback {}
+    expect(@worker.join(2).value).to eq(:answered)
+  end
+
+  it "replays the original deadline and cleans up on interruption" do
+    @worker = Thread.new do
+      controller.request_feedback_with_countdown(seconds: 20)
+    rescue Clacky::AgentInterrupted
+      :interrupted
+    end
+    started = next_event
+    controller.replay_live_state
+    expect(next_event).to include(request_id: started[:request_id], deadline_ms: started[:deadline_ms])
+    @worker.raise(Clacky::AgentInterrupted)
+    expect(@worker.join(2).value).to eq(:interrupted)
+    expect(next_event).to include(resolved: true, resolution: :cancelled)
+    expect(controller.deliver_feedback {}).to be false
+    controller.replay_live_state
+    expect(next_event).to include(resolved: true)
+  end
+end
