@@ -340,4 +340,16 @@ RSpec.describe "WebUI extension architecture" do
       expect(git_view_js).to include("const release = releaseAsideWidth")
     end
   end
+
+  describe "time machine restore refreshes the Files tree" do
+    let(:tm_view_js) do
+      File.read(File.expand_path("../../../lib/clacky/default_extensions/time_machine/panels/time_machine/view.js", __dir__))
+    end
+
+    it "notifies the Workspace facade after a successful switch" do
+      restore_fn = tm_view_js[/async function performRestoreInline.*?\n  \}\n/m]
+      expect(restore_fn).to include("if (res.ok)")
+      expect(restore_fn).to include("Clacky.Workspace.notifyTaskCompleted(state.sessionId)")
+    end
+  end
 end
