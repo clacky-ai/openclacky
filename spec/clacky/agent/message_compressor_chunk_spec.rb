@@ -748,7 +748,7 @@ RSpec.describe "Compression chunk MD archiving" do
     end
 
     let(:cfg) do
-      instance_double(Clacky::AgentConfig, enable_compression: true)
+      Clacky::AgentConfig.new
     end
 
     subject(:full_agent) do
@@ -759,6 +759,116 @@ RSpec.describe "Compression chunk MD archiving" do
       a.history = Clacky::MessageHistory.new([])
       a.message_compressor = Clacky::MessageCompressor.new(nil)
       a
+    end
+
+    describe "recent-message fallback" do
+      def compress_recent(messages, summary: "Task summary", pulled_back: [])
+        full_agent.history.replace_all([system_msg, user_msg, *messages])
+        context = {
+          recent_messages: messages, pulled_back_messages: pulled_back,
+          original_token_count: 50_000, original_message_count: messages.size + 2,
+          compression_level: 1, force_new_chunk: true
+        }
+        full_agent.history.append(role: "user", content: "compress please")
+        full_agent.handle_compression_response({ content: summary }, context)
+      end
+
+      before { cfg.compression_threshold = 10_000 }
+
+      [ [100, 20], [2400, 10], [5000, 0] ].each do |length, kept|
+        it "keeps #{kept} recent messages when each has #{length} characters" do
+          messages = 20.times.map { |i| { role: "user", content: "message #{i}: " + "x" * length } }
+          compress_recent(messages)
+
+          expect(full_agent.history.to_a.drop(2)).to eq(messages.last(kept))
+          expect(full_agent.compress_messages_if_needed).to be_nil
+          chunk = Clacky::SessionManager.new.chunks_for_current(session_id, created_at).last
+          archived = File.read(chunk[:path])
+          messages.first(20 - kept).each { |m| expect(archived).to include(m[:content]) }
+        end
+      end
+
+      [ [22, 10], [12, 0] ].each do |threshold, kept|
+        it "falls back to #{kept} messages at the message-count threshold #{threshold}" do
+          cfg.message_count_threshold = threshold
+          messages = 20.times.map { |i| { role: "user", content: "question #{i}" } }
+          compress_recent(messages)
+          expect(full_agent.history.to_a.drop(2)).to eq(messages.last(kept))
+          expect(full_agent.compress_messages_if_needed).to be_nil
+        end
+      end
+
+      it "falls back when the candidate is exactly at the token threshold" do
+        messages = 20.times.map { |i| { role: "user", content: "question #{i}" + "x" * 1000 } }
+        candidate = full_agent.message_compressor.rebuild_with_compression(
+          "Task summary", original_messages: [system_msg, user_msg, *messages], recent_messages: messages
+        )
+        cfg.compression_threshold = Clacky::MessageHistory.new(candidate).estimate_tokens
+        compress_recent(messages)
+        expect(full_agent.history.to_a.drop(2)).to eq(messages.last(10))
+      end
+
+      it "retains complete tool pairs when reducing to ten messages" do
+        call = { role: "assistant", tool_calls: [{ id: "call1", type: "function",
+          function: { name: "read", arguments: "{}" } }] }
+        result = { role: "tool", tool_call_id: "call1", content: "done" }
+        messages = 10.times.map { |i| { role: "user", content: "#{i}" + "x" * 4000 } } +
+          [call, result] + 8.times.map { |i| { role: "user", content: "small #{i}" } }
+        compress_recent(messages)
+        expect(full_agent.history.to_a.drop(2)).to eq(messages.last(10))
+        expect(full_agent.compress_messages_if_needed).to be_nil
+      end
+
+      it "stops if archive references push the final history over the threshold" do
+        messages = 20.times.map { |i| { role: "user", content: "question #{i}" + "x" * 1000 } }
+        candidate = full_agent.message_compressor.rebuild_with_compression(
+          "Task summary", original_messages: [system_msg, user_msg, *messages], recent_messages: messages
+        )
+        cfg.compression_threshold = Clacky::MessageHistory.new(candidate).estimate_tokens + 1
+        expect { compress_recent(messages) }.to raise_error(/still exceeds compression thresholds/)
+        expect(full_agent.history.to_a).not_to include(a_hash_including(compressed_summary: true))
+      end
+
+      it "rolls back the compression instruction after an idle compression failure" do
+        messages = [system_msg] + 25.times.map { |i| { role: "user", content: "question #{i}" } }
+        full_agent.history.replace_all(messages)
+        full_agent.previous_total_tokens = 25_000
+        allow(full_agent).to receive(:call_llm).and_return(content: "s" * 40_000)
+        expect(full_agent.trigger_idle_compression).to be(false)
+        expect(full_agent.history.to_a).to eq(messages)
+      end
+
+      it "includes the actual summary size in the fallback decision" do
+        messages = 20.times.map { |i| { role: "user", content: "#{i}" + "x" * 1500 } }
+        compress_recent(messages, summary: "s" * 12_000)
+        expect(full_agent.history.to_a.drop(2)).to eq(messages.last(10))
+        expect(full_agent.compress_messages_if_needed).to be_nil
+      end
+
+      it "does not split a large tool call and its results to make ten messages fit" do
+        call = { role: "assistant", tool_calls: [{ id: "call1", type: "function",
+          function: { name: "read", arguments: "x" * 45_000 } }] }
+        result = { role: "tool", tool_call_id: "call1", content: "done" }
+        messages = 18.times.map { |i| { role: "user", content: "question #{i}" } } + [call, result]
+        compress_recent(messages)
+        expect(full_agent.history.size).to eq(2)
+        expect(full_agent.compress_messages_if_needed).to be_nil
+      end
+
+      it "fails without replacing history if the summary alone exceeds the threshold" do
+        original = [system_msg, user_msg]
+        full_agent.history.replace_all(original)
+        expect { compress_recent([], summary: "s" * 40_000) }
+          .to raise_error(/still exceeds compression thresholds/)
+        expect(full_agent.history.to_a.first(2)).to eq(original)
+        expect(Clacky::SessionManager.new.chunks_for_current(session_id, created_at)).to be_empty
+      end
+
+      it "does not discard pulled-back messages that were not summarized" do
+        pulled_back = { role: "user", content: "x" * 45_000 }
+        expect { compress_recent([], pulled_back: [pulled_back]) }
+          .to raise_error(/still exceeds compression thresholds/)
+      end
     end
 
     # Simulates one ACTIVE compression round (triggers when token/message

@@ -246,6 +246,25 @@ module Clacky
         # Note: we need to remove the compression instruction message we just added
         original_messages = @history.to_a[0..-2]  # All except the last (compression instruction)
 
+        # Keep the usual recent messages unless they would immediately trigger
+        # compression again. The summary covers all original_messages, so any
+        # dropped recent messages can safely join the archive below.
+        [nil, 10, 0].each do |count|
+          if count
+            compression_context[:recent_messages] = get_recent_messages_with_tool_pairs(compression_context[:recent_messages], count)
+          end
+          candidate = @message_compressor.rebuild_with_compression(
+            compressed_content,
+            original_messages: original_messages,
+            recent_messages: compression_context[:recent_messages],
+            pulled_back_messages: compression_context[:pulled_back_messages] || []
+          )
+          break if MessageHistory.new(candidate).estimate_tokens < @config.compression_threshold &&
+                   candidate.size < @config.message_count_threshold
+
+          raise "History still exceeds compression thresholds after summarization" if count == 0
+        end
+
         # Archive compressed messages to a chunk MD file before discarding them.
         #
         # IMPORTANT: chunk_index and previous_chunks MUST come from disk, not from
@@ -309,7 +328,7 @@ module Clacky
           { basename: c[:basename], path: c[:path], topics: c[:topics] }
         end
 
-        @history.replace_all(@message_compressor.rebuild_with_compression(
+        rebuilt_messages = @message_compressor.rebuild_with_compression(
           compressed_content,
           original_messages: original_messages,
           recent_messages: compression_context[:recent_messages],
@@ -317,7 +336,14 @@ module Clacky
           topics: topics,
           previous_chunks: previous_chunks,
           pulled_back_messages: compression_context[:pulled_back_messages] || []
-        ))
+        )
+        # Archive references also consume context; never re-enter compression
+        # indefinitely if even the final rebuilt history cannot fit.
+        if MessageHistory.new(rebuilt_messages).estimate_tokens >= @config.compression_threshold ||
+           rebuilt_messages.size >= @config.message_count_threshold
+          raise "History still exceeds compression thresholds after summarization"
+        end
+        @history.replace_all(rebuilt_messages)
 
         # Reset to the estimated size of the rebuilt (small) history.
         # The compression call_llm reported the OLD large token count, so
