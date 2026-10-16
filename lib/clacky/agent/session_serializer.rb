@@ -780,6 +780,7 @@ module Clacky
             args_raw = tc[:arguments] || tc.dig(:function, :arguments) || {}
             args     = args_raw.is_a?(String) ? (JSON.parse(args_raw) rescue args_raw) : args_raw
 
+            remember_replayed_tool_name(tc[:id], name)
             # Special handling: the ask_user question is shown as an assistant
             # message (matching real-time behavior), not as a tool call.
             if Clacky::Tools::AskUser.feedback_tool?(name)
@@ -792,7 +793,6 @@ module Clacky
                                          questions: questions)
               end
             else
-              remember_replayed_tool_name(tc[:id], name)
               ui.show_tool_call(name, args)
             end
           end
@@ -830,6 +830,13 @@ module Clacky
       # rebuild the same structured `ui:` payload the live path sent instead of
       # degrading the card to plain text (C-5797).
       private def emit_replayed_tool_result(ui, content, tool_call_id)
+        name = (@replayed_tool_names || {})[tool_call_id.to_s]
+        if Clacky::Tools::AskUser.feedback_tool?(name) && ui.respond_to?(:emit)
+          result = JSON.parse(content) rescue {}
+          if result.is_a?(Hash) && result["awaiting_feedback"] && result["auto_reply"]
+            ui.emit("feedback_countdown", resolved: true, resolution: "timeout")
+          end
+        end
         ui_payload = replayed_tool_ui(content, tool_call_id)
         if ui_payload
           ui.show_tool_result(content, ui: ui_payload)

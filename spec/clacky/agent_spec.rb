@@ -1792,6 +1792,55 @@ RSpec.describe Clacky::Agent do
     end
   end
 
+  describe "deferred native feedback" do
+    before do
+      allow(agent).to receive(:run_skill_evolution_hooks)
+      allow(agent).to receive(:run_memory_update_subagent)
+      allow(client).to receive(:format_tool_results) do |_response, results, model:|
+        results.map { |result| { role: "tool", tool_call_id: result[:id], content: result[:content] } }
+      end
+    end
+
+    [:timeout, :intervened].each do |outcome|
+      it "records the complete question after the closing reply and handles #{outcome} natively" do
+        ui = double("ui").as_null_object
+        allow(ui).to receive(:with_progress).and_yield
+        agent.instance_variable_set(:@ui, ui)
+        allow(ui).to receive(:request_feedback_with_countdown).and_return(outcome)
+        calls = 0
+        allow(client).to receive(:send_messages_with_tools) do
+          calls += 1
+          if calls == 1
+            agent.defer_feedback(id: "external-1", question: "Which design?",
+                                 options: ["A: /design/a.html", "B: /design/b.html"], context: "Use the chosen handoff")
+          end
+          mock_api_response(content: calls == 1 ? "Designs are ready." : "Continuing with B.")
+        end
+        result = agent.run("Create designs")
+        history = agent.history.to_a
+        ask = history.index { |message| Array(message[:tool_calls]).any? { |call| call[:id] == "external-1" } }
+        expect(history[ask - 1][:content]).to eq("Designs are ready.")
+        expect(history[ask + 1][:content]).to include("/design/a.html", "/design/b.html", "Use the chosen handoff")
+        expect(calls).to eq(outcome == :timeout ? 2 : 1)
+        expect(result[:awaiting_user_feedback]).to eq(outcome == :intervened)
+        expect(agent.send(:take_deferred_feedback)).to be_nil
+      end
+    end
+
+    it "replays timeout resolution from the native Ask tool result" do
+      ui = double("ui").as_null_object
+      agent.send(:remember_replayed_tool_name, "external-1", "ask_user")
+      expect(ui).to receive(:emit).with("feedback_countdown", resolved: true, resolution: "timeout")
+      agent.send(:emit_replayed_tool_result, ui, JSON.generate(awaiting_feedback: true, auto_reply: "Continue"), "external-1")
+    end
+
+    it "discards a request from another task" do
+      agent.defer_feedback(id: "old", question: "Old question?")
+      agent.instance_variable_set(:@current_task_id, 99)
+      expect(agent.send(:take_deferred_feedback)).to be_nil
+    end
+  end
+
   describe "ask_user countdown" do
     [:timeout, :intervened].each do |outcome|
       it "uses the configured timeout and continues after #{outcome}" do

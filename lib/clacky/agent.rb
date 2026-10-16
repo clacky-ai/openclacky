@@ -507,6 +507,26 @@ module Clacky
       @name = new_name.to_s.strip
     end
 
+    # Extensions use the native Ask lifecycle after the current turn has finished
+    # its tools and closing reply. A new task never inherits an older request.
+    def defer_feedback(id:, **arguments)
+      check_stale!
+      raise ArgumentError, "feedback requires a question" if Tools::AskUser.normalize_questions(arguments).empty?
+
+      @deferred_feedback = { task_id: @current_task_id, id: id.to_s, arguments: arguments }
+    end
+
+    private def take_deferred_feedback
+      request, @deferred_feedback = @deferred_feedback, nil
+      return unless request && request[:task_id] == @current_task_id
+
+      check_stale!
+      call = { id: request[:id], name: "ask_user", arguments: JSON.generate(request[:arguments]) }
+      @history.append(role: "assistant", content: "", task_id: @current_task_id,
+                      created_at: Time.now.to_f, tool_calls: format_tool_calls_for_api([call]))
+      { content: "", tool_calls: [call] }
+    end
+
     def run(user_input, files: nil, reference_contexts: nil, display_text: nil, created_at: nil, references_display: nil)
       # Initialized here (not mid-body) because run's rescue/ensure are
       # method-level and must be able to reference them on any exit path.
@@ -543,6 +563,7 @@ module Clacky
       @cancel_flag = CancelFlag.new
 
       # Start new task for Time Machine
+      @deferred_feedback = nil
       task_id = start_new_task(title: display_text.to_s.empty? ? user_input.to_s : display_text.to_s)
       run_context = { session_id: @session_id, run_id: task_id.to_s,
                       source: @source.to_s, input_created_at: created_at,
@@ -766,7 +787,10 @@ module Clacky
             turn_unfinished = false
             next
           end
-          break
+          response = take_deferred_feedback
+          break unless response
+
+          turn_unfinished = false
         end
 
         # Show assistant message if there's content before tool calls
@@ -1767,7 +1791,7 @@ module Clacky
                 awaiting_feedback = true
               elsif @ui.nil? || countdown == :timeout
                 result = result.merge(
-                  auto_reply: "No user is available. Please make a reasonable decision based on the context and continue."
+                  auto_reply: "Auto mode: choose from the complete question and options above and carry out the choice. Do not wait for confirmation of this question again. Continue to respect all other user constraints."
                 )
               elsif countdown.is_a?(String) && !countdown.strip.empty?
                 # User stepped in and typed an answer right away. Route it through

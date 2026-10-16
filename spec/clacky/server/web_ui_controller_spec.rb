@@ -196,6 +196,23 @@ RSpec.describe Clacky::Server::WebUIController, "feedback countdown" do
     expect(@worker.join(2).value).to eq(:intervened)
   end
 
+  it "replays the same complete request before the original deadline, then forgets resolved requests" do
+    controller.show_feedback_request("Pick?", "All business context", ["one", "two"])
+    original = next_event
+    @worker = Thread.new { controller.request_feedback_with_countdown(seconds: 20) }
+    started = next_event
+    controller.replay_live_state
+    expect(next_event).to eq(original)
+    expect(next_event).to include(request_id: started[:request_id], deadline_ms: started[:deadline_ms])
+    controller.intervene_feedback(started[:request_id])
+    @worker.join(2)
+    next_event
+    next_event
+    controller.replay_live_state
+    expect(next_event).to include(resolved: true)
+    expect(events).to be_empty
+  end
+
   it "replays the original deadline and cleans up on interruption" do
     @worker = Thread.new do
       controller.request_feedback_with_countdown(seconds: 20)
