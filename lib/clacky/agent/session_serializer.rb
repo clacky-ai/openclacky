@@ -882,7 +882,19 @@ module Clacky
 
           data = ev[:data] || ev["data"] || {}
           data = data.is_a?(Hash) ? data.transform_keys(&:to_sym) : {}
-          ui.emit(type.to_s, **data)
+          if type.to_s == "ext.clacky.feedback.requested"
+            request = data[:request]
+            questions = Clacky::Tools::AskUser.normalize_questions(request)
+            if questions.first
+              first = questions.first
+              ui.show_feedback_request(first[:question], Clacky::Tools::AskUser.fetch_key(request, :context).to_s,
+                                       first[:options], questions: questions)
+            end
+          elsif type.to_s == "ext.clacky.feedback.resolved"
+            ui.emit("feedback_countdown", resolved: true, context: data[:context], resolution: data[:resolution])
+          else
+            ui.emit(type.to_s, **data)
+          end
         end
       end
 

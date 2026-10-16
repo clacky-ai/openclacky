@@ -13,6 +13,7 @@ require_relative "utils/environment_detector"
 require_relative "agent/message_compressor"
 require_relative "agent/message_compressor_helper"
 require_relative "agent/tool_executor"
+require_relative "agent/tool_feedback"
 require_relative "agent/cost_tracker"
 require_relative "agent/session_serializer"
 require_relative "agent/skill_manager"
@@ -32,6 +33,7 @@ module Clacky
     # Include all functionality modules
     include MessageCompressorHelper
     include ToolExecutor
+    include ToolFeedback
     include CostTracker
     include SessionSerializer
     include SkillManager
@@ -543,6 +545,7 @@ module Clacky
       @cancel_flag = CancelFlag.new
 
       # Start new task for Time Machine
+      @pending_tool_feedback_request = nil
       task_id = start_new_task(title: display_text.to_s.empty? ? user_input.to_s : display_text.to_s)
       run_context = { session_id: @session_id, run_id: task_id.to_s,
                       source: @source.to_s, input_created_at: created_at,
@@ -761,6 +764,15 @@ module Clacky
           # an in-flight conversation (agent is awaiting the user's reply)
           # and skip skill evolution — the task isn't truly complete yet.
           turn_unfinished = true if ends_with_question
+
+          feedback_outcome = settle_tool_feedback
+          if feedback_outcome == :continue
+            turn_unfinished = false
+            next
+          elsif feedback_outcome == :waiting
+            awaiting_user_feedback = true
+            break
+          end
 
           if consume_steering_inputs(finishing: true)
             turn_unfinished = false
@@ -1736,6 +1748,7 @@ module Clacky
 
           # Hook: after_tool_use
           @hooks.trigger(:after_tool_use, call, result)
+          stage_tool_feedback(result)
 
           # Update todos display after todo_manager execution.
           # Skip the broadcast for read-only "list" queries — they don't

@@ -73,6 +73,7 @@ module Clacky
       def request_feedback_with_countdown(seconds: 20)
         pending = { id: SecureRandom.uuid, cond: ConditionVariable.new,
                     deadline_ms: (Time.now.to_f * 1000).to_i + seconds * 1000 }
+        pending[:request] = @feedback_request
         pending[:seconds] = seconds
         pending[:deadline] = Process.clock_gettime(Process::CLOCK_MONOTONIC) + seconds
         @mutex.synchronize do
@@ -181,8 +182,8 @@ module Clacky
       end
 
       def show_feedback_request(question, context, options, questions: nil)
-        emit("request_feedback", question: question, context: context,
-                                 options: options, questions: questions || [])
+        @feedback_request = { question: question, context: context, options: options, questions: questions || [] }
+        emit("request_feedback", **@feedback_request)
       end
 
       def show_tool_call(name, args)
@@ -194,11 +195,9 @@ module Clacky
           context   = args_data.is_a?(Hash) ? (args_data[:context] || args_data["context"]).to_s : ""
           first     = questions.first || {}
 
-          emit("request_feedback",
-               question: first[:question].to_s,
-               context: context,
-               options: first[:options] || [],
-               questions: questions)
+          @feedback_request = nil
+          emit("request_feedback", question: first[:question].to_s, context: context,
+                                   options: first[:options] || [], questions: questions)
           # IM subscribers render the same questions as plain text — they have no card.
           forward_to_subscribers { |sub| sub.show_tool_call(name, args_data) }
           return
@@ -401,10 +400,12 @@ module Clacky
       # The frontend's appendToolStdout will attach to the last visible .tool-item
       # even when _liveLastToolItem is null (after the tab re-loaded).
       def replay_live_state
-        countdown = @mutex.synchronize do
+        request, countdown = @mutex.synchronize do
           pending = @pending_feedback
-          pending ? { request_id: pending[:id], deadline_ms: pending[:manual] ? nil : pending[:deadline_ms] } : { resolved: true }
+          [pending && pending[:request],
+           pending ? { request_id: pending[:id], deadline_ms: pending[:manual] ? nil : pending[:deadline_ms] } : { resolved: true }]
         end
+        emit("request_feedback", **request, request_id: countdown[:request_id]) if request
         emit("feedback_countdown", **countdown)
         return unless @live_progress_state
 
