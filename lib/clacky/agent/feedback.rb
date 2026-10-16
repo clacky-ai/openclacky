@@ -20,7 +20,6 @@ module Clacky
 
         request[:context] = request[:context].to_s
         @history.attach_feedback_request(call[:id], request)
-        result[:feedback_request] = request
         result[:message] = Tools::AskUser.render_text(request[:questions], request[:context])
         request
       end

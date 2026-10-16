@@ -43,7 +43,9 @@ RSpec.describe "Prepared feedback" do
         end
         action = agent.send(:act, [call])
         result = JSON.parse(action[:tool_results].first[:content], symbolize_names: true)
-        prepared = result.fetch(:feedback_request)
+        prepared = agent.history.to_a.find { |item| item[:feedback_requests] }.fetch(:feedback_requests).fetch(call[:id])
+        expect(result).not_to have_key(:feedback_request)
+        expect(result[:message]).to eq(Clacky::Tools::AskUser.render_text(prepared[:questions], prepared[:context]))
         event = events.find { |entry| entry[:type] == "request_feedback" }
         expect(event[:questions]).to eq(prepared[:questions])
         expect(event[:request_id]).to eq("ask-context")
