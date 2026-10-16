@@ -39,7 +39,8 @@ RSpec.describe "Prepared feedback" do
         config.permission_mode = mode
         agent.add_hook(:prepare_feedback) do |request|
           expect(events.none? { |event| %w[request_feedback feedback_countdown].include?(event[:type]) }).to be(true)
-          request[:questions] << { question: question, options: ["Explore", "Discuss"], recommended: 1 }
+          request[:questions] << { question: question, options: ["Explore", "Discuss"], recommended: 1,
+                                   metadata: { source: "test.extension", turn_id: "turn-1" } }
           request[:answer_context] = "Discuss means no file changes."
         end
         action = agent.send(:act, [call])
@@ -49,6 +50,7 @@ RSpec.describe "Prepared feedback" do
         expect(result[:message]).to eq(Clacky::Tools::AskUser.render_text(prepared[:questions], prepared[:context]) + "\n\nDiscuss means no file changes.")
         event = events.find { |entry| entry[:type] == "request_feedback" }
         expect(event[:questions]).to eq(prepared[:questions])
+        expect(event[:questions].last[:metadata]).to eq(source: "test.extension", turn_id: "turn-1")
         expect(event[:request_id]).to eq("ask-context")
         expect(event).not_to have_key(:answer_context)
         expect(event.to_s).not_to include("Discuss means no file changes.")
