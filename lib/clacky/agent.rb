@@ -1769,10 +1769,6 @@ module Clacky
                 result = result.merge(
                   auto_reply: "No user is available. Please make a reasonable decision based on the context and continue."
                 )
-              elsif countdown == :answered
-                # Web answers are queued with their files/references and consumed
-                # at the next steering boundary, after this tool result.
-                result = result.merge(awaiting_feedback: false)
               elsif countdown.is_a?(String) && !countdown.strip.empty?
                 # User stepped in and typed an answer right away. Route it through
                 # the denied+feedback path so the agent responds to it immediately

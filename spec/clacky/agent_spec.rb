@@ -1793,14 +1793,13 @@ RSpec.describe Clacky::Agent do
   end
 
   describe "ask_user countdown" do
-    [:timeout, :answered].each do |outcome|
+    [:timeout, :intervened].each do |outcome|
       it "uses the configured timeout and continues after #{outcome}" do
         config.ask_user_timeout_seconds = 37
         ui = double("ui").as_null_object
         allow(ui).to receive(:with_progress).and_yield
         agent.instance_variable_set(:@ui, ui)
         expect(ui).to receive(:request_feedback_with_countdown).with(seconds: 37) do
-          agent.enqueue_input("Use option B", delivery: :steer) if outcome == :answered
           outcome
         end
         allow(client).to receive(:send_messages_with_tools).and_return(
@@ -1812,12 +1811,9 @@ RSpec.describe Clacky::Agent do
         allow(agent).to receive(:run_skill_evolution_hooks)
         allow(agent).to receive(:run_memory_update_subagent)
         result = agent.run("Make a choice")
-        expect(result[:awaiting_user_feedback]).to be false
-        expect(client).to have_received(:send_messages_with_tools).twice
-        if outcome == :answered
-          expect(agent.history.to_a.any? { |m| m[:content] == "Use option B" }).to be true
-          expect(agent.pending_inputs).to be_empty
-        end
+        expect(result[:awaiting_user_feedback]).to eq(outcome == :intervened)
+        expect(client).to have_received(:send_messages_with_tools).exactly(outcome == :timeout ? 2 : 1).times
+        expect(agent.pending_inputs).to be_empty
       end
     end
   end

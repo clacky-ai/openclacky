@@ -51,7 +51,7 @@ Object.assign(ctx, {
   _sessions: [{ id: "s", status: "error", error: "latest" }],
   RenderTarget: { outer: () => container },
   URLSearchParams, AbortController,
-  _renderHistoryEvent(ev) { rendered.push(ev); }, _flushPendingStdout() {}, _refreshEditButtons() {},
+  _renderHistoryEvent(ev) { rendered.push(ev); }, _refreshFeedbackStatus() {}, _flushPendingStdout() {}, _refreshEditButtons() {},
   _showNewMessageBanner() {}, _hideNewMessageBanner() {}, _updateEmptyHint() {},
   fetch: async () => ({ ok: true, json: async () => ctx.response }),
 });

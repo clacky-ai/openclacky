@@ -2161,6 +2161,37 @@ RSpec.describe Clacky::Server::HttpServer do
       [sid, agent, ui]
     end
 
+    it "finishes countdown handoff before an immediate answer uses the normal message path" do
+      with_server(agent_config: agent_config) do |server|
+        sid, agent, _ui = seed_running_session(server, "sid-feedback-handoff")
+        registry = server.instance_variable_get(:@registry)
+        events = Queue.new
+        ui = Clacky::Server::WebUIController.new(sid, ->(_sid, event) { events << event })
+        allow(ui).to receive(:show_user_message)
+        worker = Thread.new do
+          ui.request_feedback_with_countdown(seconds: 20)
+          registry.with_session(sid) { |session| session[:status] = :awaiting_feedback }
+        end
+        registry.with_session(sid) do |session|
+          session[:ui] = ui
+          session[:thread] = worker
+        end
+        started = Timeout.timeout(2) { events.pop }
+        allow(server).to receive(:run_agent_task)
+        expect(agent).not_to receive(:enqueue_input)
+        server.send(:on_ws_message, double("connection"), JSON.generate(
+          type: "feedback_intervene", session_id: sid, request_id: started[:request_id]
+        ))
+        expect(worker).not_to be_alive
+        server.send(:handle_user_message, sid, "Use option B")
+        expect(server).to have_received(:run_agent_task).with(sid, agent)
+        expect(ui).to have_received(:show_user_message)
+      ensure
+        worker&.kill
+        worker&.join
+      end
+    end
+
     it "enqueues and broadcasts input_enqueued instead of show_user_message while running in queue mode" do
       with_server(agent_config: agent_config) do |server|
         sid, agent, ui = seed_running_session(server, "sid-enqueue-queue")

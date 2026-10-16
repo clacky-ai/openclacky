@@ -7866,7 +7866,12 @@ module Clacky
 
         when "feedback_intervene"
           session_id = msg["session_id"] || conn.session_id
-          @registry.get(session_id)&.dig(:ui)&.intervene_feedback(msg["request_id"])
+          session = @registry.get(session_id)
+          if session&.dig(:ui)&.intervene_feedback(msg["request_id"])
+            # Finish the handoff before processing the next message on this connection.
+            # An immediate submission then uses the ordinary awaiting-feedback path.
+            session[:thread]&.join
+          end
 
         when "confirmation"
           session_id = msg["session_id"] || conn.session_id
@@ -7970,17 +7975,6 @@ module Clacky
         return unless @registry.exist?(session_id)
 
         session = @registry.get(session_id)
-        feedback_delivered = session[:ui].respond_to?(:deliver_feedback) && session[:ui].deliver_feedback do
-          created_at = Time.now.to_f
-          # A slash-prefixed answer is feedback, not a deferred skill command.
-          answer = content.lstrip.start_with?("/") ? "Answer: #{content}" : content
-          session[:agent].enqueue_input(answer, delivery: :steer, display_text: content, files: files,
-            references_display: references, reference_contexts: build_reference_contexts(references),
-            created_at: created_at)
-          broadcast(session_id, { type: "input_enqueued", session_id: session_id, created_at: created_at })
-        end
-        return if feedback_delivered
-
         mode = @agent_config.input_behavior
         queued = false
         queued_created_at = nil

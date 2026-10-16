@@ -83,10 +83,10 @@ module Clacky
         @mutex.synchronize do
           until pending[:result]
             remaining = pending[:deadline] - Process.clock_gettime(Process::CLOCK_MONOTONIC)
-            if !pending[:intervened] && !pending[:manual] && remaining <= 0
+            if !pending[:manual] && remaining <= 0
               pending[:result] = :timeout
             else
-              pending[:cond].wait(@mutex, (pending[:intervened] || pending[:manual]) ? nil : remaining)
+              pending[:cond].wait(@mutex, pending[:manual] ? nil : remaining)
             end
           end
           pending[:result]
@@ -116,7 +116,7 @@ module Clacky
             pending[:manual] = mode.to_sym != :auto_approve
             pending[:cond].signal
             { request_id: pending[:id],
-              deadline_ms: (pending[:manual] || pending[:intervened]) ? nil : pending[:deadline_ms] }
+              deadline_ms: pending[:manual] ? nil : pending[:deadline_ms] }
           end
         end
         emit("feedback_countdown", **countdown) if countdown
@@ -126,22 +126,9 @@ module Clacky
         @mutex.synchronize do
           pending = @pending_feedback
           return false unless pending && pending[:id] == request_id && !pending[:result]
-          pending[:intervened] = true
+          pending[:result] = :intervened
           pending[:cond].signal
           emit("feedback_countdown", request_id: pending[:id], deadline_ms: nil)
-          true
-        end
-      end
-
-      # Enqueue the complete message before waking the agent. Holding the lock
-      # makes submission and timeout mutually exclusive.
-      def deliver_feedback
-        @mutex.synchronize do
-          pending = @pending_feedback
-          return false unless pending && !pending[:result]
-          yield
-          pending[:result] = :answered
-          pending[:cond].signal
           true
         end
       end
@@ -416,7 +403,7 @@ module Clacky
       def replay_live_state
         countdown = @mutex.synchronize do
           pending = @pending_feedback
-          pending ? { request_id: pending[:id], deadline_ms: (pending[:manual] || pending[:intervened]) ? nil : pending[:deadline_ms] } : { resolved: true }
+          pending ? { request_id: pending[:id], deadline_ms: pending[:manual] ? nil : pending[:deadline_ms] } : { resolved: true }
         end
         emit("feedback_countdown", **countdown)
         return unless @live_progress_state

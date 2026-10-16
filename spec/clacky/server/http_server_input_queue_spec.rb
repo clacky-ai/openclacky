@@ -74,22 +74,34 @@ RSpec.describe Clacky::Server::HttpServer, "input behavior routing" do
     end
   end
 
-  it "routes feedback with attachments through steering even in interrupt mode" do
+  it "routes feedback with attachments through the normal path after intervention" do
     events = Queue.new
     ui = Clacky::Server::WebUIController.new("s", ->(_sid, event) { events << event })
     registry.with_session("s") { |session| session[:ui] = ui }
     config.input_behavior = "interrupt"
-    worker = Thread.new { ui.request_feedback_with_countdown(seconds: 20) }
-    Timeout.timeout(2) { events.pop }
+    worker = Thread.new do
+      ui.request_feedback_with_countdown(seconds: 20)
+      registry.with_session("s") { |session| session[:status] = :awaiting_feedback }
+    end
+    registry.with_session("s") { |session| session[:thread] = worker }
+    started = Timeout.timeout(2) { events.pop }
+    server.on_ws_message(double("connection"), JSON.generate(
+      type: "feedback_intervene", session_id: "s", request_id: started[:request_id]
+    ))
     files = [{ "name" => "answer.txt", "path" => "/tmp/answer.txt" }]
     references = [{ "type" => "file", "path" => "/tmp/context.txt" }]
     allow(server).to receive(:build_reference_contexts).with(references).and_return(["context"])
-    expect(agent).to receive(:enqueue_input).with("my answer", hash_including(
-      delivery: :steer, files: files, references_display: references, reference_contexts: ["context"]))
+    allow(agent).to receive(:history).and_return([{}])
+    allow(agent).to receive(:parse_skill_command).and_return(found: false)
+    allow(ui).to receive(:show_user_message)
+    server.instance_variable_set(:@channel_manager, double(channel_ui_for_session: nil))
+    expect(agent).not_to receive(:enqueue_input)
+    expect(agent).to receive(:run).with("my answer", hash_including(
+      files: files, references_display: references, reference_contexts: ["context"]))
     expect(server).not_to receive(:interrupt_session)
-    expect(server).not_to receive(:run_agent_task)
+    allow(server).to receive(:run_agent_task).and_yield
     server.send(:handle_user_message, "s", "my answer", files, references: references)
-    expect(worker.join(2).value).to eq(:answered)
+    expect(worker).not_to be_alive
   ensure
     worker&.kill
     worker&.join
