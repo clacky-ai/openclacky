@@ -141,6 +141,29 @@ RSpec.describe Clacky::Server::WebUIController, "feedback countdown" do
 
   after { @worker&.kill; @worker&.join }
 
+  it "restores a business descriptor before its original deadline snapshot" do
+    controller.show_feedback_request("Choose a design", '{"type":"custom.design","id":"design-1"}', %w[New Old])
+    next_event
+    @worker = Thread.new { controller.request_feedback_with_countdown(seconds: 20) }
+    started = next_event
+    controller.replay_live_state
+    expect(next_event).to include(type: "request_feedback", context: '{"type":"custom.design","id":"design-1"}', request_id: started[:request_id])
+    expect(next_event).to include(type: "feedback_countdown", request_id: started[:request_id], deadline_ms: started[:deadline_ms])
+    controller.intervene_feedback(started[:request_id])
+    expect(Timeout.timeout(2) { @worker.value }).to eq(:intervened)
+  end
+
+  it "does not duplicate an ordinary Ask request during live-state replay" do
+    controller.show_tool_call("ask_user", { question: "Pick one", options: %w[A B] })
+    next_event
+    @worker = Thread.new { controller.request_feedback_with_countdown(seconds: 20) }
+    started = next_event
+    controller.replay_live_state
+    expect(next_event).to include(type: "feedback_countdown", request_id: started[:request_id], deadline_ms: started[:deadline_ms])
+    controller.intervene_feedback(started[:request_id])
+    expect(Timeout.timeout(2) { @worker.value }).to eq(:intervened)
+  end
+
   it "times out without selecting a recommended answer" do
     expect(controller.request_feedback_with_countdown(seconds: 0)).to eq(:timeout)
     expect(next_event[:deadline_ms]).to be_a(Integer)
