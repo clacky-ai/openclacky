@@ -24,6 +24,7 @@ require_relative "agent/skill_evolution"
 require_relative "agent/skill_reflector"
 require_relative "agent/skill_auto_creator"
 require_relative "agent/fake_tool_call_detector"
+require_relative "agent/feedback"
 require_relative "agent/goal_state"
 require_relative "agent/goal_manager"
 
@@ -31,6 +32,7 @@ module Clacky
   class Agent
     # Include all functionality modules
     include MessageCompressorHelper
+    include Feedback
     include ToolExecutor
     include CostTracker
     include SessionSerializer
@@ -1750,11 +1752,10 @@ module Clacky
           # result path so the model sees the error and can retry.
           if Tools::AskUser.feedback_tool?(call[:name]) &&
               result.is_a?(Hash) && result[:awaiting_feedback]
-            # Pass the raw call arguments to show_tool_call so the WebUI controller
-            # can extract the questions and emit a "request_feedback" event
-            # (renders as a clickable card in the browser).
-            # Fallback UIs (terminal, IM channels) receive the formatted text message.
-            @ui&.show_tool_call(call[:name], call[:arguments])
+            # Prepare and persist the complete request before displaying it or
+            # starting the wait. Extensions and native questions share one result.
+            request = prepare_feedback_request(call, result)
+            @ui&.show_tool_call(call[:name], request)
 
             if @config.permission_mode == :auto_approve
               # auto_approve means the agent runs unattended by default, but a

@@ -110,6 +110,15 @@ module Clacky
 
       def show_tool_call(name, args)
         args_data = args.is_a?(String) ? (JSON.parse(args) rescue args) : args
+        if Clacky::Tools::AskUser.feedback_tool?(name)
+          questions = Clacky::Tools::AskUser.normalize_questions(args_data)
+          first = questions.first || {}
+          @events << { type: "request_feedback", session_id: @session_id,
+                       request_id: Clacky::Tools::AskUser.fetch_key(args_data, :request_id),
+                       context: Clacky::Tools::AskUser.fetch_key(args_data, :context).to_s,
+                       question: first[:question].to_s, options: first[:options] || [], questions: questions }
+          return
+        end
         summary   = tool_call_summary(name, args_data)
         @events << stamp({ type: "tool_call", session_id: @session_id, name: name, args: args_data, summary: summary })
       end
