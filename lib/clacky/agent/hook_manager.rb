@@ -36,7 +36,8 @@ module Clacky
     # params (`|call|`, `|call, result|`) silently ignore extra arguments.
     # Start/complete append context after the agent. Completion is observation-only.
     # prepare_feedback receives (request, agent) after tool tracking, before UI
-    # display/countdown. It may extend questions and context in place;
+    # display/countdown. It may extend questions, display context and model-only
+    # answer_context in place; answer_context is never sent to UI subscribers.
     # return values are ignored. Keep work bounded; no separate UI events.
     def trigger(event, *args)
       validate_event!(event)

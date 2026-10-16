@@ -786,7 +786,7 @@ module Clacky
               prepared = msg[:feedback_requests] || {}
               request = prepared[tc[:id].to_s] || prepared[tc[:id].to_s.to_sym]
               if request
-                ui.show_tool_call(name, request)
+                ui.show_tool_call(name, request.reject { |key, _| key.to_s == "answer_context" })
                 next
               end
               questions = Clacky::Tools::AskUser.normalize_questions(args)

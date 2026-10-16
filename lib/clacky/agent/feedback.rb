@@ -19,9 +19,11 @@ module Clacky
         raise ArgumentError, "Feedback preparation removed all questions" if request[:questions].empty?
 
         request[:context] = request[:context].to_s
+        request[:answer_context] = request[:answer_context].to_s
         @history.attach_feedback_request(call[:id], request)
-        result[:message] = Tools::AskUser.render_text(request[:questions], request[:context])
-        request
+        result[:message] = [Tools::AskUser.render_text(request[:questions], request[:context]),
+                            request[:answer_context]].reject(&:empty?).join("\n\n")
+        request.reject { |key, _| key == :answer_context }
       end
     end
   end

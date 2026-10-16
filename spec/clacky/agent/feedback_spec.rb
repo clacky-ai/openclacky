@@ -40,16 +40,18 @@ RSpec.describe "Prepared feedback" do
         agent.add_hook(:prepare_feedback) do |request|
           expect(events.none? { |event| %w[request_feedback feedback_countdown].include?(event[:type]) }).to be(true)
           request[:questions] << { question: question, options: ["Explore", "Discuss"], recommended: 1 }
+          request[:answer_context] = "Discuss means no file changes."
         end
         action = agent.send(:act, [call])
         result = JSON.parse(action[:tool_results].first[:content], symbolize_names: true)
         prepared = agent.history.to_a.find { |item| item[:feedback_requests] }.fetch(:feedback_requests).fetch(call[:id])
         expect(result).not_to have_key(:feedback_request)
-        expect(result[:message]).to eq(Clacky::Tools::AskUser.render_text(prepared[:questions], prepared[:context]))
+        expect(result[:message]).to eq(Clacky::Tools::AskUser.render_text(prepared[:questions], prepared[:context]) + "\n\nDiscuss means no file changes.")
         event = events.find { |entry| entry[:type] == "request_feedback" }
         expect(event[:questions]).to eq(prepared[:questions])
         expect(event[:request_id]).to eq("ask-context")
         expect(event).not_to have_key(:answer_context)
+        expect(event.to_s).not_to include("Discuss means no file changes.")
         expect(prepared[:questions].last[:question]).to eq(question)
         expect(action[:awaiting_feedback]).to eq(mode == :confirm_all)
         if mode == :auto_approve
@@ -73,6 +75,7 @@ RSpec.describe "Prepared feedback" do
         restored.restore_session(payload)
         expect(replay(restored).first[:questions]).to eq(prepared[:questions])
         expect(replay(restored).first[:request_id]).to eq("ask-context")
+        expect(replay(restored).to_s).not_to include("Discuss means no file changes.")
       end
     end
   end
