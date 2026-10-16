@@ -71,12 +71,13 @@ module Clacky
       # Use the same contract as the CLI. The server owns the deadline;
       # typing cancels automatic continuation but keeps the answer wait alive.
       def request_feedback_with_countdown(seconds: 20)
-        pending = { id: SecureRandom.uuid, cond: ConditionVariable.new,
+        pending = { id: @feedback_request&.dig(:request_id) || SecureRandom.uuid, cond: ConditionVariable.new,
                     deadline_ms: (Time.now.to_f * 1000).to_i + seconds * 1000 }
         pending[:seconds] = seconds
         pending[:deadline] = Process.clock_gettime(Process::CLOCK_MONOTONIC) + seconds
         @mutex.synchronize do
           pending[:manual] = @feedback_permission_mode == :confirm_all
+          pending[:request] = @feedback_request
           @pending_feedback = pending
         end
         emit("feedback_countdown", request_id: pending[:id], deadline_ms: pending[:manual] ? nil : pending[:deadline_ms])
@@ -180,9 +181,15 @@ module Clacky
         forward_to_subscribers { |sub| sub.show_assistant_message(content, files: files, interim: interim) }
       end
 
-      def show_feedback_request(question, context, options, questions: nil)
-        emit("request_feedback", question: question, context: context,
-                                 options: options, questions: questions || [])
+      def show_feedback_request(question, context, options, questions: nil, request_id: nil, presentation: nil)
+        request = { question: question, context: context, options: options, questions: questions || [],
+                    request_id: request_id, presentation: presentation }
+        @mutex.synchronize { @feedback_request = request }
+        emit("request_feedback", **request)
+        forward_to_subscribers do |sub|
+          sub.show_tool_call("ask_user", { question: question, context: context,
+                                           options: options, questions: questions })
+        end
       end
 
       def show_tool_call(name, args)
@@ -190,17 +197,14 @@ module Clacky
 
         # Special handling for ask_user — emit a dedicated UI event
         if Clacky::Tools::AskUser.feedback_tool?(name)
+          args_data = {} unless args_data.is_a?(Hash)
           questions = Clacky::Tools::AskUser.normalize_questions(args_data)
           context   = args_data.is_a?(Hash) ? (args_data[:context] || args_data["context"]).to_s : ""
           first     = questions.first || {}
 
-          emit("request_feedback",
-               question: first[:question].to_s,
-               context: context,
-               options: first[:options] || [],
-               questions: questions)
-          # IM subscribers render the same questions as plain text — they have no card.
-          forward_to_subscribers { |sub| sub.show_tool_call(name, args_data) }
+          show_feedback_request(first[:question].to_s, context, first[:options] || [],
+                                questions: questions, request_id: args_data[:id] || args_data["id"],
+                                presentation: args_data[:presentation] || args_data["presentation"])
           return
         end
 
@@ -401,10 +405,11 @@ module Clacky
       # The frontend's appendToolStdout will attach to the last visible .tool-item
       # even when _liveLastToolItem is null (after the tab re-loaded).
       def replay_live_state
-        countdown = @mutex.synchronize do
+        request, countdown = @mutex.synchronize do
           pending = @pending_feedback
-          pending ? { request_id: pending[:id], deadline_ms: pending[:manual] ? nil : pending[:deadline_ms] } : { resolved: true }
+          [pending&.dig(:request), pending ? { request_id: pending[:id], deadline_ms: pending[:manual] ? nil : pending[:deadline_ms] } : { resolved: true }]
         end
+        emit("request_feedback", **request) if request
         emit("feedback_countdown", **countdown)
         return unless @live_progress_state
 

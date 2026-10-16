@@ -119,7 +119,8 @@ RSpec.describe Clacky::Server::WebUIController, "#show_tool_call" do
   before { controller.subscribe_channel(subscriber) }
 
   it "forwards ask_user to channel subscribers so IM can render it as text" do
-    expect(subscriber).to receive(:show_tool_call).with("ask_user", ask_args)
+    expect(subscriber).to receive(:show_tool_call).with("ask_user",
+      hash_including(questions: [hash_including(question: "Pick one?", options: %w[a b])]))
     controller.show_tool_call("ask_user", ask_args)
   end
 
@@ -194,6 +195,23 @@ RSpec.describe Clacky::Server::WebUIController, "feedback countdown" do
     expect(started[:deadline_ms]).to be_nil
     controller.intervene_feedback(started[:request_id])
     expect(@worker.join(2).value).to eq(:intervened)
+  end
+
+  it "replays the complete request and original deadline with the tool identity" do
+    controller.show_feedback_request("Pick", "Context", ["A", "B"], request_id: "tool-choice", presentation: { kind: "custom" })
+    request = next_event
+    @worker = Thread.new { controller.request_feedback_with_countdown(seconds: 20) }
+    countdown = next_event
+    expect(countdown[:request_id]).to eq("tool-choice")
+    controller.replay_live_state
+    expect(next_event).to eq(request)
+    expect(next_event).to include(request_id: "tool-choice", deadline_ms: countdown[:deadline_ms])
+    controller.intervene_feedback("tool-choice")
+    @worker.join(2)
+    next_event
+    next_event
+    controller.replay_live_state
+    expect(next_event).to include(resolved: true)
   end
 
   it "replays the original deadline and cleans up on interruption" do

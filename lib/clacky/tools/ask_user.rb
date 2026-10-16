@@ -175,7 +175,8 @@ module Clacky
         {
           success: true,
           message: self.class.render_text(normalized, context),
-          awaiting_feedback: true
+          awaiting_feedback: true,
+          feedback_request: { questions: normalized, context: context }
         }
       end
 

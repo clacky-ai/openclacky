@@ -13,6 +13,7 @@ require_relative "utils/environment_detector"
 require_relative "agent/message_compressor"
 require_relative "agent/message_compressor_helper"
 require_relative "agent/tool_executor"
+require_relative "agent/tool_feedback"
 require_relative "agent/cost_tracker"
 require_relative "agent/session_serializer"
 require_relative "agent/skill_manager"
@@ -32,6 +33,7 @@ module Clacky
     # Include all functionality modules
     include MessageCompressorHelper
     include ToolExecutor
+    include ToolFeedback
     include CostTracker
     include SessionSerializer
     include SkillManager
@@ -130,6 +132,7 @@ module Clacky
       @reasoning_effort = nil  # Per-session reasoning effort override; nil = provider default
       @ui = ui  # UIController for direct UI interaction
       @debug_logs = []  # Debug logs for troubleshooting
+      @tool_feedback_mutex = Mutex.new
       @input_mutex = Mutex.new
       @input_queue = []
       @pending_injections = []     # Pending inline skill injections to flush after observe()
@@ -1689,6 +1692,7 @@ module Clacky
           # overrides) any env the AI explicitly passed.
           if call[:name] == "terminal" && @session_id
             args[:env] = { "CLACKY_SESSION_ID" => @session_id.to_s }.merge(args[:env] || {})
+            args[:env]["CLACKY_TOOL_CALL_ID"] = call[:id] unless @is_subagent
           end
 
           # For terminal: stream live stdout chunks to the UI as they arrive,
@@ -1720,18 +1724,19 @@ module Clacky
           # tool runs, so undo can restore (or delete) any file it touches.
           record_tool_target_before(call[:name], args)
 
-          result = nil
-          if @ui
-            progress_message = build_tool_progress_message(call[:name], args)
-            @ui.with_progress(
-              message: progress_message,
-              style: :quiet,
-              quiet_on_fast_finish: true
-            ) do
-              result = tool.execute(**args)
+          result = execute_with_tool_feedback(call) do
+            if @ui
+              progress_message = build_tool_progress_message(call[:name], args)
+              @ui.with_progress(
+                message: progress_message,
+                style: :quiet,
+                quiet_on_fast_finish: true
+              ) do
+                tool.execute(**args)
+              end
+            else
+              tool.execute(**args)
             end
-          else
-            result = tool.execute(**args)
           end
 
           # Hook: after_tool_use
@@ -1745,16 +1750,21 @@ module Clacky
             @ui&.update_todos(@todos.dup) unless action == "list"
           end
 
-          # Special handling for ask_user: emit as interactive feedback card.
-          # A rejected call (no usable question) falls through to the normal
-          # result path so the model sees the error and can retry.
-          if Tools::AskUser.feedback_tool?(call[:name]) &&
-              result.is_a?(Hash) && result[:awaiting_feedback]
-            # Pass the raw call arguments to show_tool_call so the WebUI controller
-            # can extract the questions and emit a "request_feedback" event
-            # (renders as a clickable card in the browser).
-            # Fallback UIs (terminal, IM channels) receive the formatted text message.
-            @ui&.show_tool_call(call[:name], call[:arguments])
+          request = result.is_a?(Hash) && result[:feedback_request]
+          if request
+            check_stale!
+            raise ArgumentError, "failed tools cannot request feedback" if result[:error] || result[:success] == false
+            request = normalize_tool_feedback(request, call[:id])
+            result = result.merge(feedback_request: request, awaiting_feedback: true)
+            # Preserve the business tool's normal result before its feedback UI.
+            unless Tools::AskUser.feedback_tool?(call[:name])
+              formatted = tool.respond_to?(:format_result) ? tool.format_result(result) : result.to_s
+              payload = tool.respond_to?(:ui_result) ? tool.ui_result(result) : nil
+              payload ? @ui&.show_tool_result(redact_tool_args(formatted), ui: redact_tool_args(payload)) : @ui&.show_tool_result(redact_tool_args(formatted))
+            end
+            first = request[:questions].first
+            @ui&.show_feedback_request(first[:question], request[:context].to_s, first[:options],
+                                       questions: request[:questions], request_id: request[:id], presentation: request[:presentation])
 
             if @config.permission_mode == :auto_approve
               # auto_approve means the agent runs unattended by default, but a
@@ -1767,7 +1777,7 @@ module Clacky
                 awaiting_feedback = true
               elsif @ui.nil? || countdown == :timeout
                 result = result.merge(
-                  auto_reply: "No user is available. Please make a reasonable decision based on the context and continue."
+                  auto_reply: "The user enabled Auto. Choose from this feedback request and execute the choice without asking this question again. Other user constraints still apply."
                 )
               elsif countdown.is_a?(String) && !countdown.strip.empty?
                 # User stepped in and typed an answer right away. Route it through
@@ -1795,6 +1805,13 @@ module Clacky
           end
 
           results << build_success_result(call, result)
+          if request || awaiting_feedback || denied
+            # Later calls in the same model response must not run past a choice.
+            Array(tool_calls[(index + 1)..-1]).each do |remaining|
+              results << build_denied_result(remaining, "Re-plan after the preceding feedback request", true)
+            end
+            break
+          end
         rescue StandardError => e
           # Log complete error information to debug_logs for troubleshooting
           @debug_logs << {
@@ -1958,6 +1975,16 @@ module Clacky
     private def truncate_oversized_tool_content(msg, tool_name: nil)
       content = msg[:content]
       return msg unless content.is_a?(String) && content.length > MAX_TOOL_RESULT_CHARS
+
+      # Keep the bounded feedback envelope parseable and complete even when the
+      # business tool's ordinary output exceeds the history limit.
+      parsed = JSON.parse(content) rescue nil
+      if parsed.is_a?(Hash) && parsed["feedback_request"]
+        envelope = parsed.select { |key, _| %w[feedback_request awaiting_feedback auto_reply].include?(key) }
+        body = JSON.generate(parsed.reject { |key, _| envelope.key?(key) })
+        budget = [MAX_TOOL_RESULT_CHARS - JSON.generate(envelope).length - 1024, 0].max
+        return msg.merge(content: JSON.generate(envelope.merge("output" => body[0, budget], "output_truncated" => true)))
+      end
 
       original_len = content.length
 

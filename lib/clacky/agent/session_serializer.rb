@@ -344,6 +344,7 @@ module Clacky
         # still see the last visible state of the chat (e.g. compressed summary + recent work).
         if rounds.empty?
           visible = @history.to_a.reject { |m| m[:role].to_s == "system" || m[:system_injected] }
+          index_feedback_results(visible)
           visible.each { |msg| _replay_single_message(msg, ui) }
           return { has_more: false }
         end
@@ -389,6 +390,7 @@ module Clacky
                                skill_command_display: msg[:skill_command_display])
           replay_ext_events(msg, ui)
 
+          index_feedback_results(round[:events])
           round[:events].each do |ev|
             # Skip system-injected messages (e.g. synthetic skill content, memory prompts)
             # — they are internal scaffolding and must not be shown to the user.
@@ -747,6 +749,26 @@ module Clacky
         target[:ext_events] = Array(target[:ext_events]) + events
       end
 
+      # New tool results own their complete question. Legacy calls without that
+      # envelope (including interrupted calls) still replay from their arguments.
+      private def index_feedback_results(messages)
+        @replayed_feedback_result_ids = {}
+        messages.each do |message|
+          results = if message[:role].to_s == "tool"
+                      [{ id: message[:tool_call_id], content: message[:content] }]
+                    elsif message[:content].is_a?(Array)
+                      message[:content].select { |block| block.is_a?(Hash) && block[:type] == "tool_result" }
+                        .map { |block| { id: block[:tool_use_id], content: block[:content] } }
+                    else
+                      []
+                    end
+          results.each do |result|
+            parsed = JSON.parse(result[:content].to_s) rescue nil
+            @replayed_feedback_result_ids[result[:id]] = true if parsed.is_a?(Hash) && parsed["feedback_request"]
+          end
+        end
+      end
+
       # Render a single non-user message into the UI.
       # Used by both the normal round-based replay and the compressed-session fallback.
       def _replay_single_message(msg, ui)
@@ -783,13 +805,14 @@ module Clacky
             # Special handling: the ask_user question is shown as an assistant
             # message (matching real-time behavior), not as a tool call.
             if Clacky::Tools::AskUser.feedback_tool?(name)
+              next if (@replayed_feedback_result_ids || {}).key?(tc[:id])
               questions = Clacky::Tools::AskUser.normalize_questions(args)
               context   = Clacky::Tools::AskUser.fetch_key(args, :context).to_s
               first     = questions.first
 
               unless first.nil?
                 ui.show_feedback_request(first[:question], context, first[:options],
-                                         questions: questions)
+                                         questions: questions, request_id: tc[:id])
               end
             else
               remember_replayed_tool_name(tc[:id], name)
@@ -830,6 +853,17 @@ module Clacky
       # rebuild the same structured `ui:` payload the live path sent instead of
       # degrading the card to plain text (C-5797).
       private def emit_replayed_tool_result(ui, content, tool_call_id)
+        result = JSON.parse(content, symbolize_names: true) rescue nil
+        request = result.is_a?(Hash) && result[:feedback_request]
+        if request
+          questions = Clacky::Tools::AskUser.normalize_questions(request)
+          first = questions.first
+          if first
+            ui.show_feedback_request(first[:question], request[:context].to_s, first[:options],
+                                     questions: questions, request_id: request[:id], presentation: request[:presentation])
+            ui.emit("feedback_countdown", request_id: request[:id], resolved: true, resolution: "timeout") if result[:auto_reply] && ui.respond_to?(:emit)
+          end
+        end
         ui_payload = replayed_tool_ui(content, tool_call_id)
         if ui_payload
           ui.show_tool_result(content, ui: ui_payload)

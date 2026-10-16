@@ -137,10 +137,10 @@ module Clacky
         @events << { type: "token_usage", session_id: @session_id }.merge(token_data)
       end
 
-      def show_feedback_request(question, context, options, questions: nil)
+      def show_feedback_request(question, context, options, questions: nil, request_id: nil, presentation: nil)
         @events << { type: "request_feedback", session_id: @session_id,
                      question: question, context: context, options: options,
-                     questions: questions || [] }
+                     questions: questions || [], request_id: request_id, presentation: presentation }
       end
 
       def show_subagent_start(skill: nil, iterations: nil, cost_usd: nil)

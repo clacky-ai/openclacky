@@ -10,7 +10,10 @@ module Clacky
     # @param content [String] text portion of the assistant reply (file:// links stripped)
     # @param files   [Array<Hash>] extracted file refs: [{ name:, path:, inline: }]
     def show_assistant_message(content, files:, interim: false, created_at: nil); end
-    def show_feedback_request(question, context, options, questions: nil); end
+    # Text/CLI adapters retain their existing Ask rendering; structured UIs override.
+    def show_feedback_request(question, context, options, questions: nil, request_id: nil, presentation: nil)
+      show_tool_call("ask_user", { question: question, context: context, options: options, questions: questions })
+    end
     def show_subagent_start(skill: nil, iterations: nil, cost_usd: nil); end
     def show_subagent_end; end
     def show_tool_call(name, args); end

@@ -1792,6 +1792,93 @@ RSpec.describe Clacky::Agent do
     end
   end
 
+  describe "tool-result feedback" do
+    let(:request) { { question: "Pick a design", options: ["A: /a.html", "B: /b.html"], presentation: { kind: "design" } } }
+
+    it "binds script delivery to the executing call and rejects late/different delivery" do
+      call = { id: "terminal-1" }
+      expect(agent.attach_tool_feedback(tool_call_id: call[:id], request: request)).to eq(:stale)
+      result = agent.send(:execute_with_tool_feedback, call) do
+        expect(Thread.new { agent.attach_tool_feedback(tool_call_id: call[:id], request: request) }.value).to eq(:accepted)
+        expect(agent.attach_tool_feedback(tool_call_id: call[:id], request: request)).to eq(:duplicate)
+        expect(agent.attach_tool_feedback(tool_call_id: "old-call", request: request)).to eq(:stale)
+        expect(agent.attach_tool_feedback(tool_call_id: call[:id], request: request.merge(question: "Different"))).to eq(:conflict)
+        { exit_code: 0, output: "Artifact saved" }
+      end
+      expect(result[:output]).to eq("Artifact saved")
+      expect(result.dig(:feedback_request, :id)).to eq(call[:id])
+      expect(agent.attach_tool_feedback(tool_call_id: call[:id], request: request)).to eq(:stale)
+    end
+
+    it "cleans up a failed tool without leaking its question to the next call" do
+      expect do
+        agent.send(:execute_with_tool_feedback, { id: "failed" }) do
+          agent.attach_tool_feedback(tool_call_id: "failed", request: request)
+          raise "Tool failed"
+        end
+      end.to raise_error("Tool failed")
+      expect(agent.send(:execute_with_tool_feedback, { id: "next" }) { { exit_code: 0 } }).to eq(exit_code: 0)
+    end
+
+    [:timeout, :intervened].each do |outcome|
+      it "uses native waiting for a business result and preserves the complete question after #{outcome}" do
+        ui = double("ui").as_null_object
+        allow(ui).to receive(:with_progress).and_yield
+        allow(ui).to receive(:request_feedback_with_countdown).and_return(outcome)
+        agent.instance_variable_set(:@ui, ui)
+        registry = agent.instance_variable_get(:@tool_registry)
+        terminal = registry.get("terminal")
+        allow(terminal).to receive(:execute).and_return(exit_code: 0, output: "Saved", feedback_request: request)
+        expect(ui).to receive(:show_feedback_request).with(request[:question], "", request[:options],
+          questions: [hash_including(options: request[:options])], request_id: "business", presentation: request[:presentation])
+        action = agent.send(:act, [{ id: "business", name: "terminal", arguments: '{"command":"true"}' }])
+        payload = JSON.parse(action[:tool_results].first[:content])
+        expect(payload.dig("feedback_request", "questions", 0, "options")).to eq(request[:options])
+        expect(payload.key?("auto_reply")).to eq(outcome == :timeout)
+        expect(action[:awaiting_feedback]).to eq(outcome == :intervened)
+        expect(agent.history.to_a.none? { |message| Array(message[:tool_calls]).any? { |call| call[:name] == "ask_user" } }).to be true
+      end
+    end
+
+    it "does not execute a sibling tool past a manual choice" do
+      config.permission_mode = :confirm_all
+      registry = agent.instance_variable_get(:@tool_registry)
+      terminal = registry.get("terminal")
+      expect(terminal).to receive(:execute).once.and_return(exit_code: 0, feedback_request: request)
+      action = agent.send(:act, %w[first second].map { |id| { id: id, name: "terminal", arguments: '{"command":"true"}' } })
+      expect(action[:awaiting_feedback]).to be true
+      expect(action[:tool_results].size).to eq(2)
+      expect(action[:tool_results].last[:content]).to include("Re-plan after the preceding feedback")
+    end
+
+    it "preserves feedback when ordinary terminal output is truncated" do
+      message = { content: JSON.generate(output: "x" * 100_000, feedback_request: request, auto_reply: "Continue") }
+      result = agent.send(:truncate_oversized_tool_content, message, tool_name: "terminal")
+      payload = JSON.parse(result[:content])
+      expect(payload["feedback_request"]).to eq(JSON.parse(JSON.generate(request)))
+      expect(payload["auto_reply"]).to eq("Continue")
+      expect(payload["output_truncated"]).to be true
+    end
+
+    it "returns to the model before executing sibling tools after an Auto timeout" do
+      terminal = agent.instance_variable_get(:@tool_registry).get("terminal")
+      expect(terminal).to receive(:execute).once.and_return(exit_code: 0, feedback_request: request)
+      action = agent.send(:act, %w[first second].map { |id| { id: id, name: "terminal", arguments: '{"command":"true"}' } })
+      expect(action[:awaiting_feedback]).to be false
+      expect(action[:tool_results].first[:content]).to include("auto_reply")
+      expect(action[:tool_results].last[:content]).to include("Re-plan")
+    end
+
+    it "replays the structured result with its own identity and timeout" do
+      ui = double("ui").as_null_object
+      request_with_id = request.merge(id: "choice-1")
+      expect(ui).to receive(:show_feedback_request).with(request[:question], "", request[:options],
+        questions: anything, request_id: "choice-1", presentation: { kind: "design" })
+      expect(ui).to receive(:emit).with("feedback_countdown", request_id: "choice-1", resolved: true, resolution: "timeout")
+      agent.send(:emit_replayed_tool_result, ui, JSON.generate(feedback_request: request_with_id, auto_reply: "Continue"), "choice-1")
+    end
+  end
+
   describe "ask_user countdown" do
     [:timeout, :intervened].each do |outcome|
       it "uses the configured timeout and continues after #{outcome}" do

@@ -175,6 +175,12 @@ module Clacky
           result
         end
 
+        # A custom display formatter must not erase the runtime's decision input.
+        if result.is_a?(Hash) && result[:feedback_request]
+          formatted_result = { output: formatted_result } unless formatted_result.is_a?(Hash)
+          formatted_result = formatted_result.merge(result.select { |key, _| [:feedback_request, :awaiting_feedback, :auto_reply].include?(key) })
+        end
+
         # Inject TODO reminder for non-todo_manager tools
         formatted_result = inject_todo_reminder(call[:name], formatted_result)
 
