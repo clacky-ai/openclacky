@@ -130,6 +130,7 @@ module Clacky
       @reasoning_effort = nil  # Per-session reasoning effort override; nil = provider default
       @ui = ui  # UIController for direct UI interaction
       @debug_logs = []  # Debug logs for troubleshooting
+      @feedback_mutex = Mutex.new
       @input_mutex = Mutex.new
       @input_queue = []
       @pending_injections = []     # Pending inline skill injections to flush after observe()
@@ -509,18 +510,39 @@ module Clacky
 
     # Extensions use the native Ask lifecycle after the current turn has finished
     # its tools and closing reply. A new task never inherits an older request.
-    def defer_feedback(id:, **arguments)
-      check_stale!
-      raise ArgumentError, "feedback requires a question" if Tools::AskUser.normalize_questions(arguments).empty?
+    # HTTP callbacks pass the CLACKY_TASK_ID token; omission is task-thread only.
+    # Returns :accepted, :duplicate, :stale or :conflict without emitting UI.
+    def defer_feedback(id:, task_id: nil, **arguments)
+      check_stale! unless task_id
+      raise ArgumentError, "feedback id is required" if id.to_s.strip.empty?
+      questions = Tools::AskUser.normalize_questions(arguments)
+      raise ArgumentError, "feedback requires complete choices" if questions.empty? || questions.any? { |q| q[:options].empty? }
 
-      @deferred_feedback = { task_id: @current_task_id, id: id.to_s, arguments: arguments }
+      arguments = JSON.parse(JSON.generate(arguments))
+      @feedback_mutex.synchronize do
+        token = task_id || @feedback_task_id
+        return :stale unless token && token == @feedback_task_id && !@cancel_flag&.cancelled?
+        previous = @feedback_requests[id.to_s]
+        return previous == arguments ? :duplicate : :conflict if previous
+        return :stale unless @feedback_accepting
+        return :conflict if @deferred_feedback
+
+        @feedback_requests[id.to_s] = arguments
+        @deferred_feedback = { id: id.to_s, arguments: arguments }
+        :accepted
+      end
     end
 
     private def take_deferred_feedback
-      request, @deferred_feedback = @deferred_feedback, nil
-      return unless request && request[:task_id] == @current_task_id
-
       check_stale!
+      request = @feedback_mutex.synchronize do
+        @feedback_accepting = false
+        pending, @deferred_feedback = @deferred_feedback, nil
+        pending
+      end
+      return unless request
+
+      @input_mutex.synchronize { @accepting_steering = true }
       call = { id: request[:id], name: "ask_user", arguments: JSON.generate(request[:arguments]) }
       @history.append(role: "assistant", content: "", task_id: @current_task_id,
                       created_at: Time.now.to_f, tool_calls: format_tool_calls_for_api([call]))
@@ -563,8 +585,13 @@ module Clacky
       @cancel_flag = CancelFlag.new
 
       # Start new task for Time Machine
-      @deferred_feedback = nil
       task_id = start_new_task(title: display_text.to_s.empty? ? user_input.to_s : display_text.to_s)
+      @feedback_mutex.synchronize do
+        @feedback_task_id = SecureRandom.uuid
+        @feedback_requests = {}
+        @deferred_feedback = nil
+        @feedback_accepting = true
+      end
       run_context = { session_id: @session_id, run_id: task_id.to_s,
                       source: @source.to_s, input_created_at: created_at,
                       observed_at: Time.now.utc.iso8601(6), status: "running" }
@@ -662,6 +689,8 @@ module Clacky
       loop do
         Clacky::Shutdown.checkpoint!
         @iterations += 1
+        check_stale!
+        @feedback_mutex.synchronize { @feedback_accepting = true }
         @hooks.trigger(:on_iteration, @iterations)
 
         consume_steering_inputs
@@ -935,6 +964,7 @@ module Clacky
         complete_run_hook(result, run_context)
       end
       if run_turn_started && task_id == @current_task_id
+        @feedback_mutex.synchronize { @feedback_accepting = false }
         @input_mutex.synchronize do
           @accepting_steering = false
           @input_queue.each { |entry| entry[:delivery] = "queue" }
@@ -1713,6 +1743,8 @@ module Clacky
           # overrides) any env the AI explicitly passed.
           if call[:name] == "terminal" && @session_id
             args[:env] = { "CLACKY_SESSION_ID" => @session_id.to_s }.merge(args[:env] || {})
+            # Bind asynchronous extension callbacks to this invocation's task.
+            args[:env]["CLACKY_TASK_ID"] = @feedback_task_id unless @is_subagent
           end
 
           # For terminal: stream live stdout chunks to the UI as they arrive,

@@ -119,6 +119,8 @@ RSpec.describe Clacky::Agent do
 
         expect(captured_args).not_to be_nil
         expect(captured_args[:env]).to include("CLACKY_SESSION_ID" => agent.session_id)
+        expect(captured_args[:env]["CLACKY_TASK_ID"]).to eq(agent.instance_variable_get(:@feedback_task_id))
+        expect(captured_args[:env]["CLACKY_TASK_ID"]).to be_a(String)
       end
 
       it "does not override an env var explicitly set by the AI, but adds CLACKY_SESSION_ID alongside it" do
@@ -1814,6 +1816,7 @@ RSpec.describe Clacky::Agent do
             agent.defer_feedback(id: "external-1", question: "Which design?",
                                  options: ["A: /design/a.html", "B: /design/b.html"], context: "Use the chosen handoff")
           end
+          expect(agent.instance_variable_get(:@accepting_steering)).to be true if calls == 2
           mock_api_response(content: calls == 1 ? "Designs are ready." : "Continuing with B.")
         end
         result = agent.run("Create designs")
@@ -1834,11 +1837,41 @@ RSpec.describe Clacky::Agent do
       agent.send(:emit_replayed_tool_result, ui, JSON.generate(awaiting_feedback: true, auto_reply: "Continue"), "external-1")
     end
 
-    it "discards a request from another task" do
-      agent.defer_feedback(id: "old", question: "Old question?")
-      agent.instance_variable_set(:@current_task_id, 99)
-      expect(agent.send(:take_deferred_feedback)).to be_nil
+    it "accepts asynchronous registration only for the active task, deduplicates and rejects conflicts" do
+      ui = double("ui").as_null_object
+      allow(ui).to receive(:with_progress).and_yield
+      allow(ui).to receive(:request_feedback_with_countdown).and_return(:timeout)
+      agent.instance_variable_set(:@ui, ui)
+      calls = 0
+      allow(client).to receive(:send_messages_with_tools) do
+        calls += 1
+        if calls == 1
+          token = agent.instance_variable_get(:@feedback_task_id)
+          request = { id: "external-1", task_id: token, question: "Pick?", options: %w[A B] }
+          registrations = 2.times.map { Thread.new { agent.defer_feedback(**request) } }.map(&:value)
+          expect(registrations.sort).to eq([:accepted, :duplicate])
+          outcomes = Thread.new do
+            [agent.defer_feedback(**request.merge(task_id: "old-task")),
+             agent.defer_feedback(**request),
+             agent.defer_feedback(**request),
+             agent.defer_feedback(**request.merge(options: %w[C D])),
+             agent.defer_feedback(**request.merge(id: "another-card"))]
+          end.value
+          expect(outcomes).to eq([:stale, :duplicate, :duplicate, :conflict, :conflict])
+        end
+        mock_api_response(content: "Done.")
+      end
+      agent.run("Test registration")
+      token = agent.instance_variable_get(:@feedback_task_id)
+      expect(agent.defer_feedback(id: "late", task_id: token, question: "Late?", options: %w[A B])).to eq(:stale)
+      expect(agent.defer_feedback(id: "external-1", task_id: token, question: "Pick?", options: %w[A B])).to eq(:duplicate)
     end
+
+    it "rejects malformed questions before registration" do
+      expect { agent.defer_feedback(id: "", question: "Pick?", options: %w[A B]) }.to raise_error(ArgumentError)
+      expect { agent.defer_feedback(id: "bad", question: "Pick?") }.to raise_error(ArgumentError)
+    end
+
   end
 
   describe "ask_user countdown" do
