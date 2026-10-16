@@ -15,7 +15,7 @@ module Clacky
       subagent_instructions subagent_result subagent_transcript token_usage
       compressed_summary chunk_path truncated transient
       chunk_index chunk_count ext_events skill_command skill_command_display
-      display_files display_references
+      display_files display_references feedback_requests
     ].freeze
 
     INTERNAL_CONTENT_BLOCK_FIELDS = %i[image_path image_name].freeze
@@ -109,6 +109,19 @@ module Clacky
       end
       msg[key] = value if msg
       self
+    end
+
+    # Save the effective request before waiting, including while no tool result
+    # exists yet. The original model-authored call remains unchanged.
+    def attach_feedback_request(tool_call_id, request)
+      message = @messages.reverse.find do |item|
+        Array(item[:tool_calls]).any? { |call| call[:id] == tool_call_id }
+      end
+      return false unless message
+
+      message[:feedback_requests] ||= {}
+      message[:feedback_requests][tool_call_id.to_s] = deep_sanitize_utf8(request)
+      true
     end
 
     # Settle an interrupted fan-out whose assistant.tool_calls turn is dangling
