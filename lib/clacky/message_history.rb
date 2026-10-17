@@ -37,7 +37,8 @@ module Clacky
     # Write operations
     # ─────────────────────────────────────────────
 
-    # Append a single message hash to the history.
+    # Append a single message hash to the history. An optional block receives
+    # the stored, sanitized message so callers can retain its identity.
     #
     # When appending a user message, automatically drop any trailing assistant
     # message that has unanswered tool_calls (no tool_result follows it).
@@ -48,7 +49,9 @@ module Clacky
       if message[:role] == "user"
         drop_dangling_tool_calls!
       end
-      @messages << deep_sanitize_utf8(message)
+      stored_message = deep_sanitize_utf8(message)
+      @messages << stored_message
+      yield stored_message if block_given?
       self
     end
 
@@ -113,10 +116,7 @@ module Clacky
 
     # Save the effective request before waiting, including while no tool result
     # exists yet. The original model-authored call remains unchanged.
-    def attach_feedback_request(tool_call_id, request)
-      message = @messages.reverse.find do |item|
-        Array(item[:tool_calls]).any? { |call| call[:id] == tool_call_id }
-      end
+    def attach_feedback_request(message:, tool_call_id:, request:)
       return false unless message
 
       message[:feedback_requests] ||= {}

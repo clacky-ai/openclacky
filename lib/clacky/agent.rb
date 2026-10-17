@@ -781,7 +781,7 @@ module Clacky
         @ui&.show_token_usage(response[:token_usage]) if response[:token_usage]
 
         # Act: Execute tool calls
-        action_result = act(response[:tool_calls])
+        action_result = act(response[:tool_calls], assistant_message: response.delete(:history_message))
 
         # Check if ask_user was called
         if action_result[:awaiting_feedback]
@@ -1547,7 +1547,7 @@ module Clacky
       # "reasoning_content must be passed back" contract.
       msg[:reasoning_content] = response[:reasoning_content] if response[:reasoning_content]
       check_stale!
-      @history.append(msg)
+      @history.append(msg) { |stored_message| response[:history_message] = stored_message }
 
       # Close the thinking spinner before returning. The caller (run loop)
       # is about to render the assistant message and/or tool invocations,
@@ -1571,7 +1571,7 @@ module Clacky
       raise Clacky::AgentInterrupted, "Task superseded by a newer task on another thread"
     end
 
-    private def act(tool_calls)
+    private def act(tool_calls, assistant_message: nil)
       return { denied: false, feedback: nil, tool_results: [], awaiting_feedback: false } unless tool_calls
 
       denied = false
@@ -1754,7 +1754,7 @@ module Clacky
               result.is_a?(Hash) && result[:awaiting_feedback]
             # Prepare and persist the complete request before displaying it or
             # starting the wait. Extensions and native questions share one result.
-            request = prepare_feedback_request(call, result)
+            request = prepare_feedback_request(call, result, assistant_message: assistant_message)
             @ui&.show_tool_call(call[:name], request)
 
             if @config.permission_mode == :auto_approve
