@@ -5,6 +5,7 @@ module Clacky
     HOOK_EVENTS = [
       :before_tool_use,
       :after_tool_use,
+      :prepare_feedback,
       :on_tool_error,
       :on_start,
       :on_complete,
@@ -34,6 +35,10 @@ module Clacky
     # call `agent.emit_event(...)`. Blocks are procs — those declaring fewer
     # params (`|call|`, `|call, result|`) silently ignore extra arguments.
     # Start/complete append context after the agent. Completion is observation-only.
+    # prepare_feedback receives (request, agent) after tool tracking, before UI
+    # display/countdown. It may extend questions, display context and model-only
+    # answer_context in place; answer_context is never sent to UI subscribers.
+    # return values are ignored. Keep work bounded; no separate UI events.
     def trigger(event, *args)
       validate_event!(event)
       # Keep payload hashes positional: Ruby 2.6 otherwise promotes their keys
@@ -46,7 +51,7 @@ module Clacky
           callback_args = [*args, @agent]
           callback_args << context.dup if context
           hook_result = hook.call(*callback_args)
-          next if event == :on_complete
+          next if [:on_complete, :prepare_feedback].include?(event)
           next unless hook_result.is_a?(Hash)
           # First deny wins and stops the chain: a weaker later verdict must
           # never clobber a stronger earlier one, and the first deny's reason

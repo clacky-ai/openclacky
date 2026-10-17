@@ -71,7 +71,7 @@ module Clacky
       # Use the same contract as the CLI. The server owns the deadline;
       # typing cancels automatic continuation but keeps the answer wait alive.
       def request_feedback_with_countdown(seconds: 20)
-        pending = { id: SecureRandom.uuid, cond: ConditionVariable.new,
+        pending = { id: @feedback_request_id || SecureRandom.uuid, cond: ConditionVariable.new,
                     deadline_ms: (Time.now.to_f * 1000).to_i + seconds * 1000 }
         pending[:seconds] = seconds
         pending[:deadline] = Process.clock_gettime(Process::CLOCK_MONOTONIC) + seconds
@@ -194,7 +194,9 @@ module Clacky
           context   = args_data.is_a?(Hash) ? (args_data[:context] || args_data["context"]).to_s : ""
           first     = questions.first || {}
 
+          @feedback_request_id = Clacky::Tools::AskUser.fetch_key(args_data, :request_id)
           emit("request_feedback",
+               request_id: @feedback_request_id,
                question: first[:question].to_s,
                context: context,
                options: first[:options] || [],

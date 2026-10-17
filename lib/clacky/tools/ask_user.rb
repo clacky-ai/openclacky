@@ -110,7 +110,7 @@ module Clacky
         recommended = recommended.to_i if recommended.is_a?(Numeric) || recommended.to_s =~ /\A-?\d+\z/
         recommended = nil unless recommended.is_a?(Integer) && recommended >= 0 && recommended < options.size
 
-        {
+        normalized = {
           question: text,
           description: fetch_key(item, :description).to_s.strip,
           options: options,
@@ -119,6 +119,9 @@ module Clacky
           allow_free_text: options.empty? || truthy?(fetch_key(item, :allow_free_text)),
           recommended: recommended
         }
+        metadata = fetch_key(item, :metadata)
+        normalized[:metadata] = metadata if metadata.is_a?(Hash)
+        normalized
       end
 
       def self.fetch_key(hash, key)
