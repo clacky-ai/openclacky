@@ -141,6 +141,16 @@ RSpec.describe Clacky::Server::WebUIController, "feedback countdown" do
 
   after { @worker&.kill; @worker&.join }
 
+  it "gives the browser a 60-second default deadline and still allows intervention" do
+    allow(Time).to receive(:now).and_return(Time.at(1_000))
+    @worker = Thread.new { controller.request_feedback_with_countdown }
+    started = next_event
+    expect(started[:deadline_ms]).to eq(1_060_000)
+    expect(controller.intervene_feedback(started[:request_id])).to be true
+    expect(next_event[:deadline_ms]).to be_nil
+    expect(@worker.join(2).value).to eq(:intervened)
+  end
+
   it "times out without selecting a recommended answer" do
     expect(controller.request_feedback_with_countdown(seconds: 0)).to eq(:timeout)
     expect(next_event[:deadline_ms]).to be_a(Integer)

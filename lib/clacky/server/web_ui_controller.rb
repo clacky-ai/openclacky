@@ -70,7 +70,7 @@ module Clacky
 
       # Use the same contract as the CLI. The server owns the deadline;
       # typing cancels automatic continuation but keeps the answer wait alive.
-      def request_feedback_with_countdown(seconds: 20)
+      def request_feedback_with_countdown(seconds: AgentConfig::DEFAULT_ASK_USER_TIMEOUT_SECONDS)
         pending = { id: @feedback_request_id || SecureRandom.uuid, cond: ConditionVariable.new,
                     deadline_ms: (Time.now.to_f * 1000).to_i + seconds * 1000 }
         pending[:seconds] = seconds

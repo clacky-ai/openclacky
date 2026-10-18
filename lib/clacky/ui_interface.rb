@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "securerandom"
+require_relative "agent_config"
 
 module Clacky
   # UIInterface defines the standard interface between Agent/CLI and UI implementations.
@@ -148,7 +149,7 @@ module Clacky
     # feedback string / "" when the user steps in, or :answered when Web has
     # queued a full answer for steering. Non-interactive UIs (json, channel)
     # default to :timeout.
-    def request_feedback_with_countdown(seconds: 20)
+    def request_feedback_with_countdown(seconds: AgentConfig::DEFAULT_ASK_USER_TIMEOUT_SECONDS)
       :timeout
     end
 

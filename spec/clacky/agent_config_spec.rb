@@ -16,15 +16,15 @@ RSpec.describe Clacky::AgentConfig do
   end
 
   describe "ask_user_timeout_seconds" do
-    it "defaults to 20 seconds and rejects invalid values" do
-      expect(described_class.new.ask_user_timeout_seconds).to eq(20)
+    it "defaults to 60 seconds and rejects invalid values" do
+      expect(described_class.new.ask_user_timeout_seconds).to eq(60)
       [-1, nil, "30", 2.5].each do |value|
-        expect(described_class.new(ask_user_timeout_seconds: value).ask_user_timeout_seconds).to eq(20)
+        expect(described_class.new(ask_user_timeout_seconds: value).ask_user_timeout_seconds).to eq(60)
       end
     end
 
     it "loads and persists configured timeouts, including zero" do
-      [0, 45].each do |seconds|
+      [0, 20, 45, 60, 120].each do |seconds|
         with_temp_config("settings" => { "ask_user_timeout_seconds" => seconds }, "models" => []) do |path|
           config = described_class.load(path)
           expect(config.ask_user_timeout_seconds).to eq(seconds)

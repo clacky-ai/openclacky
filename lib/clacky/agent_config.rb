@@ -143,6 +143,8 @@ module Clacky
   end
 
   class AgentConfig
+    DEFAULT_ASK_USER_TIMEOUT_SECONDS = 60
+
     CONFIG_DIR = File.join(Dir.home, ".clacky")
     CONFIG_FILE = File.join(CONFIG_DIR, "config.yml")
 
@@ -171,8 +173,8 @@ module Clacky
     def initialize(options = {})
       @permission_mode = validate_permission_mode(options[:permission_mode])
       @input_behavior = %w[queue steer interrupt].include?(options[:input_behavior].to_s) ? options[:input_behavior].to_s : "queue"
-      timeout = options.fetch(:ask_user_timeout_seconds, 20)
-      @ask_user_timeout_seconds = timeout.is_a?(Integer) && timeout >= 0 ? timeout : 20
+      timeout = options.fetch(:ask_user_timeout_seconds, DEFAULT_ASK_USER_TIMEOUT_SECONDS)
+      @ask_user_timeout_seconds = timeout.is_a?(Integer) && timeout >= 0 ? timeout : DEFAULT_ASK_USER_TIMEOUT_SECONDS
       @max_tokens = options[:max_tokens] || 16384
       @verbose = options[:verbose] || false
       @enable_compression = options[:enable_compression].nil? ? true : options[:enable_compression]
