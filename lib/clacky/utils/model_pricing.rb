@@ -979,6 +979,15 @@ module Clacky
         cache:  { write: 0.30, read: 0.03 }
       },
 
+      # M3.1-Flash (released 2026-10-19) — flat pricing, 1M context. Source:
+      # https://www.minimax.io/blog/minimax-m31f. No cache-write price is
+      # published; billed at the input rate per this table's convention.
+      "minimax-m3.1-flash" => {
+        input:  { default: 0.15, over_200k: 0.15 },
+        output: { default: 0.60, over_200k: 0.60 },
+        cache:  { write: 0.15, read: 0.015 }
+      },
+
       # M3 (released 2026-06-01) is MiniMax's multimodal flagship (image +
       # video input, 1,000,000-token context window). Official pricing is
       # tiered by context length (≤512K vs 512K–1M); per the project's
@@ -1378,6 +1387,8 @@ module Clacky
           "glm-4.7"
         # MiniMax — model ids in providers.rb use capitalised "MiniMax-M*"
         # but we match case-insensitively and map to the lowercased table key.
+        when /^minimax-m3[.]1-flash$/i
+          "minimax-m3.1-flash"
         when /^minimax-m3$/i
           "minimax-m3"
         when /^minimax-m2\.7$/i

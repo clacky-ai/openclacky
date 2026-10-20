@@ -437,6 +437,54 @@ RSpec.describe Clacky::MessageFormat::OpenAI do
       end
     end
 
+    context "for MiniMax-M3.1-Flash models" do
+      let(:model) { "MiniMax-M3.1-Flash" }
+
+      it "uses max_completion_tokens instead of max_tokens" do
+        body = described_class.build_request_body(
+          messages, model, tools, max_tokens, false
+        )
+        expect(body[:max_completion_tokens]).to eq(max_tokens)
+        expect(body).not_to have_key(:max_tokens)
+      end
+
+      it "passes every supported effort level through as reasoning_effort" do
+        %w[low medium high xhigh max].each do |effort|
+          body = described_class.build_request_body(
+            messages, model, tools, max_tokens, false, reasoning_effort: effort
+          )
+          expect(body[:reasoning_effort]).to eq(effort)
+          expect(body).not_to have_key(:thinking)
+        end
+      end
+
+      it "maps 'off' to the lightest effort instead of disabling thinking" do
+        %w[off nothink disabled].each do |effort|
+          body = described_class.build_request_body(
+            messages, model, tools, max_tokens, false, reasoning_effort: effort
+          )
+          expect(body[:reasoning_effort]).to eq("low")
+          expect(body).not_to have_key(:thinking)
+        end
+      end
+
+      it "omits reasoning params when reasoning_effort is nil (server default)" do
+        body = described_class.build_request_body(
+          messages, model, tools, max_tokens, false, reasoning_effort: nil
+        )
+        expect(body).not_to have_key(:thinking)
+        expect(body).not_to have_key(:reasoning_effort)
+      end
+
+      it "matches case-insensitively (lowercased id)" do
+        body = described_class.build_request_body(
+          messages, "minimax-m3.1-flash", tools, max_tokens, false, reasoning_effort: "off"
+        )
+        expect(body[:reasoning_effort]).to eq("low")
+        expect(body[:max_completion_tokens]).to eq(max_tokens)
+      end
+    end
+
     context "for generic OpenAI-compatible models" do
       let(:model) { "deepseek-v4-pro" }
 

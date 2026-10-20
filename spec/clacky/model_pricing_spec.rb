@@ -1227,6 +1227,21 @@ RSpec.describe Clacky::ModelPricing do
       # 400_000 / 1M * $0.60 = $0.24 (flat, not the 512K–1M $1.20 rate)
       expect(result[:cost]).to be_within(0.0001).of(0.24)
     end
+
+    it "bills MiniMax-M3.1-Flash at its flat rate" do
+      usage = {
+        prompt_tokens: 100_000,
+        completion_tokens: 50_000,
+        cache_read_input_tokens: 20_000
+      }
+      result = described_class.calculate_cost(model: "MiniMax-M3.1-Flash", usage: usage)
+      # Regular input: (100_000 - 20_000) / 1M * $0.15 = $0.012
+      # Cache read:     20_000 / 1M * $0.015           = $0.0003
+      # Output:         50_000 / 1M * $0.60            = $0.03
+      # Total: $0.0423
+      expect(result[:cost]).to be_within(0.00001).of(0.0423)
+      expect(result[:source]).to eq(:price)
+    end
   end
 
   # Qwen (Alibaba DashScope) pricing - international list price (promo discounts

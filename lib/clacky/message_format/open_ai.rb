@@ -224,11 +224,11 @@ module Clacky
 
       # Returns the token-limit field name for the given model.
       # Most OpenAI-compatible APIs use :max_tokens; MiMo-V2.5 (Xiaomi) and
-      # MiniMax-M3 use :max_completion_tokens to cap the combined thinking +
+      # MiniMax-M3 / M3.1-Flash use :max_completion_tokens to cap the combined thinking +
       # answer length (M3 documents max_completion_tokens over the legacy
       # max_tokens field).
       private_class_method def self.token_field_for(model)
-        if model.to_s.match?(/^mimo-v2/i) || model.to_s.match?(/^minimax-m3$/i)
+        if model.to_s.match?(/^mimo-v2/i) || model.to_s.match?(/^minimax-m3([.]1-flash)?$/i)
           :max_completion_tokens
         else
           :max_tokens
@@ -313,6 +313,14 @@ module Clacky
             body[:thinking] = { type: "disabled" }
           elsif !effort_str.empty?
             body[:thinking] = { type: "enabled" }
+          end
+        elsif model.to_s.match?(/^minimax-m3[.]1-flash$/i)
+          # M3.1-Flash always thinks and rejects thinking disabled / effort none,
+          # so "off" maps to the lightest effort "low".
+          if %w[off nothink disabled].include?(effort_str)
+            body[:reasoning_effort] = "low"
+          elsif !effort_str.empty?
+            body[:reasoning_effort] = effort_str
           end
         elsif model.to_s.match?(/^minimax-m3$/i)
           # MiniMax-M3 controls thinking via a top-level "thinking" field with

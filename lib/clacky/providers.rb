@@ -336,8 +336,8 @@ module Clacky
         "name" => "Minimax",
         "base_url" => "https://api.minimaxi.com/v1",
         "api" => "openai-completions",
-        "default_model" => "MiniMax-M3",
-        "models" => ["MiniMax-M3", "MiniMax-M2.7", "MiniMax-M2.5"],
+        "default_model" => "MiniMax-M3.1-Flash",
+        "models" => ["MiniMax-M3.1-Flash", "MiniMax-M3", "MiniMax-M2.7", "MiniMax-M2.5"],
         # MiniMax operates two regional endpoints with identical APIs & model
         # lineup — mainland China (.com) and international (.io). Listing both
         # lets find_by_base_url identify either one as provider "minimax",
@@ -347,16 +347,17 @@ module Clacky
           { "label" => "Mainland China", "label_key" => "settings.models.baseurl.variant.mainland_cn",   "base_url" => "https://api.minimaxi.com/v1", "region" => "cn"   }.freeze,
           { "label" => "International",  "label_key" => "settings.models.baseurl.variant.international", "base_url" => "https://api.minimax.io/v1",   "region" => "intl" }.freeze
         ].freeze,
-        # MiniMax M2.5/M2.7 are text-only on this endpoint. M3 (released 2026-06-01)
-        # is natively multimodal — it accepts image input via OpenAI-style
-        # image_url content parts — so it overrides the provider-level
-        # vision=false below. M3 exposes a 1,000,000-token context window
+        # MiniMax M2.5/M2.7 are text-only on this endpoint. M3.1-Flash and M3
+        # are natively multimodal — they accept image input via OpenAI-style
+        # image_url content parts — so they override the provider-level
+        # vision=false below. Both expose a 1,000,000-token context window
         # (M2.7: 204,800; M2.5: 40,960).
         "capabilities" => { "vision" => false }.freeze,
         "model_capabilities" => {
-          "MiniMax-M3" => { "vision" => true }.freeze
+          "MiniMax-M3.1-Flash" => { "vision" => true }.freeze,
+          "MiniMax-M3"         => { "vision" => true }.freeze
         }.freeze,
-        "default_ocr_model" => "MiniMax-M3",
+        "default_ocr_model" => "MiniMax-M3.1-Flash",
         "website_url" => "https://platform.minimax.io/"
       }.freeze,
 
