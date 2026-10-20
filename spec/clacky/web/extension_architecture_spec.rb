@@ -186,14 +186,9 @@ RSpec.describe "WebUI extension architecture" do
         "ordinary session_update snapshots must preserve pagination-safe patch behavior"
     end
 
-    it "promotes a full snapshot for the session being viewed when it is not listed yet" do
-      # The active session may live only in the extra-session cache (opened from
-      # search or a deep link), which the sidebar never renders. Patching it
-      # would leave the list without a row until a browser reload, so a full
-      # snapshot must be promoted instead -- but only while it is still
-      # unlisted, keeping the patch bookkeeping for rows that already exist.
-      expect(ws_js).to match(/sid\s*===\s*Sessions\.activeId\s*&&\s*!listed/),
-        "an unlisted active session must be promoted out of the extra cache"
+    it "promotes an unlisted full snapshot when it sorts inside the loaded pages" do
+      expect(ws_js).to match(/!listed\s*&&\s*Sessions\.belongsToLoadedPage\(ev\.session\)/),
+        "unlisted snapshots must be promoted by sort position, not event origin"
       expect(ws_js).to match(/const listed\s*=\s*Sessions\.all\.some\(s\s*=>\s*s\.id\s*===\s*sid\)/),
         "promotion must be gated on the session being absent from the canonical list"
     end

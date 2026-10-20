@@ -90,7 +90,8 @@ function boot() {
     setTimeout: unrefTimeout,
     clearTimeout,
     document,
-    fetch: async () => ({ ok: false, json: async () => ({}) }),
+    fetch: async url => { context.__fetched.push(String(url)); return { ok: false, json: async () => ({}) }; },
+    __fetched: [],
     I18n: { t: key => key, lang: () => "en" },
     WS: {
       onEvent: fn => { context.__dispatcher = fn; },
@@ -119,7 +120,7 @@ function boot() {
 
   const Sessions = vm.runInContext("Clacky.Sessions", context);
   const list = document.getElementById("session-list");
-  return { Sessions, list, dispatch: context.__dispatcher };
+  return { Sessions, list, dispatch: context.__dispatcher, fetched: context.__fetched };
 }
 
 const row = (id, extra = {}) => Object.assign({
@@ -129,15 +130,15 @@ const row = (id, extra = {}) => Object.assign({
 }, extra);
 
 // Sidebar row ids, top to bottom.
-const renderedIds = list => list.children.map(child => child.dataset.sessionId);
+const renderedIds = list => list.children.map(child => child.dataset.sessionId).filter(Boolean);
 
-function tests() {
-  // 1. The reported bug: an old session found via search (outside the loaded
-  //    page, absent from the sidebar) receives its first activity snapshot →
-  //    it must show up in the list, sorted where its fresh updated_at puts it.
+async function tests() {
+  // 1. An old session found via search (outside the loaded page, absent from
+  //    the sidebar) receives its first activity snapshot → it must show up in
+  //    the list, sorted where its fresh updated_at puts it.
   {
     const { Sessions, list, dispatch } = boot();
-    Sessions.setAll([row("page-1"), row("page-2")]);
+    Sessions.setAll([row("page-1"), row("page-2")], true);
     Sessions._setActiveId("old-1");
     Sessions.renderList();
     assert.deepEqual(renderedIds(list), ["page-1", "page-2"], "old session is not listed yet");
@@ -151,22 +152,80 @@ function tests() {
       "the session the user just messaged appears at the top of the sidebar");
   }
 
-  // 2. Sessions the user is NOT looking at must stay out of the paginated
-  //    list — pulling them in would corrupt the loadMore cursor.
+  // 2. Stale snapshots that sort below the loaded pages must stay out of the
+  //    paginated list — pulling them in would corrupt the loadMore cursor.
   {
-    const { Sessions, list, dispatch } = boot();
-    Sessions.setAll([row("page-1")]);
+    const { Sessions, list, dispatch, fetched } = boot();
+    Sessions.setAll([row("page-1")], true);
     Sessions._setActiveId("page-1");
     Sessions.renderList();
 
-    dispatch({ type: "session_update", session: row("background-1", { status: "running" }) });
+    dispatch({
+      type: "session_update",
+      session: row("background-1", { updated_at: "2026-07-01T00:00:00+08:00" }),
+    });
 
     assert.deepEqual(renderedIds(list), ["page-1"],
-      "a background session is not inserted into the sidebar list");
+      "a stale background session is not inserted into the sidebar list");
     assert.equal(Sessions.all.some(s => s.id === "background-1"), false);
+
+    await Sessions.loadMore();
+    const before = new URL(fetched.pop(), "http://x").searchParams.get("before");
+    assert.equal(before, "2026-08-01T00:00:00+08:00", "loadMore cursor stays at the loaded boundary");
   }
 
-  // 3. Creation updates keep promoting the row.
+  // 3. A background session that becomes active (e.g. an IM channel message
+  //    while the user views another chat) sorts into the loaded range → listed.
+  {
+    const { Sessions, list, dispatch } = boot();
+    Sessions.setAll([row("page-1")], true);
+    Sessions._setActiveId("page-1");
+    Sessions.renderList();
+
+    dispatch({
+      type: "session_update",
+      session: row("qq-1", { source: "channel", status: "running", updated_at: "2026-09-15T16:00:00+08:00" }),
+    });
+
+    assert.deepEqual(renderedIds(list), ["qq-1", "page-1"]);
+
+    // Mixed offsets compare by instant: 2026-07-31T20:00Z is after 2026-08-01T00:00+08:00.
+    dispatch({
+      type: "session_update",
+      session: row("utc-1", { updated_at: "2026-07-31T20:00:00Z" }),
+    });
+    assert.deepEqual(renderedIds(list), ["qq-1", "utc-1", "page-1"]);
+  }
+
+  // 4. Grouped sources stay behind their group entry, however fresh.
+  {
+    const { Sessions, dispatch } = boot();
+    Sessions.setAll([row("page-1")], true);
+    Sessions.renderList();
+
+    dispatch({
+      type: "session_update",
+      session: row("cron-1", { source: "cron", updated_at: "2026-09-15T16:00:00+08:00" }),
+    });
+
+    assert.equal(Sessions.all.some(s => s.id === "cron-1"), false);
+  }
+
+  // 5. Once every page is loaded, any unknown snapshot belongs in the list.
+  {
+    const { Sessions, list, dispatch } = boot();
+    Sessions.setAll([row("page-1")]);
+    Sessions.renderList();
+
+    dispatch({
+      type: "session_update",
+      session: row("old-2", { updated_at: "2026-07-01T00:00:00+08:00" }),
+    });
+
+    assert.deepEqual(renderedIds(list), ["page-1", "old-2"]);
+  }
+
+  // 6. Creation updates keep promoting the row.
   {
     const { Sessions, list, dispatch } = boot();
     Sessions.setAll([row("page-1")]);
@@ -180,7 +239,36 @@ function tests() {
     assert.deepEqual(renderedIds(list), ["new-1", "page-1"]);
   }
 
-  // 4. An already-listed session is patched in place — no duplicate row.
+  // 7. Flat status-only updates (web_ui_controller shape) never create rows,
+  //    even when no more pages exist — there is no snapshot to render.
+  {
+    const { Sessions, list, dispatch } = boot();
+    Sessions.setAll([row("page-1")]);
+    Sessions.renderList();
+
+    dispatch({ type: "session_update", session_id: "flat-1", status: "running" });
+
+    assert.deepEqual(renderedIds(list), ["page-1"]);
+    assert.equal(Sessions.all.some(s => s.id === "flat-1"), false);
+  }
+
+  // 8. A searched session the user is viewing but whose snapshot is stale
+  //    (e.g. reconnect replay) is not forced into the list.
+  {
+    const { Sessions, list, dispatch } = boot();
+    Sessions.setAll([row("page-1")], true);
+    Sessions._setActiveId("old-1");
+    Sessions.renderList();
+
+    dispatch({
+      type: "session_update",
+      session: row("old-1", { updated_at: "2026-07-01T00:00:00+08:00" }),
+    });
+
+    assert.deepEqual(renderedIds(list), ["page-1"]);
+  }
+
+  // 9. An already-listed session is patched in place — no duplicate row.
   {
     const { Sessions, list, dispatch } = boot();
     Sessions.setAll([row("page-1")]);
@@ -193,5 +281,4 @@ function tests() {
   }
 }
 
-tests();
-console.log("session_list_promotion_test: ok");
+tests().then(() => console.log("session_list_promotion_test: ok"), e => { console.error(e); process.exit(1); });
