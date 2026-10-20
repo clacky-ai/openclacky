@@ -970,6 +970,7 @@ module Clacky
       # rest of this file; normalize_model_name() lowercases incoming model
       # names before lookup.
 
+      # M2.x is retired on MiniMax's own API but still served via OpenRouter/Ollama — keep these rows.
       # M2.5 — high-throughput text model, optimised for coding and agent tasks
       # (40,960-token context window). Listed at Pay-as-You-Go prices.
       # Source: https://www.minimax.io/models/text (MiniMax-M2.5 product page).

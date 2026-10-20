@@ -568,7 +568,7 @@ RSpec.describe Clacky::Providers do
 
       it "lists the current lineup with M3.1-Flash as default and M3.x overriding vision" do
         preset = described_class::PRESETS["minimax"]
-        expect(preset["models"]).to eq(["MiniMax-M3.1-Flash", "MiniMax-M3", "MiniMax-M2.7", "MiniMax-M2.5"])
+        expect(preset["models"]).to eq(["MiniMax-M3.1-Flash", "MiniMax-M3"])
         expect(preset["default_model"]).to eq("MiniMax-M3.1-Flash")
         expect(described_class.supports?("minimax", :vision, model_name: "MiniMax-M3.1-Flash"))
           .to be(true)

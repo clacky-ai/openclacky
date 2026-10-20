@@ -337,7 +337,7 @@ module Clacky
         "base_url" => "https://api.minimaxi.com/v1",
         "api" => "openai-completions",
         "default_model" => "MiniMax-M3.1-Flash",
-        "models" => ["MiniMax-M3.1-Flash", "MiniMax-M3", "MiniMax-M2.7", "MiniMax-M2.5"],
+        "models" => ["MiniMax-M3.1-Flash", "MiniMax-M3"],
         # MiniMax operates two regional endpoints with identical APIs & model
         # lineup — mainland China (.com) and international (.io). Listing both
         # lets find_by_base_url identify either one as provider "minimax",
@@ -347,11 +347,9 @@ module Clacky
           { "label" => "Mainland China", "label_key" => "settings.models.baseurl.variant.mainland_cn",   "base_url" => "https://api.minimaxi.com/v1", "region" => "cn"   }.freeze,
           { "label" => "International",  "label_key" => "settings.models.baseurl.variant.international", "base_url" => "https://api.minimax.io/v1",   "region" => "intl" }.freeze
         ].freeze,
-        # MiniMax M2.5/M2.7 are text-only on this endpoint. M3.1-Flash and M3
-        # are natively multimodal — they accept image input via OpenAI-style
-        # image_url content parts — so they override the provider-level
-        # vision=false below. Both expose a 1,000,000-token context window
-        # (M2.7: 204,800; M2.5: 40,960).
+        # M3.1-Flash and M3 are natively multimodal (image_url content parts,
+        # 1M context) and override the provider-level vision=false, which
+        # stays as the safe default for retired text-only ids (M2.x).
         "capabilities" => { "vision" => false }.freeze,
         "model_capabilities" => {
           "MiniMax-M3.1-Flash" => { "vision" => true }.freeze,
