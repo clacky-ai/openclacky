@@ -16,7 +16,7 @@ RSpec.describe "replay_history web_search ui payload" do
         @tool_results = []
       end
 
-      def show_tool_result(result, ui: nil)
+      def show_tool_result(result, ui: nil, created_at: nil)
         @tool_results << { result: result, ui: ui }
       end
 
