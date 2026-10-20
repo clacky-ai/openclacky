@@ -185,8 +185,9 @@ module Clacky
                                  options: options, questions: questions || [])
       end
 
-      def show_tool_call(name, args)
+      def show_tool_call(name, args, created_at: nil)
         args_data = args.is_a?(String) ? (JSON.parse(args) rescue args) : args
+        created_at ||= Time.now.to_f
 
         # Special handling for ask_user — emit a dedicated UI event
         if Clacky::Tools::AskUser.feedback_tool?(name)
@@ -211,21 +212,21 @@ module Clacky
 
         # Remember the current in-flight tool call so replay_live_state can re-emit it
         # when a browser tab re-subscribes after switching sessions.
-        @live_tool_call = { name: name, args: args_data, summary: summary }
+        @live_tool_call = { name: name, args: args_data, summary: summary, created_at: created_at }
 
-        emit("tool_call", name: name, args: args_data, summary: summary)
+        emit("tool_call", name: name, args: args_data, summary: summary, created_at: created_at)
         forward_to_subscribers { |sub| sub.show_tool_call(name, args_data) }
       end
 
-      def show_tool_result(result, ui: nil)
+      def show_tool_result(result, ui: nil, created_at: nil)
         @live_tool_call = nil   # tool finished — no longer in-flight
-        emit("tool_result", result: result, ui: ui)
+        emit("tool_result", result: result, ui: ui, created_at: created_at || Time.now.to_f)
         forward_to_subscribers { |sub| sub.show_tool_result(result, ui: ui) }
       end
 
-      def show_tool_error(error)
+      def show_tool_error(error, created_at: nil)
         error_msg = error.is_a?(Exception) ? error.message : error.to_s
-        emit("tool_error", error: error_msg)
+        emit("tool_error", error: error_msg, created_at: created_at || Time.now.to_f)
         forward_to_subscribers { |sub| sub.show_tool_error(error) }
       end
 

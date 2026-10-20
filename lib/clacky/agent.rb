@@ -1661,7 +1661,7 @@ module Clacky
         # The interactive countdown (auto_approve) is handled after the tool
         # executes, once the question itself has been rendered to the user.
         unless Tools::AskUser.feedback_tool?(call[:name])
-          @ui&.show_tool_call(call[:name], redact_tool_args(call[:arguments]))
+          @ui&.show_tool_call(call[:name], redact_tool_args(call[:arguments]), created_at: assistant_message&.[](:created_at))
         end
 
         # Execute tool
@@ -1763,7 +1763,7 @@ module Clacky
             # Prepare and persist the complete request before displaying it or
             # starting the wait. Extensions and native questions share one result.
             request = prepare_feedback_request(call, result, assistant_message: assistant_message)
-            @ui&.show_tool_call(call[:name], request)
+            @ui&.show_tool_call(call[:name], request, created_at: assistant_message&.[](:created_at))
 
             if @config.permission_mode == :auto_approve
               # auto_approve means the agent runs unattended by default, but a
@@ -1796,10 +1796,11 @@ module Clacky
             # Use tool's format_result method to get display-friendly string
             formatted_result = tool.respond_to?(:format_result) ? tool.format_result(result) : result.to_s
             ui_result = tool.respond_to?(:ui_result) ? tool.ui_result(result) : nil
+            result_at = Time.now.to_f
             if ui_result
-              @ui&.show_tool_result(redact_tool_args(formatted_result), ui: redact_tool_args(ui_result))
+              @ui&.show_tool_result(redact_tool_args(formatted_result), ui: redact_tool_args(ui_result), created_at: result_at)
             else
-              @ui&.show_tool_result(redact_tool_args(formatted_result))
+              @ui&.show_tool_result(redact_tool_args(formatted_result), created_at: result_at)
             end
           end
 
@@ -1818,7 +1819,7 @@ module Clacky
           Clacky::Logger.error("tool_execution_error", tool: call[:name], error: e)
 
           @hooks.trigger(:on_tool_error, call, e)
-          @ui&.show_tool_error(redact_tool_args(e.message))
+          @ui&.show_tool_error(redact_tool_args(e.message), created_at: Time.now.to_f)
           # Use build_denied_result with system_injected=true so LLM knows it can retry
           results << build_denied_result(call, e.message, true)
         end
@@ -1849,11 +1850,16 @@ module Clacky
         tool_name_by_id[tc[:id]] = tc[:name]
       end
 
+      # Stamp each tool-result message with the wall-clock time the tool
+      # finished. The assistant message carrying the tool_calls is already
+      # stamped with created_at (see make_assistant_message), so history replay
+      # can pair the two to show per-tool execution duration in the UI.
+      observed_at = Time.now.to_f
       formatted_messages = @client.format_tool_results(response, tool_results, model: current_model)
       formatted_messages.each do |msg|
         tool_name = tool_name_by_id[msg[:tool_call_id]]
         truncated = truncate_oversized_tool_content(msg, tool_name: tool_name)
-        @history.append(truncated.merge(task_id: @current_task_id))
+        @history.append(truncated.merge(task_id: @current_task_id, created_at: observed_at))
       end
 
       attach_pending_subagent_transcripts(response)

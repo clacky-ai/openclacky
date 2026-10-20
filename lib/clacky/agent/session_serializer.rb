@@ -799,7 +799,7 @@ module Clacky
               end
             else
               remember_replayed_tool_name(tc[:id], name)
-              ui.show_tool_call(name, args)
+              ui.show_tool_call(name, args, created_at: msg[:created_at])
             end
           end
 
@@ -818,14 +818,14 @@ module Clacky
               next unless blk.is_a?(Hash) && blk[:type] == "tool_result"
 
               content = blk[:content].to_s
-              emit_replayed_tool_result(ui, content, blk[:tool_use_id])
+              emit_replayed_tool_result(ui, content, blk[:tool_use_id], created_at: msg[:created_at])
             end
             replay_subagent_transcript(msg, ui)
           end
 
         when "tool"
           # OpenAI-format tool result
-          emit_replayed_tool_result(ui, msg[:content].to_s, msg[:tool_call_id])
+          emit_replayed_tool_result(ui, msg[:content].to_s, msg[:tool_call_id], created_at: msg[:created_at])
           replay_subagent_transcript(msg, ui)
         end
 
@@ -835,12 +835,12 @@ module Clacky
       # Tool results persist as the raw JSON the tool returned, so replay can
       # rebuild the same structured `ui:` payload the live path sent instead of
       # degrading the card to plain text (C-5797).
-      private def emit_replayed_tool_result(ui, content, tool_call_id)
+      private def emit_replayed_tool_result(ui, content, tool_call_id, created_at: nil)
         ui_payload = replayed_tool_ui(content, tool_call_id)
         if ui_payload
-          ui.show_tool_result(content, ui: ui_payload)
+          ui.show_tool_result(content, ui: ui_payload, created_at: created_at)
         else
-          ui.show_tool_result(content)
+          ui.show_tool_result(content, created_at: created_at)
         end
       end
 
@@ -930,15 +930,16 @@ module Clacky
           case role
           when "assistant"
             text = extract_text_from_content(content).to_s.strip
-            ui.show_assistant_message(text, files: [], created_at: ev[:created_at] || ev["created_at"]) unless text.empty?
+            ev_created_at = ev[:created_at] || ev["created_at"]
+            ui.show_assistant_message(text, files: [], created_at: ev_created_at) unless text.empty?
             Array(tool_calls).each do |tc|
               name = tc[:name] || tc["name"] || ""
               args_raw = tc[:arguments] || tc["arguments"] || {}
               args = args_raw.is_a?(String) ? (JSON.parse(args_raw) rescue args_raw) : args_raw
-              ui.show_tool_call(name, args)
+              ui.show_tool_call(name, args, created_at: ev_created_at)
             end
           when "tool", "user"
-            ui.show_tool_result(extract_text_from_content(content).to_s)
+            ui.show_tool_result(extract_text_from_content(content).to_s, created_at: ev[:created_at] || ev["created_at"])
           end
         end
 

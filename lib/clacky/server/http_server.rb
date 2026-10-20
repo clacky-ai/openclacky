@@ -108,7 +108,7 @@ module Clacky
         @events << stamp(ev)
       end
 
-      def show_tool_call(name, args)
+      def show_tool_call(name, args, created_at: nil)
         args_data = args.is_a?(String) ? (JSON.parse(args) rescue args) : args
         if Clacky::Tools::AskUser.feedback_tool?(name)
           questions = Clacky::Tools::AskUser.normalize_questions(args_data)
@@ -120,7 +120,9 @@ module Clacky
           return
         end
         summary   = tool_call_summary(name, args_data)
-        @events << stamp({ type: "tool_call", session_id: @session_id, name: name, args: args_data, summary: summary })
+        ev = { type: "tool_call", session_id: @session_id, name: name, args: args_data, summary: summary }
+        ev[:created_at] = created_at if created_at
+        @events << stamp(ev)
       end
 
       private def tool_call_summary(name, args)
@@ -134,9 +136,10 @@ module Clacky
         nil
       end
 
-      def show_tool_result(result, ui: nil)
+      def show_tool_result(result, ui: nil, created_at: nil)
         event = { type: "tool_result", session_id: @session_id, result: result }
         event[:ui] = ui if ui
+        event[:created_at] = created_at if created_at
         @events << stamp(event)
       end
 

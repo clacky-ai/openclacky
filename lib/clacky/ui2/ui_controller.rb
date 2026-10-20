@@ -552,7 +552,7 @@ module Clacky
       # Show tool call
       # @param name [String] Tool name
       # @param args [String, Hash] Tool arguments (JSON string or Hash)
-      def show_tool_call(name, args)
+      def show_tool_call(name, args, created_at: nil)
         return if chore_capture(:tool, name)
 
         # Reset stdout buffer on each new tool call so previous command output
@@ -599,14 +599,14 @@ module Clacky
 
       # Show tool result
       # @param result [String] Formatted tool result
-      def show_tool_result(result, ui: nil)
+      def show_tool_result(result, ui: nil, created_at: nil)
         output = @renderer.render_tool_result(result: result)
         append_output(output)
       end
 
       # Show tool error
       # @param error [String, Exception] Error message or exception
-      def show_tool_error(error)
+      def show_tool_error(error, created_at: nil)
         error_msg = error.is_a?(Exception) ? error.message : error.to_s
         return if chore_capture(:error, error_msg)
 

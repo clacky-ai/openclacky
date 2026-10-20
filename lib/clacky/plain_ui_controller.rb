@@ -21,7 +21,7 @@ module Clacky
       files.each { |f| puts_line("📄 File: #{f[:path]}") }
     end
 
-    def show_tool_call(name, args)
+    def show_tool_call(name, args, created_at: nil)
       args_data = args.is_a?(String) ? (JSON.parse(args) rescue args) : args
 
       # Special handling for ask_user — display as a readable prompt
@@ -56,7 +56,7 @@ module Clacky
       puts_line("[tool] #{display}")
     end
 
-    def show_tool_result(result, ui: nil)
+    def show_tool_result(result, ui: nil, created_at: nil)
       text = result.to_s.strip
       return if text.empty?
 
@@ -65,7 +65,7 @@ module Clacky
       puts_line(indented)
     end
 
-    def show_tool_error(error)
+    def show_tool_error(error, created_at: nil)
       msg = error.is_a?(Exception) ? error.message : error.to_s
       puts_line("[error] #{msg}")
     end

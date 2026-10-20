@@ -152,7 +152,7 @@ module Clacky
         end
       end
 
-      def show_tool_call(name, args)
+      def show_tool_call(name, args, created_at: nil)
         # ask_user is the one tool that must reach the user: the agent stops and
         # waits for an answer, so swallowing it leaves the chat silently stuck.
         # Sent unconditionally — it is a question, not process noise, so the
@@ -173,11 +173,11 @@ module Clacky
         mark_task_working unless present_process_status(tool_progress_message(name))
       end
 
-      def show_tool_result(result, ui: nil)
+      def show_tool_result(result, ui: nil, created_at: nil)
         # Suppress — too noisy for IM
       end
 
-      def show_tool_error(error)
+      def show_tool_error(error, created_at: nil)
         msg = error.is_a?(Exception) ? error.message : error.to_s
         send_text("Tool error: #{msg}")
       end
