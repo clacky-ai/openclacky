@@ -6633,19 +6633,14 @@ body {
 }
 
 /* Attachment strip — top part of the composer card, above the input row */
-#image-preview-strip {
+#image-preview-strip,
+#ns-image-preview-strip {
   display: flex;
   flex-wrap: wrap;
   gap: 0.5rem;
   padding: 0.625rem 0.75rem 0.5rem;
   /* Divider to the input row — the strip is display:none when no chips exist. */
   border-bottom: 1px solid var(--color-border-primary);
-}
-#ns-image-preview-strip {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-  padding: 0.25rem 0 0.5rem;
 }
 .img-preview-item {
   position: relative;
