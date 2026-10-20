@@ -2,6 +2,9 @@
 
 require "socket"
 require "tmpdir"
+require "fcntl"
+require "fileutils"
+require "time"
 require_relative "../banner"
 require_relative "../version"
 require_relative "../agent_config"
@@ -49,11 +52,20 @@ module Clacky
         @restart_requested = false
         @shutdown_requested = false
         @shutdown_signal = nil
+        @lock_file = nil
       end
 
       def run
         # 0. Kill any existing master on this port before binding.
         kill_existing_master
+
+        # Acquire the per-data-directory instance lock *before* binding. The
+        # lock (an flock held for the lifetime of this process) survives PID
+        # file loss — /tmp cleanup, kill -9, older gems that never wrote a PID
+        # file — and is released automatically by the kernel when the process
+        # dies. Without it a second launch silently binds a fallback port and
+        # every IM channel connects twice, so each message is handled N times.
+        acquire_instance_lock!
 
         # 1. Try to bind the socket.
         # If port is 7070 (default), try fallback ports 7071-7075 if occupied.
@@ -61,7 +73,7 @@ module Clacky
         original_port = @port
         max_port = (@port == 7070 && !@strict_port) ? (@port + 5) : @port
         @socket = bind_with_fallback(@host, @port, max_port: max_port)
-        
+
         if @socket.nil?
           if max_port != @port
             Clacky::Logger.error("[Master] No available ports in range 7070-7075")
@@ -70,7 +82,7 @@ module Clacky
           end
           exit(1)
         end
-        
+
         @socket.setsockopt(Socket::SOL_SOCKET, Socket::SO_REUSEADDR, true)
         @port = @socket.local_address.ip_port  # Update to actual bound port
 
@@ -78,6 +90,7 @@ module Clacky
         print_banner(port_changed: @port != original_port, original_port: original_port)
 
         write_pid_file
+        write_lock_metadata
 
         # 3. Signal handlers
         Signal.trap("USR1") { @restart_requested  = true }
@@ -130,6 +143,7 @@ module Clacky
         end
       ensure
         remove_pid_file
+        release_instance_lock
       end
 
 
@@ -296,12 +310,12 @@ module Clacky
         puts banner.colored_cli_logo
         puts banner.colored_tagline
         puts ""
-        
+
         if port_changed
           puts "   [!] Port #{original_port} is in use, using #{@port} instead"
           puts ""
         end
-        
+
         puts "   Web UI: #{banner.highlight("http://#{@host}:#{@port}")}"
         puts "   Version: #{Clacky::VERSION}"
         puts "   Press Ctrl-C to stop."
@@ -314,7 +328,91 @@ module Clacky
         max_port = (@port == 7070) ? (@port + 5) : @port
         (@port..max_port).each do |port|
           kill_master_on_port(port)
+          reclaim_legacy_linux_master(port)
         end
+      end
+
+      # Last-resort reclaim for an OLD server version that has neither a PID
+      # file nor the instance lock but is still listening. Only Linux can
+      # identify the listener with pure stdlib (read-only parsing of /proc;
+      # no external command), so this is a no-op elsewhere — the instance
+      # lock below then prevents any further duplicate from being created.
+      private def reclaim_legacy_linux_master(port)
+        return unless RUBY_PLATFORM =~ /linux/
+        return unless port_busy?(port)
+
+        pids = linux_clacky_listeners(port)
+        return if pids.empty?  # held by another program (nginx, etc.) — leave it
+
+        pids.each { |pid| stop_clacky_pid(pid, port: port) }
+        if port_busy?(port)
+          Clacky::Logger.warn(
+            "[Master] Port #{port} is still held by a Clacky server that could " \
+            "not be stopped; not taking over this port."
+          )
+        else
+          Clacky::Logger.info("[Master] Port #{port} reclaimed from a previous instance.")
+        end
+      end
+
+      private def port_busy?(port)
+        probe = TCPServer.new(@host, port)
+        probe.close
+        false
+      rescue Errno::EADDRINUSE
+        true
+      end
+
+      # PIDs listening on +port+ whose command line shows a `clacky server`
+      # invocation. Pure stdlib: match the LISTEN socket inode in
+      # /proc/net/tcp(6), then walk /proc/<pid>/fd to find its owner and
+      # verify /proc/<pid>/cmdline. Never shells out and never signals a
+      # process that is not provably a Clacky server.
+      private def linux_clacky_listeners(port)
+        inodes = linux_listen_inodes(port)
+        return [] if inodes.empty?
+
+        owners = []
+        Dir.glob("/proc/[0-9]*/fd/*") do |fd_path|
+          begin
+            target = File.readlink(fd_path)
+          rescue SystemCallError
+            next
+          end
+          next unless target.start_with?("socket:[") && inodes.include?(target[8..-2])
+
+          pid = fd_path[%r{/(\d+)/fd/}, 1]&.to_i
+          owners << pid if pid && pid != Process.pid && clacky_cmdline?(pid)
+        end
+        owners.uniq
+      end
+
+      private def linux_listen_inodes(port)
+        hex_port = format("%04X", port)
+        Dir.glob("/proc/net/tcp*").flat_map do |net_file|
+          begin
+            File.readlines(net_file)
+          rescue SystemCallError
+            []
+          end.drop(1).select do |line|
+            fields = line.split
+            fields[1].to_s.split(":").last == hex_port && fields[3] == "0A" # 0A == LISTEN
+          end.map { |line| line.split[9] }
+        end.compact
+      end
+
+      private def clacky_cmdline?(pid)
+        cmdline = File.read("/proc/#{pid}/cmdline").tr("\0", " ").strip
+        return false if cmdline.empty?
+
+        return true if cmdline =~ /openclacky(?:\.bat|\.cmd|\.exe)?(?:\s|$).*?\bserver\b/i
+
+        tokens = cmdline.split
+        ruby_invocation = tokens.first.to_s.include?("ruby") &&
+                          tokens.any? { |token| File.basename(token) == "openclacky" }
+        ruby_invocation && tokens.include?("server")
+      rescue SystemCallError
+        false
       end
 
       private def kill_master_on_port(port)
@@ -327,13 +425,30 @@ module Clacky
           return
         end
 
+        if process_dead?(pid)
+          Clacky::Logger.info("[Master] Stale PID file for dead master PID=#{pid} (port=#{port}), removing.")
+          File.delete(path) if File.read(path).strip == pid.to_s
+          return
+        end
+
+        # The PID file is only ever written by a Clacky master, so a live PID
+        # here is safe to hand over from. (Reclaim of an unidentified port
+        # owner is handled separately on Linux; see linux_clacky_listeners.)
+        stop_clacky_pid(pid, port: port)
+      ensure
+        File.delete(path) if File.exist?(path) && File.read(path).strip == pid.to_s rescue nil
+      end
+
+      # Graceful TERM/KILL of one Clacky master process, sweeping its process
+      # group afterwards so an orphaned worker cannot keep the listen fd alive.
+      private def stop_clacky_pid(pid, port:)
+        wait_seconds = WORKER_GRACE_EXIT_SECONDS + 2
         begin
           Process.kill("TERM", pid)
-          Clacky::Logger.info("[Master] Sent TERM to existing master (PID=#{pid}, port=#{port}), waiting...")
+          Clacky::Logger.info("[Master] Sent TERM to existing Clacky server (PID=#{pid}, port=#{port}), waiting...")
 
           # Let the old master finish its own worker-group KILL before killing
           # it; a shorter deadline strands the worker and its inherited socket.
-          wait_seconds = WORKER_GRACE_EXIT_SECONDS + 2
           deadline = Time.now + wait_seconds
           until process_dead?(pid) || Time.now > deadline
             sleep 0.1
@@ -344,14 +459,22 @@ module Clacky
             Process.kill("KILL", pid) rescue Errno::ESRCH
           end
 
-          Clacky::Logger.info("[Master] Existing master PID=#{pid} (port=#{port}) stopped.")
+          Clacky::Logger.info("[Master] Existing Clacky server PID=#{pid} (port=#{port}) stopped.")
         rescue Errno::ESRCH
-          Clacky::Logger.info("[Master] Existing master PID=#{pid} already gone.")
+          Clacky::Logger.info("[Master] Existing Clacky server PID=#{pid} already gone.")
         rescue Errno::EPERM
-          Clacky::Logger.warn("[Master] Could not stop existing master (PID=#{pid}) — permission denied.")
+          Clacky::Logger.warn("[Master] Could not stop existing Clacky server (PID=#{pid}) — permission denied.")
         ensure
-          File.delete(path) if File.exist?(path) && File.read(path).strip == pid.to_s
+          # The leader may die before reaping its own worker; the worker keeps
+          # the inherited listen fd and still blocks the port. Sweep the group.
+          kill_process_group!(pid)
         end
+      end
+
+      private def kill_process_group!(leader_pid)
+        Process.kill("KILL", -leader_pid)
+      rescue Errno::ESRCH, Errno::EPERM, Errno::ECHILD
+        nil
       end
 
       private def process_dead?(pid)
@@ -361,6 +484,102 @@ module Clacky
         true
       rescue Errno::EPERM
         false
+      end
+
+      # ------------------------------------------------------------------
+      # Per-data-directory instance lock
+      # ------------------------------------------------------------------
+
+      # One exclusive flock per CONFIG_DIR. Two servers against the same data
+      # directory duplicate every IM channel connection, so the data directory
+      # (not the port) is the correct single-instance key. flock needs no
+      # external commands, works on Linux/macOS/Windows (Ruby 2.6+), and the
+      # kernel releases it automatically however the process dies — which is
+      # exactly the "PID file vanished" case we cannot otherwise recover from.
+      def instance_lock_path
+        File.join(Clacky::AgentConfig::CONFIG_DIR, "server.lock")
+      end
+
+      private def acquire_instance_lock!
+        FileUtils.mkdir_p(Clacky::AgentConfig::CONFIG_DIR)
+        @lock_file = File.open(instance_lock_path, File::RDWR | File::CREAT, 0o600)
+
+        # Read the recorded owner BEFORE attempting the lock. A failed
+        # non-blocking flock leaves the file offset at EOF, so reading the PID
+        # afterwards would always return nil and make every live holder look
+        # like a stale lock.
+        holder = lock_holder_pid
+        return if try_lock_nonblocking
+
+        # Another live (or supposedly-live) instance holds the lock. Hand the
+        # server over from it: ask it to shut down, sweep its group, then retry.
+        if holder && !process_dead?(holder)
+          Clacky::Logger.info("[Master] Data directory is locked by running server PID=#{holder}; taking over...")
+          stop_clacky_pid(holder, port: @port)
+        else
+          Clacky::Logger.info("[Master] Recovering stale instance lock (holder no longer alive).")
+        end
+
+        # The old master's own shutdown path releases the flock; a KILLed one
+        # releases it via the kernel. Wait briefly for that to happen.
+        deadline = Time.now + (WORKER_GRACE_EXIT_SECONDS + 2)
+        acquired = try_lock_nonblocking
+        until acquired || Time.now > deadline
+          sleep 0.1
+          acquired = try_lock_nonblocking
+        end
+        return if acquired
+
+        Clacky::Logger.error(
+          "[Master] Refusing to start: another Clacky server is still running " \
+          "against #{Clacky::AgentConfig::CONFIG_DIR} (lock holder PID=#{holder || 'unknown'}) " \
+          "and could not be stopped. Stop it manually instead of running " \
+          "duplicate instances (which handle every IM message multiple times)."
+        )
+        exit(1)
+      end
+
+      private def try_lock_nonblocking
+        return false unless @lock_file
+        # Lock from the start of the file. POSIX fcntl locks are record locks
+        # keyed by a byte range (and the file offset at call time): without
+        # rewind, two fds whose offsets are past the existing content would
+        # each "succeed" locking a different empty tail range and both believe
+        # they are the exclusive owner.
+        @lock_file.rewind
+        # flock(LOCK_NB) signals contention two different ways depending on the
+        # platform/Ruby: it either returns false (macOS) or raises EWOULDBLOCK/
+        # EAGAIN/EACCES (Linux). Treat both as "lock is held by someone else".
+        @lock_file.flock(File::LOCK_EX | File::LOCK_NB) == 0
+      rescue Errno::EWOULDBLOCK, Errno::EAGAIN, Errno::EACCES
+        false
+      end
+
+      # Best-effort PID of the lock owner, read from the file's metadata. This
+      # is only ever used to signal a process that *holds our own lock*, so a
+      # recycled PID is harmless: a non-Clacky process cannot hold the flock.
+      private def lock_holder_pid
+        @lock_file.rewind
+        pid = @lock_file.read.to_i
+        pid.positive? ? pid : nil
+      rescue StandardError
+        nil
+      end
+
+      private def write_lock_metadata
+        return unless @lock_file
+        @lock_file.rewind
+        @lock_file.truncate(0)
+        @lock_file.write("#{Process.pid}\nport=#{@port}\nstarted=#{Time.now.utc.iso8601}\n")
+        @lock_file.flush
+      rescue StandardError
+        nil
+      end
+
+      private def release_instance_lock
+        return unless @lock_file
+        @lock_file.flock(File::LOCK_UN) rescue nil
+        @lock_file.close rescue nil
       end
     end
   end
