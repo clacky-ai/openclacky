@@ -448,6 +448,37 @@ async function navigatorTests() {
   assert.equal(api.state().items.length, 5000, "all ticks are available from source counts");
   assert.ok(nodes.canvas.children.length < 50);
 
+  // Compression re-keys rounds after the bubbles were rendered.
+  const bubbles = [
+    { dataset: { roundId: JSON.stringify(["chunk-0", 0, "v1", null]), editable: "false" }, top: -300 },
+    { dataset: { roundId: JSON.stringify(["chunk-1", 0, "v1", null]), taskId: "1", editable: "false" }, top: -200 },
+    { dataset: { roundId: JSON.stringify(["live", 0, "v1", [10, 2]]), createdAt: "10" }, top: -100 },
+    { dataset: { createdAt: "20" }, top: 100 },
+  ];
+  nodes.messages.querySelectorAll = () => bubbles.map(bubble => ({
+    querySelector: () => bubble, getBoundingClientRect: () => ({ top: bubble.top }),
+  }));
+  nodes.messages.scrollTop = nodes.messages.scrollHeight - nodes.messages.clientHeight;
+  const manifest = sources => async () => ({ ok: true, json: async () => ({ total: 4, sources }) });
+  context.fetch = manifest([
+    { key: "chunk-0", version: "v1", count: 1 },
+    { key: "chunk-1", version: "v1", count: 1, task_ids: [1] },
+    { key: "live", version: "v1", count: 2, identities: [[10, 2], [20, 3]] },
+  ]);
+  await api._loadIndex();
+  assert.equal(api.state().activeIdx, 3, "live bubbles match by created_at before compression");
+  assert.equal(bubbles[3].dataset.taskId, "3", "a matched bubble keeps the round's task id");
+  context.fetch = manifest([
+    { key: "chunk-0", version: "v1", count: 1 },
+    { key: "chunk-1", version: "v2", count: 3, task_ids: [1, 2, 3] },
+    { key: "live", version: "v2", count: 0, identities: [] },
+  ]);
+  await api._loadIndex();
+  assert.equal(api.state().activeIdx, 3, "after compression the bottom still highlights the latest round");
+  nodes.messages.scrollTop = 0;
+  context.window.ChatNavigator.syncMessages();
+  assert.equal(api.state().activeIdx, 2, "mid-page highlighting follows task ids after compression");
+  delete nodes.messages.querySelectorAll;
   api._hover(86);
   let resolveStalePreview;
   context.fetch = () => new Promise(resolve => { resolveStalePreview = resolve; });
