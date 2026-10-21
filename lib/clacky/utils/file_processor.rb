@@ -226,6 +226,33 @@ module Clacky
       MIME_TYPES[File.extname(path).downcase] || "application/octet-stream"
     end
 
+    # Reduce a PNG to at most 256 colors. Keep the input if conversion is unavailable
+    # or fails, so callers can apply their existing size-limit handling.
+    def self.quantize_png_base64(b64)
+      require "base64"
+      require "open3"
+
+      input = Base64.strict_decode64(b64)
+      %w[magick convert].each do |command|
+        begin
+          output, _stderr, status = Open3.capture3(
+            command, "png:-", "+dither", "-colors", "256", "-strip", "PNG8:-",
+            stdin_data: input, binmode: true
+          )
+        rescue Errno::ENOENT
+          next
+        end
+
+        return b64 unless status.success? && !output.empty?
+
+        return Base64.strict_encode64(output)
+      end
+      b64
+    rescue StandardError => e
+      Clacky::Logger.debug("image_quantization_skipped", format: "png", reason: e.message)
+      b64
+    end
+
     # Downscale a base64-encoded image so its width is at most max_width pixels.
     #
     # Strategy:

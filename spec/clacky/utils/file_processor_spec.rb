@@ -2,8 +2,53 @@
 
 require "tmpdir"
 require "cgi"
+require "open3"
+require "base64"
+require "chunky_png"
 
 RSpec.describe Clacky::Utils::FileProcessor do
+  describe ".quantize_png_base64" do
+    let(:b64) { Base64.strict_encode64(ChunkyPNG::Image.new(2, 2).to_blob) }
+
+    it "falls back to convert when magick is unavailable" do
+      expect(Open3).to receive(:capture3).with("magick", any_args).and_raise(Errno::ENOENT)
+      expect(Open3).to receive(:capture3).with("convert", "png:-", "+dither", "-colors", "256", "-strip", "PNG8:-",
+        stdin_data: Base64.strict_decode64(b64), binmode: true).and_return(
+          [Base64.strict_decode64(b64), "", double(success?: true)])
+      expect(described_class.quantize_png_base64(b64)).to eq(b64)
+    end
+
+    it "retains the input when neither command exists" do
+      allow(Open3).to receive(:capture3).and_raise(Errno::ENOENT)
+      expect(described_class.quantize_png_base64(b64)).to eq(b64)
+    end
+
+    it "retains the input when conversion fails" do
+      allow(Open3).to receive(:capture3).and_return(["", "conversion failed", double(success?: false)])
+      expect(described_class.quantize_png_base64(b64)).to eq(b64)
+    end
+
+    it "retains the input when conversion produces empty output" do
+      allow(Open3).to receive(:capture3).and_return(["", "", double(success?: true)])
+      expect(described_class.quantize_png_base64(b64)).to eq(b64)
+    end
+
+    it "produces a smaller decodable palette PNG with unchanged dimensions using ImageMagick" do
+      skip "ImageMagick unavailable" unless system("magick", "-version", out: File::NULL, err: File::NULL)
+      image = ChunkyPNG::Image.new(800, 100)
+      random = Random.new(42)
+      image.pixels.map! { ChunkyPNG::Color.rgb(random.rand(256), random.rand(256), random.rand(256)) }
+      input = Base64.strict_encode64(image.to_blob)
+      output = described_class.quantize_png_base64(input)
+      blob = Base64.strict_decode64(output)
+      decoded = ChunkyPNG::Image.from_blob(blob)
+      expect([decoded.width, decoded.height]).to eq([800, 100])
+      expect(blob.getbyte(25)).to eq(3) # PNG indexed-color IHDR
+      expect(decoded.pixels.uniq.size).to be <= 256
+      expect(output.bytesize).to be < input.bytesize
+    end
+  end
+
   # ---------------------------------------------------------------------------
   # .save — store only, no parsing
   # ---------------------------------------------------------------------------

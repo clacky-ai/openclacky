@@ -543,9 +543,15 @@ module Clacky
         # Save original (full-resolution) PNG to disk before any downscaling
         original_path = save_screenshot_to_disk(image_block["data"], suffix: "original")
 
+        config = screenshot_config
+        limit = config["screenshot_max_base64_bytes"]
+        max_base64_bytes = limit.is_a?(Integer) && limit.positive? ? limit : SCREENSHOT_MAX_BASE64_BYTES
         image_data = png_downscale_base64(image_block["data"], SCREENSHOT_MAX_WIDTH)
+        if image_data.bytesize > max_base64_bytes && config["screenshot_png256_fallback"] == true
+          image_data = Clacky::Utils::FileProcessor.quantize_png_base64(image_data)
+        end
 
-        if image_data.bytesize > SCREENSHOT_MAX_BASE64_BYTES
+        if image_data.bytesize > max_base64_bytes
           size_kb = image_data.bytesize / 1024
           return { action: "screenshot", success: false, profile: "user",
                    output: "Screenshot too large after resize (#{size_kb}KB). Use action=snapshot instead." }
@@ -558,6 +564,13 @@ module Clacky
           image_data: image_data, mime_type: "image/png",
           original_path: original_path, compressed_path: compressed_path,
           output: "Screenshot captured." }
+      end
+
+      private def screenshot_config
+        config = YAMLCompat.safe_load(File.read(BROWSER_CONFIG_PATH), permitted_classes: [Date, Time, Symbol])
+        config.is_a?(Hash) ? config : {}
+      rescue StandardError
+        {}
       end
 
       private def png_downscale_base64(b64, max_width)

@@ -6,6 +6,109 @@ require "clacky/tools/browser"
 RSpec.describe Clacky::Tools::Browser do
   let(:tool) { described_class.new }
 
+  describe "#do_user_screenshot PNG fallback" do
+    let(:resized) { "a" * 150_004 }
+    let(:screenshot_config) { "screenshot_png256_fallback: true\n" }
+
+    let(:config_dir) { Dir.mktmpdir("browser-config") }
+    after { FileUtils.remove_entry(config_dir) }
+
+    before do
+      path = File.join(config_dir, "browser.yml")
+      stub_const("Clacky::Tools::Browser::BROWSER_CONFIG_PATH", path)
+      File.write(path, screenshot_config) if screenshot_config
+      allow(tool).to receive(:with_page) { |args| args }
+      allow(tool).to receive(:mcp_call).and_return(
+        "content" => [{ "type" => "image", "data" => "original" }]
+      )
+      allow(tool).to receive(:save_screenshot_to_disk).and_return("/tmp/screenshot.png")
+      allow(tool).to receive(:png_downscale_base64).with("original", 800).and_return(resized)
+    end
+
+    it "returns the palette PNG when resizing alone exceeds the limit" do
+      expect(Clacky::Utils::FileProcessor).to receive(:quantize_png_base64).with(resized).and_return("palette")
+      result = tool.send(:do_user_screenshot, {})
+      expect(result).to include(success: true, image_data: "palette", mime_type: "image/png")
+      expect(tool).to have_received(:save_screenshot_to_disk).with("palette", suffix: "compressed")
+      expect(tool).to have_received(:mcp_call).once
+    end
+
+    {
+      "missing configuration file" => nil,
+      "unset option" => "enabled: true\n",
+      "disabled option" => "screenshot_png256_fallback: false\n",
+      "string instead of boolean" => 'screenshot_png256_fallback: "true"',
+      "invalid YAML" => "[invalid",
+      "non-mapping configuration" => "[]"
+    }.each do |label, config|
+      context label do
+        let(:screenshot_config) { config }
+
+        it "skips quantization and preserves the original error" do
+          expect(Clacky::Utils::FileProcessor).not_to receive(:quantize_png_base64)
+          expect(tool.send(:do_user_screenshot, {})).to include(
+            success: false,
+            output: "Screenshot too large after resize (146KB). Use action=snapshot instead."
+          )
+        end
+      end
+    end
+
+    context "with a custom size limit" do
+      let(:screenshot_config) { "screenshot_png256_fallback: true\nscreenshot_max_base64_bytes: 200000\n" }
+
+      it "accepts an image above the default limit without quantization" do
+        expect(Clacky::Utils::FileProcessor).not_to receive(:quantize_png_base64)
+        expect(tool.send(:do_user_screenshot, {})).to include(success: true, image_data: resized)
+      end
+    end
+
+    context "with a smaller size limit" do
+      let(:screenshot_config) { "screenshot_png256_fallback: true\nscreenshot_max_base64_bytes: 100000\n" }
+      let(:resized) { "a" * 120_000 }
+
+      it "uses the custom limit for both quantization and final rejection" do
+        expect(Clacky::Utils::FileProcessor).to receive(:quantize_png_base64).with(resized).and_return("b" * 100_004)
+        expect(tool.send(:do_user_screenshot, {})).to include(success: false)
+      end
+
+      it "accepts quantized data exactly at the custom limit" do
+        expect(Clacky::Utils::FileProcessor).to receive(:quantize_png_base64).with(resized).and_return("b" * 100_000)
+        expect(tool.send(:do_user_screenshot, {})).to include(success: true)
+      end
+    end
+
+    ["0", "-1", "true", '"200000"', "1.5", "null"].each do |value|
+      context "with invalid size limit #{value}" do
+        let(:screenshot_config) { "screenshot_max_base64_bytes: #{value}\n" }
+
+        it "falls back to 150000 bytes" do
+          allow(tool).to receive(:png_downscale_base64).with("original", 800).and_return("a" * 150_000)
+          expect(tool.send(:do_user_screenshot, {})).to include(success: true)
+          allow(tool).to receive(:png_downscale_base64).with("original", 800).and_return("a" * 150_004)
+          expect(tool.send(:do_user_screenshot, {})).to include(success: false)
+        end
+      end
+    end
+
+    context "at the exact size limit" do
+      let(:resized) { "a" * 150_000 }
+
+      it "returns the resized PNG without quantization" do
+        expect(Clacky::Utils::FileProcessor).not_to receive(:quantize_png_base64)
+        expect(tool.send(:do_user_screenshot, {})).to include(success: true, image_data: resized)
+      end
+    end
+
+    it "preserves the original error when quantization cannot reduce the image enough" do
+      expect(Clacky::Utils::FileProcessor).to receive(:quantize_png_base64).with(resized).and_return(resized)
+      expect(tool.send(:do_user_screenshot, {})).to include(
+        success: false,
+        output: "Screenshot too large after resize (146KB). Use action=snapshot instead."
+      )
+    end
+  end
+
   # ---------------------------------------------------------------------------
   # compress_snapshot
   # ---------------------------------------------------------------------------
