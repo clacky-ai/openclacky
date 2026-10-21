@@ -156,6 +156,7 @@ docker run -d -p 7070:7070 -e CLACKY_ACCESS_KEY="" openclacky
 | 变量 | 说明 |
 |---|---|
 | `CLACKY_ACCESS_KEY` | 设置访问密钥保护 Web UI（留空 = 公开模式；绑定 `0.0.0.0` 时必须设置该环境变量） |
+| `CLACKY_PID_DIR` | 覆盖服务 PID 文件目录，默认使用系统临时目录 |
 
 ## 快速开始
 
@@ -181,6 +182,19 @@ openclacky server --host 0.0.0.0     # 监听所有接口（支持远程访问�
 ```
 
 ## 配置
+
+可以在 `~/.clacky/config.yml` 的现有 `settings` 下设置 PID 文件目录：
+
+```yaml
+settings:
+  pid_dir: ~/.clacky/run
+```
+
+也可以通过环境变量覆盖：`CLACKY_PID_DIR=~/.clacky/run openclacky server`。
+优先级为非空环境变量 > 配置文件 > 系统临时目录（`Dir.tmpdir`），空值视为未配置。
+支持 `~` 和相对路径，相对路径基于进程的工作目录解析；服务写入
+`clacky-master-<port>.pid` 时会自动创建目录。CLI 自动发现服务也使用同一配置，
+因此两个进程需要使用相同目录。修改目录前先停止正在运行的服务，再重新启动。
 
 ```bash
 $ openclacky

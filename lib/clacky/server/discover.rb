@@ -1,12 +1,12 @@
 # frozen_string_literal: true
 
-require "tmpdir"
+require_relative "pid_files"
 require "socket"
 
 module Clacky
   module Server
     # Discover locally-running Clacky server(s) by scanning PID files
-    # written by Master at /tmp/clacky-master-<port>.pid.
+    # written by Master in the configured PID directory.
     #
     # Used by the CLI (bare `clacky agent` mode) to auto-detect a sibling
     # server process, so skills that call back into the server (channels,
@@ -17,7 +17,6 @@ module Clacky
     # Does NOT probe the TCP port (avoids false positives from stale files
     # but also avoids noisy connection attempts).
     module Discover
-      PID_FILE_GLOB = File.join(Dir.tmpdir, "clacky-master-*.pid").freeze
       PID_FILE_REGEX = /clacky-master-(\d+)\.pid\z/.freeze
 
       module_function
@@ -41,7 +40,9 @@ module Clacky
       #
       # @return [Array<Hash>] sorted by port ascending
       def find_all_local
-        Dir.glob(PID_FILE_GLOB).filter_map do |path|
+        directory = PidFiles.directory
+        Dir.glob("clacky-master-*.pid", base: directory).filter_map do |filename|
+          path = File.join(directory, filename)
           m = path.match(PID_FILE_REGEX)
           next nil unless m
 

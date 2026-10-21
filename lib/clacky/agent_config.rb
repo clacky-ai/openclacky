@@ -164,7 +164,7 @@ module Clacky
                   :models, :current_model_index, :current_model_id,
                   :memory_update_enabled, :skill_evolution,
                   :max_running_agents, :max_idle_agents,
-                  :default_working_dir,
+                  :default_working_dir, :pid_dir,
                   :proxy_url,
                   :clacky_license_server
 
@@ -222,6 +222,7 @@ module Clacky
       @max_idle_agents = options[:max_idle_agents] || 10
 
       @default_working_dir = options[:default_working_dir] || ENV["CLACKY_WORKSPACE_DIR"]
+      @pid_dir = options[:pid_dir]
 
       # HTTP proxy policy. The user's shell ENV (HTTP_PROXY etc.) is always
       # ignored — set proxy_url here to route Clacky's outbound HTTP through
@@ -459,7 +460,7 @@ module Clacky
       compression_threshold message_count_threshold
       memory_update_enabled input_behavior ask_user_timeout_seconds
       skill_evolution max_running_agents max_idle_agents
-      default_working_dir
+      default_working_dir pid_dir
       proxy_url clacky_license_server
     ].freeze
 
@@ -483,6 +484,7 @@ module Clacky
         "max_running_agents" => @max_running_agents,
         "max_idle_agents" => @max_idle_agents,
         "default_working_dir" => @default_working_dir,
+        "pid_dir" => @pid_dir,
         "proxy_url" => @proxy_url,
         "clacky_license_server" => @clacky_license_server
       }

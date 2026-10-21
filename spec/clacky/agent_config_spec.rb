@@ -15,6 +15,21 @@ RSpec.describe Clacky::AgentConfig do
     FileUtils.rm_rf(temp_dir) if temp_dir
   end
 
+  describe "pid_dir" do
+    it "defaults to nil" do
+      expect(described_class.new.pid_dir).to be_nil
+    end
+
+    it "loads and persists the configured directory" do
+      with_temp_config("settings" => { "pid_dir" => "~/.clacky/run" }, "models" => []) do |path|
+        config = described_class.load(path)
+        expect(config.pid_dir).to eq("~/.clacky/run")
+        config.save(path)
+        expect(described_class.load(path).pid_dir).to eq("~/.clacky/run")
+      end
+    end
+  end
+
   describe "ask_user_timeout_seconds" do
     it "defaults to 20 seconds and rejects invalid values" do
       expect(described_class.new.ask_user_timeout_seconds).to eq(20)

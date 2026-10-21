@@ -2,6 +2,7 @@
 
 require "spec_helper"
 require "clacky/server/server_master"
+require "clacky/server/discover"
 
 RSpec.describe Clacky::Server::Master do
   subject(:master) { described_class.new(host: "127.0.0.1", port: 7070) }
@@ -9,6 +10,7 @@ RSpec.describe Clacky::Server::Master do
   let(:socket) { double("socket", fileno: 12) }
 
   before do
+    allow(Clacky::Server::PidFiles).to receive(:directory).and_return(Dir.tmpdir)
     allow(socket).to receive(:close_on_exec=)
     master.instance_variable_set(:@socket, socket)
     allow(master).to receive(:spawn).and_return(12_345)
@@ -71,7 +73,7 @@ RSpec.describe Clacky::Server::Master do
 
   it "allows the old master its worker cleanup budget before escalating" do
     Dir.mktmpdir do |dir|
-      allow(Dir).to receive(:tmpdir).and_return(dir)
+      allow(Clacky::Server::PidFiles).to receive(:directory).and_return(dir)
       File.write(File.join(dir, "clacky-master-7070.pid"), "12345")
       allow(Process).to receive(:kill).with("TERM", 12_345)
       expect(Process).not_to receive(:kill).with("KILL", 12_345)
@@ -84,10 +86,29 @@ RSpec.describe Clacky::Server::Master do
 
   it "does not delete a replacement master's PID file" do
     Dir.mktmpdir do |dir|
-      allow(Dir).to receive(:tmpdir).and_return(dir)
+      allow(Clacky::Server::PidFiles).to receive(:directory).and_return(dir)
       File.write(master.pid_file_path, "12345")
       master.remove_pid_file
       expect(File.read(master.pid_file_path)).to eq("12345")
+    end
+  end
+
+  it "creates a custom directory, discovers the master, and cleans up in its startup directory" do
+    Dir.mktmpdir do |dir|
+      pid_dir = File.join(dir, "custom [pid]", "run")
+      allow(Clacky::Server::PidFiles).to receive(:directory).and_call_original
+      with_env("CLACKY_PID_DIR" => pid_dir) do
+        master.write_pid_file
+        expect(File.read(master.pid_file_path)).to eq(Process.pid.to_s)
+        expect(Clacky::Server::Discover.find_all_local).to include(
+          host: "127.0.0.1", port: 7070, pid: Process.pid
+        )
+
+        with_env("CLACKY_PID_DIR" => File.join(dir, "changed")) do
+          master.remove_pid_file
+          expect(File).not_to exist(File.join(pid_dir, "clacky-master-7070.pid"))
+        end
+      end
     end
   end
 

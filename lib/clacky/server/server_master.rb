@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 require "socket"
-require "tmpdir"
+require_relative "pid_files"
 require_relative "../banner"
 require_relative "../version"
 require_relative "../agent_config"
@@ -248,11 +248,17 @@ module Clacky
       end
 
       def pid_file_path
-        File.join(Dir.tmpdir, "clacky-master-#{@port}.pid")
+        File.join(pid_directory, "clacky-master-#{@port}.pid")
       end
 
       def write_pid_file
+        FileUtils.mkdir_p(pid_directory)
         File.write(pid_file_path, Process.pid.to_s)
+      end
+
+      # Keep cleanup tied to the directory used at startup, even if config changes.
+      private def pid_directory
+        @pid_directory ||= PidFiles.directory
       end
 
       def remove_pid_file
@@ -318,7 +324,7 @@ module Clacky
       end
 
       private def kill_master_on_port(port)
-        path = File.join(Dir.tmpdir, "clacky-master-#{port}.pid")
+        path = File.join(pid_directory, "clacky-master-#{port}.pid")
         return unless File.exist?(path)
 
         pid = File.read(path).strip.to_i

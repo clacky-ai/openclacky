@@ -160,6 +160,7 @@ Environment variables:
 | Variable | Description |
 |---|---|
 | `CLACKY_ACCESS_KEY` | Protect the Web UI with an access key (empty = public mode; env must be present when binding `0.0.0.0`) |
+| `CLACKY_PID_DIR` | Override the directory for server PID files (defaults to the system temporary directory) |
 
 
 ## Quick Start
@@ -197,6 +198,23 @@ default and does not establish a security boundary against privileged commands.
 
 
 ## Configuration
+
+To customize the directory for `clacky-master-<port>.pid`, add this to
+`~/.clacky/config.yml` (merge into existing `settings`):
+
+```yaml
+settings:
+  pid_dir: ~/.clacky/run
+```
+
+`CLACKY_PID_DIR` overrides this setting, for example:
+`CLACKY_PID_DIR=~/.clacky/run openclacky server`. A blank environment value is
+ignored; if neither source specifies a directory, the system temporary directory
+(`Dir.tmpdir`) is used. Paths support `~` and relative
+paths; relative paths resolve from the process working directory. The server
+creates the directory when writing its PID file. CLI server discovery uses the
+same setting, so use the same directory in both processes. Stop the running
+server before changing its PID directory, then restart it.
 
 ```bash
 $ openclacky
