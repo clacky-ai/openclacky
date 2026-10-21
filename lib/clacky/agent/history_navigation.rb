@@ -11,7 +11,7 @@ module Clacky
         sources = navigation_sources
         manifest = sources.map do |source|
           entry = { key: source[:key], version: source[:version], count: navigation_source_count(source),
-                    volatile: !!source[:rounds] || source[:continuation].to_a.any? }
+                    volatile: !!source[:rounds] || source[:continuation].to_a.any? || source[:continuation_ranges].to_a.any? }
           if source[:rounds]
             entry[:identities] = source[:rounds].map { |round| round[:user_msg].values_at(:created_at, :task_id) }
           else
@@ -144,6 +144,13 @@ module Clacky
         end
         chunks.uniq.each { |path| append_source.call(path) }
         @chunk_index_mutex&.synchronize { @chunk_indexes&.delete_if { |path, _| !visited.include?(path) } }
+        owner = nil
+        sources.each do |source|
+          if owner && source[:index][:leading]
+            (owner[:continuation_ranges] ||= []) << { path: source[:path], index: source[:index] }
+          end
+          owner = source if navigation_source_count(source).positive?
+        end
         last_archive = sources.reverse_each.find { |source| navigation_source_count(source).positive? }
         last_archive[:continuation] = leading if last_archive
         version = rounds.map { |round| round[:user_msg].values_at(:created_at, :task_id) }.hash.to_s
@@ -201,8 +208,15 @@ module Clacky
           end
           result
         end
-        if rounds.any? && offset + length == count && source[:continuation]
-          rounds.last[:events].concat(source[:continuation])
+        if rounds.any? && offset + length == count
+          Array(source[:continuation_ranges]).each do |entry|
+            events = parse_chunk_md_to_rounds(entry[:path], excluded_paths: siblings,
+              byte_range: entry[:index][:leading], index: entry[:index], leading: true)
+            raise ArgumentError, "History changed while reading" unless chunk_file_version(entry[:path]) == entry[:index][:version]
+
+            rounds.last[:events].concat(events)
+          end
+          rounds.last[:events].concat(source[:continuation]) if source[:continuation]
         end
         rounds.each { |round| round[:events].reject! { |event| event[:compressed_summary] } }
         rounds.each_with_index do |round, position|

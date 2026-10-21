@@ -159,6 +159,7 @@ RSpec.describe Clacky::Agent::HistoryNavigation do
     result = agent.replay_history_window(collector, around: entry[:id])
     expect(result).to include(has_more: false, has_after: false)
     expect(events.count { |event| event[:content] == "Final continued answer" }).to eq(1)
+    expect(events.count { |event| event[:content] == "Summary-only archive" }).to eq(1)
   end
 
   it "keeps archived tool narration interim during both preview and replay" do
@@ -299,5 +300,39 @@ RSpec.describe Clacky::Agent::HistoryNavigation do
       result
     end
     expect { agent.history_navigation_preview(id: id) }.to raise_error(ArgumentError, /changed/)
+  end
+
+  it "replays archives without user turns as the continuation of the earlier turn" do
+    chunk(1, "## User\nLong task\n## Assistant\nStep 1\n_Tool calls: read_\n### Tool Result: tool\nr1\n")
+    chunk(2, "## Assistant\nStep 2\n_Tool calls: edit_\n### Tool Result: tool\nr2\n")
+    path = chunk(3, "## Assistant\nStep 3\n_Tool calls: shell_\n### Tool Result: tool\nr3\n")
+    agent = archived_agent(path, [assistant("Done")])
+    expect(agent.history_navigation[:total]).to eq(1)
+    entry = all_entries(agent).first
+    expect(entry[:assistant]).to eq("Done")
+    agent.replay_history_window(collector, around: entry[:id])
+    tools = events.select { |event| event[:type] == "tool_call" }.map { |event| event[:name] }
+    expect(tools).to eq(%w[read edit shell])
+    texts = events.select { |event| event[:type] == "assistant_message" }.map { |event| event[:content] }
+    expect(texts).to eq(["Step 1", "Step 2", "Step 3", "Done"])
+  end
+
+  it "keeps the head of a mid-turn archive with the earlier turn, not the next one" do
+    chunk(1, "## User\nFirst\n## Assistant\nWorking\n_Tool calls: read_\n")
+    path = chunk(2, "## Assistant\nCarried over\n_Tool calls: edit_\n## Assistant\nFirst done\n## User\nSecond\n## Assistant\nSecond done\n")
+    agent = archived_agent(path)
+    entries = all_entries(agent)
+    expect(entries.map { |entry| [entry[:user], entry[:assistant]] }).to eq([["First", "First done"], ["Second", "Second done"]])
+    agent.replay_history_window(collector, around: entries.first[:id], limit: 1)
+    expect(events.select { |event| event[:type] == "tool_call" }.map { |event| event[:name] }).to eq(%w[read edit])
+    expect(events.map { |event| event[:content] }).not_to include("Second")
+  end
+
+  it "replays the whole history through the legacy pager with continuations" do
+    chunk(1, "## User\nTask\n## Assistant\nA\n_Tool calls: read_\n")
+    path = chunk(2, "## Assistant\nB\n_Tool calls: edit_\n")
+    agent = archived_agent(path)
+    agent.replay_history(collector)
+    expect(events.select { |event| event[:type] == "tool_call" }.map { |event| event[:name] }).to eq(%w[read edit])
   end
 end
