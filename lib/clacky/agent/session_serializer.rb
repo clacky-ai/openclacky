@@ -434,7 +434,7 @@ module Clacky
       # @param chunk_path [String] Path to the chunk md file
       # @return [Array<Hash>] rounds array (may be empty if file missing/unreadable)
       private def parse_chunk_md_to_rounds(chunk_path, visited: Set.new, excluded_paths: Set.new,
-                                          byte_range: nil, index: nil, round_offset: 0, leading: false)
+                                          byte_range: nil, index: nil, round_offset: 0, continue_round: nil)
         return [] unless chunk_path
 
         # 1. Try the stored absolute path first (same machine, normal case).
@@ -510,8 +510,7 @@ module Clacky
 
         # Group into rounds: each user section starts a new round
         rounds        = []
-        # leading: the range holds only the tail of a turn that began in an earlier chunk.
-        current_round = leading ? { events: [] } : nil
+        current_round = continue_round
         round_index   = 0
 
         sections.each do |sec|
@@ -605,10 +604,18 @@ module Clacky
           end
         end
 
-        leading ? current_round[:events] : rounds
+        rounds
       rescue => e
         Clacky::Logger.warn("parse_chunk_md_to_rounds failed for #{chunk_path}: #{e.message}")
         []
+      end
+
+      # Parse a chunk byte range holding only the tail of a turn that began in an earlier chunk.
+      private def parse_chunk_md_events(chunk_path, byte_range:, index:, excluded_paths: Set.new)
+        round = { events: [] }
+        parse_chunk_md_to_rounds(chunk_path, excluded_paths: excluded_paths, byte_range: byte_range,
+          index: index, continue_round: round)
+        round[:events]
       end
 
 

@@ -40,7 +40,7 @@ module Clacky
         rounds = []
         nested = []
         section_count = 0
-        leading_start = nil
+        continuation_start = nil
         user_start = nil
         user_task_id = nil
         archived_at = nil
@@ -61,7 +61,7 @@ module Clacky
             header = chunk_section_header(text, directory)
             if header
               section_count += 1
-              leading_start ||= start
+              continuation_start ||= start
               nested << header[:nested_chunk] if header[:nested_chunk]
               user_start = header[:role] == "user" ? start : nil
               user_task_id = header[:role] == "user" ? header[:task_id] : nil
@@ -81,9 +81,11 @@ module Clacky
           rounds.last[:length] = position - rounds.last[:start] if rounds.any?
         end
         # Compression can cut mid-turn: sections before the first user turn continue the previous turn.
-        leading_end = rounds.any? ? rounds.first[:start] : position
-        leading = { start: leading_start, length: leading_end - leading_start } if leading_start && leading_end > leading_start
-        { rounds: rounds, nested: nested, section_count: section_count, leading: leading,
+        continuation_end = rounds.any? ? rounds.first[:start] : position
+        if continuation_start && continuation_end > continuation_start
+          continuation_range = { start: continuation_start, length: continuation_end - continuation_start }
+        end
+        { rounds: rounds, nested: nested, section_count: section_count, continuation_range: continuation_range,
           base_time: (archived_at || File.mtime(path)).to_f }
       end
     end

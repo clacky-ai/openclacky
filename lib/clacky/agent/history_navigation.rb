@@ -146,7 +146,7 @@ module Clacky
         @chunk_index_mutex&.synchronize { @chunk_indexes&.delete_if { |path, _| !visited.include?(path) } }
         owner = nil
         sources.each do |source|
-          if owner && source[:index][:leading]
+          if owner && source[:index][:continuation_range]
             (owner[:continuation_ranges] ||= []) << { path: source[:path], index: source[:index] }
           end
           owner = source if navigation_source_count(source).positive?
@@ -210,8 +210,8 @@ module Clacky
         end
         if rounds.any? && offset + length == count
           Array(source[:continuation_ranges]).each do |entry|
-            events = parse_chunk_md_to_rounds(entry[:path], excluded_paths: siblings,
-              byte_range: entry[:index][:leading], index: entry[:index], leading: true)
+            events = parse_chunk_md_events(entry[:path], excluded_paths: siblings,
+              byte_range: entry[:index][:continuation_range], index: entry[:index])
             raise ArgumentError, "History changed while reading" unless chunk_file_version(entry[:path]) == entry[:index][:version]
 
             rounds.last[:events].concat(events)
