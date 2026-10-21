@@ -108,6 +108,7 @@ module Clacky
     def initialize(client, config, working_dir:, ui:, profile:, session_id:, source:)
       @client = client  # Client for current model
       @config = config.is_a?(AgentConfig) ? config : AgentConfig.new(config)
+      @client_options = @config.client_options
       @agent_profile = AgentProfile.load(profile)
       @source = source.to_sym  # :manual | :cron | :channel
       @channel_info = nil  # { platform:, user_id:, user_name:, chat_id: } set by ChannelManager
@@ -259,21 +260,23 @@ module Clacky
     # Rebuild the underlying Client (and dependent components) to pick up
     # credentials/model name from the currently-selected model in @config.
     private def rebuild_client_for_current_model!
-      entry = @config.current_model
-      @client = Clacky::Client.new(
-        @config.api_key,
-        base_url: @config.base_url,
-        model: @config.model_name,
-        anthropic_format: @config.anthropic_format?,
-        api_format: @config.api_format,
-        provider_id: @config.provider_id_for(entry),
-        capabilities: entry && entry["capabilities"]
-      )
-      # Update message compressor with new client and model
-      @message_compressor = MessageCompressor.new(@client, model: current_model)
+      build_client!
 
       # Inject a new session context to notify the AI of the model switch
       inject_session_context
+    end
+
+    private def build_client!
+      @client_options = @config.client_options
+      opts = @client_options.dup
+      @client = Clacky::Client.new(opts.delete(:api_key), **opts)
+      # Update message compressor with new client and model
+      @message_compressor = MessageCompressor.new(@client, model: current_model)
+    end
+
+    # The shared model card can be edited (Settings, config reload) under a live session.
+    private def refresh_client_if_card_changed!
+      build_client! unless @config.client_options == @client_options
     end
 
     # Change the working directory for this session

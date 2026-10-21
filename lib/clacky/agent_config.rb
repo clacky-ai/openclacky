@@ -718,6 +718,20 @@ module Clacky
       @models.find { |m| m["type"] == type }
     end
 
+    # Everything Client.new needs from the current card; also the staleness key for a live Client.
+    def client_options
+      entry = current_model
+      {
+        api_key: api_key,
+        base_url: base_url,
+        model: model_name,
+        anthropic_format: anthropic_format?,
+        api_format: api_format,
+        provider_id: provider_id_for(entry),
+        capabilities: entry && entry["capabilities"]
+      }
+    end
+
     # Resolve the provider id for a model entry. An explicit `provider_id`
     # naming a known preset wins over base_url/api_key heuristics — that lets
     # a custom base_url inherit a preset's lineup (media sidecars, OCR models,

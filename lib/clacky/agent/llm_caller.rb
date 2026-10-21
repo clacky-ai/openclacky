@@ -48,6 +48,7 @@ module Clacky
       private def call_llm(agent_upstream_fails: nil, agent_upgrade_fails: nil)
         # Transition :fallback_active → :probing if cooling-off has expired.
         @config.maybe_start_probing
+        refresh_client_if_card_changed!
 
         tools_to_send = @tool_registry.all_definitions
 
