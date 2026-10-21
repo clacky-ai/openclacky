@@ -185,9 +185,12 @@ module Clacky
                                  options: options, questions: questions || [])
       end
 
-      def show_tool_call(name, args, created_at: nil)
+      def show_tool_call(name, args)
         args_data = args.is_a?(String) ? (JSON.parse(args) rescue args) : args
-        created_at ||= Time.now.to_f
+        # Live wall-clock stamp for the web event. History replay gets the
+        # persisted MessageHistory created_at via HistoryCollector#annotate_last_event
+        # instead — this controller is only on the live path.
+        created_at = Time.now.to_f
 
         # Special handling for ask_user — emit a dedicated UI event
         if Clacky::Tools::AskUser.feedback_tool?(name)
@@ -218,15 +221,15 @@ module Clacky
         forward_to_subscribers { |sub| sub.show_tool_call(name, args_data) }
       end
 
-      def show_tool_result(result, ui: nil, created_at: nil)
+      def show_tool_result(result, ui: nil)
         @live_tool_call = nil   # tool finished — no longer in-flight
-        emit("tool_result", result: result, ui: ui, created_at: created_at || Time.now.to_f)
+        emit("tool_result", result: result, ui: ui, created_at: Time.now.to_f)
         forward_to_subscribers { |sub| sub.show_tool_result(result, ui: ui) }
       end
 
-      def show_tool_error(error, created_at: nil)
+      def show_tool_error(error)
         error_msg = error.is_a?(Exception) ? error.message : error.to_s
-        emit("tool_error", error: error_msg, created_at: created_at || Time.now.to_f)
+        emit("tool_error", error: error_msg, created_at: Time.now.to_f)
         forward_to_subscribers { |sub| sub.show_tool_error(error) }
       end
 

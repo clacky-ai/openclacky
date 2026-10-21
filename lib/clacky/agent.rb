@@ -1661,7 +1661,7 @@ module Clacky
         # The interactive countdown (auto_approve) is handled after the tool
         # executes, once the question itself has been rendered to the user.
         unless Tools::AskUser.feedback_tool?(call[:name])
-          @ui&.show_tool_call(call[:name], redact_tool_args(call[:arguments]), created_at: assistant_message&.[](:created_at))
+          @ui&.show_tool_call(call[:name], redact_tool_args(call[:arguments]))
         end
 
         # Execute tool
@@ -1763,7 +1763,7 @@ module Clacky
             # Prepare and persist the complete request before displaying it or
             # starting the wait. Extensions and native questions share one result.
             request = prepare_feedback_request(call, result, assistant_message: assistant_message)
-            @ui&.show_tool_call(call[:name], request, created_at: assistant_message&.[](:created_at))
+            @ui&.show_tool_call(call[:name], request)
 
             if @config.permission_mode == :auto_approve
               # auto_approve means the agent runs unattended by default, but a
@@ -1796,11 +1796,10 @@ module Clacky
             # Use tool's format_result method to get display-friendly string
             formatted_result = tool.respond_to?(:format_result) ? tool.format_result(result) : result.to_s
             ui_result = tool.respond_to?(:ui_result) ? tool.ui_result(result) : nil
-            result_at = Time.now.to_f
             if ui_result
-              @ui&.show_tool_result(redact_tool_args(formatted_result), ui: redact_tool_args(ui_result), created_at: result_at)
+              @ui&.show_tool_result(redact_tool_args(formatted_result), ui: redact_tool_args(ui_result))
             else
-              @ui&.show_tool_result(redact_tool_args(formatted_result), created_at: result_at)
+              @ui&.show_tool_result(redact_tool_args(formatted_result))
             end
           end
 
@@ -1819,7 +1818,7 @@ module Clacky
           Clacky::Logger.error("tool_execution_error", tool: call[:name], error: e)
 
           @hooks.trigger(:on_tool_error, call, e)
-          @ui&.show_tool_error(redact_tool_args(e.message), created_at: Time.now.to_f)
+          @ui&.show_tool_error(redact_tool_args(e.message))
           # Use build_denied_result with system_injected=true so LLM knows it can retry
           results << build_denied_result(call, e.message, true)
         end

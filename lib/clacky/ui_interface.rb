@@ -13,10 +13,10 @@ module Clacky
     def show_feedback_request(question, context, options, questions: nil); end
     def show_subagent_start(skill: nil, iterations: nil, cost_usd: nil); end
     def show_subagent_end; end
-    def show_tool_call(name, args, created_at: nil); end
-    def show_tool_result(result, ui: nil, created_at: nil); end
+    def show_tool_call(name, args); end
+    def show_tool_result(result, ui: nil); end
     def show_tool_stdout(lines); end
-    def show_tool_error(error, created_at: nil); end
+    def show_tool_error(error); end
     def show_tool_args(formatted_args); end
     def show_file_write_preview(path, is_new_file:); end
     def show_file_edit_preview(path); end

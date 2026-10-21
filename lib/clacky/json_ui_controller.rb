@@ -36,18 +36,18 @@ module Clacky
       emit("assistant_message", **data)
     end
 
-    def show_tool_call(name, args, created_at: nil)
+    def show_tool_call(name, args)
       args_data = args.is_a?(String) ? (JSON.parse(args) rescue args) : args
       emit("tool_call", name: name, args: args_data)
     end
 
-    def show_tool_result(result, ui: nil, created_at: nil)
+    def show_tool_result(result, ui: nil)
       data = { result: result }
       data[:ui] = ui if ui
       emit("tool_result", **data)
     end
 
-    def show_tool_error(error, created_at: nil)
+    def show_tool_error(error)
       error_msg = error.is_a?(Exception) ? error.message : error.to_s
       emit("tool_error", error: error_msg)
     end

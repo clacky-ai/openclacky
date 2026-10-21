@@ -241,7 +241,7 @@ module Clacky
       sleep(0.6)
     end
 
-    def show_tool_call(name, args, created_at: nil)
+    def show_tool_call(name, args)
       id = @shell.start_tool_call(name: name.to_s, input: format_args(args), status: :running)
       if id
         @tracker.register_tool(id)
@@ -250,7 +250,7 @@ module Clacky
       end
     end
 
-    def show_tool_result(result, ui: nil, created_at: nil)
+    def show_tool_result(result, ui: nil)
       if (id = @tracker.pop_tool_id)
         @shell.finish_tool_call(id, status: :done, output: format_tool_output(result.to_s, :done))
         update_tool_activity(id, :done)
@@ -263,7 +263,7 @@ module Clacky
       @stdout_lines.concat(Array(lines).map(&:to_s))
     end
 
-    def show_tool_error(error, created_at: nil)
+    def show_tool_error(error)
       message = error.is_a?(Exception) ? error.message : error.to_s
       if (id = @tracker.pop_tool_id)
         @shell.finish_tool_call(id, status: :error, output: format_tool_output(message, :error))

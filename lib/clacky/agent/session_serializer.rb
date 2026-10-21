@@ -799,7 +799,8 @@ module Clacky
               end
             else
               remember_replayed_tool_name(tc[:id], name)
-              ui.show_tool_call(name, args, created_at: msg[:created_at])
+              ui.show_tool_call(name, args)
+              annotate_replayed_event(ui, msg[:created_at])
             end
           end
 
@@ -838,10 +839,19 @@ module Clacky
       private def emit_replayed_tool_result(ui, content, tool_call_id, created_at: nil)
         ui_payload = replayed_tool_ui(content, tool_call_id)
         if ui_payload
-          ui.show_tool_result(content, ui: ui_payload, created_at: created_at)
+          ui.show_tool_result(content, ui: ui_payload)
         else
-          ui.show_tool_result(content, created_at: created_at)
+          ui.show_tool_result(content)
         end
+        annotate_replayed_event(ui, created_at)
+      end
+
+      # Stamp the just-emitted tool_call / tool_result with the MessageHistory
+      # created_at when the UI collector opts in (HistoryCollector). Plain /
+      # rich / channel UIs ignore this — their interface is unchanged.
+      private def annotate_replayed_event(ui, created_at)
+        return unless created_at && ui.respond_to?(:annotate_last_event)
+        ui.annotate_last_event(created_at: created_at)
       end
 
       # Tool names live on the preceding assistant message, so remember them by
@@ -936,10 +946,12 @@ module Clacky
               name = tc[:name] || tc["name"] || ""
               args_raw = tc[:arguments] || tc["arguments"] || {}
               args = args_raw.is_a?(String) ? (JSON.parse(args_raw) rescue args_raw) : args_raw
-              ui.show_tool_call(name, args, created_at: ev_created_at)
+              ui.show_tool_call(name, args)
+              annotate_replayed_event(ui, ev_created_at)
             end
           when "tool", "user"
-            ui.show_tool_result(extract_text_from_content(content).to_s, created_at: ev[:created_at] || ev["created_at"])
+            ui.show_tool_result(extract_text_from_content(content).to_s)
+            annotate_replayed_event(ui, ev[:created_at] || ev["created_at"])
           end
         end
 

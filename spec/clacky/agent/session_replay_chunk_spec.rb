@@ -47,11 +47,11 @@ RSpec.describe "replay_history chunk MD expansion" do
       @events << { type: :assistant, content: content }
     end
 
-    def show_tool_call(name, args, created_at: nil)
+    def show_tool_call(name, args)
       @events << { type: :tool_call, name: name }
     end
 
-    def show_tool_result(result, ui: nil, created_at: nil)
+    def show_tool_result(result)
       @events << { type: :tool_result, result: result }
     end
 

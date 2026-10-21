@@ -108,7 +108,7 @@ module Clacky
         @events << stamp(ev)
       end
 
-      def show_tool_call(name, args, created_at: nil)
+      def show_tool_call(name, args)
         args_data = args.is_a?(String) ? (JSON.parse(args) rescue args) : args
         if Clacky::Tools::AskUser.feedback_tool?(name)
           questions = Clacky::Tools::AskUser.normalize_questions(args_data)
@@ -120,9 +120,7 @@ module Clacky
           return
         end
         summary   = tool_call_summary(name, args_data)
-        ev = { type: "tool_call", session_id: @session_id, name: name, args: args_data, summary: summary }
-        ev[:created_at] = created_at if created_at
-        @events << stamp(ev)
+        @events << stamp({ type: "tool_call", session_id: @session_id, name: name, args: args_data, summary: summary })
       end
 
       private def tool_call_summary(name, args)
@@ -136,11 +134,21 @@ module Clacky
         nil
       end
 
-      def show_tool_result(result, ui: nil, created_at: nil)
+      def show_tool_result(result, ui: nil)
         event = { type: "tool_result", session_id: @session_id, result: result }
         event[:ui] = ui if ui
-        event[:created_at] = created_at if created_at
         @events << stamp(event)
+      end
+
+      # Side-channel used by SessionSerializer during history replay. The UI
+      # interface stays unchanged; only HistoryCollector (and any other collector
+      # that opts in) accepts the persisted MessageHistory created_at and stamps
+      # it onto the event just emitted by show_tool_call / show_tool_result.
+      def annotate_last_event(created_at: nil)
+        return unless created_at
+        last = @events.last
+        return unless last
+        last[:created_at] = created_at
       end
 
       def show_token_usage(token_data)
