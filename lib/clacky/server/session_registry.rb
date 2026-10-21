@@ -194,7 +194,8 @@ module Clacky
       #   profile: "general"|"coding"|nil
       #            nil = no agent_profile filter
       #   limit:   max sessions to return (applies to NON-PINNED only; see below)
-      #   before:  ISO8601 cursor — only sessions with created_at < before
+      #   before, before_id: cursor — only sessions sorting after (before, before_id)
+      #             in the newest-first order; take it from a row's `cursor`
       #             (also applies to NON-PINNED only; pinned items are a separate
       #             logical section, they should never be paginated away)
       #   include_pinned: when true (default), all matching pinned sessions are
@@ -213,7 +214,7 @@ module Clacky
       #   [ ...all_pinned_matching (newest-first), ...non_pinned (newest-first, limited) ]
       #
       # source and profile are orthogonal — either can be nil independently.
-      def list(limit: nil, before: nil, q: nil, q_scope: "name", date: nil, type: nil, exclude_type: nil, include_pinned: true, project_id: nil, exclude_project: false, archived: false)
+      def list(limit: nil, before: nil, before_id: nil, q: nil, q_scope: "name", date: nil, type: nil, exclude_type: nil, include_pinned: true, project_id: nil, exclude_project: false, archived: false)
         return [] unless @session_manager
 
         live = @mutex.synchronize do
@@ -298,9 +299,11 @@ module Clacky
         pinned, non_pinned = all.partition { |s| s[:pinned] }
 
         # `before` cursor ONLY applies to non-pinned (paginated) sessions.
-        # Cursor field must match the sort key in all_sessions (updated_at,
-        # falling back to created_at for legacy rows).
-        non_pinned = non_pinned.select { |s| (s[:updated_at] || s[:created_at] || "") < before } if before
+        # Cursor must match the sort key in all_sessions; the id breaks same-second ties.
+        if before
+          boundary = [before, before_id.to_s]
+          non_pinned = non_pinned.select { |s| (sort_key(s) <=> boundary) < 0 }
+        end
         non_pinned = non_pinned.first(limit) if limit
 
         # Pinned section: only included on the first page (before == nil) so
@@ -363,6 +366,10 @@ module Clacky
       # Merge a single disk-side session hash with the corresponding live
       # in-memory agent fields (may be nil) into the row shape the frontend
       # consumes.
+      private def sort_key(s)
+        [s[:updated_at] || s[:created_at] || "", s[:session_id].to_s]
+      end
+
       private def build_enriched_row(s, ls)
         id = s[:session_id]
         {
@@ -398,6 +405,8 @@ module Clacky
           channel_info:  s[:channel_info],
           project_id:    s[:project_id],
           todos:         ls&.dig(:todos) || s[:todos] || [],
+          # Rows report live activity in updated_at; paging needs the on-disk sort key.
+          cursor:        sort_key(s).then { |at, sid| { before: at, before_id: sid } },
         }
       end
 

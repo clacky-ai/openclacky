@@ -216,7 +216,7 @@ module Clacky
     def all_sessions(current_dir: nil, limit: nil)
       sessions = Dir.glob(File.join(@sessions_dir, "*.json")).filter_map do |filepath|
         load_session_file(filepath)
-      end.sort_by { |s| s[:updated_at] || s[:created_at] || "" }.reverse
+      end.sort_by { |s| [s[:updated_at] || s[:created_at] || "", s[:session_id].to_s] }.reverse
 
       if current_dir
         current_sessions = sessions.select { |s| s[:working_dir] == current_dir }
