@@ -120,7 +120,7 @@ function boot() {
 
   const Sessions = vm.runInContext("Clacky.Sessions", context);
   const list = document.getElementById("session-list");
-  return { Sessions, list, dispatch: context.__dispatcher, fetched: context.__fetched };
+  return { Sessions, list, dispatch: context.__dispatcher, fetched: context.__fetched, $: context.$ };
 }
 
 const row = (id, extra = {}) => Object.assign({
@@ -278,6 +278,24 @@ async function tests() {
     dispatch({ type: "session_update", session: row("page-1", { status: "running" }) });
 
     assert.deepEqual(renderedIds(list), ["page-1"], "no duplicate row");
+  }
+
+  // 10. Renaming the active session updates the header title right away;
+  //     renaming another session leaves it alone.
+  {
+    const { Sessions, dispatch, $ } = boot();
+    Sessions.setAll([row("page-1"), row("page-2")]);
+    Sessions._setActiveId("page-1");
+    Sessions.updateChatHeader(Sessions.find("page-1"));
+
+    dispatch({ type: "session_renamed", session_id: "page-1", name: "First name" });
+    assert.equal($("header-session-title").textContent, "First name");
+
+    Sessions.patch("page-1", { name: "Second name" });
+    assert.equal($("header-session-title").textContent, "Second name");
+
+    Sessions.patch("page-2", { name: "Other" });
+    assert.equal($("header-session-title").textContent, "Second name");
   }
 }
 
