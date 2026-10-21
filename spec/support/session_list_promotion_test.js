@@ -129,6 +129,9 @@ const row = (id, extra = {}) => Object.assign({
   updated_at: "2026-08-01T00:00:00+08:00",
 }, extra);
 
+// The server's next_cursor for a page ending at `id` (rows share the default timestamp).
+const cursorOf = id => ({ before: "2026-08-01T00:00:00+08:00", before_id: id });
+
 // Sidebar row ids, top to bottom.
 const renderedIds = list => list.children.map(child => child.dataset.sessionId).filter(Boolean);
 
@@ -138,17 +141,17 @@ async function tests() {
   //    the list, sorted where its fresh updated_at puts it.
   {
     const { Sessions, list, dispatch } = boot();
-    Sessions.setAll([row("page-1"), row("page-2")], true);
+    Sessions.setAll([row("page-2"), row("page-1")], true, {}, cursorOf("page-1"));
     Sessions._setActiveId("old-1");
     Sessions.renderList();
-    assert.deepEqual(renderedIds(list), ["page-1", "page-2"], "old session is not listed yet");
+    assert.deepEqual(renderedIds(list), ["page-2", "page-1"], "old session is not listed yet");
 
     dispatch({
       type: "session_update",
       session: row("old-1", { status: "running", updated_at: "2026-09-15T16:00:00+08:00" }),
     });
 
-    assert.deepEqual(renderedIds(list), ["old-1", "page-1", "page-2"],
+    assert.deepEqual(renderedIds(list), ["old-1", "page-2", "page-1"],
       "the session the user just messaged appears at the top of the sidebar");
   }
 
@@ -156,7 +159,7 @@ async function tests() {
   //    paginated list — pulling them in would corrupt the loadMore cursor.
   {
     const { Sessions, list, dispatch, fetched } = boot();
-    Sessions.setAll([row("page-1")], true);
+    Sessions.setAll([row("page-1")], true, {}, cursorOf("page-1"));
     Sessions._setActiveId("page-1");
     Sessions.renderList();
 
@@ -170,15 +173,16 @@ async function tests() {
     assert.equal(Sessions.all.some(s => s.id === "background-1"), false);
 
     await Sessions.loadMore();
-    const before = new URL(fetched.pop(), "http://x").searchParams.get("before");
-    assert.equal(before, "2026-08-01T00:00:00+08:00", "loadMore cursor stays at the loaded boundary");
+    const params = new URL(fetched.pop(), "http://x").searchParams;
+    assert.equal(params.get("before"), "2026-08-01T00:00:00+08:00", "loadMore cursor stays at the loaded boundary");
+    assert.equal(params.get("before_id"), "page-1");
   }
 
   // 3. A background session that becomes active (e.g. an IM channel message
   //    while the user views another chat) sorts into the loaded range → listed.
   {
     const { Sessions, list, dispatch } = boot();
-    Sessions.setAll([row("page-1")], true);
+    Sessions.setAll([row("page-1")], true, {}, cursorOf("page-1"));
     Sessions._setActiveId("page-1");
     Sessions.renderList();
 
@@ -200,7 +204,7 @@ async function tests() {
   // 4. Grouped sources stay behind their group entry, however fresh.
   {
     const { Sessions, dispatch } = boot();
-    Sessions.setAll([row("page-1")], true);
+    Sessions.setAll([row("page-1")], true, {}, cursorOf("page-1"));
     Sessions.renderList();
 
     dispatch({
@@ -256,7 +260,7 @@ async function tests() {
   //    (e.g. reconnect replay) is not forced into the list.
   {
     const { Sessions, list, dispatch } = boot();
-    Sessions.setAll([row("page-1")], true);
+    Sessions.setAll([row("page-1")], true, {}, cursorOf("page-1"));
     Sessions._setActiveId("old-1");
     Sessions.renderList();
 
@@ -296,6 +300,30 @@ async function tests() {
 
     Sessions.patch("page-2", { name: "Other" });
     assert.equal($("header-session-title").textContent, "Second name");
+  }
+
+  // 11. Same-second snapshots split at the cursor id, matching the server's page boundary.
+  {
+    const { Sessions, dispatch } = boot();
+    Sessions.setAll([row("page-b")], true, {}, cursorOf("page-b"));
+    Sessions.renderList();
+
+    dispatch({ type: "session_update", session: row("page-a") });
+    dispatch({ type: "session_update", session: row("page-c") });
+
+    assert.equal(Sessions.all.some(s => s.id === "page-a"), false, "a same-second row after the cursor waits for loadMore");
+    assert.equal(Sessions.all.some(s => s.id === "page-c"), true, "a same-second row before the cursor is listed");
+  }
+
+  // 12. Same-second rows render in the server's id order no matter how they arrived.
+  {
+    const { Sessions, list, dispatch } = boot();
+    Sessions.setAll([row("page-1")]);
+    Sessions.renderList();
+
+    dispatch({ type: "session_update", session: row("page-2") });
+
+    assert.deepEqual(renderedIds(list), ["page-2", "page-1"], "live arrival order does not reshuffle same-second rows");
   }
 }
 

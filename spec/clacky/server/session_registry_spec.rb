@@ -145,6 +145,31 @@ RSpec.describe Clacky::Server::SessionRegistry do
     end
   end
 
+  describe "#list pagination" do
+    it "pages through same-second sessions without skipping any" do
+      Dir.mktmpdir("clacky_list_cursor_spec") do |dir|
+        %w[sess_cccc0003 sess_aaaa0001 sess_bbbb0002].each do |id|
+          write_session_file(dir, session_id: id, name: id, created_at: "2026-04-01T12:16:47+00:00")
+        end
+        write_session_file(dir, session_id: "sess_dddd0004", name: "older", created_at: "2026-04-01T12:16:46+00:00")
+        manager = Clacky::SessionManager.new(sessions_dir: dir)
+        registry = described_class.new(session_manager: manager, agent_config: default_config)
+
+        seen = []
+        cursor = {}
+        5.times do
+          page = registry.list(limit: 1, **cursor)
+          break if page.empty?
+
+          seen << page.first[:id]
+          cursor = page.first[:cursor]
+        end
+
+        expect(seen).to eq(%w[sess_cccc0003 sess_bbbb0002 sess_aaaa0001 sess_dddd0004])
+      end
+    end
+  end
+
   describe "#count_by_status" do
     it "counts sessions with the given status" do
       registry = described_class.new(agent_config: default_config)

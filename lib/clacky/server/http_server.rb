@@ -983,6 +983,7 @@ module Clacky
         query        = URI.decode_www_form(req.query_string.to_s).to_h
         limit        = [query["limit"].to_i.then { |n| n > 0 ? n : 15 }, 50].min
         before       = query["before"].to_s.strip.then  { |v| v.empty? ? nil : v }
+        before_id    = query["before_id"].to_s.strip.then { |v| v.empty? ? nil : v }
         q            = query["q"].to_s.strip.then       { |v| v.empty? ? nil : v }
         q_scope      = query["q_scope"].to_s.strip.then { |v| %w[name content].include?(v) ? v : "name" }
         date         = query["date"].to_s.strip.then    { |v| v.empty? ? nil : v }
@@ -1002,14 +1003,15 @@ module Clacky
         # The archive view is the exception: it groups archived sessions by
         # project by hand, so project membership must survive both filters.
         exclude_project = archived ? false : (before ? true : !!type)
-        sessions = @registry.list(limit: limit + 1, before: before, q: q, q_scope: q_scope, date: date, type: type, exclude_type: exclude_type, exclude_project: exclude_project, archived: archived)
+        sessions = @registry.list(limit: limit + 1, before: before, before_id: before_id, q: q, q_scope: q_scope, date: date, type: type, exclude_type: exclude_type, exclude_project: exclude_project, archived: archived)
 
         pinned_part, non_pinned_part = sessions.partition { |s| s[:pinned] }
         has_more = non_pinned_part.size > limit
         non_pinned_part = non_pinned_part.first(limit)
         sessions = pinned_part + non_pinned_part
 
-        payload = { sessions: sessions, has_more: has_more, groups: @registry.group_stats_all }
+        payload = { sessions: sessions, has_more: has_more, next_cursor: non_pinned_part.last&.dig(:cursor),
+                    groups: @registry.group_stats_all }
         # The archive page offers "delete all", so it needs the size of the whole
         # archive — the paged `sessions` array only ever shows one page of it.
         payload[:archived_count] = @registry.archived_count if archived
@@ -7987,7 +7989,9 @@ module Clacky
           pinned_part, non_pinned_part = page.partition { |s| s[:pinned] }
           non_pinned_limit = [10 - pinned_part.size, 0].max
           has_more = non_pinned_part.size > non_pinned_limit
-          all_sessions = pinned_part + non_pinned_part.first(non_pinned_limit)
+          non_pinned_part = non_pinned_part.first(non_pinned_limit)
+          next_cursor = non_pinned_part.last&.dig(:cursor)
+          all_sessions = pinned_part + non_pinned_part
           projects = @project_manager.all
           if projects.any?
             project_ids = projects.map { |p| p[:id] }
@@ -7999,7 +8003,7 @@ module Clacky
             paged_ids = all_sessions.map { |s| s[:id] }.to_set
             all_sessions += project_sessions.reject { |s| paged_ids.include?(s[:id]) }
           end
-          conn.send_json(type: "session_list", sessions: all_sessions, has_more: has_more,
+          conn.send_json(type: "session_list", sessions: all_sessions, has_more: has_more, next_cursor: next_cursor,
                          groups: groups, projects: projects)
 
         when "run_task"
