@@ -45,6 +45,7 @@ module Clacky
           :resource_group,   # Optional cgroup for task limits and OOM attribution
           :script_paths,    # Internal script paths for cleanup and output masking
           :shell_name,      # "zsh" | "bash" | "sh" — informs marker syntax & rc reload
+          :echo_head,       # String, last `{ CMD` line written; strips its wrapped echo
           keyword_init: true
         )
 

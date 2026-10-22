@@ -1209,8 +1209,8 @@ RSpec.describe Clacky::Tools::Terminal do
   describe "#strip_command_echo" do
     let(:token) { "6fbad5cb5904a3b5" }
 
-    def strip(text, token: nil)
-      tool.send(:strip_command_echo, text, marker_token: token)
+    def strip(text, token: nil, echo_head: nil)
+      tool.send(:strip_command_echo, text, marker_token: token, echo_head: echo_head)
     end
 
     it "strips a single-line wrapper echo even when the leading `{` was dropped by PTY width-wrap" do
@@ -1298,6 +1298,34 @@ RSpec.describe Clacky::Tools::Terminal do
     it "strips a wrapper echo where the entire printf was truncated, leaving only the `}; __clacky_ec=$?` pivot" do
       input = "tail -80 }; __clacky_ec=$?\nactual output\n"
       expect(strip(input, token: token)).to eq("actual output\n")
+    end
+
+    context "when the echoed command is wider than the PTY" do
+      let(:command) { %(grep -E "#{"abcdefghij" * 20}|M3\\.1-Flash.*(release|Re[eased)" /etc/hosts | cut -c1-400 | head -12; echo END) }
+      let(:echo_head) { "{ #{command}" }
+      let(:tail) { "}; __clacky_ec=$?; printf \"\n__CLACKY_DONE_#{token}_%s__\n\" \"$__clacky_ec\"\n" }
+
+      it "strips the wrapped last row of a redrawn echo (captured from zsh)" do
+        input = "#{echo_head}\n#{tail}" \
+                "ed)\" /etc/hosts | cut -c1-400 | head -12; echo END\n#{tail}" \
+                "grep: brackets ([ ]) not balanced\nEND"
+        expect(strip(input, token: token, echo_head: echo_head)).to eq("grep: brackets ([ ]) not balanced\nEND")
+      end
+
+      it "strips a wrapped row that looks like real output when it sits right above the tail" do
+        input = "END\n#{tail}END\n"
+        expect(strip(input, token: token, echo_head: echo_head)).to eq("END\n")
+      end
+
+      it "keeps real output that is a command suffix but is not followed by the wrapper tail" do
+        input = "#{tail}END\necho END\n"
+        expect(strip(input, token: token, echo_head: echo_head)).to eq("END\necho END\n")
+      end
+    end
+
+    it "keeps a command-suffix line above the tail when the command fits the PTY width" do
+      input = "END\n}; __clacky_ec=$?; printf \"\n__CLACKY_DONE_#{token}_%s__\n\" \"$__clacky_ec\"\n"
+      expect(strip(input, token: token, echo_head: "{ echo END")).to eq("END\n")
     end
 
     it "falls back to the legacy anchored strip when no token is supplied" do
@@ -1437,7 +1465,7 @@ RSpec.describe Clacky::Tools::Terminal do
   describe "Xcode Command Line Tools detection (macOS)" do
     let(:fake_session_class) do
       Struct.new(:id, :read_offset, :marker_token, :marker_regex,
-                 :log_file, :exit_code, :status, :pid, :resource_group, :script_paths, keyword_init: true)
+                 :log_file, :exit_code, :status, :pid, :resource_group, :script_paths, :echo_head, keyword_init: true)
     end
 
     before do

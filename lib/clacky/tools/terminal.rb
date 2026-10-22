@@ -132,6 +132,7 @@ module Clacky
       BACKGROUND_COLLECT_SECONDS = 2
       # Sentinel: when passed as idle_ms, disables idle early-return.
       DISABLED_IDLE_MS = 10_000_000
+      PTY_COLS = 120
       # Gap between log-file polls while waiting for a command's end marker.
       MARKER_POLL_SECONDS = 0.05
       # A freshly spawned login shell prints its banner asynchronously; wait
@@ -500,7 +501,7 @@ module Clacky
         raw = read_log_slice(session.log_file, start_offset, new_offset)
         cleaned = OutputCleaner.clean(raw)
         cleaned = cleaned.sub(session.marker_regex, "").rstrip if session.marker_regex
-        cleaned = strip_command_echo(cleaned, marker_token: session.marker_token)
+        cleaned = strip_command_echo(cleaned, marker_token: session.marker_token, echo_head: session.echo_head)
         # Per-line cap first: one minified JSON blob shouldn't blow the
         # whole 4 KB budget. MUST run before overflow spill so the file
         # on disk also has the long lines shortened (otherwise grep-ing
@@ -638,7 +639,7 @@ module Clacky
       #     safe: the real completion marker was already removed via
       #     session.marker_regex above, so any surviving occurrence of
       #     __CLACKY_DONE_<token>_ is by definition an echoed wrapper.
-      private def strip_command_echo(text, marker_token: nil)
+      private def strip_command_echo(text, marker_token: nil, echo_head: nil)
         return text if text.nil? || text.empty?
 
         # Pass 0: strip the hooks prefix echo if `stty -echo` failed and
@@ -666,6 +667,16 @@ module Clacky
         # tail itself is removed by the fingerprint passes below.
         if text.start_with?("{") && text.match?(/\}[^\n;]*; *__clacky_ec=\$\?/)
           text = text.sub(/\A\{[^\n]*\n/, "")
+        end
+
+        # Pass 1b: a wrapped `{ CMD` echo leaves its last screen row as a bare command suffix above the tail.
+        if echo_head && echo_head.bytesize > PTY_COLS
+          lines = text.lines
+          text = lines.reject.with_index do |ln, i|
+            body = ln.chomp
+            !body.empty? && body.size < echo_head.size && echo_head.end_with?(body) &&
+              lines[i + 1].to_s.match?(/\A\}[^\n;]*; *__clacky_ec=\$\?/)
+          end.join
         end
 
         # Pass 2: token-aware global strip — remove any leftover wrapper
@@ -908,7 +919,7 @@ module Clacky
         end
 
         begin
-          writer.winsize = [40, 120]
+          writer.winsize = [40, PTY_COLS]
         rescue StandardError
           # unsupported on some platforms
         end
@@ -1085,6 +1096,7 @@ module Clacky
         # Internal shell setup must execute inline to update the session itself.
         command = prepare_execution_command(session, command) if with_hooks
         line   = %Q|#{hooks_line}{ #{command}\n}#{stdin_redirect}; __clacky_ec=$?; printf "\n__CLACKY_DONE_#{token}_%s__\n" "$__clacky_ec"\n|
+        session.echo_head = "{ #{command}".lines.last.chomp
         session.mutex.synchronize { session.writer.write(line) }
       rescue StandardError
         cleanup_session(session)
@@ -1310,7 +1322,7 @@ module Clacky
           cleaned = OutputCleaner.clean(buffered)
           # Strip any wrapper echo that still slipped through (e.g. when a
           # session is reused and ZLE re-echoes our wrapper mid-stream).
-          cleaned = strip_command_echo(cleaned, marker_token: session.marker_token)
+          cleaned = strip_command_echo(cleaned, marker_token: session.marker_token, echo_head: session.echo_head)
           # Belt-and-braces: drop any line that still carries our internal
           # tokens.
           cleaned = cleaned.lines.reject do |ln|
