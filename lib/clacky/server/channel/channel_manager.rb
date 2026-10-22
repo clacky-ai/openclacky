@@ -152,7 +152,7 @@ module Clacky
         # receive_id for outbound messages), so we extract the chat portion.
         prefix = "#{platform}:"
         ids = []
-        @registry.list.each do |summary|
+        @registry.list(archived: nil).each do |summary|
           @registry.with_session(summary[:id]) do |s|
             (s[:channel_keys] || []).each do |key|
               next unless key.start_with?(prefix)
@@ -463,7 +463,7 @@ module Clacky
         when "/unbind"
           unbound = false
           cleared_agents = []
-          @registry.list.each do |summary|
+          @registry.list(archived: nil).each do |summary|
             @registry.with_session(summary[:id]) do |s|
               # Set#delete always returns self — use delete? so an unknown key
               # reports "No binding found." instead of a false "Unbound.".
@@ -726,7 +726,7 @@ module Clacky
         # /bind and /unbind keep agent.channel_info strictly in sync with channel_keys
         # (see handle_bind / handle_unbind), so the two sources never disagree on the
         # same key for two different sessions — a single pass is sufficient.
-        @registry.list.each do |summary|
+        @registry.list(archived: nil).each do |summary|
           found = nil
           @registry.with_session(summary[:id]) { |s| found = s[:channel_keys]&.include?(key) }
           return summary[:id] if found
@@ -814,7 +814,7 @@ module Clacky
       # The on-disk summary is authoritative here, so sessions evicted from
       # memory are cleaned too — which is exactly the case /bind used to miss.
       def clear_channel_info_for_key(key, keep_session_id: nil)
-        @registry.list(limit: nil).each do |summary|
+        @registry.list(limit: nil, archived: nil).each do |summary|
           next if summary[:id] == keep_session_id
 
           info = summary[:channel_info]
@@ -839,7 +839,7 @@ module Clacky
       end
 
       def bind_key_to_session(key, session_id)
-        @registry.list.each do |summary|
+        @registry.list(archived: nil).each do |summary|
           @registry.with_session(summary[:id]) { |s| s[:channel_keys]&.delete(key) }
         end
         @registry.with_session(session_id) do |s|
@@ -932,7 +932,7 @@ module Clacky
       def restore_channel_bindings
         bound_keys = Set.new
         restored_count = 0
-        @registry.list(limit: nil).each do |summary|
+        @registry.list(limit: nil, archived: nil).each do |summary|
           info = summary[:channel_info]
           next unless info.is_a?(Hash) && info[:platform] && info[:user_id] && info[:chat_id]
 

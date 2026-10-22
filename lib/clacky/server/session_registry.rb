@@ -208,7 +208,7 @@ module Clacky
       #   archived:  false (default) → archived sessions are excluded from the
       #             result; true → ONLY archived sessions are returned. The two
       #             sets are disjoint, so every other caller keeps seeing exactly
-      #             the sessions it saw before archiving existed.
+      #             the sessions it saw before archiving existed. nil → no filter.
       #
       # Ordering of the returned array:
       #   [ ...all_pinned_matching (newest-first), ...non_pinned (newest-first, limited) ]
@@ -240,7 +240,7 @@ module Clacky
 
         all = @session_manager.all_sessions  # already sorted newest-first
 
-        all = all.select { |s| archived ? s[:archived_at].to_s != "" : s[:archived_at].to_s == "" }
+        all = all.select { |s| archived ? s[:archived_at].to_s != "" : s[:archived_at].to_s == "" } unless archived.nil?
 
         # ── type filter (replaces old source/profile split) ──────────────────
         # type=coding  → agent_profile == "coding"

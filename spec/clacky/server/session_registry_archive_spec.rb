@@ -76,6 +76,13 @@ RSpec.describe Clacky::Server::SessionRegistry, "archived sessions" do
     expect(registry.group_stats("cron")).to eq(count: 1, latest_updated_at: "2026-01-01T00:00:00Z")
   end
 
+  it "returns archived and active sessions together when archived is nil" do
+    write_session(id: "aaaaaaaa", updated_at: "2026-01-01T00:00:00Z")
+    write_session(id: "bbbbbbbb", updated_at: "2026-02-01T00:00:00Z", archived_at: "2026-02-02T00:00:00Z")
+
+    expect(ids(registry.list(archived: nil))).to contain_exactly("aaaaaaaa", "bbbbbbbb")
+  end
+
   it "reports the total count of archived sessions across all groups" do
     write_session(id: "s1", updated_at: "2026-01-01T00:00:00Z", archived_at: "2026-01-02T00:00:00Z")
     write_session(id: "s2", updated_at: "2026-02-01T00:00:00Z")
