@@ -650,43 +650,87 @@ RSpec.describe Clacky::Server::HttpServer do
     end
   end
 
-  # ── DELETE /api/archive/sessions ──────────────────────────────────────────
+  # ── POST /api/archive/sessions/delete ─────────────────────────────────────
 
-  describe "DELETE /api/archive/sessions" do
+  describe "POST /api/archive/sessions/delete" do
     let!(:trash_root) { Dir.mktmpdir("clacky_http_archive_trash") }
     before { stub_const("Clacky::TrashDirectory::GLOBAL_TRASH_ROOT", trash_root) }
     after  { FileUtils.rm_rf(trash_root) }
 
-    it "soft-deletes all archived sessions into the trash" do
+    def create_session(server, name, archived: false)
+      res = fake_res
+      dispatch(server, fake_req(method: "POST", path: "/api/sessions", body: { name: name }), res)
+      id = parsed_body(res)["session"]["id"]
+      if archived
+        dispatch(server, fake_req(method: "PATCH", path: "/api/sessions/#{id}", body: { archived: true }), fake_res)
+      end
+      id
+    end
+
+    def delete_archived(server, body = nil)
+      res = fake_res
+      dispatch(server, fake_req(method: "POST", path: "/api/archive/sessions/delete", body: body), res)
+      res
+    end
+
+    def session_exists?(server, id)
+      res = fake_res
+      dispatch(server, fake_req(method: "GET", path: "/api/sessions/#{id}"), res)
+      res.status == 200
+    end
+
+    it "soft-deletes the whole archive when no ids are sent" do
       with_server(agent_config: agent_config) do |server|
-        # Create two sessions, archive one
-        req1 = fake_req(method: "POST", path: "/api/sessions", body: { name: "archived-one" })
-        res1 = fake_res
-        dispatch(server, req1, res1)
-        id1 = parsed_body(res1)["session"]["id"]
+        a1 = create_session(server, "archived-one", archived: true)
+        a2 = create_session(server, "archived-two", archived: true)
+        live = create_session(server, "keep-active")
 
-        req2 = fake_req(method: "POST", path: "/api/sessions", body: { name: "keep-active" })
-        res2 = fake_res
-        dispatch(server, req2, res2)
-        id2 = parsed_body(res2)["session"]["id"]
+        res = delete_archived(server)
 
-        archive_req = fake_req(method: "PATCH", path: "/api/sessions/#{id1}", body: { archived: true })
-        dispatch(server, archive_req, fake_res)
+        expect(res.status).to eq(200)
+        expect(parsed_body(res)["deleted_count"]).to eq(2)
+        expect(session_exists?(server, a1)).to be false
+        expect(session_exists?(server, a2)).to be false
+        expect(session_exists?(server, live)).to be true
+      end
+    end
 
-        # Empty the archive
-        del_req = fake_req(method: "DELETE", path: "/api/archive/sessions")
-        del_res = fake_res
-        dispatch(server, del_req, del_res)
+    it "soft-deletes only the listed archived sessions" do
+      with_server(agent_config: agent_config) do |server|
+        a1 = create_session(server, "archived-one", archived: true)
+        a2 = create_session(server, "archived-two", archived: true)
 
-        expect(del_res.status).to eq(200)
-        expect(parsed_body(del_res)["ok"]).to be true
-        expect(parsed_body(del_res)["deleted_count"]).to eq(1)
+        res = delete_archived(server, { session_ids: [a1] })
 
-        # Active session still exists
-        check_req = fake_req(method: "GET", path: "/api/sessions/#{id2}")
-        check_res = fake_res
-        dispatch(server, check_req, check_res)
-        expect(check_res.status).to eq(200)
+        expect(res.status).to eq(200)
+        expect(parsed_body(res)["deleted_count"]).to eq(1)
+        expect(session_exists?(server, a1)).to be false
+        expect(session_exists?(server, a2)).to be true
+      end
+    end
+
+    it "ignores ids that are not archived" do
+      with_server(agent_config: agent_config) do |server|
+        archived = create_session(server, "archived-one", archived: true)
+        live     = create_session(server, "keep-active")
+
+        res = delete_archived(server, { session_ids: [live, "missing-id"] })
+
+        expect(res.status).to eq(200)
+        expect(parsed_body(res)["deleted_count"]).to eq(0)
+        expect(session_exists?(server, live)).to be true
+        expect(session_exists?(server, archived)).to be true
+      end
+    end
+
+    it "rejects an empty list instead of treating it as the whole archive" do
+      with_server(agent_config: agent_config) do |server|
+        archived = create_session(server, "archived-one", archived: true)
+
+        res = delete_archived(server, { session_ids: [] })
+
+        expect(res.status).to eq(400)
+        expect(session_exists?(server, archived)).to be true
       end
     end
   end

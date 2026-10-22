@@ -743,7 +743,7 @@ module Clacky
         when ["GET",    "/api/trash/sessions"]     then api_trash_sessions(req, res)
         when ["POST",   "/api/trash/sessions/restore"] then api_trash_session_restore(req, res)
         when ["POST",   "/api/trash/sessions/delete"]  then api_trash_sessions_delete(req, res)
-        when ["DELETE", "/api/archive/sessions"]   then api_archive_sessions_empty(res)
+        when ["POST",   "/api/archive/sessions/delete"] then api_archive_sessions_delete(req, res)
         when ["GET",    "/api/profile"]   then api_profile_get(res)
         when ["PUT",    "/api/profile"]   then api_profile_put(req, res)
         when ["GET",    "/api/memories"]  then api_memories_list(res)
@@ -7728,15 +7728,21 @@ module Clacky
         json_response(res, 201, { session: @registry.snapshot(fork_id) })
       end
 
-      # DELETE /api/archive/sessions
-      # Empties the archive: every archived chat is soft-deleted and lands in
-      # the recycle bin, never destroyed for good. Archiving keeps a chat out of
-      # the sidebar, so clearing the archive means the user is done with all of
-      # them. The toolbar's search and filters deliberately do not narrow this —
-      # the button says "delete all", and the confirmation counts what this
-      # call is about to take out.
-      def api_archive_sessions_empty(res)
-        ids = @registry.list(archived: true).map { |s| s[:id] }
+      # POST /api/archive/sessions/delete — soft-deletes into the recycle bin.
+      # With `session_ids`, only those still-archived chats go; without a body,
+      # the whole archive (the page is paged, so only the server can list it).
+      # An explicit empty list is rejected so "matches nothing" never means "all".
+      def api_archive_sessions_delete(req, res)
+        body = parse_json_body(req)
+        ids  = @registry.list(archived: true).map { |s| s[:id] }
+
+        if !body.is_a?(Hash) || body.key?("session_ids")
+          raw       = body.is_a?(Hash) ? body["session_ids"] : nil
+          requested = raw.is_a?(Array) ? raw.map { |id| id.to_s.strip }.reject(&:empty?) : []
+          return json_response(res, 400, { ok: false, error: "session_ids must not be empty" }) if requested.empty?
+
+          ids &= requested
+        end
 
         # `list` just read these ids off disk, so skip the per-id existence
         # probe — `load` re-parses every session file for each call.
