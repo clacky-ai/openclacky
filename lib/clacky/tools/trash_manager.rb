@@ -490,9 +490,10 @@ module Clacky
         true
       end
 
-      # Permanently delete all sessions in the trash, or only those older than
-      # :days days. Returns the count of permanently deleted sessions.
-      def self.empty_trash_sessions(sessions_dir:, days: nil)
+      # Permanently delete all sessions in the trash, only those older than
+      # :days days, or only the sessions whose full id is in :ids.
+      # Returns the count of permanently deleted sessions.
+      def self.empty_trash_sessions(sessions_dir:, days: nil, ids: nil)
         trash_dir = Clacky::TrashDirectory.sessions_trash_dir
         return 0 unless Dir.exist?(trash_dir)
 
@@ -503,6 +504,7 @@ module Clacky
         Dir.glob(File.join(trash_dir, "*.json")).each do |filepath|
           session = sm.send(:load_session_file, filepath)
           next unless session
+          next if ids && !ids.include?(session[:session_id])
 
           if cutoff
             trash_time = session[:deleted_at] || session[:updated_at]

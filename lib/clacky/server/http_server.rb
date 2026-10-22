@@ -742,7 +742,7 @@ module Clacky
         when ["DELETE", "/api/trash"]     then api_trash_delete(req, res)
         when ["GET",    "/api/trash/sessions"]     then api_trash_sessions(req, res)
         when ["POST",   "/api/trash/sessions/restore"] then api_trash_session_restore(req, res)
-        when ["DELETE", "/api/trash/sessions"]     then api_trash_sessions_delete(req, res)
+        when ["POST",   "/api/trash/sessions/delete"]  then api_trash_sessions_delete(req, res)
         when ["DELETE", "/api/archive/sessions"]   then api_archive_sessions_empty(res)
         when ["GET",    "/api/profile"]   then api_profile_get(res)
         when ["PUT",    "/api/profile"]   then api_profile_put(req, res)
@@ -6113,20 +6113,23 @@ module Clacky
         json_response(res, 200, { ok: true, session_id: session_id })
       end
 
-      # DELETE /api/trash/sessions?days_old=N
-      # Bulk: permanently delete sessions older than N days (default: 7).
+      # POST /api/trash/sessions/delete
+      # Body: { session_ids: ["...", ...] }
+      # Bulk: permanently delete exactly these sessions. The caller decides the
+      # scope (the page's filters live in the browser), so an empty list is
+      # rejected rather than read as "everything".
       private def api_trash_sessions_delete(req, res)
-        query    = URI.decode_www_form(req.query_string.to_s).to_h
-        days_old = query["days_old"].to_s.strip
-        days_i   = days_old.empty? ? 7 : days_old.to_i
+        raw = parse_json_body(req)["session_ids"]
+        ids = raw.is_a?(Array) ? raw.map { |id| id.to_s.strip }.reject(&:empty?) : []
 
-        deleted = @session_manager.cleanup_trash(days: days_i)
+        if ids.empty?
+          json_response(res, 400, { ok: false, error: "session_ids is required" })
+          return
+        end
 
-        json_response(res, 200, {
-          ok:            true,
-          deleted_count: deleted,
-          days_old:      days_i
-        })
+        deleted = @session_manager.permanent_delete_trash_sessions(ids)
+
+        json_response(res, 200, { ok: true, deleted_count: deleted })
       end
 
       # ── Trash helpers (private) ─────────────────────────────────────

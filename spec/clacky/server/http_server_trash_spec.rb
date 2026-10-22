@@ -276,4 +276,53 @@ RSpec.describe Clacky::Server::HttpServer, "creator trash endpoints" do
       expect(surviving).to eq([File.join(project_a, "recent.txt")])
     end
   end
+
+  describe "POST /api/trash/sessions/delete" do
+    let(:sessions_trash) { Clacky::TrashDirectory.sessions_trash_dir }
+
+    def seed_trashed_session(id)
+      FileUtils.mkdir_p(sessions_trash)
+      created = "2026-01-01T00:00:00Z"
+      path = File.join(sessions_trash, server.instance_variable_get(:@session_manager).send(:generate_filename, id, created))
+      File.write(path, JSON.generate(session_id: id, created_at: created, updated_at: created,
+                                     deleted_at: created, messages: []))
+    end
+
+    def trashed_ids
+      server.instance_variable_get(:@session_manager).list_trash_sessions.map { |s| s[:session_id] }
+    end
+
+    def post_delete(body)
+      req = fake_req(method: "POST", path: "/api/trash/sessions/delete", body: body)
+      res = fake_res
+      dispatch(server, req, res)
+      res
+    end
+
+    it "permanently deletes only the listed sessions" do
+      %w[aaaaaaaa11 bbbbbbbb22 cccccccc33].each { |id| seed_trashed_session(id) }
+
+      res = post_delete(session_ids: %w[aaaaaaaa11 cccccccc33])
+
+      expect(res.status).to eq(200)
+      expect(parsed_body(res)["deleted_count"]).to eq(2)
+      expect(trashed_ids).to eq(["bbbbbbbb22"])
+    end
+
+    it "skips ids that are not in the trash" do
+      seed_trashed_session("aaaaaaaa11")
+
+      res = post_delete(session_ids: %w[aaaaaaaa11 missing0000])
+
+      expect(parsed_body(res)["deleted_count"]).to eq(1)
+    end
+
+    it "rejects an empty list instead of treating it as everything" do
+      seed_trashed_session("aaaaaaaa11")
+
+      expect(post_delete(session_ids: []).status).to eq(400)
+      expect(post_delete({}).status).to eq(400)
+      expect(trashed_ids).to eq(["aaaaaaaa11"])
+    end
+  end
 end

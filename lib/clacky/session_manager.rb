@@ -436,6 +436,12 @@ module Clacky
       Clacky::Tools::TrashManager.permanent_delete_trash_session(session_id, sessions_dir: @sessions_dir)
     end
 
+    # Permanently delete exactly these sessions from the trash. Returns the count deleted.
+    def permanent_delete_trash_sessions(session_ids)
+      require_relative "tools/trash_manager"
+      Clacky::Tools::TrashManager.empty_trash_sessions(sessions_dir: @sessions_dir, ids: session_ids)
+    end
+
     # Keep file-trash on the same rolling window as sessions-trash.
     def cleanup_file_trash(days: 8)
       require_relative "tools/trash_manager"
