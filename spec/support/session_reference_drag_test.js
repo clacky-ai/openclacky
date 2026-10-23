@@ -190,6 +190,29 @@ assert.equal(
   "file drags are not mistaken for session drags"
 );
 
+const workspaceFileTransfer = transfer();
+assert.equal(Composer.beginWorkspaceFileDrag(workspaceFileTransfer, {
+  type: "file",
+  name: "report.pdf",
+  path: "/workspace/report.pdf",
+  size: 2048,
+}), true);
+assert.equal(workspaceFileTransfer.effectAllowed, "copy");
+assert.equal(workspaceFileTransfer.value("text/plain"), "report.pdf");
+assert.deepEqual(
+  JSON.parse(JSON.stringify(Composer.readDraggedWorkspaceFile(workspaceFileTransfer))),
+  { type: "file", name: "report.pdf", path: "/workspace/report.pdf", size: 2048 }
+);
+assert.equal(Composer.acceptsWorkspaceFileDrag(workspaceFileTransfer), true);
+assert.equal(Composer.beginWorkspaceFileDrag(transfer(), {
+  type: "directory",
+  name: "src",
+  path: "/workspace/src",
+}), false, "directories are not exposed as file attachments");
+assert.equal(Composer.readDraggedWorkspaceFile(transfer({
+  "application/x-openclacky-workspace-file": "not json",
+})), null, "invalid workspace drag data is ignored");
+
 const input = new Element("div");
 assert.equal(Composer.insertDroppedChip(input, dt, 10, 10), true);
 const insertedChip = input.childNodes.find(node => node.classList && node.classList.contains("mention-chip"));
@@ -201,13 +224,20 @@ assert.equal(input.inputEvents, 1, "drop notifies the composer input pipeline");
 assert.equal(input.focused, true, "drop restores focus to the composer");
 
 assert.equal(Composer.acceptsDrop(dt), true, "internal references are accepted");
+assert.equal(Composer.acceptsDrop(workspaceFileTransfer), true, "workspace files are accepted");
 assert.equal(Composer.acceptsDrop(transfer({}, [{ name: "report.pdf" }])), true, "files are accepted");
 assert.equal(Composer.acceptsDrop(transfer({ "text/plain": "plain text" })), false, "plain text is ignored");
 
 const zone = new Element("section");
 const zoneInput = new Element("div");
 const uploaded = [];
-Composer.bindDropZone({ zone, input: zoneInput, onFiles: files => uploaded.push(...files) });
+const stagedWorkspaceFiles = [];
+Composer.bindDropZone({
+  zone,
+  input: zoneInput,
+  onFiles: files => uploaded.push(...files),
+  onWorkspaceFile: file => stagedWorkspaceFiles.push(file),
+});
 
 let prevented = false;
 zone.dispatchEvent({
@@ -242,3 +272,36 @@ zone.dispatchEvent({
   preventDefault() {},
 });
 assert.deepEqual(uploaded, [file], "dropping files anywhere in the zone uses the attachment callback");
+
+zone.dispatchEvent({
+  type: "dragover",
+  dataTransfer: workspaceFileTransfer,
+  preventDefault() {},
+});
+zone.dispatchEvent({
+  type: "drop",
+  dataTransfer: workspaceFileTransfer,
+  clientX: 100,
+  clientY: 100,
+  preventDefault() {},
+});
+assert.deepEqual(
+  JSON.parse(JSON.stringify(stagedWorkspaceFiles)),
+  [{ type: "file", name: "report.pdf", path: "/workspace/report.pdf", size: 2048 }],
+  "dropping a workspace file uses the path-backed attachment callback"
+);
+
+const uploadOnlyZone = new Element("section");
+let uploadOnlyPrevented = false;
+Composer.bindDropZone({
+  zone: uploadOnlyZone,
+  input: new Element("div"),
+  onFiles() {},
+});
+uploadOnlyZone.dispatchEvent({
+  type: "dragover",
+  dataTransfer: workspaceFileTransfer,
+  preventDefault() { uploadOnlyPrevented = true; },
+});
+assert.equal(uploadOnlyPrevented, false, "views without a workspace callback ignore workspace drags");
+assert.equal(uploadOnlyZone.classList.contains("drag-over"), false);
