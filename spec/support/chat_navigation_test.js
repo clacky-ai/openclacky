@@ -510,7 +510,7 @@ async function historyTests() {
   const state = {};
   const context = vm.createContext({
     document, URLSearchParams, AbortController, console,
-    _historyState: state, _renderedCreatedAt: {}, _activeId: "a", _sessions: [], _userScrolledUp: false,
+    _historyState: state, _renderedCreatedAt: {}, _unseenSummary: null, _activeId: "a", _sessions: [], _userScrolledUp: false,
     RenderTarget: { outer: () => messages }, window: {}, I18n: { t: key => key }, escapeHtml: text => text,
     _collapseToolGroup() {}, _refreshEditButtons() {}, _updateEmptyHint() {}, _refreshFeedbackStatus() {}, _flushPendingStdout() {},
     _showNewMessageBanner() {}, _hideNewMessageBanner() {},

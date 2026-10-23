@@ -8403,6 +8403,7 @@ module Clacky
           Thread.current[:task_epoch] = epoch
           run_result = task.call
           awaiting = false
+          web_ui = nil
           owns_epoch = true
           loop do
             owns_epoch = @registry.current_epoch(session_id).to_i == epoch.to_i
@@ -8412,6 +8413,7 @@ module Clacky
             @registry.with_session(session_id) do |s|
               owns_epoch = s[:epoch].to_i == epoch.to_i
               next unless owns_epoch
+              web_ui = s[:ui]
               awaiting = run_result.is_a?(Hash) && run_result[:awaiting_user_feedback]
               pending = agent.take_pending_input if Agent.task_completed?(run_result)
               unless pending
@@ -8430,7 +8432,11 @@ module Clacky
           # session history: a chime is a live cue, never replayed on refresh.
           # Also fires when awaiting feedback — that is precisely when the user
           # most needs pulling back; the flag lets the client word it differently.
-          broadcast_all(type: "task_finished", session_id: session_id, awaiting_feedback: !!awaiting)
+          finished = { type: "task_finished", session_id: session_id, awaiting_feedback: !!awaiting }
+          # Lets clients not viewing this session keep the summary until it is first opened.
+          complete = web_ui&.last_complete
+          finished[:complete] = complete if complete&.dig(:task_id) && run_result.is_a?(Hash) && complete[:task_id] == run_result[:task_id]
+          broadcast_all(finished)
           @session_manager.save(agent.to_session_data(status: :success, updated_at: Time.now))
           # Start idle compression timer now that the agent is idle
           idle_timer&.start

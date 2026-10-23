@@ -47,7 +47,7 @@ assert.equal(history.group, null);
 // Only the latest unresolved error uses the live card with actions.
 const rendered = [];
 Object.assign(ctx, {
-  _activeId: "s", _historyState: {}, _renderedCreatedAt: {},
+  _activeId: "s", _historyState: {}, _renderedCreatedAt: {}, _unseenSummary: null,
   _sessions: [{ id: "s", status: "error", error: "latest" }],
   RenderTarget: { outer: () => container },
   URLSearchParams, AbortController,
