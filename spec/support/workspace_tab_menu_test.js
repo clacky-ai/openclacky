@@ -258,7 +258,7 @@ function boot(opts = {}) {
   context.globalThis = context;
   vm.createContext(context);
 
-  ["utils.js", "sessions.js", "ws-dispatcher.js", "features/workspace/store.js", "components/code-editor.js", "features/workspace/view.js"]
+  ["utils.js", "sessions.js", "ws-dispatcher.js", "features/workspace/store.js", "components/code-editor.js", "components/image-zoom.js", "features/workspace/view.js"]
     .forEach(file => vm.runInContext(fs.readFileSync(sourcePath(file), "utf8"), context));
 
   const Sessions = vm.runInContext("Clacky.Sessions", context);

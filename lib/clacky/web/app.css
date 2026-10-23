@@ -5646,6 +5646,8 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
+  overflow: hidden;
+  touch-action: none;
   cursor: zoom-out;
   animation: lb-fade-in 0.15s ease;
 }
@@ -5654,13 +5656,19 @@ body {
   to   { opacity: 1; }
 }
 .img-lightbox img {
-  max-width: 90vw;
-  max-height: 90vh;
+  flex: none;
+  max-width: none;
+  max-height: none;
   border-radius: 8px;
   object-fit: contain;
+  transform-origin: center center;
+  will-change: transform;
   box-shadow: 0 8px 40px rgba(0,0,0,0.6);
-  cursor: default;
+  cursor: grab;
+  user-select: none;
+  -webkit-user-drag: none;
 }
+.img-lightbox.is-panning img { cursor: grabbing; }
 .img-lightbox-close {
   position: absolute;
   top: 1rem;
@@ -5671,8 +5679,53 @@ body {
   cursor: pointer;
   opacity: 0.8;
   user-select: none;
+  z-index: 1;
 }
 .img-lightbox-close:hover { opacity: 1; }
+.img-lightbox-toolbar {
+  position: absolute;
+  left: 50%;
+  bottom: 1rem;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 0.125rem;
+  padding: 0.25rem;
+  border: 1px solid rgba(255,255,255,0.18);
+  border-radius: 9px;
+  background: rgba(24,24,27,0.78);
+  color: #fff;
+  transform: translateX(-50%);
+  backdrop-filter: blur(8px);
+}
+.img-lightbox-zoom-btn {
+  width: 1.75rem;
+  height: 1.75rem;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font-size: 1rem;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.img-lightbox-zoom-btn:hover { background: rgba(255,255,255,0.14); }
+.img-lightbox-zoom-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+  background: transparent;
+}
+.img-lightbox-zoom-level {
+  min-width: 2.75rem;
+  text-align: center;
+  color: rgba(255,255,255,0.82);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+}
 
 .msg-pdf-badge {
   display: inline-flex;
