@@ -20,7 +20,7 @@ module Clacky
         @broadcaster.call(@session_id, { type: "input_queue", session_id: @session_id, entries: entries })
       end
 
-      attr_reader :session_id
+      attr_reader :session_id, :last_complete
 
       def initialize(session_id, broadcaster)
         @session_id  = session_id
@@ -270,6 +270,7 @@ module Clacky
         data[:cache_stats]            = cache_stats         if cache_stats
         data[:awaiting_user_feedback] = awaiting_user_feedback if awaiting_user_feedback
         data[:cost_source]            = cost_source.to_s   if cost_source
+        @last_complete = data
         emit("complete", **data)
         forward_to_subscribers do |sub|
           sub.show_complete(iterations: iterations, cost: cost, duration: duration,
