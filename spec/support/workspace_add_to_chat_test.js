@@ -204,6 +204,8 @@ function boot() {
 
   const container = new Element("div");
   WorkspaceView.mount(container, {});
+  const opened = [];
+  WorkspaceView.openFile = filePath => { opened.push(filePath); return true; };
 
   return {
     Sessions,
@@ -211,6 +213,7 @@ function boot() {
     container,
     fetches,
     sent,
+    opened,
     input: document.getElementById("user-input"),
     tree: container.querySelector(".wt-tree"),
   };
@@ -226,8 +229,9 @@ const plain = value => JSON.parse(JSON.stringify(value));
 
 const row = (w, relPath) => w.tree.querySelector(`.wt-row[data-path="${relPath}"]`);
 
-const stripIconHtml = w =>
-  w.document.getElementById("image-preview-strip").querySelector(".pdf-preview-icon").innerHTML;
+const previewStrip = w => w.document.getElementById("image-preview-strip");
+
+const stripIconHtml = w => previewStrip(w).querySelector(".pdf-preview-icon").innerHTML;
 
 // Open the row's context menu and return it, as the DOM would after a real
 // right-click (clientX/Y only position the menu).
@@ -260,6 +264,9 @@ async function tests() {
     assert.ok(glyph.includes('stroke="currentColor"'), "the glyph follows the text colour");
     assert.ok(glyph.includes('<path d="M9 13h6"/>'), "a .docx gets the document glyph");
 
+    previewStrip(w).querySelector(".pdf-preview-open").click();
+    assert.deepEqual(w.opened, ["/wd/report.docx"], "the pending card opens in the Files viewer");
+
     await w.Sessions.sendMessage();
 
     const msg = w.sent.find(m => m.type === "message");
@@ -276,9 +283,11 @@ async function tests() {
 
     await clickMenu(w, openMenu(w, "cover.png"), "addtochat", "cover.png");
 
-    // Sending clears the strip, so read the glyph while the chip is still staged.
-    assert.ok(stripIconHtml(w).includes('<circle cx="8.5" cy="8.5" r="1.5"/>'),
-      "a picture gets the image glyph, not the generic paperclip fallback");
+    // Workspace images look and behave like image attachments while retaining
+    // their original path in the outgoing payload.
+    const thumbnail = previewStrip(w).querySelector(".img-preview-thumb");
+    assert.ok(thumbnail, "a workspace image renders as a thumbnail");
+    assert.equal(thumbnail.src, "/api/local-image?path=%2Fwd%2Fcover.png");
 
     await w.Sessions.sendMessage();
 

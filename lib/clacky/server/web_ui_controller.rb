@@ -142,24 +142,37 @@ module Clacky
         data[:skill_command] = skill_command if skill_command
         data[:skill_command_display] = skill_command_display if skill_command_display
         data[:references] = Array(references) unless Array(references).empty?
-        # Build ev.images for the frontend renderer (history_user_message):
-        #   - Images with data_url → pass the data_url directly (<img> thumbnail)
-        #   - Disk image files (type=="image", has path) → /api/local-image proxy URL
-        #   - Disk files (PDF, doc, etc., no data_url, no image path) → "pdf:name" sentinel
-        rendered = Array(files).filter_map do |f|
+        # Images keep using the lightbox renderer. Other attachments carry their
+        # path separately so the browser can open them through the Files viewer.
+        # A missing path is deliberately omitted: the card remains visible but
+        # is no longer presented as an actionable control.
+        rendered_images = []
+        rendered_attachments = []
+        Array(files).each do |f|
+          next if f[:reference] || f["reference"]
+
           url  = f[:data_url] || f["data_url"]
           name = f[:name]     || f["name"]
           type = f[:type]     || f["type"]
           path = f[:path]     || f["path"]
+          mime = f[:mime_type] || f["mime_type"]
+          image = type.to_s == "image" || mime.to_s.start_with?("image/")
+
           if url
-            url
-          elsif type.to_s == "image" && path && File.exist?(path.to_s)
-            "/api/local-image?path=#{CGI.escape(path.to_s)}&v=#{File.mtime(path.to_s).to_i}"
+            rendered_images << url
+          elsif image && path && File.exist?(path.to_s)
+            rendered_images << "/api/local-image?path=#{CGI.escape(path.to_s)}&v=#{File.mtime(path.to_s).to_i}"
+          elsif image && name
+            rendered_images << "expired:#{name}"
           elsif name
-            "pdf:#{name}"
+            attachment_type = type.to_s.empty? ? (mime || "file") : type
+            attachment = { name: name, type: attachment_type }
+            attachment[:path] = path if path && File.exist?(path.to_s)
+            rendered_attachments << attachment
           end
         end
-        data[:images] = rendered unless rendered.empty?
+        data[:images] = rendered_images unless rendered_images.empty?
+        data[:attachments] = rendered_attachments unless rendered_attachments.empty?
         emit("history_user_message", **data)
         # Only forward to channel subscribers when the message originated from the WebUI,
         # to avoid echoing channel messages back to the same channel.

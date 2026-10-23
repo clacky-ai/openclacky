@@ -5740,6 +5740,20 @@ body {
   min-width: 6.25rem;
   vertical-align: middle;
 }
+.msg-file-open {
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.msg-file-open:hover {
+  background: var(--color-bg-hover);
+  border-color: var(--color-border-secondary);
+}
+.msg-file-open:focus-visible {
+  outline: 2px solid var(--color-accent-primary);
+  outline-offset: 2px;
+}
 .msg-pdf-badge-icon {
   display: flex;
   align-items: center;
@@ -6914,6 +6928,35 @@ body {
   min-width: 7.5rem;
   box-sizing: border-box;
 }
+.pdf-preview-item--clickable {
+  padding-left: 0;
+}
+.pdf-preview-item--clickable:hover {
+  background: var(--color-bg-hover);
+}
+.pdf-preview-open {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  padding: 0 0 0 0.625rem;
+  border: 0;
+  border-radius: inherit;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.pdf-preview-open:hover {
+  background: transparent;
+}
+.pdf-preview-open:focus-visible {
+  outline: 2px solid var(--color-accent-primary);
+  outline-offset: -2px;
+}
 .pdf-preview-icon {
   display: flex;
   align-items: center;
@@ -6955,6 +6998,7 @@ body {
   text-align: center;
   cursor: pointer;
   padding: 0;
+  z-index: 1;
 }
 .pdf-preview-remove:hover { background: var(--color-error); }
 

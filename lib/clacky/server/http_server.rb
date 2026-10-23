@@ -75,26 +75,38 @@ module Clacky
         ev[:skill_command_display] = skill_command_display if skill_command_display
         ev[:editable] = false unless editable
         ev[:references] = references unless Array(references).empty?
-        rendered = Array(files).filter_map do |f|
+        rendered_images = []
+        rendered_attachments = []
+        Array(files).each do |f|
+          next if f[:reference] || f["reference"]
+
           url  = f[:data_url] || f["data_url"]
           name = f[:name]     || f["name"]
           path = f[:path]     || f["path"]
           type = f[:type]     || f["type"] || ""
+          mime = f[:mime_type] || f["mime_type"]
+          image = type.to_s == "image" || mime.to_s.start_with?("image/")
 
           if url
-            url
-          elsif type.to_s == "image" && path && File.exist?(path.to_s)
+            rendered_images << url
+          elsif image && path && File.exist?(path.to_s)
             # Serve via the /api/local-image proxy instead of inlining a base64
             # data URL. Inlining forced a synchronous disk-read + full base64
             # encode + downscale on every history replay (2-3s lag for sessions
             # with downgraded text-model images). The proxy lets the browser
             # lazy-load + cache the image, keeping the replay response tiny.
-            "/api/local-image?path=#{CGI.escape(path.to_s)}&v=#{File.mtime(path.to_s).to_i}"
+            rendered_images << "/api/local-image?path=#{CGI.escape(path.to_s)}&v=#{File.mtime(path.to_s).to_i}"
+          elsif image && name
+            rendered_images << "expired:#{name}"
           elsif name
-            type.to_s == "image" ? "expired:#{name}" : "pdf:#{name}"
+            attachment_type = type.to_s.empty? ? (mime || "file") : type
+            attachment = { name: name, type: attachment_type }
+            attachment[:path] = path if path && File.exist?(path.to_s)
+            rendered_attachments << attachment
           end
         end
-        ev[:images] = rendered unless rendered.empty?
+        ev[:images] = rendered_images unless rendered_images.empty?
+        ev[:attachments] = rendered_attachments unless rendered_attachments.empty?
         @events << ev
       end
 

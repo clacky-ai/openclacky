@@ -14,12 +14,15 @@ RSpec.describe Clacky::Server::WebUIController, "#show_user_message" do
 
   after { FileUtils.rm_rf(tmpdir) }
 
-  # Returns the images array of the emitted history_user_message event.
-  def emitted_images(content, files)
+  def emitted_event(content, files)
     events.clear
     controller.show_user_message(content, files: files)
-    ev = events.find { |e| e[:type] == "history_user_message" }
-    ev ? ev[:images] : nil
+    events.find { |e| e[:type] == "history_user_message" }
+  end
+
+  # Returns the images array of the emitted history_user_message event.
+  def emitted_images(content, files)
+    emitted_event(content, files)&.dig(:images)
   end
 
   it "passes data_url images through unchanged" do
@@ -37,15 +40,37 @@ RSpec.describe Clacky::Server::WebUIController, "#show_user_message" do
     expect(images).to eq(["/api/local-image?path=#{CGI.escape(image_path)}&v=#{mtime_v}"])
   end
 
-  it "falls back to pdf:name sentinel for disk files that are not images" do
-    images = emitted_images("doc", [{ name: "report.pdf", type: "pdf", path: "/tmp/report.pdf" }])
-    expect(images).to eq(["pdf:report.pdf"])
+  it "emits a path-backed attachment for a disk file that still exists" do
+    file_path = File.join(tmpdir, "report.pdf")
+    File.binwrite(file_path, "PDF")
+
+    event = emitted_event("doc", [{ name: "report.pdf", type: "pdf", path: file_path }])
+    expect(event[:attachments]).to eq([{ name: "report.pdf", type: "pdf", path: file_path }])
+    expect(event).not_to have_key(:images)
+  end
+
+  it "keeps a missing disk attachment visible without an actionable path" do
+    event = emitted_event("doc", [{ name: "gone.pdf", type: "pdf", path: "/tmp/definitely-missing.pdf" }])
+    expect(event[:attachments]).to eq([{ name: "gone.pdf", type: "pdf" }])
+  end
+
+  it "does not turn @ references into attachment cards" do
+    event = emitted_event("doc", [{ name: "app.rb", path: "/tmp/app.rb", reference: true }])
+    expect(event).not_to have_key(:attachments)
+    expect(event).not_to have_key(:images)
   end
 
   it "does not emit local-image URL when the image path does not exist on disk" do
     images = emitted_images("", [{ name: "gone.png", type: "image", path: "/tmp/definitely-missing.png" }])
-    # Missing file -> falls through to name sentinel (badge), not a broken proxy URL
-    expect(images).to eq(["pdf:gone.png"])
+    expect(images).to eq(["expired:gone.png"])
+  end
+
+  it "recognizes live image attachments by mime_type" do
+    image_path = File.join(tmpdir, "live.png")
+    File.binwrite(image_path, "PNG")
+
+    images = emitted_images("", [{ name: "live.png", mime_type: "image/png", path: image_path }])
+    expect(images.first).to start_with("/api/local-image?path=")
   end
 
   it "supports symbol and string keyed file hashes" do
