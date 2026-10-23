@@ -108,6 +108,26 @@ RSpec.describe Clacky::Server::WebUIController, "#show_complete" do
   end
 end
 
+RSpec.describe Clacky::Server::WebUIController, "#show_assistant_message" do
+  let(:events) { [] }
+  let(:controller) do
+    described_class.new("test-session", ->(_sid, event) { events << event })
+  end
+  let(:subscriber) { double("channel_ui") }
+
+  before { controller.subscribe_channel(subscriber) }
+
+  it "keeps visualization references on Web while stripping them at the channel boundary" do
+    reference = "visualize{\"artifact_id\":\"#{"a" * 64}\",\"title\":\"Demo\"}"
+    expect(subscriber).to receive(:show_assistant_message)
+      .with("Summary", files: [], interim: false)
+
+    controller.show_assistant_message("Summary\n\n#{reference}", files: [])
+
+    expect(events.last[:content]).to include(reference)
+  end
+end
+
 RSpec.describe Clacky::Server::WebUIController, "#show_tool_call" do
   let(:events) { [] }
   let(:controller) do
