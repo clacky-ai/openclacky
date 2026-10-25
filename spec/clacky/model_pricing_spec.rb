@@ -147,8 +147,8 @@ RSpec.describe Clacky::ModelPricing do
         )
         # Input: (50,000 / 1,000,000) * $0.10 = $0.005
         # Output: (10,000 / 1,000,000) * $0.50 = $0.005
-        # Total: $0.01, minus the Claude promo → $0.006
-        expect(under[:cost]).to be_within(0.0001).of(0.006)
+        # Total: $0.01, minus the Claude promo → $0.0045
+        expect(under[:cost]).to be_within(0.0001).of(0.0045)
 
         over = described_class.calculate_cost(
           model: "abs-claude-haiku-5-5",
@@ -156,8 +156,8 @@ RSpec.describe Clacky::ModelPricing do
         )
         # Input: (120,000 / 1,000,000) * $0.50 = $0.06
         # Output: (10,000 / 1,000,000) * $2.50 = $0.025
-        # Total: $0.085, minus the Claude promo → $0.051
-        expect(over[:cost]).to be_within(0.0001).of(0.051)
+        # Total: $0.085, minus the Claude promo → $0.03825
+        expect(over[:cost]).to be_within(0.0001).of(0.03825)
       end
 
       it "keeps exactly 100K on the cheap card (the cut-off is exclusive)" do
@@ -165,8 +165,8 @@ RSpec.describe Clacky::ModelPricing do
           model: "abs-claude-haiku-5-5",
           usage: { prompt_tokens: 100_000, completion_tokens: 0 }
         )
-        # (100,000 / 1,000,000) * $0.10 = $0.01 → $0.006 after the promo
-        expect(result[:cost]).to be_within(0.0001).of(0.006)
+        # (100,000 / 1,000,000) * $0.10 = $0.01 → $0.0045 after the promo
+        expect(result[:cost]).to be_within(0.0001).of(0.0045)
       end
 
       it "tiers its cache rates at 100K too" do
@@ -182,9 +182,9 @@ RSpec.describe Clacky::ModelPricing do
         #   (prompt_tokens includes the 20,000 cache reads, so they are billed below)
         # Cache write: (10,000 / 1,000,000) * $0.625 = $0.00625
         # Cache read: (20,000 / 1,000,000) * $0.05 = $0.001
-        # Total: $0.05725, minus the Claude promo → $0.03435
+        # Total: $0.05725, minus the Claude promo → $0.0257625
         result = described_class.calculate_cost(model: "abs-claude-haiku-5-5", usage: usage)
-        expect(result[:cost]).to be_within(0.0001).of(0.03435)
+        expect(result[:cost]).to be_within(0.0001).of(0.0257625)
       end
 
       it "does not collide with claude-haiku-4.5 (regression guard)" do
@@ -950,10 +950,10 @@ RSpec.describe Clacky::ModelPricing do
     it "applies the Claude discount to platform-served aliases" do
       usage = { prompt_tokens: 1_000_000, completion_tokens: 1_000_000 }
 
-      # Sonnet 5 lists at $2 in / $10 out, so 6折 bills $1.20 / $6.00.
+      # Sonnet 5 lists at $2 in / $10 out, so 4.5折 bills $0.90 / $4.50.
       result = described_class.calculate_cost(model: "abs-claude-sonnet-5", usage: usage)
 
-      expect(result[:cost]).to be_within(0.001).of(7.20)
+      expect(result[:cost]).to be_within(0.001).of(5.40)
       expect(result[:source]).to eq(:price)
     end
 
@@ -1037,9 +1037,9 @@ RSpec.describe Clacky::ModelPricing do
     end
 
     it "matches the whole alias family and nothing else" do
-      expect(described_class.discount_rate("abs-claude-opus-5-5")).to eq(0.6)
-      expect(described_class.discount_rate("abs-claude-haiku-4-5")).to eq(0.6)
-      expect(described_class.discount_rate("abs-claude-haiku-5-5")).to eq(0.6)
+      expect(described_class.discount_rate("abs-claude-opus-5-5")).to eq(0.45)
+      expect(described_class.discount_rate("abs-claude-haiku-4-5")).to eq(0.45)
+      expect(described_class.discount_rate("abs-claude-haiku-5-5")).to eq(0.45)
       expect(described_class.discount_rate("claude-opus-5-5")).to eq(1.0)
       expect(described_class.discount_rate("oc-glm-5.3")).to eq(0.95)
       expect(described_class.discount_rate("oc-kimi-k3")).to eq(0.9)
@@ -1061,7 +1061,7 @@ RSpec.describe Clacky::ModelPricing do
     end
 
     it "reports where a promotion comes from" do
-      expect(described_class.discount_info("abs-claude-opus-5-5")).to eq(rate: 0.6, reason: "channel")
+      expect(described_class.discount_info("abs-claude-opus-5-5")).to eq(rate: 0.45, reason: "channel")
       expect(described_class.discount_info("oc-kimi-k3")).to eq(rate: 0.9, reason: "channel")
       expect(described_class.discount_info("oc-grok-4.7")).to eq(rate: 0.3, reason: "channel")
       expect(described_class.discount_info("oc-gpt-6.1-sol")).to eq(rate: 0.3, reason: "channel")

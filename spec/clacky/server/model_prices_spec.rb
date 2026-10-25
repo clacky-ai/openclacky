@@ -78,10 +78,10 @@ RSpec.describe Clacky::Server::ModelPrices do
         result = described_class.build("abs-claude-sonnet-5,abs-claude-fable-5")
 
         expect(result[:prices]["abs-claude-sonnet-5"]).to eq(
-          in: 1.2, out: 6.0, ratio: (1.2 + 6.0) / base_total, discount: { rate: 0.6, reason: "channel" }
+          in: 0.9, out: 4.5, ratio: (0.9 + 4.5) / base_total, discount: { rate: 0.45, reason: "channel" }
         )
         expect(result[:prices]["abs-claude-fable-5"]).to eq(
-          in: 6.0, out: 30.0, ratio: (6.0 + 30.0) / base_total, discount: { rate: 0.6, reason: "channel" }
+          in: 4.5, out: 22.5, ratio: (4.5 + 22.5) / base_total, discount: { rate: 0.45, reason: "channel" }
         )
       end
 
@@ -89,7 +89,7 @@ RSpec.describe Clacky::Server::ModelPrices do
         result = described_class.build("abs-claude-haiku-5-5")
 
         expect(result[:prices]["abs-claude-haiku-5-5"]).to eq(
-          in: 0.06, out: 0.3, ratio: (0.06 + 0.3) / base_total, discount: { rate: 0.6, reason: "channel" }
+          in: 0.045, out: 0.225, ratio: (0.045 + 0.225) / base_total, discount: { rate: 0.45, reason: "channel" }
         )
       end
 

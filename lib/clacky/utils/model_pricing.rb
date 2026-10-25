@@ -1214,7 +1214,7 @@ module Clacky
     # served through a third party.
     # The gateway mirrors this list - see seriesDiscount in llm_proxy.
     DISCOUNT_RULES = [
-      { match: /\Aabs-claude-/,      rate: 0.6,  reason: "channel" }, # Claude via ciyuan cc-max - 40% off
+      { match: /\Aabs-claude-/,      rate: 0.45, reason: "channel" }, # Claude via ciyuan cc-max - 55% off
       { match: /\Aoc-glm-/,          rate: 0.95, reason: "channel" }, # GLM via ciyuan glm - 5% off
       { match: /\Aoc-kimi-/,         rate: 0.9,  reason: "channel" }, # Kimi K3 via ciyuan - 10% off
       { match: /\Aoc-grok-/,         rate: 0.3,  reason: "channel" }, # Grok 4.7 via ciyuan grok - 70% off
