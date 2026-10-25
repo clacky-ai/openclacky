@@ -19,6 +19,8 @@ RSpec.describe Clacky::Tools::WebSearch, "DeepSeek hosted search" do
     stub_const("Clacky::SearchConfig::CONFIG_PATH", File.join(@dir, "search.yml"))
     Clacky::SearchConfig.save(provider: Clacky::SearchConfig::DEEPSEEK_WEB, key: "")
     tool.agent = double("agent", config: config)
+    # Keep the You.com free tier off the network; web_search_you_spec covers it.
+    allow(tool).to receive(:search_you).and_return([])
   end
 
   after { FileUtils.rm_rf(@dir) }

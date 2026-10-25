@@ -33,11 +33,16 @@ module Clacky
       # Ordered list of search providers to try in sequence.
       # Parallel is the primary no-key provider; the HTML scrapers remain as
       # fallbacks, with cn.bing.com accessible in mainland China without VPN.
-      PROVIDERS = %i[parallel duckduckgo bing].freeze
+      # You.com's free tier is a second no-key engine behind Parallel.
+      PROVIDERS = %i[parallel you duckduckgo bing].freeze
 
       SEARCHER_TIMEOUT = 30
       PARALLEL_ENDPOINT = "https://search.parallel.ai/mcp"
       PARALLEL_SNIPPET_MAX_CHARS = 400
+      # No key needed: 100 searches/day per IP. Keyed users can pick the
+      # bundled ~/.clacky/searchers/you.rb instead.
+      YOU_FREE_ENDPOINT = "https://api.you.com/v1/agents/search"
+      YOU_USER_AGENT = "youdotcom-integration/clacky-ai-openclacky"
       # Shared by every provider, hosted or free: one failure keeps that
       # provider out of the retry path for the whole window.
       PROVIDER_COOLDOWN_SECONDS = 3600
@@ -71,6 +76,8 @@ module Clacky
             when :parallel
               reset_parallel_client
               @parallel_unavailable_until = Time.now + PROVIDER_COOLDOWN_SECONDS
+            when :you
+              @you_unavailable_until = Time.now + (e.respond_to?(:retry_after) && e.retry_after || PROVIDER_COOLDOWN_SECONDS)
             when :duckduckgo
               @ddg_unavailable_until = Time.now + PROVIDER_COOLDOWN_SECONDS
             end
@@ -115,6 +122,7 @@ module Clacky
         free_chain = PROVIDERS.reject do |provider|
           unavailable_until = case provider
                               when :parallel then @parallel_unavailable_until
+                              when :you then @you_unavailable_until
                               when :duckduckgo then @ddg_unavailable_until
                               end
           unavailable_until && Time.now < unavailable_until
@@ -189,6 +197,70 @@ module Clacky
         Array(result["content"]).filter_map do |item|
           item["text"] if item.is_a?(Hash) && item["type"] == "text"
         end.join("\n")
+      end
+
+      # ── You.com free tier (no key) ─────────────────────────────────────────
+
+      # Raised for a non-2xx free-tier answer; carries Retry-After (seconds)
+      # so a 429 cools You.com down for as long as the server asks.
+      class YouSearchError < StandardError
+        attr_reader :retry_after
+
+        def initialize(message, retry_after: nil)
+          super(message)
+          @retry_after = retry_after
+        end
+      end
+
+      private def search_you(query, max_results)
+        url = URI(YOU_FREE_ENDPOINT)
+        url.query = URI.encode_www_form(query: query, count: max_results.clamp(1, 20))
+        request = Net::HTTP::Get.new(url)
+        request["User-Agent"] = YOU_USER_AGENT
+        request["Accept"] = "application/json"
+
+        response = Net::HTTP.start(url.hostname, url.port, use_ssl: true, read_timeout: 10, open_timeout: 5) do |http|
+          http.request(request)
+        end
+        raise you_error(response) unless response.is_a?(Net::HTTPSuccess)
+
+        parse_you_results(response.body, max_results)
+      end
+
+      private def you_error(response)
+        code = response.code.to_i
+        retry_after = Integer(response["retry-after"].to_s, exception: false)
+        reason = case code
+                 when 401, 403 then "access denied"
+                 when 402 then "free quota exhausted"
+                 when 429 then "rate limited"
+                 else "HTTP #{code}"
+                 end
+        YouSearchError.new("You.com search failed: #{reason} (#{code})",
+                           retry_after: retry_after&.positive? ? retry_after : nil)
+      end
+
+      private def parse_you_results(body, max_results)
+        payload = JSON.parse(body.to_s)
+        web = payload.is_a?(Hash) && payload.dig("results", "web")
+        raise "You.com returned malformed search results" unless web.is_a?(Array)
+
+        web.filter_map do |item|
+          next unless item.is_a?(Hash)
+
+          url = item["url"].to_s
+          next if url.empty?
+
+          snippet = item["description"].to_s
+          snippet = Array(item["snippets"]).join(" ") if snippet.strip.empty?
+          {
+            title: item["title"].to_s,
+            url: url,
+            snippet: snippet.gsub(/\s+/, " ").strip[0, PARALLEL_SNIPPET_MAX_CHARS]
+          }
+        end.first(max_results)
+      rescue JSON::ParserError
+        raise "You.com returned malformed JSON"
       end
 
       # ── DeepSeek hosted search (paid, opt-in) ──────────────────────────────

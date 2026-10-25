@@ -11,6 +11,8 @@ RSpec.describe Clacky::Tools::WebSearch, "Parallel provider" do
     allow(Clacky::Mcp::Client).to receive(:from_spec).and_return(client)
     allow(client).to receive(:start).and_return(client)
     allow(client).to receive(:stop)
+    # Keep the You.com free tier off the network; web_search_you_spec covers it.
+    allow(tool).to receive(:search_you).and_return([])
   end
 
   def parallel_result(results)
