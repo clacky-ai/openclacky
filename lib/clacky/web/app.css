@@ -6861,8 +6861,9 @@ body {
   display: none;
 }
 
-/* Page-level drop target for session references and file attachments. */
-#chat-panel.drag-over,
+/* Drop target for session references and file attachments. Scoped to the
+   chat column so the session aside never flashes a drop outline. */
+#chat-main.drag-over,
 #welcome.drag-over {
   outline: 2px dashed var(--color-accent-primary);
   outline-offset: -5px;

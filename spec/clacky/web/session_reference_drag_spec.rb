@@ -22,8 +22,9 @@ RSpec.describe "Web session reference drag and drop" do
     expect(sessions).to include('type: "session"')
   end
 
-  it "binds the full current and new-session pages as shared drop zones" do
-    expect(sessions).to include('zone: document.getElementById("chat-panel")')
+  it "binds the chat column and the new-session page as shared drop zones" do
+    expect(sessions).to include('zone: document.getElementById("chat-main")')
+    expect(sessions).not_to include('zone: document.getElementById("chat-panel")')
     expect(new_session).to include('zone: $("welcome")')
     expect(sessions).not_to include('inputArea.addEventListener("drop"')
     expect(new_session).not_to include('composer.addEventListener("drop"')
@@ -32,7 +33,8 @@ RSpec.describe "Web session reference drag and drop" do
   it "provides a compact drag preview and page-level drop-target feedback" do
     expect(styles).to include(".reference-drag-preview")
     expect(styles).to include(".session-item.is-dragging")
-    expect(styles).to include("#chat-panel.drag-over")
+    expect(styles).to include("#chat-main.drag-over")
+    expect(styles).not_to include("#chat-panel.drag-over")
     expect(styles).to include("#welcome.drag-over")
   end
 
