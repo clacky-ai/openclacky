@@ -137,6 +137,7 @@ const TREE = {
 
 function boot() {
   const fetches = [];
+  const dragged = [];
   const nodes = {};
   const document = {
     createElement: tag => new Element(tag),
@@ -182,7 +183,17 @@ function boot() {
     Tasks: autoStub(),
     Skills: autoStub(),
     SkillAC: autoStub({ renderUserMessageHtml: s => s }),
-    Composer: autoStub({ text: () => "follow-up", chips: () => [], clear() {}, focus() {} }),
+    Composer: autoStub({
+      text: () => "follow-up",
+      chips: () => [],
+      clear() {},
+      focus() {},
+      beginWorkspaceFileDrag(dataTransfer, file) {
+        dragged.push(file);
+        dataTransfer.effectAllowed = "copy";
+        return true;
+      },
+    }),
     IME: autoStub({ track: () => ({ isComposing: () => false, dispose() {} }) }),
     alert() {},
   };
@@ -213,6 +224,7 @@ function boot() {
     container,
     fetches,
     sent,
+    dragged,
     opened,
     input: document.getElementById("user-input"),
     tree: container.querySelector(".wt-tree"),
@@ -276,7 +288,29 @@ async function tests() {
       "nothing is uploaded or copied");
   }
 
-  // 2. Images need a MIME type: without one the model never sees the picture.
+  // 2. Dragging a file exposes the same absolute path-backed attachment data
+  //    as the context-menu action; folders remain ordinary tree controls.
+  {
+    const w = boot();
+    await settle();
+
+    const fileRow = row(w, "report.docx");
+    const dirRow = row(w, "src");
+    assert.equal(fileRow.draggable, true, "files are draggable");
+    assert.notEqual(dirRow.draggable, true, "directories are not draggable attachments");
+
+    const dataTransfer = { effectAllowed: "none" };
+    fileRow.handlers.dragstart({ dataTransfer, preventDefault() { assert.fail("valid file drag was cancelled"); } });
+    assert.equal(dataTransfer.effectAllowed, "copy");
+    assert.deepEqual(plain(w.dragged), [{
+      type: "file",
+      name: "report.docx",
+      path: "/wd/report.docx",
+      size: 1200,
+    }]);
+  }
+
+  // 3. Images need a MIME type: without one the model never sees the picture.
   {
     const w = boot();
     await settle();
@@ -296,7 +330,7 @@ async function tests() {
       "the image keeps its type so the vision pipeline picks it up");
   }
 
-  // 3. Only files: a folder has nothing to attach.
+  // 4. Only files: a folder has nothing to attach.
   {
     const w = boot();
     await settle();
