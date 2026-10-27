@@ -3,6 +3,7 @@
 require "net/http"
 require "socket"
 require "timeout"
+require "uri"
 
 module Clacky
   module Server
@@ -47,18 +48,53 @@ module Clacky
         ".ogg"   => "audio/ogg"
       }.freeze
 
-      # Injected into preview HTML responses. The preview iframe is sandboxed
-      # without allow-same-origin, so the host page cannot read its location
-      # (and the iframe's src property does not follow internal navigations).
-      # Each served page therefore announces its own URL to the parent.
-      PREVIEW_NAV_REPORT = '<script>(function(){try{parent.postMessage({__clackyPreview:1,href:location.href},"*")}catch(e){}})()</script>'
+      # Injected into preview HTML responses. The preview iframe is cross-origin
+      # to the host page, so the host cannot read its location (and the iframe's
+      # src property does not follow internal navigations). Each served page
+      # therefore announces its own URL to the parent. Re-reporting is not just
+      # the initial load: Turbo/htmx/React-Router navigations swap the DOM
+      # without a full page load, so the same script also listens for their
+      # events, patches the History API and falls back to a slow poll.
+      PREVIEW_NAV_REPORT = <<~JS.freeze
+        <script>(function(){
+          var last = null;
+          function report(){
+            try {
+              if (location.href === last) return;
+              last = location.href;
+              parent.postMessage({__clackyPreview:1,href:location.href},"*");
+            } catch(e){}
+          }
+          report();
+          ["turbo:load","turbo:render","turbo:frame-load","htmx:afterSwap","pjax:end","DOMContentLoaded"].forEach(function(n){
+            document.addEventListener(n, report);
+          });
+          window.addEventListener("popstate", report);
+          window.addEventListener("hashchange", report);
+          var push = history.pushState, replace = history.replaceState;
+          history.pushState = function(){ push.apply(history, arguments); report(); };
+          history.replaceState = function(){ replace.apply(history, arguments); report(); };
+          setInterval(report, 500);
+        })()</script>
+      JS
+
+
+      # Must match ISOLATED_PREVIEW_HOST in
+      # default_extensions/preview/panels/preview/view.js. Chrome resolves
+      # every *.localhost name to loopback, so the preview frame runs on this
+      # origin while the UI stays on 127.0.0.1/localhost.
+      ISOLATED_PREVIEW_HOST = "preview.localhost"
+
+      # Hostnames a dev server may redirect to with an absolute URL. Only these
+      # are folded back into the proxy prefix; anything else is a deliberate
+      # off-box redirect and is passed through untouched.
+      LOOPBACK_HOSTS = %w[127.0.0.1 localhost ::1].freeze
 
       # Headers dropped when proxying a localhost dev server through the
-      # preview panel. X-Frame-Options is what blocks the sandboxed iframe;
-      # hop-by-hop headers and Set-Cookie must not cross the proxy boundary
-      # (WEBrick recomputes the former, cookies would leak the upstream's
-      # domain into ours). CSP frame-ancestors is handled separately so the
-      # rest of the policy survives.
+      # preview panel. X-Frame-Options is what blocks the sandboxed iframe and
+      # hop-by-hop headers are recomputed by WEBrick. Set-Cookie is handled
+      # separately (see #preview_cookie) because the isolated preview origin
+      # needs the upstream session to survive inside a third-party frame.
       PROXY_SKIP_HEADERS = %w[
         x-frame-options
         transfer-encoding
@@ -70,7 +106,6 @@ module Clacky
         te
         trailer
         upgrade
-        set-cookie
       ].freeze
 
       # Connection-stage failures when dialing the localhost dev server. The
@@ -189,11 +224,8 @@ module Clacky
       # the document start) so the reporter runs before page scripts while a
       # leading <!DOCTYPE> stays first — prepending would flip the document
       # into quirks mode.
-      private def preview_body(abs)
-        body = File.binread(abs)
-        return body unless (PREVIEW_CONTENT_TYPES[File.extname(abs).downcase] || "").start_with?("text/html")
-
-        html = body.force_encoding(Encoding::UTF_8)
+      private def inject_nav_report(html)
+        html = html.force_encoding(Encoding::UTF_8)
         if (m = html.match(/<head[^>]*>/i))
           html[m.end(0), 0] = PREVIEW_NAV_REPORT
         elsif (m = html.match(/<html[^>]*>/i))
@@ -204,6 +236,13 @@ module Clacky
           html = PREVIEW_NAV_REPORT + html
         end
         html
+      end
+
+      private def preview_body(abs)
+        body = File.binread(abs)
+        return body unless (PREVIEW_CONTENT_TYPES[File.extname(abs).downcase] || "").start_with?("text/html")
+
+        inject_nav_report(body)
       end
 
       # Decode %XX escapes in a preview path segment without treating "+" as
@@ -285,6 +324,15 @@ module Clacky
             next if value.nil? || value.empty?
           end
           next if PROXY_SKIP_HEADERS.include?(down)
+          if down == "set-cookie"
+            cookie = preview_cookie(value)
+            res.cookies << cookie if cookie && isolated_preview_request?(req)
+            next
+          end
+          if down == "location"
+            res[name] = rewrite_preview_location(value, port, req)
+            next
+          end
           if down == "content-type"
             is_html = value.start_with?("text/html")
             is_css  = value.start_with?("text/css")
@@ -300,7 +348,7 @@ module Clacky
         if req.request_method != "HEAD"
           body = resp.body.to_s
           if is_html
-            body = rewrite_preview_paths(body, port)
+            body = inject_nav_report(rewrite_preview_paths(body, port))
           elsif is_css
             body = rewrite_preview_css(body, port)
           end
@@ -317,6 +365,59 @@ module Clacky
         stripped = csp.to_s.gsub(/frame-ancestors[^;]*;?/i, "")
         stripped = stripped.gsub(/;\s*;/, ";").gsub(/^\s*;|;\s*$/, "").strip
         stripped.empty? ? nil : stripped
+      end
+
+      # Rewrites an upstream Set-Cookie so it survives inside the preview
+      # frame. The frame is a third-party context for the host UI, where Chrome
+      # drops SameSite=Lax/Strict cookies outright, so the session cookie the
+      # dev server just set would be discarded and every page would look like a
+      # fresh, cookie-less visit. SameSite=None needs Secure, which Chrome
+      # accepts over http for *.localhost because it is a trustworthy origin.
+      # Domain is dropped so the cookie stays pinned to the preview origin and
+      # can never be read by the host UI.
+      private def preview_cookie(value)
+        parts = value.to_s.split(";").map(&:strip).reject(&:empty?)
+        return nil if parts.empty?
+
+        kept = parts[1..-1].reject do |attr|
+          attr =~ /\A(?:domain|samesite)\s*=/i || attr =~ /\Asecure\z/i
+        end
+        ([parts.first] + kept + ["SameSite=None", "Secure"]).join("; ")
+      end
+
+      private def isolated_preview_request?(req)
+        req["Host"].to_s.split(":").first.to_s.downcase == ISOLATED_PREVIEW_HOST
+      end
+
+      # An upstream 3xx points at the dev server root (/dashboard). Inside the
+      # isolated preview frame that resolves against the proxy origin and loses
+      # the /preview/p/<port> prefix, so the redirect lands on a 404 — and the
+      # address bar never sees the new page. Keep root-relative redirects inside
+      # the prefix and fold absolute ones that point back at the same dev
+      # server. Off-box and already-prefixed URLs pass through untouched.
+      private def rewrite_preview_location(value, port, req)
+        return value unless isolated_preview_request?(req)
+
+        prefix = "/preview/p/#{port}"
+        if value.start_with?("/") && !value.start_with?("//")
+          return value if value == prefix || value.start_with?("#{prefix}/", "#{prefix}?")
+
+          return "#{prefix}#{value}"
+        end
+
+        uri = begin
+          URI.parse(value)
+        rescue URI::InvalidURIError
+          return value
+        end
+        return value unless uri.host
+        return value unless LOOPBACK_HOSTS.include?(uri.host.downcase)
+        return value unless uri.port == port
+
+        path = uri.path.to_s.empty? ? "/" : uri.path
+        path += "?#{uri.query}" if uri.query
+        path += "##{uri.fragment}" if uri.fragment
+        "#{prefix}#{path}"
       end
 
       # Rewrites absolute-path resource URLs (/assets/app.js) in a proxied HTML

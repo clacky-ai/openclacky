@@ -44,12 +44,14 @@ RSpec.describe Clacky::Server::HttpServer, "preview route" do
   def res
     r    = double("res")
     head = {}
+    jar  = []
     allow(r).to receive(:status=) { |v| r.instance_variable_set(:@status, v) }
     allow(r).to receive(:[]=)     { |k, v| head[k] = v }
     allow(r).to receive(:body=)   { |v| r.instance_variable_set(:@body, v) }
     allow(r).to receive(:status)  { r.instance_variable_get(:@status) }
     allow(r).to receive(:body)    { r.instance_variable_get(:@body) }
     allow(r).to receive(:headers) { head }
+    allow(r).to receive(:cookies) { jar }
     r
   end
 
@@ -287,10 +289,10 @@ RSpec.describe Clacky::Server::HttpServer, "preview route" do
       thread&.join
     end
 
-    def serve_proxy(server, method, path)
+    def serve_proxy(server, method, path, host: nil)
       r = res
       proxy_req = double("req", request_method: method, path: path, query_string: nil)
-      allow(proxy_req).to receive(:[]).and_return(nil)
+      allow(proxy_req).to receive(:[]) { |name| name == "Host" ? host : nil }
       server.send(:serve_preview_proxy, proxy_req, r)
       r
     end
@@ -329,6 +331,106 @@ RSpec.describe Clacky::Server::HttpServer, "preview route" do
 
         expect(r.status).to eq(200)
         expect(r.body).to include("ok")
+      end
+    end
+
+    it "forwards upstream cookies to the isolated preview origin" do
+      with_upstream(
+        headers: { "Set-Cookie" => "_clacky_app_session=abc; path=/; httponly; samesite=lax" },
+        body: "ok"
+      ) do |port|
+        r = serve_proxy(server, "GET", "/preview/p/#{port}/", host: "preview.localhost:7070")
+
+        expect(r.cookies).to eq(["_clacky_app_session=abc; path=/; httponly; SameSite=None; Secure"])
+      end
+    end
+
+    it "drops the Domain attribute so a cookie cannot reach the host origin" do
+      with_upstream(
+        headers: { "Set-Cookie" => "_clacky_app_session=abc; domain=localhost; path=/; samesite=strict; secure" },
+        body: "ok"
+      ) do |port|
+        r = serve_proxy(server, "GET", "/preview/p/#{port}/", host: "preview.localhost:7070")
+
+        expect(r.cookies).to eq(["_clacky_app_session=abc; path=/; SameSite=None; Secure"])
+      end
+    end
+
+    it "does not forward upstream cookies on a same-origin preview request" do
+      with_upstream(
+        headers: { "Set-Cookie" => "_clacky_app_session=abc; path=/" },
+        body: "ok"
+      ) do |port|
+        r = serve_proxy(server, "GET", "/preview/p/#{port}/", host: "127.0.0.1:7070")
+
+        expect(r.cookies).to be_empty
+      end
+    end
+
+    it "keeps a root-relative redirect inside the proxy prefix" do
+      with_upstream(status: 302, headers: { "Location" => "/dashboard?tab=1" }, body: "") do |port|
+        r = serve_proxy(server, "GET", "/preview/p/#{port}/sign_in", host: "preview.localhost:7070")
+
+        expect(r.status).to eq(302)
+        expect(r.headers["Location"]).to eq("/preview/p/#{port}/dashboard?tab=1")
+      end
+    end
+
+    it "folds an absolute redirect to the same dev server into the proxy prefix" do
+      upstream = WEBrick::HTTPServer.new(
+        BindAddress: "127.0.0.1",
+        Port: 0,
+        Logger: WEBrick::Log.new(File::NULL),
+        AccessLog: []
+      )
+      upstream.mount_proc("/") do |_req, res|
+        res.status = 302
+        res["Location"] = "http://127.0.0.1:#{upstream.listeners.first.addr[1]}/home?x=1#top"
+      end
+      thread = Thread.new { upstream.start }
+      port = upstream.listeners.first.addr[1]
+
+      r = serve_proxy(server, "GET", "/preview/p/#{port}/sign_in", host: "preview.localhost:7070")
+
+      expect(r.headers["Location"]).to eq("/preview/p/#{port}/home?x=1#top")
+    ensure
+      upstream&.shutdown
+      thread&.join
+    end
+
+    it "leaves redirects to another host untouched" do
+      with_upstream(status: 302, headers: { "Location" => "https://accounts.example.com/oauth" }, body: "") do |port|
+        r = serve_proxy(server, "GET", "/preview/p/#{port}/sign_in", host: "preview.localhost:7070")
+
+        expect(r.headers["Location"]).to eq("https://accounts.example.com/oauth")
+      end
+    end
+
+    it "does not rewrite redirects on a same-origin preview request" do
+      with_upstream(status: 302, headers: { "Location" => "/dashboard" }, body: "") do |port|
+        r = serve_proxy(server, "GET", "/preview/p/#{port}/sign_in", host: "127.0.0.1:7070")
+
+        expect(r.headers["Location"]).to eq("http://127.0.0.1:#{port}/dashboard")
+      end
+    end
+
+    it "injects the navigation reporter into proxied HTML" do      with_upstream(
+        headers: { "Content-Type" => "text/html; charset=utf-8" },
+        body: "<html><head><title>x</title></head><body></body></html>"
+      ) do |port|
+        r = serve_proxy(server, "GET", "/preview/p/#{port}/")
+
+        expect(r.body).to include("__clackyPreview")
+        expect(r.body).to include("turbo:load")
+        expect(r.body.index("__clackyPreview")).to be < r.body.index("<title>")
+      end
+    end
+
+    it "does not inject the navigation reporter into non-HTML responses" do
+      with_upstream(headers: { "Content-Type" => "application/json" }, body: '{"ok":true}') do |port|
+        r = serve_proxy(server, "GET", "/preview/p/#{port}/data.json")
+
+        expect(r.body).to eq('{"ok":true}')
       end
     end
 
