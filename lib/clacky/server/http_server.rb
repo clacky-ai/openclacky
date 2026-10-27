@@ -850,9 +850,6 @@ module Clacky
             session_id = path[%r{^/api/sessions/([^/]+)/git/}, 1]
             action     = path[%r{/git/([a-z]+)$}, 1]
             api_session_git(session_id, action, req, res)
-          elsif method == "POST" && path.match?(%r{^/api/sessions/[^/]+/git/commit$})
-            session_id = path[%r{^/api/sessions/([^/]+)/git/}, 1]
-            api_session_git_commit(session_id, req, res)
           elsif method == "POST" && path.match?(%r{^/api/sessions/[^/]+/git/restore$})
             session_id = path[%r{^/api/sessions/([^/]+)/git/}, 1]
             api_session_git_restore(session_id, req, res)
@@ -5426,31 +5423,24 @@ module Clacky
         when "status"
           json_response(res, 200, { repo: true }.merge(Clacky::Server::GitPanel.status(dir)))
         when "diff"
-          json_response(res, 200, { repo: true, diff: Clacky::Server::GitPanel.diff(dir, file: query["file"]) })
+          json_response(res, 200, { repo: true, diff: Clacky::Server::GitPanel.diff(
+            dir, file: query["file"], context: query["context"],
+            scope: query["scope"], base: query["base"]
+          ) })
+        when "review"
+          if query["scope"].to_s == "lastTurn"
+            json_response(res, 200, Clacky::Server::GitPanel.last_turn_review(git_session_agent(session_id)))
+          else
+            json_response(res, 200, Clacky::Server::GitPanel.review(
+              dir, scope: query["scope"], base: query["base"]
+            ))
+          end
         when "log"
           json_response(res, 200, { repo: true, commits: Clacky::Server::GitPanel.log(dir, limit: query["limit"] || 50) })
         when "branches"
           json_response(res, 200, { repo: true, branches: Clacky::Server::GitPanel.branches(dir) })
         else
           json_response(res, 404, { error: "Unknown git action" })
-        end
-      end
-
-      # POST /api/sessions/:id/git/commit — body: { message:, files: [..] }.
-      def api_session_git_commit(session_id, req, res)
-        dir = git_session_dir(session_id, res)
-        return unless dir
-
-        unless Clacky::Server::GitPanel.repo?(dir)
-          return json_response(res, 400, { error: "Not a git repository" })
-        end
-
-        body = parse_json_body(req)
-        result = Clacky::Server::GitPanel.commit(dir, message: body["message"], files: body["files"])
-        if result[:ok]
-          json_response(res, 200, result)
-        else
-          json_response(res, 422, { error: result[:error] })
         end
       end
 
@@ -5557,8 +5547,7 @@ module Clacky
           json_response(res, 404, { error: "Session not found" })
           return nil
         end
-        session = @registry.get(session_id)
-        agent   = session && session[:agent]
+        agent = git_session_agent(session_id)
         unless agent
           json_response(res, 404, { error: "Session not found" })
           return nil
@@ -5569,6 +5558,11 @@ module Clacky
           return nil
         end
         dir
+      end
+
+      private def git_session_agent(session_id)
+        session = @registry.get(session_id)
+        session && session[:agent]
       end
       # Lists one directory level inside the session's working_dir (lazy, per-layer).
       # Path traversal outside working_dir is rejected. Noisy dirs are hidden.

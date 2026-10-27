@@ -330,9 +330,9 @@ RSpec.describe "WebUI extension architecture" do
       expect(workspace_view_js).not_to include("requestWidth(VIEWER_ASIDE_WIDTH, { persist: true })")
     end
 
-    it "keeps the Git diff on the same host-managed contract" do
-      expect(git_view_js).to include("Clacky.Aside.requestWidth(DIFF_ASIDE_WIDTH)")
-      expect(git_view_js).to include("const release = releaseAsideWidth")
+    it "leaves the Git diff on whatever width the user already has" do
+      expect(git_view_js).not_to include("requestWidth")
+      expect(git_view_js).not_to include("releaseWidth")
     end
   end
 

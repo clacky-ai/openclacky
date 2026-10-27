@@ -129,6 +129,39 @@ RSpec.describe Clacky::Server::GitPanel, ".diff" do
     expect(out).to include("a/图片测试.jpg")
     expect(out).to include("+two")
   end
+
+  # The changes panel asks for a huge context value when the user clicks an
+  # "N unmodified lines" gap, so the surrounding code has to come back.
+  it "widens the context window when context: is given" do
+    lines = (1..40).map { |i| "line#{format('%02d', i)}\n" }.join
+    write "a.txt", lines
+    commit_all "init"
+    write "a.txt", lines.sub("line20\n", "line20 changed\n")
+
+    narrow = described_class.diff(@dir, file: "a.txt")
+    expect(narrow).not_to include("line01")
+
+    wide = described_class.diff(@dir, file: "a.txt", context: 999_999)
+    expect(wide).to include("line01")
+    expect(wide).to include("+line20 changed")
+    expect(wide).to include("line40")
+  end
+
+  it "clamps an absurd context value instead of passing it through" do
+    write "a.txt", "one\n"
+    commit_all "init"
+    write "a.txt", "one\ntwo\n"
+    expect(described_class.diff(@dir, file: "a.txt", context: 10**12)).to include("+two")
+  end
+
+  it "drops context entirely when context: 0" do
+    write "a.txt", "one\ntwo\nthree\n"
+    commit_all "init"
+    write "a.txt", "one\nTWO\nthree\n"
+    out = described_class.diff(@dir, file: "a.txt", context: 0)
+    expect(out).to include("@@ -2 +2 @@")
+    expect(out.lines.grep(/\A /)).to be_empty
+  end
 end
 
 # Specs for GitPanel.status - the file list behind the Changes panel. git
@@ -297,5 +330,240 @@ RSpec.describe Clacky::Server::GitPanel, ".restore" do
     result = described_class.restore(@dir, file: "新增 未跟踪.png")
     expect(result[:ok]).to be_truthy
     expect(exists?("新增 未跟踪.png")).to be_falsey
+  end
+end
+
+# Specs for GitPanel.review - the single payload behind the Changes panel.
+# One `git diff HEAD` is split into per-file chunks so a tree full of edits
+# costs one subprocess; untracked files have no baseline and are diffed
+# against /dev/null separately. Line counts drive the +/- badges.
+RSpec.describe Clacky::Server::GitPanel, ".review" do
+  include GitPanelRepo
+
+  around do |ex|
+    dir = Dir.mktmpdir("git_panel_review_spec")
+    begin
+      init_repo(dir)
+      ex.run
+    ensure
+      remove_repo(dir)
+    end
+  end
+
+  def run(*args)
+    out, _err, _st = Open3.capture3(*args.map(&:to_s), chdir: @dir)
+    out
+  end
+
+  def write(path, content)
+    full = File.join(@dir, path)
+    FileUtils.mkdir_p(File.dirname(full))
+    File.write(full, content)
+  end
+
+  def commit_all(message)
+    run "git", "add", "-A"
+    run "git", "commit", "-q", "-m", message
+  end
+
+  it "reports repo: false outside a work tree" do
+    outside = Dir.mktmpdir("git_panel_bare_spec")
+    begin
+      expect(described_class.review(outside)).to eq(repo: false)
+    ensure
+      FileUtils.remove_entry(outside)
+    end
+  end
+
+  it "returns an empty file list for a clean tree" do
+    write "a.txt", "one\n"
+    commit_all "init"
+    data = described_class.review(@dir)
+    expect(data[:repo]).to be_truthy
+    expect(data[:files]).to eq([])
+    expect(data[:add]).to eq(0)
+    expect(data[:del]).to eq(0)
+  end
+
+  it "carries the branch name and per-file counts" do
+    write "a.txt", "one\n"
+    commit_all "init"
+    write "a.txt", "one\ntwo\nthree\n"
+    file = described_class.review(@dir)[:files].first
+    expect(file[:path]).to eq("a.txt")
+    expect(file[:add]).to eq(2)
+    expect(file[:del]).to eq(0)
+    expect(file[:diff]).to include("+two")
+    expect(described_class.review(@dir)[:branch]).not_to be_nil
+  end
+
+  it "splits a multi-file diff into one entry per file" do
+    write "a.txt", "one\n"
+    write "b.txt", "one\n"
+    commit_all "init"
+    write "a.txt", "one\na\n"
+    write "b.txt", "one\nb\n"
+    data = described_class.review(@dir)
+    paths = data[:files].map { |f| f[:path] }
+    expect(paths).to contain_exactly("a.txt", "b.txt")
+    expect(data[:add]).to eq(2)
+    expect(data[:files].find { |f| f[:path] == "a.txt" }[:diff]).not_to include("+b")
+  end
+
+  it "shows an untracked file as pure additions" do
+    write "a.txt", "one\n"
+    commit_all "init"
+    write "dir/new.rb", "puts 'hi'\n"
+    file = described_class.review(@dir)[:files].find { |f| f[:path] == "dir/new.rb" }
+    expect(file[:untracked]).to be_truthy
+    expect(file[:add]).to eq(1)
+    expect(file[:del]).to eq(0)
+    expect(file[:diff]).to include("+puts 'hi'")
+  end
+
+  it "counts removals for a deleted file" do
+    write "gone.txt", "bye\n"
+    commit_all "init"
+    File.delete(File.join(@dir, "gone.txt"))
+    file = described_class.review(@dir)[:files].first
+    expect(file[:del]).to eq(1)
+    expect(file[:diff]).to include("-bye")
+  end
+
+  it "flags a binary file instead of emitting a line diff" do
+    write "a.bin", "\x00\x01\x02\x03"
+    commit_all "init"
+    write "a.bin", "\x00\x01\x02\x04"
+    file = described_class.review(@dir)[:files].first
+    expect(file[:binary]).to be_truthy
+    expect(file[:add]).to eq(0)
+    expect(file[:del]).to eq(0)
+  end
+
+  it "truncates a huge diff and says so" do
+    write "big.txt", (1..500).map { |i| "line#{i}\n" }.join
+    commit_all "init"
+    write "big.txt", (1..500).map { |i| "changed#{i}\n" }.join
+    file = described_class.review(@dir, max_lines: 40)[:files].first
+    expect(file[:truncated]).to be_truthy
+    expect(file[:diff].lines.size).to eq(40)
+  end
+
+  it "keeps a non-ASCII path readable" do
+    write "图片测试.jpg", "one\n"
+    commit_all "init"
+    write "图片测试.jpg", "one\ntwo\n"
+    file = described_class.review(@dir)[:files].first
+    expect(file[:path]).to eq("图片测试.jpg")
+    expect(file[:add]).to eq(1)
+  end
+
+  it "includes staged edits (baseline is HEAD)" do
+    write "a.txt", "one\n"
+    commit_all "init"
+    write "a.txt", "one\ntwo\n"
+    run "git", "add", "a.txt"
+    file = described_class.review(@dir)[:files].first
+    expect(file[:diff]).to include("+two")
+  end
+
+  it "limits the 'unstaged' scope to worktree edits outside the index" do
+    write "a.txt", "one\n"
+    commit_all "init"
+    write "a.txt", "one\nstaged\n"
+    run "git", "add", "a.txt"
+    write "a.txt", "one\nstaged\nunstaged\n"
+
+    data = described_class.review(@dir, scope: "unstaged")
+    expect(data[:scope]).to eq("unstaged")
+    expect(data[:files].map { |f| f[:path] }).to eq(["a.txt"])
+    expect(data[:files].first[:diff]).to include("+unstaged")
+    expect(data[:files].first[:diff]).not_to include("+staged")
+  end
+
+  it "limits the 'staged' scope to the index" do
+    write "a.txt", "one\n"
+    commit_all "init"
+    write "a.txt", "one\nstaged\n"
+    run "git", "add", "a.txt"
+    write "a.txt", "one\nstaged\nunstaged\n"
+
+    data = described_class.review(@dir, scope: "staged")
+    expect(data[:files].map { |f| f[:path] }).to eq(["a.txt"])
+    expect(data[:files].first[:diff]).to include("+staged")
+    expect(data[:files].first[:diff]).not_to include("+unstaged")
+  end
+
+  it "compares the current branch against a base for 'committed'" do
+    write "a.txt", "one\n"
+    commit_all "init"
+    base = run("git", "rev-parse", "--abbrev-ref", "HEAD").strip
+    run "git", "checkout", "-q", "-b", "feature"
+    write "b.txt", "b\n"
+    commit_all "feature commit"
+
+    data = described_class.review(@dir, scope: "committed", base: base)
+    expect(data[:base]).to eq(base)
+    expect(data[:files].map { |f| f[:path] }).to eq(["b.txt"])
+    expect(data[:files].first[:x]).to eq("A")
+    expect(data[:add]).to eq(1)
+  end
+
+  it "reports note: noBase when the base ref does not exist" do
+    write "a.txt", "one\n"
+    commit_all "init"
+    data = described_class.review(@dir, scope: "branch", base: "no-such-branch")
+    expect(data[:files]).to eq([])
+    expect(data[:note]).to eq("noBase")
+  end
+
+  it "falls back to the default base when 'committed' gets none" do
+    write "a.txt", "one\n"
+    commit_all "init"
+    branch = run("git", "rev-parse", "--abbrev-ref", "HEAD").strip
+    data = described_class.review(@dir, scope: "committed")
+    expect(data[:base]).to eq(branch)
+  end
+
+  describe "payload budget" do
+    it "drops the diff of files past the budget but keeps their counts" do
+      write "a.txt", "one\ntwo\nthree\n"
+      write "b.txt", "alpha\nbeta\ngamma\n"
+      write "c.txt", "x\ny\nz\n"
+      commit_all "init"
+      write "a.txt", "one\ntwo\nthree\nfour\n"
+      write "b.txt", "alpha\nbeta\ngamma\ndelta\n"
+      write "c.txt", "x\ny\nz\nw\n"
+
+      data = described_class.review(@dir, scope: "worktree", max_total_lines: 10)
+      lazy = data[:files].select { |f| f[:lazy] }
+      expect(lazy).not_to be_empty
+      expect(lazy.map { |f| f[:diff] }).to all(eq(""))
+      expect(lazy.map { |f| f[:add] }).to all(be >= 1)
+      expect(data[:add]).to eq(3)
+    end
+  end
+
+  describe "last turn" do
+    it "reports note: noTurn when there is no previous turn" do
+      agent = double("agent", get_task_history: [])
+      data = described_class.last_turn_review(agent)
+      expect(data[:files]).to eq([])
+      expect(data[:note]).to eq("noTurn")
+    end
+
+    it "replays the previous task's snapshots" do
+      agent = double(
+        "agent",
+        get_task_history: [{ task_id: 2, parent_task_id: 1, status: :current }],
+        task_diff_files: [{ path: "app.rb", status: "modified", binary: false }],
+        task_file_diff: { path: "app.rb", patch: "@@ -1 +1 @@\n-old\n+new\n", binary: false }
+      )
+      data = described_class.last_turn_review(agent)
+      expect(data[:scope]).to eq("lastTurn")
+      expect(data[:files].map { |f| f[:path] }).to eq(["app.rb"])
+      expect(data[:add]).to eq(1)
+      expect(data[:del]).to eq(1)
+    end
   end
 end
