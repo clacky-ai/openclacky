@@ -531,6 +531,20 @@ RSpec.describe Clacky::ModelPricing do
         expect(result[:source]).to eq(:price)
       end
 
+      it "calculates kimi-k3.1-pro and highspeed basic cost" do
+        usage = { prompt_tokens: 100_000, completion_tokens: 50_000 }
+
+        # pro:       0.1 * $2.00 + 0.05 * $10.00 = $0.70
+        # highspeed: 0.1 * $4.00 + 0.05 * $20.00 = $1.40
+        pro = described_class.calculate_cost(model: "kimi-k3.1-pro", usage: usage)
+        expect(pro[:cost]).to be_within(0.0001).of(0.70)
+        expect(pro[:source]).to eq(:price)
+
+        highspeed = described_class.calculate_cost(model: "Kimi-K3.1-Pro-Highspeed", usage: usage)
+        expect(highspeed[:cost]).to be_within(0.0001).of(1.40)
+        expect(highspeed[:source]).to eq(:price)
+      end
+
       it "matches kimi-k2.5 case-insensitively" do
         usage = { prompt_tokens: 100_000, completion_tokens: 50_000 }
         result = described_class.calculate_cost(model: "Kimi-K2.5", usage: usage)

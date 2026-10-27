@@ -389,6 +389,38 @@ module Clacky
         }
       },
 
+      # Kimi K3.1 Pro (1M context, native vision, tool calling).
+      # Source: https://platform.kimi.ai (USD / 1M tokens)
+      "kimi-k3.1-pro" => {
+        input: {
+          default: 2.00,                   # $2.00/MTok cache miss
+          over_200k: 2.00
+        },
+        output: {
+          default: 10.00,                  # $10.00/MTok
+          over_200k: 10.00
+        },
+        cache: {
+          write: 2.00,                     # bill at miss rate (= 5m write price)
+          read: 0.20                       # $0.20/MTok cache hit
+        }
+      },
+
+      "kimi-k3.1-pro-highspeed" => {
+        input: {
+          default: 4.00,                   # $4.00/MTok cache miss
+          over_200k: 4.00
+        },
+        output: {
+          default: 20.00,                  # $20.00/MTok
+          over_200k: 20.00
+        },
+        cache: {
+          write: 4.00,                     # bill at miss rate (= 5m write price)
+          read: 0.20                       # $0.20/MTok cache hit
+        }
+      },
+
       # Kimi K3 flagship model (1M context, native vision, tool calling).
       # Source: https://platform.moonshot.ai (USD / 1M tokens)
       "kimi-k3" => {
