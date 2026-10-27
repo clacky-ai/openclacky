@@ -40,6 +40,23 @@ assert.match(infos[0][0], /^✓ chat\.done:\{"n":3,"cost":"\$0\.2500"\}chat\.don
 assert.match(infos[0][1], /chat\.done\.cache:.*"rate":"50\.0".*"tokens":"1\.5k"/);
 infos.length = 0;
 
+// Only task_finished lights the done dot: an idle snapshot (project move, rename, compression) is not a finish.
+const caseBody = name => {
+  const start = dispatcher.indexOf(`case "${name}":`);
+  assert.ok(start >= 0, `missing case ${name}`);
+  return dispatcher.slice(start, dispatcher.indexOf("\n    case ", start + 1));
+};
+assert.doesNotMatch(caseBody("session_update"), /markDone\(/);
+const marked = [];
+const onFinished = vm.runInContext(`(function (ev) { switch (ev.type) { ${caseBody("task_finished")} } })`, vm.createContext({
+  Notify: { onTaskFinished() {} },
+  Projects: { renderSection() {} },
+  Sessions: { markDone: id => marked.push(id), markDoneSummary() {}, renderList() {} },
+}));
+onFinished({ type: "task_finished", session_id: "f1", awaiting_feedback: false });
+onFinished({ type: "task_finished", session_id: "f2", awaiting_feedback: true });
+assert.deepEqual(marked, ["f1"], "awaiting feedback keeps its own dot, not the done ring");
+
 // The summary rides on the done dot and is handed out exactly once.
 ctx.Sessions.markDoneSummary("a", ev);
 assert.equal(ctx.Sessions.clearDone("a"), null, "no dot, nothing to keep");
