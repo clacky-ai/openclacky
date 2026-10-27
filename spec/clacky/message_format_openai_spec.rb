@@ -317,6 +317,16 @@ RSpec.describe Clacky::MessageFormat::OpenAI do
       end
     end
 
+    context "for Kimi K3.1 Pro models" do
+      it "uses the K3 low/high/max reasoning_effort mapping" do
+        %w[kimi-k3.1-pro kimi-k3.1-pro-highspeed].each do |m|
+          body = described_class.build_request_body(messages, m, tools, max_tokens, false, reasoning_effort: "off")
+          expect(body[:reasoning_effort]).to eq("low")
+          expect(body).not_to have_key(:thinking)
+        end
+      end
+    end
+
     context "for Kimi K3 models" do
       let(:model) { "kimi-k3" }
 

@@ -605,8 +605,12 @@ RSpec.describe Clacky::Providers do
     context "Kimi (Moonshot) two regional endpoints" do
       it "does not offer the retired kimi-k2.5 model" do
         expect(described_class.models("kimi")).to eq(
-          ["kimi-k3", "kimi-k2.7-code", "kimi-k2.7-code-highspeed", "kimi-k2.6"]
+          ["kimi-k3.1-pro", "kimi-k3.1-pro-highspeed", "kimi-k3", "kimi-k2.7-code", "kimi-k2.7-code-highspeed", "kimi-k2.6"]
         )
+      end
+
+      it "defaults to kimi-k3.1-pro" do
+        expect(described_class.default_model("kimi")).to eq("kimi-k3.1-pro")
       end
 
       it "recognises mainland (.cn)" do
@@ -796,6 +800,8 @@ RSpec.describe Clacky::Providers do
 
     it "returns 65_536 for Kimi K3 models" do
       expect(described_class.max_output_for("kimi-k3")).to eq(65_536)
+      expect(described_class.max_output_for("kimi-k3.1-pro")).to eq(65_536)
+      expect(described_class.max_output_for("kimi-k3.1-pro-highspeed")).to eq(65_536)
     end
 
     it "returns 65_536 for MiniMax M2.7 models" do
