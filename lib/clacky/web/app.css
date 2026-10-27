@@ -17359,8 +17359,9 @@ body.setup-mode {
   padding-left: 2.2rem;
 }
 
+/* Translucent so the drop-target frame and tint show through, like the session list. */
 .project-session-group .session-item.active {
-  background: var(--color-bg-hover);
+  background: color-mix(in srgb, var(--color-text-primary) 5%, transparent);
 }
 
 .project-session-group .session-item.active::before {
