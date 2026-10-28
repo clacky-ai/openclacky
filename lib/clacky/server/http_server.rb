@@ -2330,7 +2330,7 @@ module Clacky
         json_response(res, 200, {
           ok: true,
           provider: config["provider"],
-          key_masked: config["key"].empty? ? nil : mask_api_key(config["key"]),
+          keys_masked: masked_search_keys(config),
           available: Clacky::Utils::SearcherManager.available
         })
       end
@@ -2347,12 +2347,12 @@ module Clacky
           return json_response(res, 422, { error: "Unknown search provider: #{provider}" })
         end
 
-        key = body["key"].to_s
-        key = Clacky::SearchConfig.key if key.include?("****")
-
         current = Clacky::SearchConfig.load
         final_provider = body.key?("provider") ? provider : current["provider"]
-        final_key      = body.key?("key") ? key : current["key"]
+        # A masked value only ever stands for the same provider's stored key.
+        key = body["key"].to_s
+        key = Clacky::SearchConfig.key_for(final_provider) if key.include?("****")
+        final_key = body.key?("key") ? key : Clacky::SearchConfig.key_for(final_provider)
 
         # deepseek_web falls back to the configured model key, so it may be
         # saved without one. Every other searcher is a script that reads the
@@ -2370,9 +2370,13 @@ module Clacky
           key: body.key?("key") ? key : nil
         )
         config = Clacky::SearchConfig.load
-        json_response(res, 200, { ok: true, provider: config["provider"] })
+        json_response(res, 200, { ok: true, provider: config["provider"], keys_masked: masked_search_keys(config) })
       rescue => e
         json_response(res, 422, { error: e.message })
+      end
+
+      private def masked_search_keys(config)
+        config["keys"].transform_values { |key| mask_api_key(key) }
       end
 
       private def search_provider_known?(provider)
@@ -2391,7 +2395,7 @@ module Clacky
         return json_response(res, 200, { ok: false, message: "provider is required" }) if provider.empty?
 
         key = body["key"].to_s
-        key = Clacky::SearchConfig.key if key.empty? || key.include?("****")
+        key = Clacky::SearchConfig.key_for(provider) if key.empty? || key.include?("****")
         return test_deepseek_web_search(res, key) if provider == Clacky::SearchConfig::DEEPSEEK_WEB
 
         script = Clacky::Utils::SearcherManager.path_for(provider)
