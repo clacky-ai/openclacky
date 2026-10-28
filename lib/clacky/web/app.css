@@ -16686,6 +16686,10 @@ body.setup-mode {
     padding: 0px 12px 12px;
   }
 
+  #input-queue {
+    padding-inline: 12px;
+  }
+
   #skill-autocomplete {
     left: 12px;
     right: 12px;
@@ -17847,9 +17851,10 @@ body.setup-mode {
 #input-behavior-menu [aria-checked="true"] .input-behavior-check { visibility: visible; }
 @media (max-width: 768px) { #input-behavior-menu button { min-height: 56px; } }
 
-/* Pending guidance: single-line previews and always-visible actions. */
+/* Pending guidance: single-line previews and always-visible actions.
+   Sits between the message stream and the session info bar. */
 #input-queue[hidden] { display: none; }
-#input-queue { max-height: 220px; overflow-y: auto; padding: 0 0 8px; }
+#input-queue { flex-shrink: 0; max-height: 220px; overflow-y: auto; padding: 6px 1.5rem 0; }
 .input-queue-row { display: flex; align-items: center; gap: 8px; margin-top: 4px; padding: 6px 10px; border: 1px solid var(--color-border-primary); border-radius: 10px; background: var(--color-bg-primary); }
 .input-queue-body { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; }
 .input-queue-status { flex-shrink: 0; white-space: nowrap; font-size: 11px; line-height: 1.5; color: var(--color-text-tertiary); }

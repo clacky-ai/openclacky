@@ -495,6 +495,8 @@
       </div>
       <!-- Composer slot: agent-scoped controls above the session info bar. -->
       <div id="ext-slot-session-composer" class="session-composer" data-slot="session.composer"></div>
+      <!-- Pending input queue — messages waiting for the current task to finish -->
+      <div id="input-queue" aria-live="polite" hidden></div>
       <!-- Session info bar — mirrors CLI bottom status bar -->
       <div id="session-info-bar" style="display:none">
         <!-- Order: status | id | dir | model | reasoning | mode | todo | signal | cost -->
@@ -591,8 +593,6 @@
         </div>
         <!-- Shown when the composer was prefilled from an external link -->
         <div id="chat-deeplink-notice" class="deeplink-notice" role="status" style="display:none"></div>
-        <!-- Image preview strip (hidden when empty) -->
-        <div id="input-queue" aria-live="polite" hidden></div>
         <!-- @ mention menu (Files & Folders / Past Chats) -->
         <div id="mention-autocomplete" class="mention-autocomplete" style="display:none" role="listbox" aria-label="Mention"></div>
         <!-- Composer card: the attachment strip and the input row share one frame,
