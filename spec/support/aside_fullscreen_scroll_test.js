@@ -76,6 +76,7 @@ function boot() {
     console, Map, Math, Number,
     document,
     innerWidth: 1200,
+    navigator: { platform: "MacIntel" },
     localStorage: {
       getItem: key => storage.has(key) ? storage.get(key) : null,
       setItem: (key, value) => storage.set(key, String(value)),
