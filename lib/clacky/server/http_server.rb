@@ -4603,10 +4603,12 @@ module Clacky
 
         path = Utils::EnvironmentDetector.resolve_local_path(raw_path)
         ext = File.extname(path).downcase.sub(/\A\./, "")
+        # Extension-less files (Dockerfile, Makefile, Gemfile) declare no
+        # document type, so no app lists them. Plain text is the closest
+        # approximation and keeps the picker useful.
+        ext = "txt" if ext.empty?
 
-        apps = if ext.empty?
-          []
-        elsif Utils::EnvironmentDetector.os_type == :wsl
+        apps = if Utils::EnvironmentDetector.os_type == :wsl
           Utils::WindowsAppDetector.apps_for_ext(ext)
         else
           Utils::MacAppDetector.apps_for_ext(ext)
@@ -4623,9 +4625,7 @@ module Clacky
         return json_response(res, 400, { error: "path is required" }) if raw_path.empty?
 
         path = Utils::EnvironmentDetector.resolve_local_path(raw_path)
-        app = if File.extname(path).empty?
-          nil
-        elsif Utils::EnvironmentDetector.os_type == :wsl
+        app = if Utils::EnvironmentDetector.os_type == :wsl
           Utils::WindowsAppDetector.default_app_for(path)
         else
           Utils::MacAppDetector.default_app_for(path)

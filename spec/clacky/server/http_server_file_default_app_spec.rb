@@ -53,14 +53,18 @@ RSpec.describe Clacky::Server::HttpServer, "GET /api/file/default-app" do
     end
   end
 
-  it "returns a null app when no extension" do
+  it "asks the detector instead of answering null when the file has no extension" do
     extless = File.join(tmpdir, "Makefile")
     File.binwrite(extless, "all:")
+    app = { "name" => "TextEdit", "path" => "/System/Applications/TextEdit.app" }
+
+    expect(Clacky::Utils::MacAppDetector)
+      .to receive(:default_app_for).with(extless).and_return(app)
 
     with_server(agent_config: agent_config) do |server|
       res = request_default_app(server, extless)
       expect(res.status).to eq(200)
-      expect(parsed_body(res)["app"]).to be_nil
+      expect(parsed_body(res)["app"]).to eq(app)
     end
   end
 

@@ -59,16 +59,17 @@ module Clacky
         return nil unless Utils::EnvironmentDetector.os_type == :macos
 
         ext = File.extname(path).downcase.sub(/\A\./, "")
-        return nil if ext.empty?
-
+        # LaunchServices answers for any URL, extension or not, so a Dockerfile
+        # resolves like any other file. Only extension answers are cacheable.
         @default_app_cache ||= {}
-        return @default_app_cache[ext] if @default_app_cache.key?(ext)
+        return @default_app_cache[ext] if !ext.empty? && @default_app_cache.key?(ext)
 
         bundle = default_app_bundle(path)
-        @default_app_cache[ext] =
-          if bundle && File.directory?(bundle)
-            { "name" => File.basename(bundle, ".app"), "path" => bundle }
-          end
+        app = if bundle && File.directory?(bundle)
+          { "name" => File.basename(bundle, ".app"), "path" => bundle }
+        end
+        @default_app_cache[ext] = app unless ext.empty?
+        app
       end
 
       # Query LaunchServices for the default handler of `path` via NSWorkspace.

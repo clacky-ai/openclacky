@@ -219,7 +219,9 @@ module Clacky
         return nil unless wsl?
 
         ext = normalize_ext(File.extname(path))
-        return nil if ext.empty?
+        # Windows has no extension to look up for a Dockerfile or Makefile;
+        # ask what handles plain text instead of reporting nothing.
+        ext = "txt" if ext.empty?
 
         data = detect_for_ext(ext)
         data ? data["default"] : nil
