@@ -20,8 +20,16 @@ module Clacky
       SecureRandom.hex(8)
     end
 
+    # How long a parsed session list is shared between callers, in seconds.
+    # Only meant to cover the burst of requests the first paint fires; see
+    # #load_all_sessions.
+    LIST_REUSE_WINDOW = 2.0
+
     def initialize(sessions_dir: nil)
       @sessions_dir = sessions_dir || SESSIONS_DIR
+      @recent_list    = nil
+      @recent_list_at = 0.0
+      @list_mutex     = Mutex.new
       ensure_sessions_dir
     end
 
@@ -34,6 +42,7 @@ module Clacky
       FileUtils.chmod(0o600, filepath)
 
       @last_saved_path = filepath
+      @recent_list_at  = 0.0
 
       run_cleanup_async
 
@@ -213,10 +222,12 @@ module Clacky
     # Optional filters:
     #   current_dir: (String) if given, sessions matching working_dir come first
     #   limit:       (Integer) max number of sessions to return
+    #
+    # Parsing every session file costs ~160ms for a few hundred sessions, and the
+    # first paint asks for this list from several endpoints at once, so the
+    # concurrent requests share a single scan (see #load_all_sessions).
     def all_sessions(current_dir: nil, limit: nil)
-      sessions = Dir.glob(File.join(@sessions_dir, "*.json")).filter_map do |filepath|
-        load_session_file(filepath)
-      end.sort_by { |s| [s[:updated_at] || s[:created_at] || "", s[:session_id].to_s] }.reverse
+      sessions = load_all_sessions
 
       if current_dir
         current_sessions = sessions.select { |s| s[:working_dir] == current_dir }
@@ -225,6 +236,36 @@ module Clacky
       end
 
       limit ? sessions.first(limit) : sessions
+    end
+
+    # Reuse a scan for a short window: the first paint fires several list
+    # requests at once and, without sharing, each one re-parses every session
+    # file and they queue up on the GVL. A snapshot older than the window is
+    # dropped before the next scan, so this does not grow into a long-lived cache.
+    private def load_all_sessions
+      if @recent_list && monotonic_now - @recent_list_at < LIST_REUSE_WINDOW
+        return @recent_list.dup
+      end
+
+      @list_mutex.synchronize do
+        now = monotonic_now
+        return @recent_list.dup if @recent_list && now - @recent_list_at < LIST_REUSE_WINDOW
+
+        # Release the old snapshot before scanning so its parsed messages can be
+        # collected instead of being held alongside the new ones.
+        @recent_list = nil
+        @recent_list = Dir.glob(File.join(@sessions_dir, "*.json"))
+                          .filter_map { |filepath| load_session_file(filepath) }
+                          .sort_by { |s| [s[:updated_at] || s[:created_at] || "", s[:session_id].to_s] }
+                          .reverse
+        @recent_list_at = now
+        # Callers get their own array so a sort!/push cannot reorder the shared one.
+        @recent_list.dup
+      end
+    end
+
+    private def monotonic_now
+      Process.clock_gettime(Process::CLOCK_MONOTONIC)
     end
 
     # Full-text grep over session JSON + chunk MD files.
@@ -415,13 +456,19 @@ module Clacky
     # Soft-delete: stamp deleted_at, move JSON + chunks to sessions-trash/.
     def soft_delete(session_id)
       require_relative "tools/trash_manager"
-      Clacky::Tools::TrashManager.soft_delete_session(session_id, sessions_dir: @sessions_dir)
+      deleted = Clacky::Tools::TrashManager.soft_delete_session(session_id, sessions_dir: @sessions_dir)
+      # The file is moved outside this object's save path, so drop the shared
+      # list explicitly instead of waiting for the reuse window to lapse.
+      @recent_list_at = 0.0 if deleted
+      deleted
     end
 
     # Restore a soft-deleted session back to the active sessions directory.
     def restore_session(session_id)
       require_relative "tools/trash_manager"
-      Clacky::Tools::TrashManager.restore_session(session_id, sessions_dir: @sessions_dir)
+      restored = Clacky::Tools::TrashManager.restore_session(session_id, sessions_dir: @sessions_dir)
+      @recent_list_at = 0.0 if restored
+      restored
     end
 
     # List all soft-deleted sessions (newest-first).
