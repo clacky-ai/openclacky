@@ -185,18 +185,14 @@ RSpec.describe Clacky::Server::WebUIController, "feedback countdown" do
     expect(next_event).to include(resolved: true)
   end
 
-  it "pauses a running countdown in manual mode and restarts it in auto mode" do
-    @worker = Thread.new { controller.request_feedback_with_countdown(seconds: 0.08) }
+  it "ends a running countdown as an intervention when switching to manual mode" do
+    @worker = Thread.new { controller.request_feedback_with_countdown(seconds: 20) }
     started = next_event
     controller.update_permission_mode(:confirm_all)
-    expect(next_event).to include(request_id: started[:request_id], deadline_ms: nil)
-    sleep 0.1
-    expect(@worker).to be_alive
+    expect(@worker.join(2).value).to eq(:intervened)
+    expect(next_event).to include(request_id: started[:request_id], resolved: true, resolution: :intervened)
     controller.replay_live_state
-    expect(next_event[:deadline_ms]).to be_nil
-    controller.update_permission_mode(:auto_approve)
-    expect(next_event[:deadline_ms]).to be > started[:deadline_ms]
-    expect(@worker.join(2).value).to eq(:timeout)
+    expect(next_event).to include(resolved: true)
   end
 
   it "does not restart an intervened countdown when switching back to auto" do
@@ -212,13 +208,10 @@ RSpec.describe Clacky::Server::WebUIController, "feedback countdown" do
     expect(next_event).to include(resolved: true)
   end
 
-  it "honors a switch to manual immediately before the countdown starts" do
+  it "skips the countdown when manual mode is already active" do
     controller.update_permission_mode(:confirm_all)
-    @worker = Thread.new { controller.request_feedback_with_countdown(seconds: 0) }
-    started = next_event
-    expect(started[:deadline_ms]).to be_nil
-    controller.intervene_feedback(started[:request_id])
-    expect(@worker.join(2).value).to eq(:intervened)
+    expect(controller.request_feedback_with_countdown(seconds: 0)).to eq(:intervened)
+    expect(events).to be_empty
   end
 
   it "replays the original deadline and cleans up on interruption" do
