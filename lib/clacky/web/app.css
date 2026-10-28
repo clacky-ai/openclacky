@@ -7072,30 +7072,30 @@ body {
 }
 
 .skill-ac-name {
-  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
   font-size: 0.8125rem;
   font-weight: 500;
-  color: var(--color-accent-primary);
+  color: var(--color-text-primary);
   white-space: nowrap;
   flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  gap: 0.375rem;
 }
 
-.skill-ac-name-zh {
-  font-family: inherit;
-  font-size: 0.8125rem;
-  font-weight: 500;
-  color: var(--color-accent-primary);
-}
-
-.skill-ac-name-id {
-  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
-  font-size: 0.6875rem;
-  font-weight: 400;
+.skill-ac-icon {
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
   color: var(--color-text-secondary);
-  opacity: 0.7;
+}
+
+/* "Add" group of the + menu, above the skills header */
+.skill-ac-actions {
+  padding: 0.25rem 0;
+}
+
+.skill-ac-group-title {
+  padding: 0.375rem 0.875rem 0.25rem;
+  font-size: 0.75rem;
+  color: var(--color-text-secondary);
+  font-weight: 500;
 }
 
 .skill-ac-highlight {
@@ -7129,21 +7129,25 @@ body {
 .skill-ac-header-row {
   display: flex;
   align-items: center;
-  padding: 0.5rem 0.875rem;
-  border-bottom: 1px solid var(--color-border-secondary);
+  padding: 0.5rem 0.875rem 0.25rem;
+  /* Keeps the system-skills toggle reachable while the list scrolls */
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: inherit;
 }
 
 .skill-ac-left {
   display: flex;
   align-items: center;
+  justify-content: space-between;
+  flex: 1;
   gap: 0.75rem;
 }
 
 .skill-ac-title {
   font-size: 0.75rem;
   color: var(--color-text-secondary);
-  text-transform: uppercase;
-  letter-spacing: .06em;
   font-weight: 500;
   line-height: 1rem;
   display: inline-flex;
@@ -7258,31 +7262,7 @@ body {
   gap: 8px;
 }
 
-/* Attach button — left of textarea, vertically centered */
-#btn-attach {
-  border: none;
-  background: transparent;
-  color: var(--color-text-tertiary);
-  cursor: pointer;
-  width: 32px;
-  height: 32px;
-  padding: 0;
-  margin-right: -4px;
-  flex-shrink: 0;
-  display: grid;
-  place-items: center;
-  border-radius: 8px;
-  transition: background .12s, color .12s;
-}
-#btn-attach:hover {
-  color: var(--color-text-primary);
-  background: var(--color-bg-hover);
-}
-#btn-attach svg {
-  width: 18px;
-  height: 18px;
-}
-
+/* + menu button — left of textarea, vertically centered */
 #btn-slash {
   border: none;
   background: transparent;
@@ -7295,12 +7275,13 @@ body {
   display: grid;
   place-items: center;
   border-radius: 8px;
-  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
   transition: background .12s, color .12s;
 }
-#btn-slash span {
-  font-size: 0.875rem;
-  font-weight: 400;
+.composer-plus-btn svg {
+  transition: transform var(--transition-base);
+}
+.composer-plus-btn.active svg {
+  transform: rotate(45deg);
 }
 #btn-slash:hover {
   color: var(--color-text-primary);
@@ -16697,13 +16678,9 @@ body.setup-mode {
     gap: 0.25rem;
   }
 
-  /* Attach & slash buttons: slightly smaller touch target */
-  #btn-attach {
-    padding: 0.25rem;
-  }
+  /* + menu button: slightly smaller touch target */
   #btn-slash {
-    padding: 0.25rem 0.375rem;
-    font-size: 0.875rem;
+    padding: 0.25rem;
   }
 
   /* Textarea: prevent iOS auto-zoom (must be ≥1rem) */

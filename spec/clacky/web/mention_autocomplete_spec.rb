@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require "open3"
+
 RSpec.describe "Web mention autocomplete" do
   let(:source) do
     File.read(File.expand_path("../../../lib/clacky/web/components/mentions.js", __dir__))
@@ -29,5 +31,11 @@ RSpec.describe "Web mention autocomplete" do
     expect(source).to include("const previousChildIndex = offset - 1")
     expect(source).to include("const atOffset = offset - 1")
     expect(source).not_to match(/node\.nodeType !== [13]/)
+  end
+
+  it "opens on the composer passed to open(), not the last attached one" do
+    script = File.expand_path("../../support/mention_open_target_test.js", __dir__)
+    output, status = Open3.capture2e("node", script)
+    expect(status.success?).to be(true), output
   end
 end

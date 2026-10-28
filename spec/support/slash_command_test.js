@@ -36,6 +36,14 @@ class Element {
   get className() { return Array.from(this.classes).join(" "); }
   set innerHTML(value) { this._html = value; this.children = []; }
   get innerHTML() { return this._html || ""; }
+  get firstChild() { return this.children[0] || null; }
+  insertBefore(child, ref) {
+    child.parentNode = this;
+    const i = this.children.indexOf(ref);
+    if (i < 0) this.children.push(child); else this.children.splice(i, 0, child);
+  }
+  dispatchEvent(event) { if (this.handlers[event.type]) this.handlers[event.type](event); }
+  click() { this.clicked = (this.clicked || 0) + 1; }
   setAttribute(key, value) { this.attrs[key] = value; }
   addEventListener(key, fn) { this.handlers[key] = fn; }
   appendChild(child) { child.parentNode = this; this.children.push(child); }
@@ -69,12 +77,19 @@ function loadSkillAC(skills) {
     "skill-autocomplete": new Element(),
     "skill-autocomplete-list": new Element(),
     "btn-slash": new Element("button"),
+    "image-file-input": new Element("input"),
     "btn-create-skill": new Element("button"),
     "btn-import-skill": new Element("button"),
   };
   const count = new Element();
   count.className = "skill-ac-count";
   nodes["skill-autocomplete"].appendChild(count);
+  const actions = new Element();
+  actions.className = "skill-ac-actions";
+  nodes["skill-autocomplete"].appendChild(actions);
+  nodes["skill-autocomplete"].appendChild(nodes["skill-autocomplete-list"]);
+  nodes.actions = actions;
+  const mentionOpens = [];
 
   const store = {};
   const body = new Element("body");
@@ -83,7 +98,7 @@ function loadSkillAC(skills) {
     document: {
       body,
       createElement: tag => new Element(tag),
-      createTextNode: text => Object.assign(new Element("#text"), { textContent: String(text) }),
+      createTextNode: text => Object.assign(new Element("#text"), { nodeType: 3, nodeValue: String(text), textContent: String(text) }),
       getElementById: id => nodes[id] || null,
     },
     localStorage: {
@@ -102,6 +117,14 @@ function loadSkillAC(skills) {
       text: el => el.value || "",
       setText: (el, value) => { el.value = value; },
     },
+    Node: { TEXT_NODE: 3 },
+    Event: class { constructor(type) { this.type = type; } },
+    MentionAC: {
+      icons: { folder: "folder", message: "message" },
+      svgHtml: () => "<svg></svg>",
+      open: (mode, input) => mentionOpens.push([mode, input]),
+      hide() {},
+    },
     Sessions: { sendMessage() {} },
     Skills: { createInSession() {}, toggleImportBar() {} },
     fetch: async () => ({ json: async () => ({ skills }) }),
@@ -110,7 +133,7 @@ function loadSkillAC(skills) {
   vm.runInContext(fs.readFileSync(sourcePath("skills.js"), "utf8"), context);
   const SkillAC = context.Clacky.SkillAC;
   SkillAC.init();
-  return { SkillAC, nodes, context };
+  return { SkillAC, nodes, context, mentionOpens };
 }
 
 // ── The parser contract, mirroring parse_skill_command ────────────────────────
@@ -245,8 +268,77 @@ function highlightTests() {
   assert.equal(render("/unknown-skill hi", null, null), "/unknown-skill hi");
 }
 
+// ── The + button: "Add" actions on top, skills below, existing text kept ──────
+async function plusMenuTests() {
+  const skills = [{ name: "media-gen", name_zh: "媒体生成", description: "m", source_type: "global_clacky" }];
+  const loaded = loadSkillAC(skills);
+  const { SkillAC, nodes, context, mentionOpens } = loaded;
+  // DOM-backed composer stub: text lives in child text nodes, chips are elements.
+  vm.runInContext(`
+    Composer.text = el => el.children.filter(c => c.nodeType === 3).map(c => c.nodeValue).join("");
+    Composer.setText = (el, v) => { el.children = []; el.appendChild(document.createTextNode(v)); };
+    Composer.focusEnd = () => {};
+  `, context);
+  SkillAC.loadForSession("s1");
+  const input = nodes["user-input"];
+  const settle = () => new Promise(resolve => setTimeout(resolve, 0));
+  const press = key => input.handlers.keydown({ key, shiftKey: false, preventDefault() {} });
+
+  nodes["btn-slash"].handlers.click();
+  await settle();
+  assert.equal(SkillAC.visible, true, "the + button opens the menu");
+  assert.equal(nodes.actions.style.display, "", "the Add group is shown");
+  assert.equal(nodes.actions.querySelectorAll(".skill-ac-item").length, 3);
+  assert.equal(Composer_text(context, input), "", "opening the + menu does not type a slash");
+  assert.equal(SkillAC.activeIndex, -1, "the + menu opens with nothing highlighted");
+
+  press("ArrowDown");
+  press("Enter");
+  assert.equal(nodes["image-file-input"].clicked, 1, "the first action opens the file picker");
+  assert.equal(SkillAC.visible, false);
+
+  nodes["btn-slash"].handlers.click();
+  await settle();
+  press("ArrowDown"); press("ArrowDown");
+  press("Enter");
+  assert.deepEqual(mentionOpens.slice(-1)[0], ["files", "user-input"],
+    "reference actions open the mention menu on this composer");
+
+  // Picking a skill keeps what the user already wrote, chips included.
+  const chip = new Element("span");
+  input.children = [];
+  input.appendChild(context.document.createTextNode("draft text"));
+  input.appendChild(chip);
+  nodes["btn-slash"].handlers.click();
+  await settle();
+  press("ArrowDown"); press("ArrowDown"); press("ArrowDown"); press("ArrowDown");
+  press("Enter");
+  assert.equal(Composer_text(context, input), "/media-gen draft text");
+  assert.ok(input.children.includes(chip), "existing chips survive picking a skill");
+
+  // A second pick replaces the leading command instead of stacking it.
+  nodes["btn-slash"].handlers.click();
+  await settle();
+  press("ArrowUp");
+  press("Enter");
+  assert.equal(Composer_text(context, input), "/media-gen draft text");
+
+  // Typing / still opens the skills-only palette.
+  input.children = [];
+  input.appendChild(context.document.createTextNode("/"));
+  await input.handlers.input();
+  await settle();
+  assert.equal(SkillAC.visible, true);
+  assert.equal(nodes.actions.style.display, "none", "typed / hides the Add group");
+}
+
+function Composer_text(context, el) {
+  return vm.runInContext("Composer.text", context)(el);
+}
+
 (async () => {
   parserTests();
+  await plusMenuTests();
   await paletteTests();
   await enterFallthroughTests();
   highlightTests();
