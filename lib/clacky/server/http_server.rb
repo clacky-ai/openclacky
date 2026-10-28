@@ -4695,6 +4695,9 @@ module Clacky
         when "open"
           result = Utils::EnvironmentDetector.open_file(linux_path)
           return json_response(res, 501, { error: "unsupported OS" }) if result.nil?
+          # system() returns false when the launcher exits non-zero (broken app
+          # association, no handler). Surface it instead of a silent 200.
+          return json_response(res, 500, { error: "failed to open file" }) unless result
           json_response(res, 200, { ok: true })
         when "open_with"
           result = if Utils::EnvironmentDetector.os_type == :wsl
