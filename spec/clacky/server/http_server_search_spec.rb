@@ -50,7 +50,7 @@ RSpec.describe Clacky::Server::HttpServer, "search routes" do
 
       expect(status).to eq(200)
       expect(body["provider"]).to eq("")
-      expect(body["key_masked"]).to be_nil
+      expect(body["keys_masked"]).to eq({})
       expect(body["available"]).to eq(["tavily"])
     end
 
@@ -81,8 +81,8 @@ RSpec.describe Clacky::Server::HttpServer, "search routes" do
       _status, body = call("GET", "/api/config/search")
 
       expect(body["provider"]).to eq("tavily")
-      expect(body["key_masked"]).to include("****")
-      expect(body["key_masked"]).not_to include("abcdefghijklmnop")
+      expect(body["keys_masked"]["tavily"]).to include("****")
+      expect(body["keys_masked"]["tavily"]).not_to include("abcdefghijklmnop")
     end
   end
 
@@ -94,7 +94,7 @@ RSpec.describe Clacky::Server::HttpServer, "search routes" do
 
       expect(status).to eq(200)
       expect(body["ok"]).to be true
-      expect(Clacky::SearchConfig.load).to include("provider" => "tavily", "key" => "k1")
+      expect(Clacky::SearchConfig.load).to include("provider" => "tavily", "keys" => { "tavily" => "k1" })
     end
 
     it "accepts the bundled DeepSeek provider without an installed script" do
@@ -132,7 +132,19 @@ RSpec.describe Clacky::Server::HttpServer, "search routes" do
 
       call("PATCH", "/api/config/search", { provider: "tavily", key: "tvly-ori****inal" })
 
-      expect(Clacky::SearchConfig.load["key"]).to eq("tvly-original")
+      expect(Clacky::SearchConfig.key).to eq("tvly-original")
+    end
+
+    it "does not carry a masked key over to a different provider" do
+      install_searcher("tavily", "puts '[]'")
+      Clacky::SearchConfig.save(provider: "tavily", key: "tvly-original")
+
+      status, body = call("PATCH", "/api/config/search", { provider: "deepseek_web", key: "tvly-ori****inal" })
+
+      expect(status).to eq(200)
+      expect(Clacky::SearchConfig.key).to eq("")
+      expect(Clacky::SearchConfig.key_for("tavily")).to eq("tvly-original")
+      expect(body["keys_masked"].keys).to eq(["tavily"])
     end
 
     it "rejects a script searcher with no API key" do

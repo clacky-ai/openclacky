@@ -16,8 +16,9 @@ module Clacky
   #   provider: tavily     — "deepseek_web" for DeepSeek's hosted
   #                          search/fetch, blank for built-in engines only,
   #                          otherwise the basename of a script in ~/.clacky/searchers/
-  #   key: tvly-xxx        — credential for the selected provider (optional for
-  #                          deepseek_web, which can reuse a configured model key)
+  #   keys:                — credentials per provider, so switching providers never
+  #     tavily: tvly-xxx       hands one provider's key to another (optional for
+  #                            deepseek_web, which can reuse a configured model key)
   #
   # A missing file, or one without a `provider` key, means "never chosen" and
   # resolves to the free chain.
@@ -33,27 +34,43 @@ module Clacky
     DEEPSEEK_WEB = "deepseek_web"
 
     class << self
-      # @return [Hash] { "provider" => String, "key" => String }
+      # @return [Hash] { "provider" => String, "keys" => { provider => String } }
       def load
         raw = File.exist?(CONFIG_PATH) ? YAML.load_file(CONFIG_PATH) : nil
         return default_config unless raw.is_a?(Hash)
 
-        {
-          "provider" => raw["provider"].to_s.strip,
-          "key" => raw["key"].to_s.strip
-        }
+        provider = raw["provider"].to_s.strip
+        keys = {}
+        (raw["keys"].is_a?(Hash) ? raw["keys"] : {}).each do |name, value|
+          value = value.to_s.strip
+          keys[name.to_s] = value unless value.empty?
+        end
+        # Files written before keys were split hold one key for the provider then selected.
+        legacy = raw["key"].to_s.strip
+        keys[provider] ||= legacy unless provider.empty? || legacy.empty?
+
+        { "provider" => provider, "keys" => keys }
       rescue StandardError
         default_config
       end
 
+      # The key is stored under the resulting provider; a blank key removes it.
       def save(provider: nil, key: nil)
         current = load
         new_provider = provider.nil? ? current["provider"] : provider.to_s.strip
-        new_key = key.nil? ? current["key"] : key.to_s.strip
+        keys = current["keys"]
+        unless key.nil? || new_provider.empty?
+          key = key.to_s.strip
+          if key.empty?
+            keys.delete(new_provider)
+          else
+            keys[new_provider] = key
+          end
+        end
 
         payload = {
           "provider" => new_provider,
-          "key" => new_key
+          "keys" => keys
         }
 
         FileUtils.mkdir_p(File.dirname(CONFIG_PATH))
@@ -70,7 +87,7 @@ module Clacky
       end
 
       private def default_config
-        { "provider" => "", "key" => "" }
+        { "provider" => "", "keys" => {} }
       end
 
       # Absolute path of the configured searcher, or nil when unset/missing.
@@ -84,7 +101,12 @@ module Clacky
       end
 
       def key
-        load["key"]
+        config = load
+        config["keys"][config["provider"]].to_s
+      end
+
+      def key_for(provider)
+        load["keys"][provider.to_s].to_s
       end
     end
   end

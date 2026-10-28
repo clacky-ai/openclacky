@@ -14,7 +14,7 @@ RSpec.describe Clacky::SearchConfig do
 
   describe ".load" do
     it "defaults to the free engine chain when no config exists" do
-      expect(described_class.load).to eq("provider" => "", "key" => "")
+      expect(described_class.load).to eq("provider" => "", "keys" => {})
     end
 
     it "reads a saved DeepSeek choice" do
@@ -31,12 +31,25 @@ RSpec.describe Clacky::SearchConfig do
       expect(described_class.deepseek_web?).to be false
     end
 
-    it "reads provider and key" do
+    it "reads provider and per-provider keys" do
+      File.write(described_class::CONFIG_PATH,
+                 { "provider" => "tavily", "keys" => { "tavily" => "tvly-1", "deepseek_web" => "sk-1" } }.to_yaml)
+
+      expect(described_class.load).to eq("provider" => "tavily",
+                                         "keys" => { "tavily" => "tvly-1", "deepseek_web" => "sk-1" })
+      expect(described_class.key).to eq("tvly-1")
+    end
+
+    it "assigns a legacy single key to the provider it was saved with" do
       File.write(described_class::CONFIG_PATH, { "provider" => "tavily", "key" => "tvly-1" }.to_yaml)
 
-      config = described_class.load
-      expect(config["provider"]).to eq("tavily")
-      expect(config["key"]).to eq("tvly-1")
+      expect(described_class.load["keys"]).to eq("tavily" => "tvly-1")
+    end
+
+    it "drops a legacy key that belongs to no provider" do
+      File.write(described_class::CONFIG_PATH, { "provider" => "", "key" => "tvly-1" }.to_yaml)
+
+      expect(described_class.load["keys"]).to eq({})
     end
 
     it "tolerates malformed YAML instead of raising" do
@@ -48,7 +61,7 @@ RSpec.describe Clacky::SearchConfig do
     it "tolerates a non-Hash document" do
       File.write(described_class::CONFIG_PATH, "- just\n- a list\n")
 
-      expect(described_class.load["key"]).to eq("")
+      expect(described_class.key).to eq("")
     end
   end
 
@@ -56,7 +69,7 @@ RSpec.describe Clacky::SearchConfig do
     it "persists values and restricts file permissions" do
       described_class.save(provider: "tavily", key: "tvly-1")
 
-      expect(described_class.load).to eq("provider" => "tavily", "key" => "tvly-1")
+      expect(described_class.load).to eq("provider" => "tavily", "keys" => { "tavily" => "tvly-1" })
       expect(File.stat(described_class::CONFIG_PATH).mode & 0o777).to eq(0o600)
     end
 
@@ -64,7 +77,28 @@ RSpec.describe Clacky::SearchConfig do
       described_class.save(provider: "tavily", key: "tvly-1")
       described_class.save(key: "tvly-2")
 
-      expect(described_class.load).to eq("provider" => "tavily", "key" => "tvly-2")
+      expect(described_class.load).to eq("provider" => "tavily", "keys" => { "tavily" => "tvly-2" })
+    end
+
+    it "keeps each provider's key when switching between providers" do
+      described_class.save(provider: "tavily", key: "tvly-1")
+      described_class.save(provider: described_class::DEEPSEEK_WEB, key: "")
+
+      expect(described_class.key).to eq("")
+      expect(described_class.key_for("tavily")).to eq("tvly-1")
+
+      described_class.save(provider: described_class::DEEPSEEK_WEB, key: "sk-1")
+      described_class.save(provider: "tavily")
+
+      expect(described_class.key).to eq("tvly-1")
+      expect(described_class.key_for(described_class::DEEPSEEK_WEB)).to eq("sk-1")
+    end
+
+    it "writes only the per-provider layout" do
+      File.write(described_class::CONFIG_PATH, { "provider" => "tavily", "key" => "tvly-1" }.to_yaml)
+      described_class.save(provider: "tavily")
+
+      expect(YAML.load_file(described_class::CONFIG_PATH)).to eq("provider" => "tavily", "keys" => { "tavily" => "tvly-1" })
     end
 
     it "clears a DeepSeek cooldown so a new setting takes effect immediately" do
