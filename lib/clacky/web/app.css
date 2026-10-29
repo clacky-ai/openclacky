@@ -2352,8 +2352,10 @@ body {
   display: flex;
   flex-direction: column;
   padding: 1.75rem 2.25rem;
-  gap: 1.25rem;
 }
+/* Spacing is per block rather than one flex gap: the tabs belong to their list
+   more than to the header above them. */
+#task-detail-body > .task-page-header { margin-bottom: 1.25rem; }
 
 /* ── Task Page Header ───────────────────────────────────────────────────── */
 .task-page-header {
@@ -2517,16 +2519,15 @@ body {
 .tasks-search:focus { border-color: var(--color-accent-primary); }
 .tasks-search::placeholder { color: var(--color-text-tertiary); }
 
-/* ── Task rows ───────────────────────────────────────────────────────────── */
+/* ── Task rows (run history) ─────────────────────────────────────────────── */
 .task-section-label {
   display: flex;
   align-items: center;
   font-size: 0.75rem;
   font-weight: 500;
   color: var(--color-text-tertiary);
-  padding: 1.5rem 0.25rem 0.5rem;
+  padding: 1rem 0.25rem 0.5rem;
 }
-.task-section-label:first-child { padding-top: 0.375rem; }
 .cron-row {
   border-radius: 10px;
   background: var(--color-bg-secondary);
@@ -2557,32 +2558,7 @@ body {
   font-weight: 500;
   color: var(--color-text-primary);
 }
-.cron-row-paused .cron-row-name,
-.cron-row-paused .cron-row-cron { color: var(--color-text-tertiary); }
-.cron-row-paused .cron-row-preview { color: var(--color-text-muted); }
-.cron-row-preview {
-  flex: 0 1 auto;
-  max-width: 28rem;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--color-text-tertiary);
-}
-.cron-row-cron {
-  flex-shrink: 0;
-  white-space: nowrap;
-  color: var(--color-text-secondary);
-}
-.cron-row-cron-manual { color: var(--color-text-tertiary); }
 .cron-row-spacer { flex: 1; }
-.task-section-empty {
-  padding: 0.75rem 0.875rem;
-  border: 1px dashed var(--color-border-primary);
-  border-radius: 8px;
-  font-size: 0.8125rem;
-  color: var(--color-text-tertiary);
-}
 .cron-row-end {
   position: relative;
   display: flex;
@@ -2634,21 +2610,167 @@ body {
   background: color-mix(in srgb, var(--color-bg-hover) 92%, var(--color-text-primary));
   color: var(--color-text-secondary);
 }
-.cron-row-detail { padding: 0 0.625rem 0.75rem; }
-.task-card-detail-content {
-  padding: 0.75rem 1rem;
-  font-size: 0.8125rem;
-  color: var(--color-text-secondary);
-  line-height: 1.65;
-  word-break: break-word;
-  max-height: 20rem;
-  overflow-y: auto;
-  background: var(--color-bg-secondary);
-  border: 1px solid var(--color-border-primary);
-  border-radius: 6px;
+
+/* ── Task filter bar ────────────────────────────────────────────────────── */
+/* Visuals come from the shared .segmented-control block; only the placement
+   inside the scrolling list is task-specific. */
+#task-list-table > .segmented-control {
+  align-self: flex-start;
+  flex-shrink: 0;
+  margin: 0.95rem 0 0.75rem;
 }
-.task-card-detail-content > :first-child { margin-top: 0; }
-.task-card-detail-content > :last-child  { margin-bottom: 0; }
+
+/* ── Task cards ──────────────────────────────────────────────────────────── */
+.task-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 20rem), 1fr));
+  align-items: start;
+  gap: 0.75rem;
+  padding-bottom: 0.5rem;
+}
+.task-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  min-height: 8.75rem;
+  padding: 1.125rem 1.25rem;
+  border: 1px solid var(--color-border-primary);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-card);
+  cursor: pointer;
+  transition: border-color .15s, box-shadow .15s, background .15s;
+}
+/* Hover is a nudge, not a state change: full --color-bg-hover reads as pressed.
+   Mix it down toward the card's resting fill. */
+.task-card:hover {
+  background: color-mix(in srgb, var(--color-bg-hover) 55%, var(--color-bg-card));
+  border-color: var(--color-border-secondary);
+}
+/* Paused cards recede: shell-toned fill, muted text. */
+.task-card.is-paused {
+  background: var(--color-bg-primary);
+  border-color: var(--color-border-secondary);
+}
+.task-card.is-paused:hover,
+.task-card.is-paused.is-menu-open {
+  background: color-mix(in srgb, var(--color-bg-hover) 55%, var(--color-bg-primary));
+}
+.task-card-head {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-height: 1.5rem;
+}
+.task-card-title {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 500;
+  line-height: 1.35;
+  color: var(--color-text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.task-card.is-paused .task-card-title { color: var(--color-text-tertiary); }
+/* Actions sit in the header row, right of the title, and stay visible so the
+   card is operable without a hover state (touch, keyboard, dark screens). */
+.task-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+/* Hover-revealed: the row keeps its space (opacity, not display) so the title
+   never reflows as the pointer enters. Touch devices show it outright. */
+.task-card-tools {
+  display: flex;
+  align-items: center;
+  gap: 0.125rem;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .15s;
+}
+.task-card:hover .task-card-tools,
+.task-card:focus-within .task-card-tools,
+.task-card.is-menu-open .task-card-tools {
+  opacity: 1;
+  pointer-events: auto;
+}
+@media (hover: none) {
+  .task-card-tools { opacity: 1; pointer-events: auto; }
+}
+.task-card-toggle { flex-shrink: 0; }
+.task-card-tool {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.625rem;
+  height: 1.625rem;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: background .15s, color .15s;
+}
+.task-card.is-paused .task-card-tool { color: var(--color-text-tertiary); }
+.task-card-tool:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+.task-card-desc {
+  margin: 0;
+  font-size: 0.8rem;
+  line-height: 1.7;
+  color: var(--color-text-tertiary);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  word-break: break-word;
+}
+.task-card.is-paused .task-card-desc { color: var(--color-text-muted); }
+.task-card-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-top: auto;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--color-border-secondary);
+  font-size: 0.75rem;
+  line-height: 1.4;
+  color: var(--color-text-tertiary);
+}
+.task-card-sched {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3125rem;
+  min-width: 0;
+}
+.task-card-clock { flex-shrink: 0; opacity: 0.75; }
+.task-card-sched-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.task-card-next { flex-shrink: 0; white-space: nowrap; }
+.task-card.is-paused .task-card-next { color: var(--color-text-muted); }
+/* ── Task detail modal (reuses shared .modal-box / .modal-body) ──────────── */
+.task-detail-modal {
+  display: flex;
+  flex-direction: column;
+  max-height: min(80vh, 46rem);
+}
+.task-detail-modal .modal-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
 
 /* ── Run history ─────────────────────────────────────────────────────────── */
 .task-run-row .cron-row-main { cursor: default; }
@@ -14670,6 +14792,15 @@ body.setup-mode {
   background: color-mix(in srgb, var(--color-text-primary) 2%, var(--color-bg-hover));
 }
 
+/* Count badge for filter buttons — sits inside the button so label and count
+   stay one hit area. */
+.segmented-control__count {
+  margin-left: 0.25rem;
+  font-size: 0.75rem;
+  font-weight: 400;
+  color: var(--color-text-tertiary);
+}
+
 /* ═════════════════════════════════════════════════════════════════════════
  * BILLING PANEL
  * ═════════════════════════════════════════════════════════════════════════ */
@@ -16741,13 +16872,13 @@ body.setup-mode {
   }
   #task-detail-body {
     padding: 1rem 1rem 5rem;
-    gap: 0.75rem;
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
     overscroll-behavior: contain;
     flex: 1;
     min-height: 0;
   }
+  #task-detail-body > .task-page-header { margin-bottom: 0.75rem; }
   /* btn-create-task: move below title instead of absolute top-right */
   .task-page-header {
     flex-direction: column;
@@ -16758,8 +16889,9 @@ body.setup-mode {
     align-self: flex-start;
     margin-top: 0.25rem;
   }
-  /* Task rows: drop the prompt preview and keep actions visible (no hover on touch) */
-  .cron-row-preview { display: none; }
+  /* Task cards: the toolbar already lives in the header row, so only the
+     touch target needs enlarging on narrow screens. */
+  .task-card-tool { width: 2rem; height: 2rem; }
   .cron-row-end { gap: 0.5rem; }
   .cron-row-actions { position: static; transform: none; opacity: 1; pointer-events: auto; }
   .cron-row:hover .cron-row-meta { opacity: 1; }
