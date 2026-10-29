@@ -141,13 +141,15 @@ module Clacky
         list_tasks.map do |task_name|
           content  = begin; read_task(task_name); rescue StandardError; ""; end
           schedule = schedule_map[task_name] || {}
+          cron     = schedule["cron"]
           {
             "name"    => task_name,
             "content" => content,
-            "cron"    => schedule["cron"],
+            "cron"    => cron,
             "enabled" => schedule.fetch("enabled", true),
             "scheduled" => !schedule.empty?,
-            "last_run" => last_runs[task_name]
+            "last_run" => last_runs[task_name],
+            "next_run" => cron ? cron_next_run(cron) : nil
           }
         end
       end
@@ -382,6 +384,83 @@ module Clacky
       end
 
       # ── Cron parsing ─────────────────────────────────────────────────────────
+
+      # First time the 5-field cron expression fires strictly after +from+.
+      # Walks day by day (two years max) and only expands the hour/minute grid
+      # for days that match, so a yearly task costs ~365 cheap comparisons.
+      # Returns nil for malformed expressions and impossible ones (Feb 30).
+      private def cron_next_run(expr, from: Time.now)
+        fields = expr.to_s.strip.split(/\s+/)
+        return nil unless fields.size == 5
+
+        sets = [
+          cron_field_values(fields[0], 0, 59),
+          cron_field_values(fields[1], 0, 23),
+          cron_field_values(fields[2], 1, 31),
+          cron_field_values(fields[3], 1, 12),
+          cron_field_values(fields[4], 0, 6)
+        ]
+        return nil if sets.any?(&:nil?)
+
+        minutes, hours, doms, months, dows = sets
+        return nil if minutes.empty? || hours.empty? || doms.empty? || months.empty? || dows.empty?
+
+        # Anchor at noon so a day-step never lands on the wrong date across a
+        # DST boundary (Time#+ is absolute seconds, not calendar days).
+        noon  = Time.local(from.year, from.month, from.day, 12)
+        # Minute-of-day of the first candidate; same-day scans start here.
+        floor = from.hour * 60 + from.min + 1
+
+        (0..731).each do |offset|
+          day = noon + offset * 86_400
+          next unless months.include?(day.month) && doms.include?(day.day) && dows.include?(day.wday)
+
+          limit = offset.zero? ? floor : 0
+          hours.each do |h|
+            next if h * 60 + minutes.last < limit
+
+            minutes.each do |m|
+              next if h * 60 + m < limit
+
+              return Time.local(day.year, day.month, day.day, h, m, 0)
+            end
+          end
+        end
+
+        nil
+      end
+
+      # Concrete values a single cron field can take, mirroring the semantics of
+      # #cron_part_matches?. Returns nil when the field is unparseable.
+      private def cron_field_values(field, min, max)
+        values = []
+        field.to_s.split(",").each do |part|
+          part      = part.strip
+          base, step = part.split("/")
+          step      = step ? step.to_i : 1
+          return nil if step <= 0
+
+          lo, hi = if base == "*"
+                     [min, max]
+                   elsif base.include?("-")
+                     base.split("-").map(&:to_i)
+                   else
+                     value = Integer(base, exception: false)
+                     return nil if value.nil?
+                     [value, value]
+                   end
+          return nil if lo.nil? || hi.nil? || hi < lo
+
+          (lo..hi).each do |v|
+            next unless v.between?(min, max)
+            # `*` steps from zero (matches value % step), ranges step from lo.
+            next unless base == "*" ? (v % step).zero? : ((v - lo) % step).zero?
+
+            values << v
+          end
+        end
+        values.uniq.sort
+      end
 
       # Returns true if the 5-field cron expression matches the given Time.
       # Fields: minute hour day-of-month month day-of-week

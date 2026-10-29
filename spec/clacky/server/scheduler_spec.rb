@@ -134,6 +134,48 @@ RSpec.describe Clacky::Server::Scheduler do
     end
   end
 
+  describe "#cron_next_run" do
+    def next_run(expr, from)
+      scheduler.send(:cron_next_run, expr, from: from)
+    end
+
+    it "returns the same day when the time is still ahead" do
+      from = Time.local(2026, 3, 2, 8, 0)
+      expect(next_run("0 10 * * *", from)).to eq(Time.local(2026, 3, 2, 10, 0))
+    end
+
+    it "rolls over to the next day when today's slot has passed" do
+      from = Time.local(2026, 3, 2, 11, 30)
+      expect(next_run("0 10 * * *", from)).to eq(Time.local(2026, 3, 3, 10, 0))
+    end
+
+    it "is strictly after the given time" do
+      from = Time.local(2026, 3, 2, 10, 0)
+      expect(next_run("0 10 * * *", from)).to eq(Time.local(2026, 3, 3, 10, 0))
+    end
+
+    it "honours step expressions" do
+      from = Time.local(2026, 3, 2, 10, 5)
+      expect(next_run("*/15 * * * *", from)).to eq(Time.local(2026, 3, 2, 10, 15))
+    end
+
+    it "skips to the next matching weekday" do
+      friday = Time.local(2026, 3, 6, 12, 0)
+      expect(next_run("0 9 * * 1-5", friday)).to eq(Time.local(2026, 3, 9, 9, 0))
+    end
+
+    it "handles month rollover" do
+      from = Time.local(2026, 3, 31, 12, 0)
+      expect(next_run("0 9 1 * *", from)).to eq(Time.local(2026, 4, 1, 9, 0))
+    end
+
+    it "returns nil for malformed or impossible expressions" do
+      expect(next_run("* * *", Time.now)).to be_nil
+      expect(next_run("0 9 30 2 *", Time.local(2026, 3, 1))).to be_nil
+      expect(next_run("60 * * * *", Time.local(2026, 3, 1))).to be_nil
+    end
+  end
+
   # ── start / stop ─────────────────────────────────────────────────────────────
 
   describe "#start and #stop" do
