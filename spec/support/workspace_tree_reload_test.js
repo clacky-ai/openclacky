@@ -178,7 +178,8 @@ const ROOT_ENTRIES = () => [
 function boot(opts = {}) {
   const fetches = [];
   const toasts = [];
-  const control = { fail: false };
+  const control = { fail: false, failCode: null };
+  if (opts.fail) { control.fail = true; control.failCode = opts.failCode || null; }
   const nodes = {};
   const tree = opts.tree || {
     "": ROOT_ENTRIES(),
@@ -210,7 +211,14 @@ function boot(opts = {}) {
     fetch: async (url) => {
       fetches.push({ url: String(url) });
       if (String(url).includes("/files")) {
-        if (control.fail) return { ok: false, status: 500, json: async () => ({ error: "boom" }) };
+        if (control.fail) {
+          const code = control.failCode;
+          return {
+            ok: false,
+            status: code ? 404 : 500,
+            json: async () => (code ? { error: "Working directory not found", code } : { error: "boom" }),
+          };
+        }
         if (opts.treeDelay) await new Promise(r => setTimeout(r, opts.treeDelay));
         const rel = new URL(String(url), "http://localhost").searchParams.get("path") || "";
         return { ok: true, status: 200, json: async () => ({ root: "/wd", entries: tree[rel] || [] }) };
@@ -232,7 +240,7 @@ function boot(opts = {}) {
   const container = new Element("div");
   WorkspaceView.mount(container, {});
 
-  return { WorkspaceView, Workspace, container, fetches, toasts, tree, control };
+  return { WorkspaceView, Workspace, container, fetches, toasts, tree, control, document };
 }
 
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -420,6 +428,48 @@ async function tests() {
     assert.deepEqual(w.toasts, [["workspace.refreshFailed", "error"]], "a failed refresh says so");
     assert.ok(rowFor(w, "index.html"), "the listing that was already there survives");
     assert.equal(findByClass(treeEl(w), "wt-error"), null, "and no error row replaces it");
+  }
+
+  // 10. A working dir deleted out from under the session is named as such and
+  //     gets an exit, instead of a bare "failed to load" (or a listing of files
+  //     that no longer exist).
+  {
+    const w = boot();
+    await settle();
+    assert.ok(rowFor(w, "index.html"), "the tree loaded once");
+
+    w.control.fail = true;
+    w.control.failCode = "working_dir_missing";
+    w.Workspace.notifyTaskCompleted("s1");
+    await settle();
+    await settle();
+
+    const card = findByClass(treeEl(w), "wt-error-card");
+    assert.ok(card, "the tree explains that the folder is gone");
+    assert.equal(findByClass(treeEl(w), "wt-error"), null, "not the generic red line");
+    const pathEl = findByClass(card, "wt-error-card-path");
+    assert.equal(pathEl.textContent, "/wd", "the missing path is shown");
+    assert.equal(pathEl.title, "/wd", "with the resolvable path on hover");
+    assert.equal(rowFor(w, "index.html"), null, "stale rows are cleared");
+
+    let opened = 0;
+    w.document.getElementById("sib-dir").addEventListener("click", () => { opened++; });
+    findByClass(card, "wt-error-card-action").click();
+    assert.equal(opened, 1, "the button opens the status-bar folder picker");
+  }
+
+  // 11. Same card on the very first listing, but a plain server error keeps the
+  //     generic message — a flaky request must not claim the folder is gone.
+  {
+    const gone = boot({ fail: true, failCode: "working_dir_missing" });
+    await settle();
+    assert.ok(findByClass(treeEl(gone), "wt-error-card"), "a gone folder is explained on first load");
+    assert.equal(findByClass(treeEl(gone), "wt-error"), null);
+
+    const flaky = boot({ fail: true });
+    await settle();
+    assert.equal(findByClass(treeEl(flaky), "wt-error-card"), null, "a server error is not a missing folder");
+    assert.ok(findByClass(treeEl(flaky), "wt-error"), "it keeps the generic message");
   }
 }
 

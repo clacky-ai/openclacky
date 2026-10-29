@@ -5584,7 +5584,11 @@ module Clacky
         return json_response(res, 404, { error: "Session not found" }) unless agent
 
         root = File.expand_path(agent.working_dir.to_s)
-        return json_response(res, 404, { error: "Working directory not found" }) unless Dir.exist?(root)
+        unless Dir.exist?(root)
+          # `code` lets the client tell "the folder was deleted" apart from any
+          # other failure and explain it, instead of showing a generic error.
+          return json_response(res, 404, { error: "Working directory not found", code: "working_dir_missing", path: root })
+        end
 
         query = URI.decode_www_form(req.query_string.to_s).to_h
         rel = query["path"].to_s
@@ -5609,7 +5613,9 @@ module Clacky
           end
         end
 
-        return json_response(res, 404, { error: "Directory not found" }) unless Dir.exist?(target)
+        unless Dir.exist?(target)
+          return json_response(res, 404, { error: "Directory not found", code: "directory_missing" })
+        end
         entries = Dir.children(target).reject do |name|
           IGNORED_FILE_ENTRIES.include?(name) || (!show_hidden && name.start_with?("."))
         end

@@ -3791,6 +3791,41 @@ body {
 }
 .wt-error { color: var(--color-error); }
 
+/* A working dir can vanish under a session (deleted clone, renamed folder).
+   Spell out the cause and offer the picker instead of a bare "load failed". */
+.wt-error-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+  margin: 0.5rem 0.375rem;
+  padding: 0.75rem;
+  border: 1px solid var(--color-border-primary);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-tertiary);
+}
+.wt-error-card-title {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+.wt-error-card-desc {
+  font-size: 0.6875rem;
+  line-height: 1.5;
+  color: var(--color-text-secondary);
+}
+.wt-error-card-path {
+  padding: 0.25rem 0.375rem;
+  border-radius: var(--radius-xs);
+  background: var(--color-bg-secondary);
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  color: var(--color-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wt-error-card-action { align-self: flex-start; }
+
 /* ── Workspace viewer (file tree + tabbed preview, inside the Files tab) ── */
 .wv-root { flex: 1; min-height: 0; display: flex; }
 .wv-tree-pane {
