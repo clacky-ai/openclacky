@@ -14947,10 +14947,11 @@ body.setup-mode {
 }
 .billing-controls .segmented-control {
   flex: 0 0 auto;
+  padding: 4px;
 }
 .billing-controls .segmented-control,
 .billing-model-filter {
-  height: 2rem;
+  height: 2.25rem;
 }
 
 /* ── Disclaimer notice ──────────────────────────────────────────────── */
