@@ -18,7 +18,10 @@ module Clacky
       # Retired aliases stay here so usage recorded under them still resolves.
       ALIAS_TO_REAL = {
         # deepseek (dsk-)
+        # REAL_TO_ALIAS is built with Hash#invert, which keeps the last entry
+        # per real id — list the current alias after its retired predecessor.
         "dsk-deepseek-flash"               => "deepseek-flash",
+        "dsk-deepseek-v4.1-flash"          => "deepseek-flash",
         "dsk-deepseek-v4-pro"              => "deepseek-v4-pro",
         "dsk-deepseek-v4-flash"            => "deepseek-v4-flash",
         "dsk-deepseek-v4-flash-vision-exp" => "deepseek-v4-flash-vision-exp",

@@ -36,7 +36,7 @@ module Clacky
         "default_model" => "auto",
         "models" => [
           "auto",
-          "dsk-deepseek-flash",
+          "dsk-deepseek-v4.1-flash",
           "dsk-deepseek-v4-pro",
           "oc-glm-5.3",
           "oc-kimi-k3",
@@ -148,9 +148,11 @@ module Clacky
         # vision=true; oc-gpt-6.1-sol, oc-gpt-6-astra, oc-gpt-6-sol and
         # oc-gpt-6-luna do too.
         "model_capabilities" => {
-          "dsk-deepseek-flash"  => { "vision" => true }.freeze,
-          "dsk-deepseek-v4-pro" => { "vision" => false }.freeze,
-          "oc-glm-5.3"          => { "vision" => false }.freeze
+          "dsk-deepseek-v4.1-flash" => { "vision" => true }.freeze,
+          # Legacy alias still sent by sessions created before the rename.
+          "dsk-deepseek-flash"      => { "vision" => true }.freeze,
+          "dsk-deepseek-v4-pro"     => { "vision" => false }.freeze,
+          "oc-glm-5.3"              => { "vision" => false }.freeze
         }.freeze,
         # Bedrock GPT models (abs-gpt-*) are served through the OpenAI
         # Responses API — their Chat Completions endpoint rejects function
@@ -166,7 +168,7 @@ module Clacky
         # themselves, so they're intentionally not listed here as keys —
         # no injection happens when the default model is already lite-class.
         "lite_models" => {
-          "auto"                 => "dsk-deepseek-flash",
+          "auto"                 => "dsk-deepseek-v4.1-flash",
           "abs-claude-fable-5-1"  => "abs-claude-haiku-5-5",
           "abs-claude-fable-5"    => "abs-claude-haiku-5-5",
           "abs-claude-opus-5-5"   => "abs-claude-haiku-5-5",
@@ -180,7 +182,7 @@ module Clacky
           "abs-gpt-6-sol"         => "abs-gpt-6-luna",
           "abs-gpt-5.6-sol"       => "abs-gpt-5.6-luna",
           "abs-gpt-5.6-terra"     => "abs-gpt-5.6-luna",
-          "dsk-deepseek-v4-pro"   => "dsk-deepseek-flash",
+          "dsk-deepseek-v4-pro"   => "dsk-deepseek-v4.1-flash",
           "or-gemini-3-1-pro"     => "or-gemini-3-8-flash"
         },
         # Fallback chain: if a model is unavailable, try the next one in order.
@@ -213,7 +215,7 @@ module Clacky
         "base_url" => "https://api.deepseek.com",
         "api" => "openai-completions",
         "default_model" => "deepseek-v4-pro",
-        "lite_model" => "deepseek-flash",
+        "lite_model" => "deepseek-v4.1-flash",
         # Note: deepseek-chat and deepseek-reasoner are legacy aliases being
         # deprecated on 2026-07-24; they map to V4.1 Flash's non-thinking and
         # thinking modes respectively.
@@ -221,14 +223,21 @@ module Clacky
         # longer offered upstream, so they are out of this list: only their
         # pricing entries remain, to let already-billed history resolve.
         "models" => [
-          "deepseek-flash",
+          "deepseek-v4.1-flash",
           "deepseek-v4-pro",
         ],
         # DeepSeek V4 API is text-only across all models, except V4.1 Flash
-        # (deepseek-flash), which is natively multimodal.
+        # (deepseek-v4.1-flash), which is natively multimodal.
         "capabilities" => { "vision" => false }.freeze,
         "model_capabilities" => {
-          "deepseek-flash" => { "vision" => true }.freeze
+          "deepseek-v4.1-flash" => { "vision" => true }.freeze,
+          # Legacy id kept for configs saved before the rename.
+          "deepseek-flash"     => { "vision" => true }.freeze
+        }.freeze,
+        # The upstream API still exposes V4.1 Flash as "deepseek-flash"; the
+        # picker shows the generation name.
+        "api_model_aliases" => {
+          "deepseek-v4.1-flash" => "deepseek-flash"
         }.freeze,
         "deepseek_web_tools" => true,
         "website_url" => "https://platform.deepseek.com/api_keys"
@@ -1083,6 +1092,10 @@ module Clacky
       # Plan endpoints accept the short "doubao-seed-2.1-pro"). Users always see
       # and pick the short name; this swaps it just before the request goes out.
       #
+      # The map comes in two shapes:
+      #   - grouped by endpoint variant: { "payg" => { short => real } }
+      #   - flat, endpoint-independent:  { short => real }   (e.g. DeepSeek)
+      #
       # Returns the original model unchanged when no alias applies (unknown
       # provider, endpoint without an alias group, or model not in the map).
       #
@@ -1099,6 +1112,9 @@ module Clacky
         preset = PRESETS[provider_id]
         aliases = preset && preset["api_model_aliases"]
         return model unless aliases.is_a?(Hash)
+
+        flat = aliases[model.to_s]
+        return flat if flat.is_a?(String)
 
         group = alias_group_for_base_url(preset, base_url)
         return model unless group

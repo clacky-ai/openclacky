@@ -83,6 +83,9 @@ RSpec.describe Clacky::Providers do
                                          model_name: "dsk-deepseek-v4-pro")).to be false
         # V4.1 Flash is natively multimodal, unlike its DeepSeek siblings.
         expect(described_class.supports?("openclacky", :vision,
+                                         model_name: "dsk-deepseek-v4.1-flash")).to be true
+        # Sessions created before the rename still send the old alias.
+        expect(described_class.supports?("openclacky", :vision,
                                          model_name: "dsk-deepseek-flash")).to be true
       end
 
@@ -128,6 +131,9 @@ RSpec.describe Clacky::Providers do
 
       it "returns true for deepseekv4 + V4.1 Flash multimodal override" do
         expect(described_class.supports?("deepseekv4", :vision)).to be false
+        expect(described_class.supports?("deepseekv4", :vision,
+                                         model_name: "deepseek-v4.1-flash")).to be true
+        # Legacy id for configs saved before the rename.
         expect(described_class.supports?("deepseekv4", :vision,
                                          model_name: "deepseek-flash")).to be true
         expect(described_class.supports?("deepseekv4", :vision,
@@ -563,6 +569,25 @@ RSpec.describe Clacky::Providers do
         it "leaves models unchanged for unrelated providers" do
           expect(described_class.resolve_api_model(base_url: "https://api.openai.com/v1", model: "doubao-seed-2.1-pro"))
             .to eq("doubao-seed-2.1-pro")
+        end
+
+        it "applies a flat alias map regardless of endpoint" do
+          ["https://api.deepseek.com", "https://api.deepseek.com/anthropic"].each do |url|
+            expect(described_class.resolve_api_model(base_url: url, model: "deepseek-v4.1-flash"))
+              .to eq("deepseek-flash")
+          end
+        end
+
+        it "passes the legacy upstream id through untouched" do
+          expect(described_class.resolve_api_model(base_url: "https://api.deepseek.com", model: "deepseek-flash"))
+            .to eq("deepseek-flash")
+        end
+
+        it "lists the DeepSeek V4.1 Flash generation name in the picker" do
+          models = described_class.models("deepseekv4")
+          expect(models).to include("deepseek-v4.1-flash")
+          expect(models).not_to include("deepseek-flash")
+          expect(described_class.lite_model("deepseekv4")).to eq("deepseek-v4.1-flash")
         end
       end
     end

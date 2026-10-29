@@ -483,6 +483,7 @@ RSpec.describe Clacky::ModelPricing do
         expect(described_class.normalize_model_name("deepseek-v4-flash-vision-exp")).to eq("deepseek-v4-flash-vision-exp")
         expect(described_class.normalize_model_name("deepseek-v4-flash")).to eq("deepseek-v4-flash")
         expect(described_class.normalize_model_name("deepseek-flash")).to eq("deepseek-flash")
+        expect(described_class.normalize_model_name("dsk-deepseek-v4.1-flash")).to eq("deepseek-flash")
       end
     end
 

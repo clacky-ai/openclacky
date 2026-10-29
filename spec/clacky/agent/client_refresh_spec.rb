@@ -10,7 +10,7 @@ RSpec.describe Clacky::Agent, "client refresh on model card edit" do
       models: [
         {
           "type"     => "default",
-          "model"    => "dsk-deepseek-flash",
+          "model"    => "dsk-deepseek-v4.1-flash",
           "api_key"  => "clacky-old-key",
           "base_url" => "https://api.openclacky.com",
           "anthropic_format" => false

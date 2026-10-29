@@ -242,9 +242,13 @@ RSpec.describe Clacky::Billing::PlatformBilling do
   end
 
   describe "model id mapping" do
-    it "maps dsk-deepseek-flash to its upstream id and back" do
+    it "maps dsk-deepseek-v4.1-flash to its upstream id and back" do
+      expect(described_class.real_model("dsk-deepseek-v4.1-flash")).to eq("deepseek-flash")
+      expect(described_class.display_model("deepseek-flash")).to eq("dsk-deepseek-v4.1-flash")
+    end
+
+    it "keeps the retired alias resolvable without using it for display" do
       expect(described_class.real_model("dsk-deepseek-flash")).to eq("deepseek-flash")
-      expect(described_class.display_model("deepseek-flash")).to eq("dsk-deepseek-flash")
     end
 
     it "resolves the oc- TokHub aliases as identities" do

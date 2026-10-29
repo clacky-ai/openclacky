@@ -1461,6 +1461,11 @@ module Clacky
           "claude-3-5-haiku-20241022"
         when /deepseek-v4-pro/i, /deepseek.*v4.*pro/i
           "deepseek-v4-pro"
+        # V4.1 Flash — canonical generation id; natively multimodal. Must be
+        # matched BEFORE the v4-flash rules below, whose `.*v4.*flash` tails
+        # would otherwise catch "v4.1-flash".
+        when /deepseek-v4[.-]1-flash/i
+          "deepseek-flash"
         # Vision variant must be matched BEFORE the v4-flash rule below —
         # "deepseek-v4-flash-vision-exp" would otherwise be substring-matched
         # to v4-flash and billed at the wrong model's rate.
@@ -1468,7 +1473,7 @@ module Clacky
           "deepseek-v4-flash-vision-exp"
         when /deepseek-v4-flash/i, /deepseek.*v4.*flash/i
           "deepseek-v4-flash"
-        # V4.1 Flash — new canonical id; native multimodal.
+        # Bare upstream id for V4.1 Flash.
         when /deepseek-flash/i
           "deepseek-flash"
         # Legacy aliases: deepseek-chat and deepseek-reasoner are being

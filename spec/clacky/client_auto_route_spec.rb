@@ -10,7 +10,7 @@ require "webrick"
 # response[:routed_model] and report it in the latency hash (status bar /
 # cost tracking both key off latency.model).
 RSpec.describe Clacky::Client, "auto alias routed model" do
-  let(:routed_model) { "dsk-deepseek-flash" }
+  let(:routed_model) { "dsk-deepseek-v4.1-flash" }
   let(:completion_body) do
     {
       "choices" => [{ "message" => { "content" => "ok" }, "finish_reason" => "stop" }],

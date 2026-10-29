@@ -1135,7 +1135,7 @@ RSpec.describe Clacky::AgentConfig do
           dsk = config.models.find { |m| m["model"] == "dsk-deepseek-v4-pro" }
           expect(config.switch_model_by_id(dsk["id"])).to be true
           lite2 = config.lite_model_config_for_current
-          expect(lite2["model"]).to eq("dsk-deepseek-flash")
+          expect(lite2["model"]).to eq("dsk-deepseek-v4.1-flash")
         end
       end
     end
