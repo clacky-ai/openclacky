@@ -3111,10 +3111,9 @@ body {
   color: var(--color-accent-primary);
   background: var(--color-accent-soft);
 }
-.new-session-composer-btn > span {
-  font-size: 0.875rem;
-  font-weight: 400;
-  line-height: 1;
+.new-session-composer-btn svg {
+  width: 1.125rem;
+  height: 1.125rem;
 }
 .new-session-textarea {
   flex: 1;
@@ -7480,12 +7479,11 @@ body {
   display: grid;
   place-items: center;
   border-radius: 8px;
-  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
   transition: background .12s, color .12s;
 }
-#btn-slash span {
-  font-size: 0.875rem;
-  font-weight: 400;
+#btn-slash svg {
+  width: 1.125rem;
+  height: 1.125rem;
 }
 #btn-slash:hover {
   color: var(--color-text-primary);
@@ -16914,7 +16912,6 @@ body.setup-mode {
   }
   #btn-slash {
     padding: 0.25rem 0.375rem;
-    font-size: 0.875rem;
   }
 
   /* Textarea: prevent iOS auto-zoom (must be ≥1rem) */
