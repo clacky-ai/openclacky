@@ -3281,6 +3281,10 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* `hidden` alone loses to the inline-flex above, and hiding must not leave a gap. */
+.ns-ctx-chip[hidden] {
+  display: none;
+}
 .ns-ctx-chip:hover {
   color: var(--color-text-primary);
   background: var(--color-bg-hover);
@@ -3298,6 +3302,10 @@ body {
   align-items: center;
   flex-shrink: 0;
   opacity: 0.7;
+}
+/* Vendor badges bring their own colors, so they skip the 0.7 icon opacity. */
+.ns-ctx-chip-icon--badge {
+  opacity: 1;
 }
 .ns-ctx-chip-label {
   overflow: hidden;
@@ -3364,6 +3372,193 @@ body {
   padding: 0.5rem 0.625rem;
   font-size: 0.8125rem;
   color: var(--color-text-tertiary);
+}
+
+/* Branch picker — search pinned on top, list scrolls, footer pinned below.
+   Drops the popover's own padding/scroll so the three zones stay put while
+   the branch list is long. */
+.ns-ctx-popover.ns-branch-pop {
+  padding: 0;
+  min-width: 15rem;
+  max-width: 19rem;
+  max-height: 20rem;
+  overflow: hidden;
+}
+.ns-branch-search {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  flex-shrink: 0;
+  position: relative;
+  padding: 0.75rem 0.625rem 0.5rem;
+  color: var(--color-text-tertiary);
+}
+/* The divider is inset instead of full-bleed so it reads as part of the list
+   rather than as an extra border hugging the popover frame. The search row has
+   none: it sits right under the popover's own top edge. */
+.ns-branch-foot::before {
+  content: "";
+  position: absolute;
+  left: 0.5rem;
+  right: 0.5rem;
+  height: 1px;
+  background: var(--color-border-primary);
+}
+.ns-branch-search-input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--color-text-primary);
+  font-size: 0.8125rem;
+  font-family: inherit;
+}
+.ns-branch-search-input::placeholder {
+  color: var(--color-text-tertiary);
+}
+.ns-branch-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  flex: 1;
+  min-height: 0;
+  padding: 0.25rem;
+  overflow-y: auto;
+}
+/* Long branch lists must scroll, not squeeze: flex children shrink by default,
+   which flattened every row to a few pixels once the list overflowed. */
+.ns-branch-list > * {
+  flex-shrink: 0;
+}
+.ns-branch-list.is-busy {
+  opacity: 0.55;
+  pointer-events: none;
+}
+.ns-branch-group {
+  padding: 0.375rem 0.625rem 0.1875rem;
+  font-size: 0.6875rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-text-tertiary);
+}
+.ns-branch-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4375rem 0.625rem;
+}
+.ns-branch-item-icon,
+.ns-branch-item-check {
+  display: flex;
+  flex-shrink: 0;
+}
+.ns-branch-item-icon {
+  opacity: 0.75;
+}
+.ns-branch-item-label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: left;
+}
+.ns-branch-item.is-remote .ns-branch-item-label {
+  opacity: 0.75;
+}
+.ns-branch-foot {
+  position: relative;
+  flex-shrink: 0;
+  padding: 0.25rem;
+}
+.ns-branch-foot::before {
+  top: 0;
+}
+.ns-branch-create {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+}
+/* Create-branch modal */
+.ns-branch-field-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+.ns-branch-prefix-btn {
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--color-accent-primary);
+  font-size: 0.75rem;
+  font-family: inherit;
+  cursor: pointer;
+}
+.ns-branch-prefix-btn:hover {
+  text-decoration: underline;
+}
+.ns-branch-prefix-btn:disabled {
+  color: var(--color-text-muted);
+  cursor: default;
+  text-decoration: none;
+}
+.ns-branch-name-row {
+  display: flex;
+  align-items: center;
+  gap: 0.125rem;
+  padding: 0 0.75rem;
+  border: 1px solid var(--color-border-primary);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-input);
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+.ns-branch-name-row:hover {
+  border-color: var(--color-border-strong);
+}
+.ns-branch-name-row:focus-within {
+  border-color: var(--color-accent-primary);
+  box-shadow: 0 0 0 3px var(--color-accent-soft);
+}
+.ns-branch-name-row.is-invalid {
+  border-color: var(--color-error);
+}
+.ns-branch-name-row .ns-branch-name-input {
+  flex: 1;
+  min-width: 0;
+  padding: 0.5625rem 0;
+  border: none;
+  background: transparent;
+  color: var(--color-text-primary);
+  font-size: 0.8125rem;
+  font-family: inherit;
+  outline: none;
+  box-shadow: none;
+}
+.ns-branch-name-row .ns-branch-name-input::placeholder {
+  color: var(--color-text-muted);
+}
+.ns-branch-prefix-chip {
+  flex-shrink: 0;
+  padding: 0.125rem 0.375rem;
+  border-radius: 0.25rem;
+  background: var(--color-bg-hover);
+  color: var(--color-text-tertiary);
+  font-size: 0.75rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  white-space: nowrap;
+}
+.ns-branch-prefix-chip[hidden] {
+  display: none;
+}
+.ns-branch-modal-error {
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--color-error);
+  word-break: break-word;
+}
+.ns-branch-modal-error[hidden] {
+  display: none;
 }
 
 /* Dir popover layout */

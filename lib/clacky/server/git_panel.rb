@@ -310,6 +310,50 @@ module Clacky
         end
       end
 
+      # Current branch name, or nil when HEAD is detached / the dir is not a repo.
+      def branch_name(dir)
+        out, _err, ok = git(dir, "symbolic-ref", "--short", "-q", "HEAD")
+        ok ? out.strip : nil
+      end
+
+      # Whether `name` is a branch (or ref) git would accept. Refusing a leading
+      # dash keeps the value from being parsed as an option by the argv call
+      # below; the rest of the rules come from git itself so aliases such as
+      # `origin/pr-685` stay usable.
+      #
+      # Returns true/false - never raises.
+      def branch_ref?(dir, name)
+        ref = name.to_s.strip
+        return false if ref.empty? || ref.start_with?("-")
+
+        _out, _err, ok = git(dir, "check-ref-format", "--branch", ref)
+        ok
+      end
+
+      # Switch the work tree to `branch`, optionally creating it (from `from`,
+      # or from HEAD when omitted). Uncommitted changes are left to git: it
+      # either carries them across or refuses with a message the UI shows as-is.
+      def checkout(dir, branch:, create: false, from: nil)
+        name = branch.to_s.strip
+        return { ok: false, error: "branch is required" } if name.empty?
+        return { ok: false, error: "invalid branch name" } unless branch_ref?(dir, name)
+
+        args = ["checkout"]
+        if create
+          start = from.to_s.strip
+          return { ok: false, error: "invalid base ref" } unless start.empty? || branch_ref?(dir, start)
+          args.push("-b", name)
+          args.push(start) unless start.empty?
+        else
+          args.push(name)
+        end
+
+        _out, err, ok = git(dir, *args)
+        return { ok: true, branch: name } if ok
+
+        { ok: false, error: err.strip.empty? ? "git checkout failed" : err.strip }
+      end
+
       # Discard uncommitted changes to one file and return it to its HEAD
       # state (same baseline the diff API uses, so "what you saw is what you
       # lose"). Files that never existed in HEAD (staged-new or untracked)

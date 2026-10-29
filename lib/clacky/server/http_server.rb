@@ -969,6 +969,12 @@ module Clacky
           elsif method == "DELETE" && path.match?(%r{^/api/memories/[^/]+$})
             filename = URI.decode_www_form_component(path.sub("/api/memories/", ""))
             api_memories_delete(filename, res)
+          elsif method == "GET" && path.match?(%r{^/api/projects/[^/]+/git$})
+            project_id = path.sub("/api/projects/", "").sub("/git", "")
+            api_project_git(project_id, req, res)
+          elsif method == "POST" && path.match?(%r{^/api/projects/[^/]+/git/checkout$})
+            project_id = path.sub("/api/projects/", "").sub("/git/checkout", "")
+            api_project_git_checkout(project_id, req, res)
           elsif method == "PATCH" && path.match?(%r{^/api/projects/[^/]+$})
             project_id = path.sub("/api/projects/", "")
             api_update_project(project_id, req, res)
@@ -7297,6 +7303,71 @@ module Clacky
         json_response(res, 201, { project: project })
       rescue => e
         json_response(res, 500, { error: e.message })
+      end
+
+      # GET /api/projects/:id/git?dir= — branch state of a work tree, used by
+      # the new-session branch picker. `dir` overrides the project's own
+      # working dir, since a session may run in a different repo. `repo: false`
+      # covers a missing working dir, a missing directory, and plain non-git
+      # folders, so the picker can simply hide itself.
+      def api_project_git(project_id, req, res)
+        project = @project_manager.find(project_id)
+        return json_response(res, 404, { error: "Project not found" }) unless project
+
+        dir = git_work_tree(project, git_dir_param(req))
+        return json_response(res, 200, { repo: false }) unless dir
+
+        json_response(res, 200, {
+          repo:     true,
+          branch:   Clacky::Server::GitPanel.branch_name(dir),
+          branches: Clacky::Server::GitPanel.branches(dir),
+        })
+      end
+
+      # POST /api/projects/:id/git/checkout — body: { branch:, create:?, from:?, dir:? }
+      # Switches a work tree. `create: true` branches off `from`, which may be
+      # a remote ref (origin/feature) to get a tracking branch.
+      def api_project_git_checkout(project_id, req, res)
+        project = @project_manager.find(project_id)
+        return json_response(res, 404, { error: "Project not found" }) unless project
+
+        body = parse_json_body(req)
+        dir  = git_work_tree(project, body["dir"])
+        return json_response(res, 400, { error: "Not a git repository" }) unless dir
+
+        result = Clacky::Server::GitPanel.checkout(
+          dir,
+          branch: body["branch"],
+          create: body["create"] == true,
+          from:   body["from"]
+        )
+
+        unless result[:ok]
+          return json_response(res, 422, { error: result[:error] })
+        end
+
+        json_response(res, 200, {
+          ok:       true,
+          branch:   Clacky::Server::GitPanel.branch_name(dir),
+          branches: Clacky::Server::GitPanel.branches(dir),
+        })
+      end
+
+      def git_dir_param(req)
+        URI.decode_www_form(req.query_string.to_s).to_h["dir"]
+      rescue ArgumentError
+        nil
+      end
+
+      # Resolves the work tree a git request targets: the explicit `dir` when
+      # given, otherwise the project's own working dir. Nil when the path is
+      # not an existing git repository.
+      def git_work_tree(project, dir_param)
+        raw = dir_param.to_s.strip
+        dir = raw.empty? ? project[:working_dir].to_s : File.expand_path(raw)
+        return nil if dir.empty? || !Dir.exist?(dir)
+        return nil unless Clacky::Server::GitPanel.repo?(dir)
+        dir
       end
 
       # PATCH /api/projects/:id - update a project

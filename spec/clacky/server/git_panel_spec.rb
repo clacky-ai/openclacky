@@ -567,3 +567,119 @@ RSpec.describe Clacky::Server::GitPanel, ".review" do
     end
   end
 end
+
+# The branch picker on the new-session page switches the project work tree, so
+# these specs cover the two ways it can go wrong: a name git would read as an
+# option, and a switch git refuses because of uncommitted work.
+RSpec.describe Clacky::Server::GitPanel, ".checkout" do
+  include GitPanelRepo
+
+  around do |ex|
+    dir = Dir.mktmpdir("git_panel_checkout_spec")
+    begin
+      init_repo(dir)
+      ex.run
+    ensure
+      remove_repo(dir)
+    end
+  end
+
+  def run(*args)
+    out, _err, _st = Open3.capture3(*args.map(&:to_s), chdir: @dir)
+    out
+  end
+
+  def write(path, content)
+    full = File.join(@dir, path)
+    FileUtils.mkdir_p(File.dirname(full))
+    File.write(full, content)
+  end
+
+  def commit_all(message)
+    run "git", "add", "-A"
+    run "git", "commit", "-q", "-m", message
+  end
+
+  def current
+    run("git", "symbolic-ref", "--short", "HEAD").strip
+  end
+
+  before do
+    write "a.txt", "one\n"
+    commit_all "init"
+  end
+
+  it "creates a branch off HEAD and switches to it" do
+    result = described_class.checkout(@dir, branch: "feature/x", create: true)
+
+    expect(result).to eq(ok: true, branch: "feature/x")
+    expect(current).to eq("feature/x")
+  end
+
+  it "switches to an existing branch" do
+    base = current
+    run "git", "branch", "other"
+
+    result = described_class.checkout(@dir, branch: "other")
+
+    expect(result[:ok]).to be_truthy
+    expect(current).to eq("other")
+    expect(described_class.branch_name(@dir)).to eq("other")
+    expect(described_class.status(@dir)[:branch]).to eq("other")
+    expect(base).not_to eq("other")
+  end
+
+  it "branches off an explicit base ref" do
+    base = current
+    run "git", "checkout", "-q", "-b", "side"
+    write "a.txt", "side\n"
+    commit_all "side"
+    run "git", "checkout", "-q", base
+
+    result = described_class.checkout(@dir, branch: "from-side", create: true, from: "side")
+
+    expect(result[:ok]).to be_truthy
+    expect(File.read(File.join(@dir, "a.txt"))).to eq("side\n")
+  end
+
+  it "refuses a name that would be parsed as an option" do
+    before_name = current
+
+    result = described_class.checkout(@dir, branch: "--orphan", create: true)
+
+    expect(result[:ok]).to be(false)
+    expect(result[:error]).to eq("invalid branch name")
+    expect(current).to eq(before_name)
+  end
+
+  it "refuses an invalid base ref" do
+    result = described_class.checkout(@dir, branch: "feature", create: true, from: "-x")
+
+    expect(result[:ok]).to be(false)
+    expect(result[:error]).to eq("invalid base ref")
+  end
+
+  it "passes git's own refusal through when uncommitted work blocks the switch" do
+    base = current
+    run "git", "checkout", "-q", "-b", "conflict"
+    write "a.txt", "conflict\n"
+    commit_all "conflict"
+    run "git", "checkout", "-q", base
+    write "a.txt", "uncommitted\n"
+
+    result = described_class.checkout(@dir, branch: "conflict")
+
+    expect(result[:ok]).to be(false)
+    expect(result[:error]).to match(/local changes|would be overwritten/i)
+    expect(current).to eq(base)
+  end
+
+  describe ".branch_name" do
+    it "returns nil for a detached HEAD" do
+      head = run("git", "rev-parse", "HEAD").strip
+      run "git", "checkout", "-q", "--detach", head
+
+      expect(described_class.branch_name(@dir)).to be_nil
+    end
+  end
+end
