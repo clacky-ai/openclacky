@@ -885,87 +885,38 @@
     <!-- ── ARCHIVE PANEL — chats the user archived: off the rail, still on disk ── -->
     <div id="archive-panel" class="dm-view" style="display:none">
       <div id="archive-body">
-        <div class="trash-toolbar">
-          <div class="archive-search-wrap">
-            <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="archive-search-icon">
-              <circle cx="11" cy="11" r="8"/>
-              <line x1="21" y1="21" x2="16.65" y2="16.65"/>
-            </svg>
-            <input type="search" id="archive-search" class="archive-search-input" data-i18n-placeholder="archive.searchPlaceholder" placeholder="Search archived sessions" autocomplete="off" spellcheck="false">
-          </div>
-
-          <div class="trash-filter-project-wrap">
-            <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="trash-filter-project-icon">
-              <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
-            </svg>
-            <div class="custom-select-wrapper" id="archive-filter-project">
-              <div class="custom-select-trigger custom-select-trigger--bare" tabindex="0">
-                <span class="custom-select-value placeholder" data-i18n="archive.filterAllProjects">All projects</span>
-                <svg class="custom-select-arrow" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
-                </svg>
-              </div>
-              <div class="custom-select-dropdown"></div>
+          <div class="trash-toolbar">
+            <div class="archive-search-wrap">
+              <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="archive-search-icon">
+                <circle cx="11" cy="11" r="8"/>
+                <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+              </svg>
+              <input type="search" id="archive-search" class="archive-search-input" data-i18n-placeholder="archive.searchPlaceholder" placeholder="Search archived sessions" autocomplete="off" spellcheck="false">
             </div>
-          </div>
 
-          <div class="trash-filter-project-wrap">
-            <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="trash-filter-project-icon">
-              <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.83z"/>
-              <line x1="7" y1="7" x2="7.01" y2="7"/>
-            </svg>
-            <div class="custom-select-wrapper" id="archive-filter-type">
-              <div class="custom-select-trigger custom-select-trigger--bare" tabindex="0">
-                <span class="custom-select-value placeholder" data-i18n="archive.filterAllTypes">All types</span>
-                <svg class="custom-select-arrow" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
-                </svg>
+            <div class="trash-filter-project-wrap">
+              <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="trash-filter-project-icon">
+                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+              </svg>
+              <div class="custom-select-wrapper" id="archive-filter-project">
+                <div class="custom-select-trigger custom-select-trigger--bare" tabindex="0">
+                  <span class="custom-select-value placeholder" data-i18n="archive.filterAllProjects">All projects</span>
+                  <svg class="custom-select-arrow" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+                  </svg>
+                </div>
+                <div class="custom-select-dropdown"></div>
               </div>
-              <div class="custom-select-dropdown"></div>
             </div>
-          </div>
 
-          <span class="trash-summary" id="archive-summary"></span>
-
-          <button id="btn-archive-delete-all" class="btn-trash-action btn-trash-danger">
-            <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <polyline points="3 6 5 6 21 6"/>
-              <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
-              <path d="M10 11v6"/><path d="M14 11v6"/>
-              <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
-            </svg>
-            <span data-i18n="archive.deleteAll">Delete all</span>
-          </button>
-        </div>
-
-        <div id="archive-list"></div>
-
-        <button id="btn-archive-load-more" style="display:none" data-i18n="archive.loadMore">Load more</button>
-      </div>
-    </div>
-
-    <!-- ── TRASH PANEL — Recently deleted files across all projects ─── -->
-    <div id="trash-panel" class="dm-view" style="display:none">
-      <div id="trash-body">
-        <div id="trash-tabs">
-          <div class="segmented-control">
-            <button class="trash-tab segmented-control__btn active" data-tab="session-trash" id="tab-session-trash" data-i18n="trash.tabSession">Sessions</button>
-            <button class="trash-tab segmented-control__btn" data-tab="file-trash" id="tab-file-trash" data-i18n="trash.tabFile">Agent Files</button>
-          </div>
-        </div>
-
-        <p class="trash-session-hint" id="trash-session-hint" data-i18n="trash.sessionAutoCleanHint">The system keeps the most recent 200 sessions; older ones are moved here.</p>
-
-        <div class="trash-toolbar">
-          <div class="trash-filter-bar" id="trash-filter-bar">
             <div class="trash-filter-project-wrap">
               <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="trash-filter-project-icon">
                 <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.83z"/>
                 <line x1="7" y1="7" x2="7.01" y2="7"/>
               </svg>
-              <div class="custom-select-wrapper" id="trash-filter-source">
+              <div class="custom-select-wrapper" id="archive-filter-type">
                 <div class="custom-select-trigger custom-select-trigger--bare" tabindex="0">
-                  <span class="custom-select-value placeholder" data-i18n="trash.filterAllTypes">All types</span>
+                  <span class="custom-select-value placeholder" data-i18n="archive.filterAllTypes">All types</span>
                   <svg class="custom-select-arrow" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
                   </svg>
@@ -973,64 +924,118 @@
                 <div class="custom-select-dropdown"></div>
               </div>
             </div>
-            <div class="trash-filter-project-wrap" id="trash-filter-project-wrap">
-              <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="trash-filter-project-icon">
-                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
-              </svg>
-              <div class="custom-select-wrapper" id="trash-filter-project">
-                <div class="custom-select-trigger custom-select-trigger--bare" tabindex="0">
-                  <span class="custom-select-value placeholder" data-i18n="trash.filterAllProjects">所有项目</span>
-                  <svg class="custom-select-arrow" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
-                  </svg>
-                </div>
-                <div class="custom-select-dropdown"></div>
-              </div>
-            </div>
-          </div>
-          <span class="trash-summary" id="trash-summary"></span>
-          <div class="trash-actions">
-            <button id="btn-trash-refresh" class="btn-trash-action" data-i18n-title="trash.refresh.tooltip" title="Refresh">
-              <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/>
-                <path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/>
-              </svg>
-              <span data-i18n="trash.refresh">Refresh</span>
-            </button>
-            <button id="btn-trash-empty-old" class="btn-trash-action btn-trash-danger" data-i18n-title="trash.emptyOld.tooltip" title="Permanently delete files older than 7 days">
-              <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
-              </svg>
-              <span data-i18n="trash.emptyOld">Empty older than 7 days</span>
-            </button>
-            <button id="btn-trash-empty-orphans" class="btn-trash-action btn-trash-danger" style="display:none" data-i18n-title="trash.emptyOrphans.tooltip" title="Permanently delete entries whose original project directory no longer exists (e.g. test temp dirs)">
-              <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
-                <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
-              </svg>
-              <span data-i18n="trash.emptyOrphans">Clean orphans</span>
-            </button>
-            <button id="btn-trash-empty-all" class="btn-trash-action btn-trash-danger" data-i18n-title="trash.emptyAll.tooltip" title="Permanently delete all trashed files">
+
+            <span class="trash-summary" id="archive-summary"></span>
+
+            <button id="btn-archive-delete-all" class="btn-trash-action btn-trash-danger">
               <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <polyline points="3 6 5 6 21 6"/>
                 <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
                 <path d="M10 11v6"/><path d="M14 11v6"/>
                 <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
               </svg>
-              <span data-i18n="trash.emptyAll">Empty all</span>
+              <span data-i18n="archive.deleteAll">Delete all</span>
             </button>
           </div>
-        </div>
 
-        <div id="trash-tab-file" class="trash-tab-content" style="display:none">
-          <div id="trash-list"></div>
-        </div>
+          <div id="archive-list"></div>
 
-        <div id="trash-tab-session" class="trash-tab-content">
-          <div id="trash-session-list"></div>
+          <button id="btn-archive-load-more" style="display:none" data-i18n="archive.loadMore">Load more</button>
         </div>
       </div>
-    </div>
+
+      <!-- ── TRASH PANEL — Recently deleted files across all projects ─── -->
+      <div id="trash-panel" class="dm-view" style="display:none">
+        <div id="trash-body">
+          <div id="trash-tabs">
+            <div class="segmented-control">
+              <button class="trash-tab segmented-control__btn active" data-tab="session-trash" id="tab-session-trash" data-i18n="trash.tabSession">Sessions</button>
+              <button class="trash-tab segmented-control__btn" data-tab="file-trash" id="tab-file-trash" data-i18n="trash.tabFile">Agent Files</button>
+            </div>
+          </div>
+
+          <!-- Everything below the segmented tabs scrolls as one region: the
+               hint, the toolbar and the list share a single viewport so the tab
+               strip above stays put. -->
+          <div id="trash-scroll">
+            <p class="trash-session-hint" id="trash-session-hint" data-i18n="trash.sessionAutoCleanHint">The system keeps the most recent 200 sessions; older ones are moved here.</p>
+
+            <div class="trash-toolbar">
+              <div class="trash-filter-bar" id="trash-filter-bar">
+                <div class="trash-filter-project-wrap">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="trash-filter-project-icon">
+                    <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.83z"/>
+                    <line x1="7" y1="7" x2="7.01" y2="7"/>
+                  </svg>
+                  <div class="custom-select-wrapper" id="trash-filter-source">
+                    <div class="custom-select-trigger custom-select-trigger--bare" tabindex="0">
+                      <span class="custom-select-value placeholder" data-i18n="trash.filterAllTypes">All types</span>
+                      <svg class="custom-select-arrow" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+                      </svg>
+                    </div>
+                    <div class="custom-select-dropdown"></div>
+                  </div>
+                </div>
+                <div class="trash-filter-project-wrap" id="trash-filter-project-wrap">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="trash-filter-project-icon">
+                    <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+                  </svg>
+                  <div class="custom-select-wrapper" id="trash-filter-project">
+                    <div class="custom-select-trigger custom-select-trigger--bare" tabindex="0">
+                      <span class="custom-select-value placeholder" data-i18n="trash.filterAllProjects">所有项目</span>
+                      <svg class="custom-select-arrow" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+                      </svg>
+                    </div>
+                    <div class="custom-select-dropdown"></div>
+                  </div>
+                </div>
+              </div>
+              <span class="trash-summary" id="trash-summary"></span>
+              <div class="trash-actions">
+                <button id="btn-trash-refresh" class="btn-trash-action" data-i18n-title="trash.refresh.tooltip" title="Refresh">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/>
+                    <path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/>
+                  </svg>
+                  <span data-i18n="trash.refresh">Refresh</span>
+                </button>
+                <button id="btn-trash-empty-old" class="btn-trash-action btn-trash-danger" data-i18n-title="trash.emptyOld.tooltip" title="Permanently delete files older than 7 days">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+                  </svg>
+                  <span data-i18n="trash.emptyOld">Empty older than 7 days</span>
+                </button>
+                <button id="btn-trash-empty-orphans" class="btn-trash-action btn-trash-danger" style="display:none" data-i18n-title="trash.emptyOrphans.tooltip" title="Permanently delete entries whose original project directory no longer exists (e.g. test temp dirs)">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+                    <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+                  </svg>
+                  <span data-i18n="trash.emptyOrphans">Clean orphans</span>
+                </button>
+                <button id="btn-trash-empty-all" class="btn-trash-action btn-trash-danger" data-i18n-title="trash.emptyAll.tooltip" title="Permanently delete all trashed files">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="3 6 5 6 21 6"/>
+                    <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+                    <path d="M10 11v6"/><path d="M14 11v6"/>
+                    <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
+                  </svg>
+                  <span data-i18n="trash.emptyAll">Empty all</span>
+                </button>
+              </div>
+            </div>
+
+            <div id="trash-tab-file" class="trash-tab-content" style="display:none">
+              <div id="trash-list"></div>
+            </div>
+
+            <div id="trash-tab-session" class="trash-tab-content">
+              <div id="trash-session-list"></div>
+            </div>
+          </div>
+        </div>
+      </div>
 
     <!-- ── BACKUP PANEL — auto/manual backup of ~/.clacky (moved out of Settings) ── -->
     <div id="backup-panel" class="dm-view" style="display:none">

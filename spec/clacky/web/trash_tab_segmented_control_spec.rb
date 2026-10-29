@@ -60,6 +60,32 @@ RSpec.describe "Recycle bin tab switcher" do
     expect(html).to match(/id="btn-trash-empty-orphans"[^>]*style="display:none"/)
   end
 
+  it "scrolls the hint, toolbar and list as one region under the pills" do
+    scroll = html[%r{<div id="trash-scroll">.*?</div>\s*</div>\s*</div>\s*<!--}m]
+    raise "trash scroll region not found" unless scroll
+
+    expect(scroll).to include('id="trash-session-hint"')
+    expect(scroll).to include('class="trash-toolbar"')
+    expect(scroll).to include('id="trash-tab-file"')
+    expect(scroll).to include('id="trash-tab-session"')
+    # The tab strip stays outside it, so only the region below the pills moves.
+    expect(html.index('id="trash-tabs"')).to be < html.index('id="trash-scroll"')
+
+    expect(css).to match(/#trash-body \{[^}]*overflow: hidden;/m)
+    expect(css).to match(/#trash-scroll \{[^}]*overflow-y: auto;/m)
+    # The region below the pills owns the spacing now, so #trash-body must not
+    # add a gap of its own or the strip floats away from the tab strip.
+    expect(css).not_to match(/#trash-body \{[^}]*\bgap:/m)
+    # The room under the pills lives on the scroll box, so the files tab (whose
+    # first row is the toolbar, no hint) gets the same spacing as the sessions
+    # tab. The hint only tightens the gap below it.
+    expect(css).to match(/#trash-scroll \{[^}]*padding: 0\.5rem 2\.25rem 0 0;/m)
+    expect(css).to match(/\.trash-session-hint \{[^}]*margin: 0 0 -0\.25rem;/m)
+    expect(css).to match(/#trash-scroll \{[^}]*margin-right: -2\.25rem;/m)
+    expect(css).to match(/\.trash-tab-content \{[^}]*margin-top: -0\.625rem;/m)
+    expect(css).not_to match(/\.trash-tab-content \{[^}]*overflow-y/m)
+  end
+
   it "drops the retired underline styles" do
     expect(css).not_to include(".trash-tabs-left")
     expect(css).not_to match(/^\.trash-tab\s*\{/m)

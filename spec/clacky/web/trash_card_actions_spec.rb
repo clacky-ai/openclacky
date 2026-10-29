@@ -39,14 +39,38 @@ RSpec.describe "File Recall card action buttons" do
     expect(block).to include("height:", "border-radius:", "font-size:")
   end
 
-  it "keeps a neutral hover on restore and reserves red for delete" do
+  it "hovers the restore action in the theme colour and reserves red for delete" do
     restore = styles[/\.btn-trash-restore:hover:not\(:disabled\),\s*\.btn-trash-session-restore:hover:not\(:disabled\)\s*\{[^}]*\}/]
     expect(restore).not_to be_nil
     expect(restore).not_to include("--color-success")
-    expect(restore).to include("color: var(--color-text-primary)")
+    expect(restore).to include("border-color: var(--color-accent-primary)", "color: var(--color-accent-primary)")
+    # The grey wash read as a disabled state next to the accent-coloured cards.
+    expect(restore).not_to include("--color-bg-hover")
 
     delete = styles[/\.btn-trash-delete:hover:not\(:disabled\),\s*\.btn-trash-session-delete:hover:not\(:disabled\)\s*\{[^}]*\}/]
     expect(delete).to include("--color-error")
+  end
+
+  it "paints the Data page actions with the theme colour on hover" do
+    # The archive, recycle bin and backup panels share one accent hover, so the
+    # grey wash no longer shows up anywhere except the destructive buttons.
+    %w[
+      \.btn-trash-action:hover:not\(:disabled\)
+      \.btn-backup-action:hover:not\(:disabled\)
+      \.btn-archive-unarchive:hover:not\(:disabled\)
+      \.page-tab:hover:not\(\.active\)
+    ].each do |selector|
+      block = styles[/#{selector}\s*\{[^}]*\}/]
+      expect(block).to include("var(--color-accent-primary)"), "#{selector} should hover in the theme colour"
+      expect(block).not_to include("--color-bg-hover"), "#{selector} should not fall back to the grey wash"
+    end
+
+    %w[
+      \.btn-trash-danger:hover:not\(:disabled\)
+      \.btn-trash-delete:hover:not\(:disabled\)
+    ].each do |selector|
+      expect(styles[/#{selector}[^{]*\{[^}]*\}/]).to include("--color-error")
+    end
   end
 
   it "labels the 7-day cleanup in plain words" do
