@@ -5760,6 +5760,7 @@ body {
   color: var(--color-text-secondary);
   flex-shrink: 0;
 }
+.msg-pdf-badge-icon svg { width: 20px; height: 20px; }
 .msg-pdf-badge-info {
   display: flex;
   flex-direction: column;
@@ -6964,6 +6965,7 @@ body {
   color: var(--color-text-secondary);
   flex-shrink: 0;
 }
+.pdf-preview-icon svg { width: 24px; height: 24px; }
 .pdf-preview-info {
   display: flex;
   flex-direction: column;
