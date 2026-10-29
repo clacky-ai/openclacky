@@ -272,6 +272,13 @@ async function tests() {
     assert.equal(w.input.focusCount, 1, "the message input is focused");
 
     assert.equal(stripIconHtml(w), w.WorkspaceView.fileIcon("report.docx"), "the chip reuses the file-tree icon");
+    const icon = name => w.WorkspaceView.fileIcon(name);
+    const typed = ["a.docx", "a.xlsx", "a.pptx", "a.pdf", "a.txt"].map(icon);
+    assert.equal(new Set([...typed, icon("a.unknown")]).size, 6, "office, pdf and text files get their own icons");
+    assert.equal(icon("a.doc"), icon("a.docx"));
+    assert.equal(icon("a.xls"), icon("a.xlsx"));
+    assert.equal(icon("a.ppt"), icon("a.pptx"));
+    assert.equal(icon("a.log"), icon("a.txt"));
 
     previewStrip(w).querySelector(".pdf-preview-open").click();
     assert.deepEqual(w.opened, ["/wd/report.docx"], "the pending card opens in the Files viewer");
