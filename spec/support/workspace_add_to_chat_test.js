@@ -220,6 +220,7 @@ function boot() {
 
   return {
     Sessions,
+    WorkspaceView,
     document,
     container,
     fetches,
@@ -270,11 +271,7 @@ async function tests() {
 
     assert.equal(w.input.focusCount, 1, "the message input is focused");
 
-    // The chip is drawn with a stroked SVG (theme coloured), not an emoji glyph.
-    const glyph = stripIconHtml(w);
-    assert.ok(glyph.includes("<svg"), "the chip icon is an SVG");
-    assert.ok(glyph.includes('stroke="currentColor"'), "the glyph follows the text colour");
-    assert.ok(glyph.includes('<path d="M9 13h6"/>'), "a .docx gets the document glyph");
+    assert.equal(stripIconHtml(w), w.WorkspaceView.fileIcon("report.docx"), "the chip reuses the file-tree icon");
 
     previewStrip(w).querySelector(".pdf-preview-open").click();
     assert.deepEqual(w.opened, ["/wd/report.docx"], "the pending card opens in the Files viewer");
