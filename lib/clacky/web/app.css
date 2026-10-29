@@ -1816,6 +1816,14 @@ body {
   -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 1rem), transparent);
   mask-image: linear-gradient(to right, #000 calc(100% - 1rem), transparent);
 }
+/* A sliding title needs a fade on its leading edge too, or the glyphs are
+   guillotined at the viewport once they travel left. The class is added by JS
+   only after the slide's 0.3s delay, so the first glyph is not dimmed while the
+   text is still standing; a CSS-only swap would also linger on the way back. */
+.session-item.session-name-leading-fade:not(.group-item) .session-name .session-name__text {
+  -webkit-mask-image: linear-gradient(to right, transparent, #000 1rem, #000 calc(100% - 1rem), transparent);
+  mask-image: linear-gradient(to right, transparent, #000 1rem, #000 calc(100% - 1rem), transparent);
+}
 .session-name__content {
   display: inline-block;
   min-width: max-content;
@@ -5396,6 +5404,12 @@ body {
   transition-duration: var(--todo-text-scroll-duration);
   transition-delay: 0.3s;
   transition-timing-function: linear;
+}
+/* Same leading fade as the session rows: without it the sliding text is cut
+   flat at the left edge. Added by JS after the slide's 0.3s delay. */
+.todo-item.todo-text-leading-fade .todo-text {
+  -webkit-mask-image: linear-gradient(to right, transparent, #000 1rem, #000 calc(100% - 1rem), transparent);
+  mask-image: linear-gradient(to right, transparent, #000 1rem, #000 calc(100% - 1rem), transparent);
 }
 
 @media (prefers-reduced-motion: reduce) {

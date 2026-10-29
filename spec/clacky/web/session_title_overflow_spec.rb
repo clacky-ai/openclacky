@@ -18,4 +18,11 @@ RSpec.describe "Session title overflow" do
     expect(styles).to match(/\.session-item\.session-name-scrolling \.session-name__content \{.*?translateX/m)
     expect(styles).to match(/prefers-reduced-motion: reduce.*?\.session-name__content/m)
   end
+
+  it "fades the leading edge while the title slides left" do
+    expect(sessions).to include('fadeClass: "session-name-leading-fade"')
+    expect(styles).to match(
+      /\.session-item\.session-name-leading-fade.*?\.session-name__text \{.*?transparent, #000 1rem/m
+    )
+  end
 end
