@@ -49,13 +49,13 @@ RSpec.describe "Git panel toolbar" do
   end
 
   it "keeps the toolbar icons optically the same size" do
-    # The artwork heights differ inside the 24 grid (15.2 / 17.2 / 16 / 20 / 18
-    # units), so each svg is sized to render the same ~11.7px tall content.
+    # The artwork bounds differ inside the 24 grid (roughly 15-21 units tall),
+    # so each svg is sized to render the same ~11.7px tall content.
     {
       "ICON_LAYOUT_AUTO" => "18.5",
       "ICON_EXPAND_ALL" => "15",
       "ICON_TREE" => "17.6",
-      "ICON_FILE_SEARCH" => "14",
+      "ICON_FIND" => "15",
       "ICON_REFRESH" => "15.6"
     }.each do |icon, size|
       svg = view[/const #{icon} = '<svg[^']*'/]
@@ -64,7 +64,7 @@ RSpec.describe "Git panel toolbar" do
   end
 
   it "opens the jump-to-file finder from a magnifier button" do
-    expect(view).to include("findBtn.innerHTML = ICON_FILE_SEARCH")
+    expect(view).to include("findBtn.innerHTML = ICON_FIND")
     expect(view).to include("findBtn.addEventListener(\"click\", () => openFinder(findBtn))")
 
     finder = view[/function openFinder\(anchor\) \{.*?\n  \}/m]
