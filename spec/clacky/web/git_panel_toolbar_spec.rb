@@ -45,7 +45,64 @@ RSpec.describe "Git panel toolbar" do
 
   it "keeps the refresh button at the far right of the bar" do
     bar = view[/const bar = el\("div", \{ class: "cg-bar" \},.*?\);/m]
-    expect(bar).to include("layoutBtn, expandBtn, treeBtn, refreshBtn")
+    expect(bar).to include("layoutBtn, expandBtn, treeBtn, findBtn, refreshBtn")
+  end
+
+  it "keeps the toolbar icons optically the same size" do
+    # The artwork heights differ inside the 24 grid (15.2 / 17.2 / 16 / 20 / 18
+    # units), so each svg is sized to render the same ~11.7px tall content.
+    {
+      "ICON_LAYOUT_AUTO" => "18.5",
+      "ICON_EXPAND_ALL" => "15",
+      "ICON_TREE" => "17.6",
+      "ICON_FILE_SEARCH" => "14",
+      "ICON_REFRESH" => "15.6"
+    }.each do |icon, size|
+      svg = view[/const #{icon} = '<svg[^']*'/]
+      expect(svg).to include(%(width="#{size}" height="#{size}"))
+    end
+  end
+
+  it "opens the jump-to-file finder from a magnifier button" do
+    expect(view).to include("findBtn.innerHTML = ICON_FILE_SEARCH")
+    expect(view).to include("findBtn.addEventListener(\"click\", () => openFinder(findBtn))")
+
+    finder = view[/function openFinder\(anchor\) \{.*?\n  \}/m]
+    expect(finder).to include("setTimeout(() => input.focus(), 0)")
+    expect(finder).to include("const changed = state.files.map((f) => f.path)")
+  end
+
+  it "searches only the files the panel is already showing" do
+    finder = view[/function openFinder\(anchor\) \{.*?\n  \}/m]
+    expect(finder).not_to include('api(state.sessionId, "paths")')
+    expect(finder).to include("matchPaths(input.value, changed)")
+  end
+
+  it "keeps the finder inside the viewport" do
+    expect(view).to include("function placeFinder(panel, anchor)")
+    expect(view).to include("Math.min(r.left, window.innerWidth - width - 8)")
+    expect(view).to include("Math.max(8, window.innerHeight - m.height - 8)")
+  end
+
+  it "releases the outside-click listener so a later finder still opens" do
+    expect(view).to include("document.removeEventListener(\"click\", findOutside)")
+    expect(view).to include("findOutside = closeFinder")
+    expect(view).not_to include("document.addEventListener(\"click\", closeFinder, { once: true })")
+  end
+
+  it "scrolls the diff stream to the picked file" do
+    pick = view[/function openChosenFile\(path\) \{.*?\n  \}/m]
+    expect(pick).to include("focusFile(path)")
+    expect(pick).not_to include("WorkspaceView")
+  end
+
+  it "ranks basename hits above matches spread over the directories" do
+    score = view[/function scorePath\(query, path\) \{.*?\n  \}/m]
+    expect(score).to include("fuzzyScore(query, name)")
+    expect(score).to include("inName + 40")
+
+    matcher = view[/function matchPaths\(query, files\) \{.*?\n  \}/m]
+    expect(matcher).to include(".slice(0, 80)")
   end
 
   it "draws the expand-all button as paired arrows beside indented rules" do
