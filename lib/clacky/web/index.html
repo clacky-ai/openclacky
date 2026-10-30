@@ -1,8 +1,12 @@
 <!DOCTYPE html>
-<html lang="en" id="html-root" data-font-size="medium">
+<html lang="en" id="html-root" data-font-size="medium" translate="no">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- The UI translates itself (i18n.js). Browser auto-translation would rewrite
+       strings that are already in the user's language and mangle code, paths and
+       line counts in the chat log. -->
+  <meta name="google" content="notranslate">
   <title id="page-title">{{BRAND_NAME}}</title>
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
   <link rel="apple-touch-icon" href="/apple-touch-icon-180.png">
