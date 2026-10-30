@@ -7193,6 +7193,14 @@ module Clacky
         client.test_connection(model: model)
       end
 
+      private def preset_model_capabilities(id, preset)
+        names = (preset["models"] || []) | (preset["model_capabilities"] || {}).keys
+        names.each_with_object({}) do |name, out|
+          caps = Clacky::Providers.capabilities(id, model_name: name)
+          out[name] = caps unless caps.empty?
+        end
+      end
+
       # GET /api/providers — return built-in provider presets for quick setup
       def api_list_providers(res)
         providers = Clacky::Providers::PRESETS.map do |id, preset|
@@ -7212,7 +7220,9 @@ module Clacky
             # billing-plan variants) when present. Absent for single-endpoint
             # providers — UI renders a plain text input in that case.
             endpoint_variants: preset["endpoint_variants"],
-            website_url:       preset["website_url"]
+            website_url:       preset["website_url"],
+            # Lets the custom-provider form infer capabilities from a typed model name.
+            model_capabilities: preset_model_capabilities(id, preset)
           }
         end
         json_response(res, 200, { providers: providers })
