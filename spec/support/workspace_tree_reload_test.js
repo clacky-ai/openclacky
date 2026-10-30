@@ -250,7 +250,8 @@ async function settle(times = 4) {
 
 const treeEl = w => findByClass(w.container, "wt-tree");
 const rowFor = (w, relPath) => treeEl(w).querySelector(`.wt-row[data-path="${relPath}"]`);
-const buttonFor = (w, title) => descendants(w.container).find(el => el.tagName === "button" && el.title === title) || null;
+const buttonFor = (w, title) => descendants(w.container).find(el => el.tagName === "button" &&
+  (el.title === title || el.getAttribute("data-tooltip") === title)) || null;
 const dirLoads = (w, rel) => w.fetches.filter(f => {
   if (!f.url.includes("/files")) return false;
   return new URL(f.url, "http://localhost").searchParams.get("path") === rel;

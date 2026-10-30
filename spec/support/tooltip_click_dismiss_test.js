@@ -40,6 +40,12 @@ const tip = {
   setAttribute() {},
 };
 tip.classList = { add: c => tip.classes.add(c), remove: c => tip.classes.delete(c) };
+// Records the `left` the box is measured at: a stale value from the previous
+// anchor would shrink the available width and wrap the text.
+const measured = { left: null };
+Object.defineProperty(tip, "offsetWidth", {
+  get() { measured.left = tip.style.left; return 80; },
+});
 
 const listeners = {};
 const document = {
@@ -89,5 +95,11 @@ assert.equal(visible(), true, "other anchors are not suppressed by an earlier cl
 
 fire("pointerdown", body);
 assert.equal(visible(), false, "pressing anywhere hides the tooltip");
+
+tip.style.left = "900px";
+tip.style.top = "700px";
+fire("mouseover", pill);
+assert.equal(measured.left, "0px", "the box is measured from the left edge, not where it last sat");
+assert.equal(tip.style.left, "6px", "a tip that overflows the left edge is clamped on screen");
 
 console.log("tooltip click dismiss ok");

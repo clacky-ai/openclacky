@@ -107,11 +107,11 @@ const shortcutEvent = (overrides = {}) => ({
 // Both chrome buttons advertise the shortcut in their tooltip, on mac and off.
 {
   const mac = boot("MacIntel");
-  assert.equal(mac.nodes["btn-aside-collapse"].title, "Collapse panel (⌘L)");
+  assert.equal(mac.nodes["btn-aside-collapse"].attributes["data-tooltip"], "Collapse panel (⌘L)");
   assert.equal(mac.nodes["btn-aside-open"].attributes["data-tooltip"], "Open panel (⌘L)");
 
   const pc = boot("Win32");
-  assert.equal(pc.nodes["btn-aside-collapse"].title, "Collapse panel (Ctrl+L)");
+  assert.equal(pc.nodes["btn-aside-collapse"].attributes["data-tooltip"], "Collapse panel (Ctrl+L)");
   assert.equal(pc.nodes["btn-aside-open"].attributes["data-tooltip"], "Open panel (Ctrl+L)");
 }
 
