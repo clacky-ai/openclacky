@@ -183,7 +183,6 @@ function boot() {
     Tasks: autoStub(),
     Skills: autoStub(),
     SkillAC: autoStub({ renderUserMessageHtml: s => s }),
-    DraftStore: autoStub(),
     Composer: autoStub({
       text: () => "follow-up",
       chips: () => [],

@@ -1,140 +1,128 @@
 "use strict";
 
-// Regression harness for composer draft persistence. Loads the real
-// components/draft-store.js against an in-memory IndexedDB fake so a "reload"
-// is just booting the module again over the same backing store.
+// Regression harness for composer text drafts surviving a page reload. The real
+// sessions.js boots against a shared localStorage fake; a "reload" is simply
+// booting it again over the same storage.
 
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
 
-const src = fs.readFileSync(path.resolve(__dirname, "../../lib/clacky/web/components/draft-store.js"), "utf8");
-const DAY = 24 * 60 * 60 * 1000;
+const sourcePath = name => path.resolve(__dirname, "../../lib/clacky/web", name);
+const autoStub = (extra = {}) => new Proxy(extra, {
+  get: (target, key) => (key in target ? target[key] : () => {}),
+});
 
-function fakeIndexedDB(disk, { broken = false } = {}) {
-  const later = fn => setImmediate(fn);
-  const request = (run) => {
-    const req = {};
-    later(() => { req.result = run(); req.onsuccess && req.onsuccess(); });
-    return req;
-  };
-  const store = {
-    getAll: () => request(() => Array.from(disk.values()).map(r => structuredClone(r))),
-    put: row => request(() => disk.set(row.id, structuredClone(row))),
-    delete: id => request(() => disk.delete(id)),
-  };
-  const db = { transaction: () => ({ objectStore: () => store }), createObjectStore() {} };
+class Element {
+  constructor() {
+    this.style = { setProperty() {} };
+    this.dataset = {};
+    this.children = [];
+    this.innerHTML = "";
+    this.textContent = "";
+    this.classList = { add() {}, remove() {}, toggle() {}, contains: () => false };
+  }
+  setAttribute() {}
+  removeAttribute() {}
+  addEventListener() {}
+  appendChild(child) { this.children.push(child); return child; }
+  querySelector() { return null; }
+  querySelectorAll() { return []; }
+  closest() { return null; }
+  focus() {}
+}
+
+function fakeStorage(data = {}) {
   return {
-    open() {
-      const req = {};
-      later(() => {
-        if (broken) { req.onerror && req.onerror(); return; }
-        req.result = db;
-        req.onupgradeneeded && req.onupgradeneeded();
-        req.onsuccess && req.onsuccess();
-      });
-      return req;
-    },
+    data,
+    getItem: k => (k in data ? data[k] : null),
+    setItem: (k, v) => { data[k] = String(v); },
+    removeItem: k => { delete data[k]; },
   };
 }
 
-function boot(disk, opts) {
-  const listeners = {};
-  const ctx = {
+function boot(storage) {
+  const nodes = {};
+  const document = {
+    createElement: () => new Element(),
+    createDocumentFragment: () => new Element(),
+    getElementById: id => nodes[id] || (nodes[id] = new Element()),
+    addEventListener() {},
+    querySelector: () => null,
+    querySelectorAll: () => [],
+    body: new Element(),
+  };
+  const composer = { value: "" };
+  const context = {
+    console, Date, Map, Set, Math, JSON, Promise, Object, URLSearchParams,
+    setTimeout: (fn, ms) => { const t = setTimeout(fn, ms); if (t.unref) t.unref(); return t; },
+    clearTimeout,
+    document,
+    localStorage: storage,
+    fetch: async () => ({ ok: false, json: async () => ({}) }),
+    I18n: { t: key => key, lang: () => "en" },
+    WS: { onEvent() {}, setSubscribedSession() {}, send() {} },
     Clacky: {},
-    indexedDB: fakeIndexedDB(disk, opts),
-    window: { addEventListener: (k, fn) => { listeners[k] = fn; } },
-    setTimeout, clearTimeout, Promise, Date, Map, Array,
+    $: id => document.getElementById(id),
+    escapeHtml: s => String(s == null ? "" : s),
+    Router: autoStub(),
+    Projects: autoStub(),
+    Tasks: autoStub(),
+    Skills: autoStub(),
+    Composer: autoStub({
+      text: () => composer.value,
+      setText: (_el, v) => { composer.value = v; },
+      chips: () => [],
+    }),
+    IME: autoStub({ track: () => ({ isComposing: () => false, dispose() {} }) }),
   };
-  vm.createContext(ctx);
-  vm.runInContext(src + "\nthis.DraftStore = DraftStore;", ctx);
-  return { store: ctx.DraftStore, pagehide: () => listeners.pagehide() };
+  context.window = context;
+  context.globalThis = context;
+  vm.createContext(context);
+  vm.runInContext(fs.readFileSync(sourcePath("utils.js"), "utf8"), context);
+  vm.runInContext(fs.readFileSync(sourcePath("sessions.js"), "utf8"), context);
+  return { Sessions: vm.runInContext("Clacky.Sessions", context), composer };
 }
 
-const tick = (ms = 5) => new Promise(r => setTimeout(r, ms));
-const DRAFT = {
-  text: "hello",
-  images: [{ dataUrl: "data:image/png;base64,AAAA", name: "IMG_002.png", mimeType: "image/png", seq: 2 }],
-  files: [{ name: "a.pdf", path: "/tmp/a.pdf", mime_type: "application/pdf" }],
-  quotes: [{ role: "assistant", index: 3, text: "quoted" }],
-};
+// 1. Text typed into a session is still there after a reload.
+{
+  const storage = fakeStorage();
+  const a = boot(storage);
+  a.Sessions._setActiveId("s1");
+  a.composer.value = "  a long prompt I do not want to retype  ";
+  a.Sessions._cacheActiveAndDeselect();
 
-(async () => {
-  {
-    const disk = new Map();
-    const a = boot(disk);
-    await a.store.ready;
-    a.store.set("s1", DRAFT);
-    assert.deepEqual(a.store.get("s1"), DRAFT, "reads are served from memory immediately");
-    assert.equal(disk.size, 0, "writes are debounced");
-    await tick(350);
-    const b = boot(disk);
-    await b.store.ready;
-    assert.deepEqual(JSON.parse(JSON.stringify(b.store.get("s1"))), DRAFT, "text, images, files and quotes survive a reload");
-  }
+  const b = boot(storage);
+  b.Sessions._setActiveId("s1");
+  assert.equal(b.composer.value, "a long prompt I do not want to retype");
+  b.Sessions._setActiveId("s2");
+  assert.equal(b.composer.value, "", "drafts stay per session");
+}
 
-  {
-    const disk = new Map();
-    const a = boot(disk);
-    await a.store.ready;
-    a.store.set("s1", { text: "one" });
-    a.store.set("s1", { text: "two" });
-    a.pagehide();
-    await tick();
-    assert.equal(disk.get("s1").draft.text, "two", "pagehide flushes the latest debounced draft");
-  }
+// 2. An emptied composer and a deleted session leave nothing behind.
+{
+  const storage = fakeStorage();
+  const a = boot(storage);
+  a.Sessions.setDraft("s1", "keep");
+  a.Sessions.setDraft("s2", "drop");
+  a.Sessions.setDraft("s1", "   ");
+  a.Sessions.remove("s2");
+  assert.deepEqual(JSON.parse(storage.data.clacky_composer_drafts), {});
+}
 
-  {
-    const disk = new Map();
-    const a = boot(disk);
-    await a.store.ready;
-    a.store.set("s1", DRAFT);
-    await tick(350);
-    a.store.delete("s1");
-    assert.equal(a.store.get("s1"), undefined);
-    await tick();
-    assert.equal(disk.has("s1"), false, "delete also removes the disk copy");
-  }
+// 3. Corrupt or unavailable storage never breaks boot.
+{
+  const a = boot(fakeStorage({ clacky_composer_drafts: "{not json" }));
+  a.Sessions._setActiveId("s1");
+  assert.equal(a.composer.value, "");
 
-  {
-    const disk = new Map();
-    const a = boot(disk);
-    await a.store.ready;
-    a.store.set("s1", { text: "pending" });
-    a.store.delete("s1");
-    await tick(350);
-    assert.equal(disk.has("s1"), false, "delete cancels a pending debounced write");
-  }
+  const full = fakeStorage();
+  full.setItem = () => { throw new Error("QuotaExceededError"); };
+  const b = boot(full);
+  b.Sessions.setDraft("s1", "still in memory");
+  b.Sessions._setActiveId("s1");
+  assert.equal(b.composer.value, "still in memory");
+}
 
-  {
-    const disk = new Map([
-      ["old", { id: "old", draft: { text: "stale" }, ts: Date.now() - 8 * DAY }],
-      ["new", { id: "new", draft: { text: "fresh" }, ts: Date.now() - 1 * DAY }],
-    ]);
-    const a = boot(disk);
-    await a.store.ready;
-    await tick();
-    assert.equal(a.store.get("old"), undefined, "drafts older than 7 days are dropped");
-    assert.equal(disk.has("old"), false, "and purged from disk");
-    assert.equal(a.store.get("new").text, "fresh");
-  }
-
-  {
-    const disk = new Map([["s1", { id: "s1", draft: { text: "disk" }, ts: Date.now() }]]);
-    const a = boot(disk);
-    a.store.set("s1", { text: "typed before load finished" });
-    await a.store.ready;
-    assert.equal(a.store.get("s1").text, "typed before load finished", "load never clobbers a newer in-memory draft");
-  }
-
-  {
-    const a = boot(new Map(), { broken: true });
-    await a.store.ready;
-    a.store.set("s1", { text: "memory only" });
-    await tick(350);
-    assert.equal(a.store.get("s1").text, "memory only", "without IndexedDB drafts still work in memory");
-  }
-
-  console.log("composer draft persist: ok");
-})().catch((e) => { console.error(e); process.exit(1); });
+console.log("composer_draft_persist_test: ok");

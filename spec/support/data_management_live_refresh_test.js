@@ -139,7 +139,6 @@ function boot() {
     NewSessionStore: { state: {}, updateAdvanced() {} },
     Tasks: autoStub(),
     Skills: autoStub(),
-    DraftStore: autoStub(),
     Composer: autoStub({ text: () => "", chips: () => [] }),
     IME: autoStub({ track: () => ({ isComposing: () => false, dispose() {} }) }),
     CustomSelect: { init() {} },

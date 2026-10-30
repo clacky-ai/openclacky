@@ -105,7 +105,6 @@ function boot() {
     Projects: autoStub(),
     Tasks: autoStub(),
     Skills: autoStub(),
-    DraftStore: autoStub(),
     Composer: autoStub({ text: () => "", chips: () => [] }),
     IME: autoStub({ track: () => ({ isComposing: () => false, dispose() {} }) }),
     alert() {},
