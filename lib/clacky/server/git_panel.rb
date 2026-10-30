@@ -100,18 +100,39 @@ module Clacky
       end
 
       # Baseline args for `git diff` in the given scope. `worktree` keeps the
-      # historical behaviour (HEAD); `committed`/`branch` compare the merge
+      # historical behaviour (HEAD); `committed` reviews a single commit the
+      # user picked (or the whole unpushed range); `branch` compares the merge
       # base of the chosen branch so unrelated commits on it do not leak in.
       def diff_range(dir, scope, base)
         case scope.to_s
         when "unstaged" then []
         when "staged" then ["--cached", "HEAD"]
-        when "committed", "branch"
+        when "committed"
           base_ref = base.to_s.strip
-          base_ref = default_base(dir) if base_ref.empty? && scope.to_s == "committed"
+          if base_ref.empty?
+            upstream = default_base(dir)
+            ref?(dir, upstream) ? ["#{upstream}...HEAD"] : []
+          else
+            commit_range(dir, base_ref)
+          end
+        when "branch"
+          base_ref = base.to_s.strip
+          base_ref = default_base(dir) if base_ref.empty?
           ref?(dir, base_ref) ? ["#{base_ref}...HEAD"] : []
         else ["HEAD"]
         end
+      end
+
+      # A commit picked in the "committed" menu is reviewed on its own: the
+      # panel answers "what did this commit change", not "what came after it".
+      # Root commits have no parent, so they diff against the empty tree.
+      EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+
+      def commit_range(dir, sha)
+        return [] unless ref?(dir, sha)
+
+        parent = "#{sha}^"
+        ref?(dir, parent) ? ["#{parent}..#{sha}"] : [EMPTY_TREE, sha]
       end
 
       # Review scopes, mirroring the selector above the changes panel:
@@ -147,9 +168,30 @@ module Clacky
         when "staged"
           payload.merge!(range_review(dir, ["--cached", "HEAD"], max_lines: max_lines,
                                       max_total_lines: max_total_lines))
-        when "committed", "branch"
+        when "committed"
           base_ref = base.to_s.strip
-          base_ref = default_base(dir) if base_ref.empty? && scope == "committed"
+          if base_ref.empty?
+            upstream = default_base(dir)
+            if upstream.empty? || !ref?(dir, upstream)
+              payload.merge!(files: [], add: 0, del: 0, note: "noBase")
+            else
+              payload[:base] = upstream
+              payload.merge!(range_review(dir, ["#{upstream}...HEAD"], max_lines: max_lines,
+                                          max_total_lines: max_total_lines))
+            end
+          else
+            range = commit_range(dir, base_ref)
+            if range.empty?
+              payload.merge!(files: [], add: 0, del: 0, note: "noBase")
+            else
+              payload[:commit] = base_ref
+              payload.merge!(range_review(dir, range, max_lines: max_lines,
+                                          max_total_lines: max_total_lines))
+            end
+          end
+        when "branch"
+          base_ref = base.to_s.strip
+          base_ref = default_base(dir) if base_ref.empty?
           if base_ref.empty? || !ref?(dir, base_ref)
             payload.merge!(files: [], add: 0, del: 0, note: "noBase")
           else
@@ -280,11 +322,21 @@ module Clacky
         totals(budget_files(files, max_total_lines)).merge(repo: true, scope: "lastTurn", task_id: task_id)
       end
 
-      # Recent commits: [{ hash:, short:, author:, date:, subject: }].
-      def log(dir, limit: 50)
+      # Recent commits: [{ hash:, short:, author:, date:, subject: }]. With
+      # `unpushed: true` the log is limited to the commits the default base
+      # does not contain yet — the same range the "committed" scope diffs, so
+      # the menu never offers a commit that is already on the remote.
+      def log(dir, limit: 50, unpushed: false)
         limit = limit.to_i.clamp(1, 200)
         fmt = "%H%x1f%h%x1f%an%x1f%ad%x1f%s"
-        out, _err, ok = git(dir, "log", "-n", limit.to_s, "--date=short", "--pretty=format:#{fmt}")
+        args = ["log", "-n", limit.to_s, "--date=short", "--pretty=format:#{fmt}"]
+        if unpushed
+          base = default_base(dir)
+          return [] unless ref?(dir, base)
+
+          args << "#{base}..HEAD"
+        end
+        out, _err, ok = git(dir, *args)
         return [] unless ok
 
         out.each_line.filter_map do |line|

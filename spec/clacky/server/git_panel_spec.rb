@@ -337,6 +337,77 @@ end
 # One `git diff HEAD` is split into per-file chunks so a tree full of edits
 # costs one subprocess; untracked files have no baseline and are diffed
 # against /dev/null separately. Line counts drive the +/- badges.
+RSpec.describe Clacky::Server::GitPanel, ".log" do
+  include GitPanelRepo
+
+  around do |ex|
+    dir = Dir.mktmpdir("git_panel_log_spec")
+    begin
+      init_repo(dir)
+      ex.run
+    ensure
+      remove_repo(dir)
+    end
+  end
+
+  def run(*args)
+    out, _err, _st = Open3.capture3(*args.map(&:to_s), chdir: @dir)
+    out
+  end
+
+  def write(path, content)
+    File.write(File.join(@dir, path), content)
+  end
+
+  def commit_all(message)
+    run "git", "add", "-A"
+    run "git", "commit", "-q", "-m", message
+  end
+
+  # The default base is resolved from the upstream first; a hand-written
+  # remote-tracking ref keeps the spec independent of any real remote.
+  def fake_remote_pointing_at_head
+    run "git", "update-ref", "refs/remotes/origin/main", run("git", "rev-parse", "HEAD").strip
+  end
+
+  it "lists recent commits newest first" do
+    write "a.txt", "one\n"
+    commit_all "init"
+    write "a.txt", "two\n"
+    commit_all "second"
+
+    expect(described_class.log(@dir).map { |c| c[:subject] }).to eq(%w[second init])
+  end
+
+  it "keeps every commit when unpushed is not requested" do
+    write "a.txt", "one\n"
+    commit_all "init"
+    fake_remote_pointing_at_head
+    write "a.txt", "two\n"
+    commit_all "local only"
+
+    expect(described_class.log(@dir).size).to eq(2)
+  end
+
+  it "limits the log to commits the remote does not have when unpushed" do
+    write "a.txt", "one\n"
+    commit_all "init"
+    fake_remote_pointing_at_head
+    write "a.txt", "two\n"
+    commit_all "local only"
+
+    expect(described_class.log(@dir, unpushed: true).map { |c| c[:subject] }).to eq(["local only"])
+  end
+
+  it "returns nothing when every commit is already on the remote" do
+    write "a.txt", "one\n"
+    commit_all "init"
+    fake_remote_pointing_at_head
+
+    expect(described_class.log(@dir, unpushed: true)).to eq([])
+  end
+end
+
 RSpec.describe Clacky::Server::GitPanel, ".review" do
   include GitPanelRepo
 
@@ -494,7 +565,7 @@ RSpec.describe Clacky::Server::GitPanel, ".review" do
     expect(data[:files].first[:diff]).not_to include("+unstaged")
   end
 
-  it "compares the current branch against a base for 'committed'" do
+  it "compares the current branch against a base for 'branch'" do
     write "a.txt", "one\n"
     commit_all "init"
     base = run("git", "rev-parse", "--abbrev-ref", "HEAD").strip
@@ -502,7 +573,7 @@ RSpec.describe Clacky::Server::GitPanel, ".review" do
     write "b.txt", "b\n"
     commit_all "feature commit"
 
-    data = described_class.review(@dir, scope: "committed", base: base)
+    data = described_class.review(@dir, scope: "branch", base: base)
     expect(data[:base]).to eq(base)
     expect(data[:files].map { |f| f[:path] }).to eq(["b.txt"])
     expect(data[:files].first[:x]).to eq("A")
@@ -523,6 +594,39 @@ RSpec.describe Clacky::Server::GitPanel, ".review" do
     branch = run("git", "rev-parse", "--abbrev-ref", "HEAD").strip
     data = described_class.review(@dir, scope: "committed")
     expect(data[:base]).to eq(branch)
+  end
+
+  it "falls back to the default base when 'branch' gets none" do
+    write "a.txt", "one\n"
+    commit_all "init"
+    branch = run("git", "rev-parse", "--abbrev-ref", "HEAD").strip
+    data = described_class.review(@dir, scope: "branch")
+    expect(data[:base]).to eq(branch)
+  end
+
+  it "reviews the picked commit against its parent" do
+    write "a.txt", "one\n"
+    commit_all "init"
+    write "b.txt", "b\n"
+    commit_all "second"
+    second = run("git", "rev-parse", "HEAD").strip
+
+    data = described_class.review(@dir, scope: "committed", base: second)
+    expect(data[:commit]).to eq(second)
+    expect(data[:files].map { |f| f[:path] }).to eq(["b.txt"])
+    expect(data[:files].first[:x]).to eq("A")
+  end
+
+  it "reviews a root commit against the empty tree" do
+    write "a.txt", "one\n"
+    commit_all "init"
+    root = run("git", "rev-parse", "HEAD").strip
+    write "b.txt", "b\n"
+    commit_all "second"
+
+    data = described_class.review(@dir, scope: "committed", base: root)
+    expect(data[:files].map { |f| f[:path] }).to eq(["a.txt"])
+    expect(data[:add]).to eq(1)
   end
 
   describe "payload budget" do

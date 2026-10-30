@@ -5449,7 +5449,9 @@ module Clacky
             ))
           end
         when "log"
-          json_response(res, 200, { repo: true, commits: Clacky::Server::GitPanel.log(dir, limit: query["limit"] || 50) })
+          json_response(res, 200, { repo: true, commits: Clacky::Server::GitPanel.log(
+            dir, limit: query["limit"] || 50, unpushed: query["unpushed"].to_s == "1"
+          ) })
         when "branches"
           json_response(res, 200, { repo: true, branches: Clacky::Server::GitPanel.branches(dir) })
         else
