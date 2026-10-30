@@ -90,12 +90,12 @@ function boot(storage) {
   const storage = fakeStorage();
   const a = boot(storage);
   a.Sessions._setActiveId("s1");
-  a.composer.value = "  a long prompt I do not want to retype  ";
+  a.composer.value = "    indented code\n  keeps its indent  ";
   a.Sessions._cacheActiveAndDeselect();
 
   const b = boot(storage);
   b.Sessions._setActiveId("s1");
-  assert.equal(b.composer.value, "a long prompt I do not want to retype");
+  assert.equal(b.composer.value, "    indented code\n  keeps its indent");
   b.Sessions._setActiveId("s2");
   assert.equal(b.composer.value, "", "drafts stay per session");
 }
