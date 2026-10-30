@@ -1758,15 +1758,25 @@ module Clacky
             @ui&.update_todos(@todos.dup) unless action == "list"
           end
 
-          # Special handling for ask_user: emit as interactive feedback card.
-          # A rejected call (no usable question) falls through to the normal
-          # result path so the model sees the error and can retry.
-          if Tools::AskUser.feedback_tool?(call[:name]) &&
-              result.is_a?(Hash) && result[:awaiting_feedback]
+          business_feedback = result.is_a?(Hash) && result[:feedback_request]
+          # Business tools show their completed result before requesting feedback.
+          if business_feedback && !Tools::AskUser.feedback_tool?(call[:name])
+            formatted_result = tool.respond_to?(:format_result) ? tool.format_result(result) : result.to_s
+            ui_result = tool.respond_to?(:ui_result) ? tool.ui_result(result) : nil
+            if ui_result
+              @ui&.show_tool_result(redact_tool_args(formatted_result), ui: redact_tool_args(ui_result))
+            else
+              @ui&.show_tool_result(redact_tool_args(formatted_result))
+            end
+          end
+
+          needs_feedback = business_feedback ||
+            (Tools::AskUser.feedback_tool?(call[:name]) && result.is_a?(Hash) && result[:awaiting_feedback])
+          if needs_feedback
             # Prepare and persist the complete request before displaying it or
             # starting the wait. Extensions and native questions share one result.
             request = prepare_feedback_request(call, result, assistant_message: assistant_message)
-            @ui&.show_tool_call(call[:name], request)
+            @ui&.show_tool_call("ask_user", request)
 
             if @config.permission_mode == :auto_approve
               # auto_approve means the agent runs unattended by default, but a

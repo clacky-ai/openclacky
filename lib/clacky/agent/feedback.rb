@@ -6,7 +6,11 @@ module Clacky
       # Extensions prepare a single immutable snapshot before the UI or its
       # countdown sees it. The same snapshot becomes the model's tool result.
       private def prepare_feedback_request(call, result, assistant_message:)
-        args = call[:arguments].is_a?(String) ? JSON.parse(call[:arguments]) : call[:arguments]
+        business_request = result[:feedback_request]
+        if result[:error] || result[:success] == false
+          raise ArgumentError, "failed tools cannot request feedback"
+        end
+        args = business_request || (call[:arguments].is_a?(String) ? JSON.parse(call[:arguments]) : call[:arguments])
         request = {
           request_id: call[:id].to_s,
           questions: Tools::AskUser.normalize_questions(args),
@@ -23,7 +27,10 @@ module Clacky
         @history.attach_feedback_request(message: assistant_message, tool_call_id: call[:id], request: request)
         result[:message] = [Tools::AskUser.render_text(request[:questions], request[:context]),
                             request[:answer_context]].reject(&:empty?).join("\n\n")
-        request.reject { |key, _| key == :answer_context }
+        visible_request = request.reject { |key, _| key == :answer_context }
+        result[:feedback_request] = visible_request if business_request
+        result[:awaiting_feedback] = true
+        visible_request
       end
     end
   end
