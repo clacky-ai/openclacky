@@ -4,6 +4,67 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
+## [1.5.22] - 2026-10-30
+
+### Added
+- Rebuild the Git changes panel with scoped review and lazy diffs
+- Choose which unpushed commits to review and which base to compare against, from the committed scope pill
+- Scroll each diff pane sideways on its own while the gutters stay pinned
+- Open a per-file menu from the diff header
+- Show file icons in the changes panel diff headers
+- Toggle the file tree and expand all from the Git panel's single-row toolbar
+- Add a git branch picker to the new session page
+- Drag workspace files straight into the composer
+- Recall sent messages with the arrow keys in the composer
+- Zoom and pan image previews
+- Open attachment cards in the file preview
+- Add a chrome-style preview toolbar with zoom controls
+- Redesign the scheduled tasks page
+- Show when each scheduled task runs next
+- Toggle the aside panel with Cmd/Ctrl+L, and show the shortcut in its tooltip
+- Move the pending input queue above the session info bar
+- Hide the chat column when showing the aside would leave it too narrow
+- Keep the task summary visible until the unread session is opened
+- Show vendor icons on the model cards in settings
+- Reuse file-tree icons for attachment chips
+- Add Office, PDF and text file icons
+- Add Kimi K3.1 Pro and K3.1 Pro Highspeed, and default Kimi to K3.1 Pro
+
+### Improved
+- Draw every icon-button hint through one shared tooltip that measures itself before it opens
+- Group the diff toolbar buttons into one pill and soften the Git panel icons
+- Translate tooltips in place when the language changes, including the composer and session info bar
+- Tighten task card typography and give billing controls more breathing room
+- Switch the theme in a single cross-fade instead of a flash
+- Treat the theme accent and the recycle bin as one hover region
+- Draw the slash command button as an icon
+- Fade the leading edge of scrolling text
+- Share one session list scan across concurrent callers
+- Disable browser auto-translation on the web pages
+
+### Fixed
+- Explain a missing working directory in the file tree
+- Detect open-with apps for files without an extension
+- Report a failure to open a file instead of returning a silent success
+- Stop leaking the open-with template into the picker label
+- End the `ask_user` countdown when switching to manual so the session waits for an answer
+- Store web search API keys per provider so switching providers never reuses another provider's key
+- Keep agent-resolved `ask_user` cards closed when replaying history
+- Light the done dot only on `task_finished`
+- Make the open project session highlight translucent so the drop frame shows through
+- Keep the drop zone inside the chat column
+- Add the missing workspace preview label
+- Keep the Git panel scope pill on the first row of a narrow toolbar
+- Hide the shared tooltip when its anchor is clicked
+- Keep the preview address bar in sync with in-frame navigation
+- Keep billing period buttons inside their own panel
+- Lighten extension descriptions
+
+### More
+- Rename DeepSeek Flash to `dsk-deepseek-v4.1-flash`, and refresh the Volcengine Ark lineup and pricing
+- Bill the Claude series at 45% of list
+- Unify the localStorage key naming
+
 ## [1.5.21] - 2026-10-22
 
 ### Added
