@@ -583,17 +583,20 @@ module Clacky
           "doubao-seed-evolving",
           "doubao-seed-2.1-pro",
           "doubao-seed-2.1-turbo",
+          "doubao-seed-2.1-lite",
           "doubao-seed-2.0-mini",
-          "doubao-seed-2.0-lite",
           "minimax-m3",
-          "kimi-k2.7-code",
+          "kimi-k3.1-pro",
           "kimi-k3",
+          "kimi-k2.7-code",
           # GLM-5.2 is delisted from Ark on 2026-08-31, so new setups only
           # offer GLM-5.3. It is available on the Coding/Agent Plan endpoints;
           # the pay-as-you-go endpoint does not carry it yet (no versioned id),
           # so no payg alias is registered for it.
           "glm-5.3",
           "glm-5.3-flash",
+          "deepseek-v4.1-flash",
+          "deepseek-v4.1-flash-economy",
           "deepseek-v4-pro",
           "deepseek-v4-flash"
         ],
@@ -614,14 +617,21 @@ module Clacky
             "glm-5.2"            => "glm-5-2-260617",
             "deepseek-v4-pro"    => "deepseek-v4-pro-260425",
             "deepseek-v4-flash"  => "deepseek-v4-flash-260425",
+            "deepseek-v4.1-flash"         => "deepseek-v4-1-flash-261017",
+            "deepseek-v4.1-flash-economy" => "deepseek-v4-1-flash-economy-261017",
+            "kimi-k3.1-pro"         => "kimi-k3-1-pro-261024",
             "doubao-seed-2.1-pro"   => "doubao-seed-2-1-pro-260628",
             "doubao-seed-2.1-turbo" => "doubao-seed-2-1-turbo-260628",
+            "doubao-seed-2.1-lite"  => "doubao-seed-2-1-lite-260915",
             "doubao-seed-2.0-mini"  => "doubao-seed-2-0-mini-260428",
+            # doubao-seed-2.0-lite is delisted in favor of 2.1-lite; the alias
+            # stays so existing configs keep working.
             "doubao-seed-2.0-lite"  => "doubao-seed-2-0-lite-260428"
           }.freeze
         }.freeze,
         # Most Doubao/multimodal models accept image input; GLM-5.2/5.3 and
-        # DeepSeek-V4 on Ark are text-only. GLM-5.3-Flash inherits vision=true.
+        # DeepSeek-V4 on Ark are text-only. GLM-5.3-Flash and DeepSeek-V4.1
+        # (incl. economy) inherit vision=true.
         "capabilities" => { "vision" => true }.freeze,
         "model_capabilities" => {
           "glm-5.3"           => { "vision" => false }.freeze,
@@ -630,7 +640,7 @@ module Clacky
           "deepseek-v4-flash" => { "vision" => false }.freeze,
           "minimax-m2.7"      => { "vision" => false }.freeze
         }.freeze,
-        "default_ocr_model" => "doubao-seed-2.0-lite",
+        "default_ocr_model" => "doubao-seed-2.1-lite",
         "website_url" => "https://console.volcengine.com/ark/region:cn-beijing/overview"
       }.freeze,
 

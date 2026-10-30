@@ -484,8 +484,10 @@ RSpec.describe Clacky::Providers do
       it "lists the refreshed Ark lineup" do
         models = described_class.models("volcengine-ark")
         expect(models).to include(
-          "kimi-k3", "glm-5.3-flash", "doubao-seed-2.0-mini"
+          "kimi-k3", "kimi-k3.1-pro", "glm-5.3-flash", "doubao-seed-2.0-mini",
+          "doubao-seed-2.1-lite", "deepseek-v4.1-flash", "deepseek-v4.1-flash-economy"
         )
+        expect(models).not_to include("doubao-seed-2.0-lite")
         # Subscription-only preview with no per-token price.
         expect(models).not_to include("kimi-k2.8-preview")
         expect(models).not_to include("kimi-k2.6", "minimax-m2.7")
@@ -510,12 +512,16 @@ RSpec.describe Clacky::Providers do
             .to be(true), "expected vision=true at #{url} for kimi-k2.7-code"
           expect(described_class.supports?(id, :vision, model_name: "glm-5.3-flash"))
             .to be(true), "expected vision=true at #{url} for glm-5.3-flash"
+          %w[doubao-seed-2.1-lite deepseek-v4.1-flash deepseek-v4.1-flash-economy kimi-k3.1-pro].each do |m|
+            expect(described_class.supports?(id, :vision, model_name: m))
+              .to be(true), "expected vision=true at #{url} for #{m}"
+          end
         end
       end
 
       it "resolves default model and OCR model" do
         expect(described_class.default_model("volcengine-ark")).to eq("doubao-seed-2.1-pro")
-        expect(described_class::PRESETS["volcengine-ark"]["default_ocr_model"]).to eq("doubao-seed-2.0-lite")
+        expect(described_class::PRESETS["volcengine-ark"]["default_ocr_model"]).to eq("doubao-seed-2.1-lite")
       end
 
       describe ".resolve_api_model" do
@@ -524,7 +530,11 @@ RSpec.describe Clacky::Providers do
         it "swaps display names for versioned ids on the pay-as-you-go endpoint" do
           {
             "doubao-seed-2.0-lite"  => "doubao-seed-2-0-lite-260428",
+            "doubao-seed-2.1-lite"  => "doubao-seed-2-1-lite-260915",
             "doubao-seed-2.0-mini"  => "doubao-seed-2-0-mini-260428",
+            "deepseek-v4.1-flash"   => "deepseek-v4-1-flash-261017",
+            "deepseek-v4.1-flash-economy" => "deepseek-v4-1-flash-economy-261017",
+            "kimi-k3.1-pro"         => "kimi-k3-1-pro-261024",
             "doubao-seed-2.1-pro"   => "doubao-seed-2-1-pro-260628",
             "doubao-seed-2.1-turbo" => "doubao-seed-2-1-turbo-260628",
             "glm-5.2"               => "glm-5-2-260617",
