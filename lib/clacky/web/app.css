@@ -3747,6 +3747,16 @@ body {
 }
 #chat-panel.aside-fullscreen .session-aside-resize { display: none; }
 
+/* Too narrow to split: the aside crossed the chat column's floor, so it takes
+   the workspace and the resize handle moves inside the window edge to drag
+   the split back. */
+#chat-panel.chat-collapsed #chat-main { display: none; }
+#chat-panel.chat-collapsed #session-aside {
+  width: 100%;
+  border-left: none;
+}
+#chat-panel.chat-collapsed .session-aside-resize { left: 0; }
+
 .session-aside-slot { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
 
 /* Tab bar (rendered by Clacky.ext). Neutral edge fades reveal when more tabs
