@@ -2686,7 +2686,7 @@ body {
   flex: 1;
   min-width: 0;
   margin: 0;
-  font-size: 1rem;
+  font-size: 0.95rem;
   font-weight: 500;
   line-height: 1.35;
   color: var(--color-text-primary);
@@ -2744,7 +2744,7 @@ body {
 }
 .task-card-desc {
   margin: 0;
-  font-size: 0.8rem;
+  font-size: 0.75rem;
   line-height: 1.7;
   color: var(--color-text-tertiary);
   display: -webkit-box;
