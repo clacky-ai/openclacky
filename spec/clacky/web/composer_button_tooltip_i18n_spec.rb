@@ -33,6 +33,34 @@ RSpec.describe "Web tooltip translations" do
     end
   end
 
+  it "routes the four session info bar pills through the shared tooltip" do
+    {
+      "sib-dir" => "sib.dir.tooltip",
+      "sib-model" => "sib.model.tooltip",
+      "sib-reasoning" => "sib.reasoning.tooltip",
+      "sib-mode" => "sib.mode.tooltip"
+    }.each do |id, key|
+      tag = index[/<(?:span|button) id="#{Regexp.escape(id)}"[^>]*>/]
+      expect(tag).to include(%(data-i18n-tooltip="#{key}")), id
+      expect(tag).to include("data-tooltip="), id
+      expect(tag).not_to include("title="), id
+    end
+  end
+
+  it "keeps the info bar tooltips in sync when the language changes" do
+    sessions = File.read(File.expand_path("../../../lib/clacky/web/sessions.js", __dir__))
+    settings = File.read(File.expand_path("../../../lib/clacky/web/settings.js", __dir__))
+    %w[sibDir sibModel sibMode].each do |var|
+      expect(sessions).not_to match(/#{var}\.title\s*=/), var
+    end
+    %w[sibModel sibMode].each do |var|
+      expect(sessions).to include(var + '.setAttribute("data-tooltip",'), var
+    end
+    # The directory tooltip is a plain static label now, so applyAll owns it.
+    expect(sessions).not_to include("sibDir.setAttribute")
+    expect(settings).to match(/I18n\.setLang\(btn\.dataset\.lang\);[\s\S]{0,300}Sessions\.updateInfoBar/)
+  end
+
   it "never leaves a static title attribute in English" do
     untranslated = index.scan(/<[^>\n]*\stitle="[^"]*"[^>]*>/).reject { |tag| tag.include?("data-i18n-title") }
     expect(untranslated).to be_empty
