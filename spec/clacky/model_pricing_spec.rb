@@ -1216,6 +1216,29 @@ RSpec.describe Clacky::ModelPricing do
   end
 
   describe "Volcengine Ark pricing" do
+    let(:usage) { { prompt_tokens: 100_000, completion_tokens: 50_000 } }
+
+    it "bills doubao-seed-2.1-lite at its flat CNY-converted rate" do
+      # 0.1 * $0.12 + 0.05 * $0.40
+      result = described_class.calculate_cost(model: "doubao-seed-2.1-lite", usage: usage)
+      expect(result[:cost]).to be_within(0.0001).of(0.032)
+      expect(result[:source]).to eq(:price)
+    end
+
+    it "keeps the economy tier apart from the deepseek-v4.1-flash price" do
+      expect(described_class.normalize_model_name("deepseek-v4.1-flash-economy")).to eq("deepseek-v4.1-flash-economy")
+    end
+
+    it "bills deepseek-v4.1-flash-economy at Ark's peak and off-peak rates" do
+      peak     = Time.utc(2026, 8, 17, 2, 0, 0)  # Mon 10:00 Beijing
+      off_peak = Time.utc(2026, 8, 17, 5, 0, 0)  # Mon 13:00 Beijing
+      # Peak: 0.1 * $0.24 + 0.05 * $0.95; off-peak: 0.1 * $0.12 + 0.05 * $0.48
+      expect(described_class.calculate_cost(model: "deepseek-v4.1-flash-economy", usage: usage, now: peak)[:cost])
+        .to be_within(0.0001).of(0.0715)
+      expect(described_class.calculate_cost(model: "deepseek-v4.1-flash-economy", usage: usage, now: off_peak)[:cost])
+        .to be_within(0.0001).of(0.036)
+    end
+
     it "bills doubao-seed-2.0-mini at the mapped CNY tiers" do
       default = described_class.calculate_cost(
         model: "doubao-seed-2.0-mini",

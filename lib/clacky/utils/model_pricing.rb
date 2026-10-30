@@ -629,6 +629,27 @@ module Clacky
         output: { default: 2.22, over_200k: 2.22 },
         cache:  { write: 0.45, read: 0.09 }
       },
+      "doubao-seed-2.1-lite" => {
+        input:  { default: 0.12, over_200k: 0.12 },
+        output: { default: 0.40, over_200k: 0.40 },
+        cache:  { write: 0.12, read: 0.03 }
+      },
+      # Ark's peak window (Mon-Fri 09-12/14-18 Beijing) equals DeepSeek's, so
+      # the economy tier reuses the deepseek peak/off-peak resolution. Cache
+      # reads keep three decimals: rounding up to the cent would double them.
+      "deepseek-v4.1-flash-economy" => {
+        deepseek: true,
+        peak: {
+          input:  { default: 0.24, over_200k: 0.24 },
+          output: { default: 0.95, over_200k: 0.95 },
+          cache:  { write: 0.24, read: 0.005 }
+        },
+        off_peak: {
+          input:  { default: 0.12, over_200k: 0.12 },
+          output: { default: 0.48, over_200k: 0.48 },
+          cache:  { write: 0.12, read: 0.003 }
+        }
+      },
       "doubao-seed-2.0-lite" => {
         input:  { default: 0.14, over_200k: 0.27 },
         output: { default: 0.80, over_200k: 1.60 },
