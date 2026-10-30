@@ -43,9 +43,21 @@ RSpec.describe "Git panel toolbar" do
     expect(rule).to include("display: none")
   end
 
-  it "keeps the refresh button at the far right of the bar" do
+  it "groups the tool buttons into one pill, refresh still at its far right" do
+    tools = view[/const tools = el\("div", \{ class: "cg-tools" \},.*?\);/m]
+    expect(tools).not_to be_nil
+    expect(tools).to include("layoutBtn, wrapBtn, expandBtn, treeBtn, findBtn, refreshBtn")
+
     bar = view[/const bar = el\("div", \{ class: "cg-bar" \},.*?\);/m]
-    expect(bar).to include("layoutBtn, wrapBtn, expandBtn, treeBtn, findBtn, refreshBtn")
+    expect(bar).to include("stats")
+    expect(bar).to include("cg-bar-spacer")
+    expect(bar).to include("tools")
+  end
+
+  it "draws the tool group as a bordered pill inside the bar" do
+    pill = view[/\.cg-tools \{[^}]*\}/]
+    expect(pill).to include("border-radius: var(--radius-pill)")
+    expect(pill).to include("border: 1px solid var(--color-border-primary)")
   end
 
   it "leaves long diff lines unwrapped until the wrap toggle is on" do
