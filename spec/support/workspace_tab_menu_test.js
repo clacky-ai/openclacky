@@ -250,6 +250,7 @@ function boot(opts = {}) {
     Tasks: autoStub(),
     Skills: autoStub(),
     SkillAC: autoStub({ renderUserMessageHtml: s => s }),
+    DraftStore: autoStub(),
     Composer: autoStub({ text: () => "follow-up", chips: () => [], clear() {}, focus() {} }),
     IME: autoStub({ track: () => ({ isComposing: () => false, dispose() {} }) }),
     alert() {},
