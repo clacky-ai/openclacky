@@ -21,8 +21,9 @@ module Clacky
   # concatenate and let the response parser leave it as a string for downstream
   # tool dispatch (which calls JSON.parse with a {} fallback).
   class BedrockStreamAggregator
-    def initialize(on_chunk: nil)
+    def initialize(on_chunk: nil, on_text_delta: nil)
       @on_chunk = on_chunk
+      @on_text_delta = on_text_delta
       @role = "assistant"
       @blocks = {}
       @stop_reason = nil
@@ -61,6 +62,7 @@ module Clacky
           block[:kind] ||= :text
           block[:text] ||= +""
           block[:text] << delta["text"]
+          emit_text_delta(delta["text"])
         elsif (tu = delta["toolUse"])
           block[:kind] = :tool_use
           block[:input_str] ||= +""
@@ -104,6 +106,14 @@ module Clacky
         "stopReason" => @stop_reason,
         "usage"      => @usage
       }
+    end
+
+    # Text previews must not change aggregation or abort a model response.
+    private def emit_text_delta(text)
+      return unless @on_text_delta && text.is_a?(String) && !text.empty?
+      @on_text_delta.call(text)
+    rescue StandardError => e
+      Clacky::Logger.warn("[stream] on_text_delta: #{e.class}: #{e.message}")
     end
 
     private def parse_or_nil(s)

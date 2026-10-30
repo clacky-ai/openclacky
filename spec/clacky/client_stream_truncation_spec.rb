@@ -64,6 +64,22 @@ RSpec.describe Clacky::Client, "streaming truncation detection" do
       expect(result[:content]).to eq("done")
     end
 
+    it "streams text through the public client API without a token callback" do
+      frames = [
+        frame('{"choices":[{"index":0,"delta":{"content":"Hello"}}]}'),
+        frame('{"choices":[{"index":0,"delta":{"content":" world"},"finish_reason":"stop"}]}')
+      ]
+      stub_stream(:@openai_connection, client, frames)
+      deltas = []
+      result = client.send_messages_with_tools(
+        [{ role: "user", content: "Hi" }], model: "gpt-4", tools: [], max_tokens: 100,
+        on_text_delta: ->(text) { deltas << text }
+      )
+      expect(deltas).to eq(["Hello", " world"])
+      expect(result[:content]).to eq("Hello world")
+      expect(result[:latency][:streaming]).to eq(true)
+    end
+
     it "treats finish_reason as terminal even when the upstream omits the usage frame" do
       frames = [
         frame('{"choices":[{"index":0,"delta":{"content":"ok"}}]}'),

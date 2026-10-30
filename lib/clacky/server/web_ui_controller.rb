@@ -174,6 +174,18 @@ module Clacky
         forward_to_subscribers { |sub| sub.show_user_message(content) if sub.respond_to?(:show_user_message) }
       end
 
+      def stream_assistant_text?; true; end
+
+      def show_assistant_delta(message_id:, seq:, delta:)
+        return unless stream_assistant_text?
+        emit("assistant_message_delta", message_id: message_id, seq: seq, delta: delta)
+      end
+
+      def end_assistant_stream(message_id:)
+        return unless stream_assistant_text?
+        emit("assistant_message_stream_end", message_id: message_id)
+      end
+
       def show_assistant_message(content, files:, interim: false, created_at: nil)
         return if (content.nil? || content.to_s.strip.empty?) && files.empty?
 

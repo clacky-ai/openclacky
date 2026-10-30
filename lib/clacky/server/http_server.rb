@@ -7945,6 +7945,7 @@ module Clacky
         when "subscribe"
           session_id = msg["session_id"]
           if @registry.ensure(session_id)
+            conn.stream_assistant_text = msg["stream"] == true
             conn.session_id = session_id
             subscribe(session_id, conn)
             conn.send_json(type: "subscribed", session_id: session_id)
@@ -8541,6 +8542,9 @@ module Clacky
             dead << conn
             next
           end
+          if ["assistant_message_delta", "assistant_message_stream_end"].include?(event[:type])
+            next unless conn.respond_to?(:stream_assistant_text) && conn.stream_assistant_text
+          end
           dead << conn unless conn.send_json(event)
         end
         return if dead.empty?
@@ -8807,7 +8811,7 @@ module Clacky
       # with an explicit deadline using IO.select + write_nonblock and declare
       # the connection dead on timeout.
       class WebSocketConnection
-        attr_accessor :session_id
+        attr_accessor :session_id, :stream_assistant_text
 
         # Maximum time a single send_raw call is allowed to spend writing.
         # 5 seconds is generous for healthy LAN/Internet clients and short

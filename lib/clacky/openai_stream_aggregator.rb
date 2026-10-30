@@ -18,8 +18,9 @@ module Clacky
   #   {"id":"...","choices":[],"usage":{"prompt_tokens":12,"completion_tokens":3,"prompt_tokens_details":{"cached_tokens":2}}}
   #   data: [DONE]
   class OpenAIStreamAggregator
-    def initialize(on_chunk: nil)
+    def initialize(on_chunk: nil, on_text_delta: nil)
       @on_chunk = on_chunk
+      @on_text_delta = on_text_delta
       @content = +""
       @reasoning_content = +""
       @role = "assistant"
@@ -54,6 +55,7 @@ module Clacky
         delta = choice["delta"] || {}
         @role = delta["role"] if delta["role"]
         @content << delta["content"] if delta["content"].is_a?(String)
+        emit_text_delta(delta["content"])
         @reasoning_content << delta["reasoning_content"] if delta["reasoning_content"].is_a?(String)
         if (tcs = delta["tool_calls"])
           tcs.each { |tc| merge_tool_call(tc) }
@@ -107,6 +109,14 @@ module Clacky
         slot[:arguments] << fn["arguments"].to_s if fn["arguments"]
       end
       slot[:extra_content] = tc["extra_content"] if tc["extra_content"]
+    end
+
+    # Text previews must not change aggregation or abort a model response.
+    private def emit_text_delta(text)
+      return unless @on_text_delta && text.is_a?(String) && !text.empty?
+      @on_text_delta.call(text)
+    rescue StandardError => e
+      Clacky::Logger.warn("[stream] on_text_delta: #{e.class}: #{e.message}")
     end
 
     private def parse_or_nil(s)

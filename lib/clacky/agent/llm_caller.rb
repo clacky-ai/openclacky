@@ -118,17 +118,20 @@ module Clacky
             @history.to_api(force_reasoning_content_pad: force_reasoning_content_pad)
           end
 
-          response = @client.send_messages_with_tools(
-            messages_to_send,
-            model: api_call_model,
-            tools: tools_to_send,
-            max_tokens: @config.max_tokens,
-            enable_caching: @config.enable_prompt_caching,
-            reasoning_effort: @reasoning_effort,
-            on_chunk: build_progress_on_chunk,
-            agent_upstream_fails: (agent_upstream_fails || 0) + floor_fails,
-            agent_upgrade_fails: (agent_upgrade_fails || 0) + upgrade_fails
-          )
+          response = with_assistant_text_stream do |on_text_delta|
+            @client.send_messages_with_tools(
+              messages_to_send,
+              model: api_call_model,
+              tools: tools_to_send,
+              max_tokens: @config.max_tokens,
+              enable_caching: @config.enable_prompt_caching,
+              reasoning_effort: @reasoning_effort,
+              on_chunk: build_progress_on_chunk,
+              **(on_text_delta ? { on_text_delta: on_text_delta } : {}),
+              agent_upstream_fails: (agent_upstream_fails || 0) + floor_fails,
+              agent_upgrade_fails: (agent_upgrade_fails || 0) + upgrade_fails
+            )
+          end
 
           # Successful response — if we were probing, confirm primary is healthy.
           handle_probe_success if @config.probing?
@@ -839,6 +842,35 @@ module Clacky
         @ui&.show_warning(
           "Upstream response was truncated mid tool-call — asking model to use smaller steps and retrying..."
         )
+      end
+
+      # Each attempt owns a preview. Always close it, including cancellation and retry.
+      private def with_assistant_text_stream
+        return yield(nil) unless @ui && @ui.respond_to?(:stream_assistant_text?) && @ui.stream_assistant_text?
+
+        message_id = SecureRandom.uuid
+        seq = 0
+        pending = +""
+        last_emit = 0.0
+        flush = lambda do
+          unless pending.empty?
+            seq += 1
+            @ui.show_assistant_delta(message_id: message_id, seq: seq, delta: pending.dup)
+            pending.clear
+            last_emit = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+          end
+        end
+        callback = lambda do |text|
+          pending << text
+          flush.call if Process.clock_gettime(Process::CLOCK_MONOTONIC) - last_emit >= 0.05
+        end
+        begin
+          result = yield(callback)
+          flush.call
+          result
+        ensure
+          @ui.end_assistant_stream(message_id: message_id)
+        end
       end
 
       # Build a streaming progress callback for Client#send_messages_with_tools.
