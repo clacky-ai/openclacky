@@ -40,6 +40,13 @@ RSpec.describe "Scheduled tasks page UI" do
     expect(view).to include('else if (kind === "del")                        Tasks.delete(t.name);')
   end
 
+  it "hints the run and edit buttons through the shared tooltip" do
+    expect(view).to include(%(task-btn-run" data-tooltip="${escapeHtml(I18n.t("tasks.btn.run"))}" data-i18n-tooltip="tasks.btn.run"))
+    expect(view).to include(%(task-btn-edit" data-tooltip="${escapeHtml(I18n.t("tasks.btn.edit"))}" data-i18n-tooltip="tasks.btn.edit"))
+    expect(view).not_to include(%(task-btn-run" title=))
+    expect(view).not_to include(%(task-btn-edit" title=))
+  end
+
   it "loads run history from the API and opens the run's session" do
     expect(store).to include('fetch("/api/cron-runs")')
     expect(view).to include('Router.navigate("session", { id: r.session_id })')
