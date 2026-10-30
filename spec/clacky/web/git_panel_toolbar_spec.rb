@@ -45,7 +45,110 @@ RSpec.describe "Git panel toolbar" do
 
   it "keeps the refresh button at the far right of the bar" do
     bar = view[/const bar = el\("div", \{ class: "cg-bar" \},.*?\);/m]
-    expect(bar).to include("layoutBtn, expandBtn, treeBtn, findBtn, refreshBtn")
+    expect(bar).to include("layoutBtn, wrapBtn, expandBtn, treeBtn, findBtn, refreshBtn")
+  end
+
+  it "leaves long diff lines unwrapped until the wrap toggle is on" do
+    expect(view).to include('wrap: false,')
+
+    # Unwrapped rows stretch to the widest line so tints span the whole row.
+    box = view[/\.changes-root:not\(\.is-wrap\) \.cg-lines:not\(\.is-cols\) \{[^}]*\}/]
+    expect(box).to include("width: max-content")
+    row = view[/\.changes-root:not\(\.is-wrap\) \.cg-lines:not\(\.is-cols\) > \.cg-line \{[^}]*\}/]
+    expect(row).to include("width: 100%")
+    expect(view).to include(".changes-root.is-wrap .cg-line { white-space: pre-wrap")
+
+    apply = view[/function applyWrapButton\(\) \{.*?\n  \}/m]
+    expect(apply).to include('btn.classList.toggle("is-on", state.wrap)')
+    expect(apply).to include('t("changes.wrap"')
+
+    setter = view[/function setWrap\(on\) \{.*?\n  \}/m]
+    expect(setter).to include('classList.toggle("is-wrap", state.wrap)')
+    expect(setter).to include("localStorage.setItem(WRAP_KEY")
+
+    boot = view[/state\.els = \{ root: root.*?applyWrapButton\(\);/m]
+    expect(boot).to include('localStorage.getItem(WRAP_KEY) === "1"')
+  end
+
+  it "gives each unwrapped split pane its own sideways scroll" do
+    expect(view).to include("const panes = split && !state.wrap;")
+    expect(view).to include('lines.classList.toggle("is-cols", panes)')
+
+    col = view[/\.cg-col \{[^}]*\}/]
+    expect(col).to include("flex: 1 1 0")
+    expect(col).to include("overflow-x: auto")
+    expect(view[/\.cg-col\.old \{[^}]*\}/]).to include("border-right")
+
+    side = view[/function diffSide\(line, side, lang\) \{.*?\n  \}/m]
+    expect(side).to include("cg-line ${side}")
+    expect(side).to include("blank")
+
+    sync = view[/function syncPaneScroll\(cols\) \{.*?\n  \}/m]
+    expect(sync).to include("to.scrollLeft = from.scrollLeft")
+
+    # Wrapping swaps the panes back to paired rows, so the switch re-renders.
+    expect(view[/function setWrap\(on\) \{.*?\n  \}/m]).to include("reflowBodies()")
+  end
+
+  it "keeps gutter cells full height so tints cover the whole row" do
+    # An empty gutter span has no content, so it collapses to 0px unless it is
+    # stretched, leaving the row tint ragged at the gutter.
+    expect(view).to include(".cg-ln { flex: none; align-self: stretch;")
+
+    unified = view[/\.changes-root:not\(\.is-wrap\) \.cg-lines:not\(\.is-cols\) > \.cg-line > \.cg-ln \{[^}]*\}/]
+    expect(unified).to include("position: sticky")
+    expect(unified).to include("background-color: var(--color-bg-primary)")
+    expect(unified).to include("linear-gradient(var(--cg-row-tint")
+
+    expect(view[/\.cg-line\.add \{[^}]*\}/]).to include("--cg-row-tint:")
+    expect(view[/\.cg-line\.del \{[^}]*\}/]).to include("--cg-row-tint:")
+    # The row's own wash rides on a gradient as well: the unwrapped and pane
+    # rules set an opaque background-color with more specificity, so a plain
+    # `background` on .add/.del would leave the code area untinted.
+    expect(view[/\.cg-line \{[^}]*\}/]).to include("linear-gradient(var(--cg-row-tint")
+  end
+
+  it "prints a single line number per row in the single-column stream" do
+    # Old and new numbers drift apart after an insertion, so two gutters read as
+    # a duplicated column; the stream shows the number the file actually has.
+    rows = view[/for \(let i = 0; i < hunk\.lines\.length.*?frag\.appendChild\(row\);/m]
+    expect(rows).not_to be_nil
+    expect(rows.scan('class: "cg-ln"').size).to eq(1)
+    expect(rows).to include("line.newNo == null ? line.oldNo : line.newNo")
+  end
+
+  it "pins only the arrow chip while the label scrolls with the code" do
+    # Two separate chips: the arrow block stays in the gutter column, the label
+    # rides along with the lines so the strip reads as part of the diff.
+    fold = view[/\.cg-fold \{[^}]*\}/]
+    expect(fold).not_to include("position: sticky")
+    expect(fold).not_to include("background:")
+
+    gutter = view[/\.cg-fold \.cg-fold-gutter \{[^}]*\}/]
+    expect(gutter).to include("position: sticky")
+    expect(gutter).to include("left: 0")
+    expect(gutter).to include("background-color: var(--color-bg-primary)")
+
+    label = view[/\.cg-fold \.cg-fold-label \{[^}]*\}/]
+    expect(label).not_to include("position: sticky")
+    expect(label).to include("background: rgba(127, 127, 127")
+
+    expect(view).not_to include("--cg-view-w")
+  end
+
+  it "spans the scroll content so sticky parts keep pinning past the pane edge" do
+    # Sticky is clipped to its containing block: a strip or row as wide as the
+    # visible pane would stop pinning once the diff scrolls beyond it — the
+    # arrow slides away and short rows lose their line numbers.
+    fold = view[/\.changes-root:not\(\.is-wrap\) \.cg-fold \{[^}]*\}/]
+    expect(fold).to include("min-width: var(--cg-span-w")
+
+    row = view[/\.changes-root:not\(\.is-wrap\) \.cg-col > \.cg-line \{[^}]*\}/]
+    expect(row).to include("min-width: var(--cg-span-w")
+
+    expect(view).to include("function syncSpan")
+    expect(view).to include('setProperty("--cg-span-w", stream.scrollWidth')
+    expect(view).to include('setProperty("--cg-span-w", cols[i].scrollWidth')
   end
 
   it "keeps the toolbar icons optically the same size" do
@@ -56,6 +159,7 @@ RSpec.describe "Git panel toolbar" do
       "ICON_EXPAND_ALL" => "15",
       "ICON_TREE" => "17.6",
       "ICON_FIND" => "15",
+      "ICON_WRAP" => "15.5",
       "ICON_REFRESH" => "15.6"
     }.each do |icon, size|
       svg = view[/const #{icon} = '<svg[^']*'/]
