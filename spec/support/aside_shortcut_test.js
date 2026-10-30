@@ -14,6 +14,7 @@ class Element {
   constructor(id = "") {
     this.id = id;
     this.title = "";
+    this.attributes = {};
     this.style = new Style();
     this.children = [];
     this.parentNode = null;
@@ -28,6 +29,9 @@ class Element {
   }
   appendChild(child) { this.children.push(child); child.parentNode = this; return child; }
   addEventListener(type, fn) { (this.listeners[type] ||= []).push(fn); }
+  setAttribute(name, value) { this.attributes[name] = String(value); }
+  getAttribute(name) { return this.attributes[name] ?? null; }
+  removeAttribute(name) { delete this.attributes[name]; }
   get firstElementChild() { return this.children[0] || null; }
   get childElementCount() { return this.children.length; }
   getBoundingClientRect() { return { top: 0, bottom: 0, left: 0, right: 0, width: 0, height: 0 }; }
@@ -104,11 +108,11 @@ const shortcutEvent = (overrides = {}) => ({
 {
   const mac = boot("MacIntel");
   assert.equal(mac.nodes["btn-aside-collapse"].title, "Collapse panel (⌘L)");
-  assert.equal(mac.nodes["btn-aside-open"].title, "Open panel (⌘L)");
+  assert.equal(mac.nodes["btn-aside-open"].attributes["data-tooltip"], "Open panel (⌘L)");
 
   const pc = boot("Win32");
   assert.equal(pc.nodes["btn-aside-collapse"].title, "Collapse panel (Ctrl+L)");
-  assert.equal(pc.nodes["btn-aside-open"].title, "Open panel (Ctrl+L)");
+  assert.equal(pc.nodes["btn-aside-open"].attributes["data-tooltip"], "Open panel (Ctrl+L)");
 }
 
 // ⌘L toggles the column both ways and swallows the keystroke only when it acts.

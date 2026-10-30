@@ -13,6 +13,8 @@ class Style {
 class Element {
   constructor(id = "") {
     this.id = id;
+    this.title = "";
+    this.attributes = {};
     this.style = new Style();
     this.children = [];
     this.parentNode = null;
@@ -36,6 +38,9 @@ class Element {
     children.forEach(child => this.appendChild(child));
   }
   addEventListener(type, fn) { (this.listeners[type] ||= []).push(fn); }
+  setAttribute(name, value) { this.attributes[name] = String(value); }
+  getAttribute(name) { return this.attributes[name] ?? null; }
+  removeAttribute(name) { delete this.attributes[name]; }
   contains(target) {
     if (target === this) return true;
     return this.children.some(child => child === target || child.contains(target));
