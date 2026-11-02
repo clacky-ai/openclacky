@@ -108,12 +108,18 @@ function boot(storage) {
   a.Sessions.setDraft("s2", "drop");
   a.Sessions.setDraft("s1", "   ");
   a.Sessions.remove("s2");
-  assert.deepEqual(JSON.parse(storage.data.clacky_composer_drafts), {});
+  assert.deepEqual(storage.data, {});
 }
 
-// 3. Corrupt or unavailable storage never breaks boot.
+// 3. Unavailable storage never breaks boot, and in-memory drafts still work.
 {
-  const a = boot(fakeStorage({ clacky_composer_drafts: "{not json" }));
+  const broken = fakeStorage();
+  const getItem = broken.getItem;
+  broken.getItem = k => {
+    if (k.startsWith("clacky-composer-draft:")) throw new Error("SecurityError");
+    return getItem(k);
+  };
+  const a = boot(broken);
   a.Sessions._setActiveId("s1");
   assert.equal(a.composer.value, "");
 
@@ -123,6 +129,27 @@ function boot(storage) {
   b.Sessions.setDraft("s1", "still in memory");
   b.Sessions._setActiveId("s1");
   assert.equal(b.composer.value, "still in memory");
+}
+
+// 4. Tabs on different sessions don't overwrite each other's drafts.
+{
+  const storage = fakeStorage();
+  const a = boot(storage);
+  const b = boot(storage);
+  a.Sessions.setDraft("s1", "draft from A");
+  b.Sessions.setDraft("s2", "draft from B");
+  a.Sessions.setDraft("s1", "draft from A v2");
+
+  assert.deepEqual(Object.keys(storage.data).sort(), [
+    "clacky-composer-draft:s1",
+    "clacky-composer-draft:s2",
+  ]);
+
+  const reloaded = boot(storage);
+  reloaded.Sessions._setActiveId("s2");
+  assert.equal(reloaded.composer.value, "draft from B");
+  reloaded.Sessions._setActiveId("s1");
+  assert.equal(reloaded.composer.value, "draft from A v2");
 }
 
 console.log("composer_draft_persist_test: ok");
