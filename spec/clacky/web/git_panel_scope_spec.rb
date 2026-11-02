@@ -76,4 +76,14 @@ RSpec.describe "Git panel review scope" do
     expect(view).to include(".cg-scope-sub.is-bare .cg-scope-search,")
     expect(view).to include(".cg-scope-sub.is-bare .cg-scope-group { display: none; }")
   end
+
+  it "forgets the cached ref lists on refresh so the commit menu cannot go stale" do
+    refresh = view[/async function refresh\(sessionId, ctx, opts\) \{.*?\n  \}/m]
+    expect(refresh).to include("state.commits = null;")
+    expect(refresh).to include("state.branches = null;")
+    expect(refresh).to include("opts.reload !== false")
+
+    apply = view[/function applyScope\(scope, value\) \{.*?\n  \}/m]
+    expect(apply).to include("{ reload: false }")
+  end
 end
