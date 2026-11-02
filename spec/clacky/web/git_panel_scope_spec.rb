@@ -86,4 +86,19 @@ RSpec.describe "Git panel review scope" do
     apply = view[/function applyScope\(scope, value\) \{.*?\n  \}/m]
     expect(apply).to include("{ reload: false }")
   end
+
+  it "explains the 上一轮 row on hover instead of leaving it to guesswork" do
+    tips = view[/const SCOPE_TOOLTIPS = \{.*?\n  \};/m]
+    expect(tips).to include("lastTurn: () =>")
+    expect(tips).to include('t("changes.scope.lastTurnTip"')
+
+    menu = view[/function openScopeMenu\(anchor\) \{.*?\n  \}/m]
+    expect(menu).to include("const tip = SCOPE_TOOLTIPS[item.scope];")
+    expect(menu).to include('row.setAttribute("data-tooltip", tip());')
+  end
+
+  it "ships both languages for the 上一轮 tooltip" do
+    i18n = File.read(File.expand_path("../../../lib/clacky/web/i18n.js", __dir__))
+    expect(i18n.scan('"changes.scope.lastTurnTip"').size).to eq(2)
+  end
 end
