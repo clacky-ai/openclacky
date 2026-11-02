@@ -63,9 +63,17 @@ RSpec.describe "Git panel review scope" do
   end
 
   it "reviews the commit the user picked instead of a range from it" do
-    list = view[/function renderRefList\(listEl, kind, onPick\) \{.*?\n  \}/m]
+    list = view[/function renderRefList\(listEl, kind, onPick, sub\) \{.*?\n  \}/m]
     expect(list).not_to include("isHead")
     expect(list).to include("const checked = state.commit === item.hash;")
     expect(list).to include("onPick(item.hash);")
+  end
+
+  it "drops the search box and group header when the list has nothing to show" do
+    list = view[/function renderRefList\(listEl, kind, onPick, sub\) \{.*?\n  \}/m]
+    expect(list).to include('sub.classList.toggle("is-bare", !all.length)')
+
+    expect(view).to include(".cg-scope-sub.is-bare .cg-scope-search,")
+    expect(view).to include(".cg-scope-sub.is-bare .cg-scope-group { display: none; }")
   end
 end
