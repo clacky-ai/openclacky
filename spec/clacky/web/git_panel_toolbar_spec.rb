@@ -54,6 +54,17 @@ RSpec.describe "Git panel toolbar" do
     expect(bar).to include("tools")
   end
 
+  it "drops the tool row to the left edge when the bar wraps" do
+    # Narrow sessions wrap the tools onto their own line. Pushing them right
+    # there left a gap under the scope pills, so the spacer stays in the flow
+    # and the wrapped row starts flush left.
+    narrow = view[/@container \(max-width: 460px\) \{.*?\n      \}\n/m]
+    expect(narrow).to include("flex-wrap: wrap")
+    expect(narrow).not_to include("cg-bar-spacer { display: none")
+    expect(narrow).not_to include("margin-left: auto")
+    expect(view[/\.cg-tools \{[^}]*\}/]).to include("flex: none")
+  end
+
   it "draws the tool group as a bordered pill inside the bar" do
     pill = view[/\.cg-tools \{[^}]*\}/]
     expect(pill).to include("border-radius: var(--radius-pill)")
