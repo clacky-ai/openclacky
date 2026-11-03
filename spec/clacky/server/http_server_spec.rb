@@ -895,6 +895,18 @@ RSpec.describe Clacky::Server::HttpServer do
         providers.each { |p| expect(p).to have_key("api") }
       end
     end
+
+    it "exposes per-model capabilities resolved from provider and model overrides" do
+      with_server(agent_config: agent_config) do |server|
+        req = fake_req(method: "GET", path: "/api/providers")
+        res = fake_res
+        dispatch(server, req, res)
+
+        glm = parsed_body(res)["providers"].find { |p| p["id"] == "glm" }
+        expect(glm["model_capabilities"]["glm-5.3"]).to eq("vision" => false)
+        expect(glm["model_capabilities"]["glm-5v-turbo"]).to eq("vision" => true)
+      end
+    end
   end
 
   describe "POST /api/config/models" do
