@@ -70,7 +70,7 @@ RSpec.describe "Toolbar tooltips" do
 
     it "hints the fullscreen and collapse buttons through the shared tooltip" do
       expect(html).to include('<button id="btn-aside-fullscreen" class="session-aside-fullscreen" data-tooltip="Fullscreen preview" data-tooltip-pos="bottom">')
-      expect(html).to include('<button id="btn-aside-collapse" class="session-aside-collapse" data-tooltip="Collapse panel" data-tooltip-pos="bottom">')
+      expect(html).to include('<button id="btn-aside-collapse" class="session-aside-collapse" data-tooltip="Collapse panel" data-tooltip-pos="left">')
       expect(html).not_to include(%(id="btn-aside-fullscreen" class="session-aside-fullscreen" data-i18n-title))
       expect(html).not_to include(%(id="btn-aside-collapse" class="session-aside-collapse" title=))
     end
