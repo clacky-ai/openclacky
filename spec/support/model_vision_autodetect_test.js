@@ -81,6 +81,24 @@ for (const name of ["glm-5.30", "xglm-5.3", "plain", "mixed", ""]) {
   assert.equal(w.box.checked, false);
 }
 
+// 5b. Saving under a preset ignores the hidden box, even if auto-detect ticked it under custom.
+{
+  const save = source.match(/ *const noVision = document\.getElementById\("model-modal-no-vision"\)\.checked;\n *payload\.capabilities = [^\n]+\n/);
+  assert.ok(save, "save capabilities block not found");
+  const run = (custom, checked) => {
+    const ctx = vm.createContext({
+      document: { getElementById: () => ({ checked }) },
+      _modalProviderIsCustom: custom,
+      payload: {},
+    });
+    vm.runInContext(save[0], ctx);
+    return JSON.stringify(ctx.payload.capabilities);
+  };
+  assert.equal(run(false, true), "{}");
+  assert.equal(run(true, true), JSON.stringify({ vision: false }));
+  assert.equal(run(true, false), "{}");
+}
+
 // 6. Each modal open resets the "user touched" flag; listeners wire both paths.
 assert.match(extract("_openModal"), /_noVisionTouched = false;/);
 assert.match(source, /modelInput\.addEventListener\("change", _syncNoVisionFromModel\)/);
