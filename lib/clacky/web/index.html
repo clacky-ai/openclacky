@@ -506,15 +506,10 @@
       <div id="input-queue" aria-live="polite" hidden></div>
       <!-- Session info bar — mirrors CLI bottom status bar -->
       <div id="session-info-bar" style="display:none">
-        <!-- Order: status | id | dir | model | reasoning | mode | todo | signal | cost -->
+        <!-- Order: status | dir | model | reasoning | mode | todo | id | signal | cost -->
         <!-- Pattern: element + separator-after-element (except last) -->
         <span id="sib-status"></span>
         <span class="sib-sep sib-sep-after-status">│</span>
-        <span id="sib-id-wrap">
-          <span id="sib-id" class="sib-id-clickable" data-i18n-title="sessions.actions.tooltip" title="Click for session actions"></span>
-          <div id="sib-actions-dropdown" class="clacky-popover sib-actions-dropdown" style="display:none" role="menu"></div>
-        </span>
-        <span class="sib-sep sib-sep-after-id">│</span>
         <span id="sib-dir" data-tooltip="Click to change directory" data-i18n-tooltip="sib.dir.tooltip"><span id="sib-dir-text"></span><span class="sib-caret" aria-hidden="true"><svg viewBox="0 0 16 16" width="9" height="9" aria-hidden="true"><path d="M4 6.5L8 10.5L12 6.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span></span>
         <span class="sib-sep sib-sep-after-dir">│</span>
         <span id="sib-model-wrap">
@@ -568,11 +563,16 @@
           </div>
         </span>
         <span class="sib-sep sib-sep-after-todo">│</span>
+        <span id="sib-id-wrap">
+          <span id="sib-id" class="sib-id-clickable" data-i18n-tooltip="sessions.actions.tooltip"></span>
+          <div id="sib-actions-dropdown" class="clacky-popover sib-actions-dropdown" style="display:none" role="menu"></div>
+        </span>
+        <span class="sib-sep sib-sep-after-id">│</span>
         <!-- Latency signal: 4-bar signal + TTFT number. Hidden until the first LLM
              call completes (see updateInfoBar / Sessions.renderSignalBars). Click
              opens a mini benchmark panel (see Step 3/4 — not yet implemented). -->
         <span id="sib-signal-wrap" style="display:none">
-          <span id="sib-signal" class="sib-signal-clickable" data-i18n-title="sib.signal.tooltip" title="Recent LLM latency">
+          <span id="sib-signal" class="sib-signal-clickable">
             <span class="sig-bars" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
             <span class="sig-text"></span>
           </span>
