@@ -49,8 +49,11 @@ class Element {
   assert(createdTime.textContent.startsWith('创建于：'));
   assert(!has(visible(aside.root), card.instruction));
   assert(visible(aside.root).some(n => n.tag === 'a'), 'history is directly accessible');
-  assert(has(visible(banner.root), '1 件需要你关注'));
-  assert(!walk(banner.root).some(n => n.tag === 'button'), 'composer has only the summary');
+  assert(has(visible(banner.root), '1 件需要你确认'));
+  const titleButton = visible(banner.root).find(n => n.tag === 'button');
+  assert.equal(titleButton.textContent, card.title);
+  titleButton.onclick();
+  assert.equal(input.chips[0].session_id, card.session_id);
   assert.equal(badges.at(-1), 1);
   visible(aside.root).find(n => n.textContent === '与秘书讨论').onclick();
   assert(input.text.includes('我想补充'));
@@ -122,7 +125,9 @@ class Element {
   lang = 'fr'; handlers.langchange();
   assert(has(visible(aside.root), 'Recurring plans'), 'unknown languages fall back to English');
   card.status = 'completed'; await refresh();
-  assert(banner.root.hidden, 'completed work does not occupy the composer');
+  assert(!banner.root.hidden);
+  assert(has(visible(banner.root), 'Work is up to date'));
+  assert(!visible(banner.root).some(n => n.tag === 'button'));
   failedFetch = true; await refresh();
   assert(has(visible(aside.root), 'Progress is temporarily unavailable'));
   assert(!has(walk(aside.root), 'raw backend traceback'));
