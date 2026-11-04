@@ -83,7 +83,7 @@ class Element {
 
 const SID = "s1";
 
-function boot() {
+function boot({ kind = "subagent", label = "worker" } = {}) {
   const nodes = {};
   const unrefTimeout = (fn, ms, ...args) => {
     const timer = setTimeout(fn, ms, ...args);
@@ -142,7 +142,7 @@ function boot() {
   Sessions._setActiveId(SID);
   const messages = document.getElementById("messages");
   const dispatch = context.__dispatcher;
-  dispatch({ type: "phase_start", session_id: SID, phase_id: "p1", kind: "subagent", label: "worker" });
+  dispatch({ type: "phase_start", session_id: SID, phase_id: "p1", kind, label });
   const card = messages.children.find(c => c.classes.has("msg-phase"));
   assert.ok(card, "phase card is rendered");
   return { Sessions, messages, dispatch, card, sent };
@@ -176,6 +176,13 @@ async function tests() {
 
     assert.equal(statusOf(card), " (interrupted)", "a real interrupt marks the phase incomplete");
     assert.equal(card.open, false, "interrupted phase card collapses");
+  }
+
+  // 3. Housekeeping phases (memory updates, task retrospectives) run outside
+  //    the conversation flow, so their card starts collapsed.
+  for (const kind of ["memory_update", "skill_evolution"]) {
+    const { card } = boot({ kind });
+    assert.equal(card.open, false, `${kind} card starts collapsed`);
   }
 }
 
