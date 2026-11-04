@@ -5711,13 +5711,8 @@ body {
 .tool-item .token-usage-line.tu-attached:hover { opacity: 0.95; }
 .tu-delta-neg   { color: #34d399; }  /* compression / token reduction — semantic green */
 
-/* Detail fields: hidden by default, revealed on hover */
-.tu-detail {
-  display: none;
-  align-items: center;
-  gap: 0.25rem;
-}
-.token-usage-line:hover .tu-detail { display: contents; }
+/* Detail fields: always visible — hover-reveal triggered flex-wrap reflow (jitter) */
+.tu-detail { display: contents; }
 
 /* ── Tool group (collapsible tool call list) ─────────────────────────────── */
 .tool-group {
