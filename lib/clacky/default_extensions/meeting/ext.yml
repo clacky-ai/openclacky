@@ -5,8 +5,8 @@ display_name_zh: 会议助理
 description: Real-time meeting transcription and AI assistant
 description_zh: 实时会议转录与 AI 助手
 version: "0.1.0"
+icon: icon.svg
 author: OpenClacky
-homepage: https://www.openclacky.com
 license: MIT
 enabled_by_default: false
 contributes:

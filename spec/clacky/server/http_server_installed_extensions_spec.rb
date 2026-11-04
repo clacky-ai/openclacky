@@ -121,4 +121,36 @@ RSpec.describe Clacky::Server::HttpServer, "GET /api/store/extensions/installed"
     expect(ext["unlisted"]).to be(true)
     expect(ext["removable"]).to be(true)
   end
+
+  it "points a builtin's icon at its own container under /ext_ui" do
+    Dir.mktmpdir do |dir|
+      File.write(File.join(dir, "icon.svg"), "<svg/>")
+      stub_containers(
+        "computer-use" => container(
+          layer: :builtin, ext_id: "computer-use", dir: dir,
+          raw: { "icon" => "icon.svg", "display_name_zh" => "电脑操作" }
+        )
+      )
+      stub_market({})
+
+      server.send(:api_store_extensions_installed, response)
+
+      expect(extensions.first["icon_url"]).to eq("/ext_ui/computer-use/icon.svg")
+    end
+  end
+
+  it "leaves icon_url empty when the manifest declares none or points outside the container" do
+    Dir.mktmpdir do |dir|
+      stub_containers(
+        "git"     => container(layer: :builtin, ext_id: "git", dir: dir, raw: {}),
+        "preview" => container(layer: :builtin, ext_id: "preview", dir: dir, raw: { "icon" => "../escape.svg" }),
+        "advisor" => container(layer: :builtin, ext_id: "advisor", dir: dir, raw: { "icon" => "missing.svg" })
+      )
+      stub_market({})
+
+      server.send(:api_store_extensions_installed, response)
+
+      expect(extensions.map { |e| e["icon_url"] }).to eq([nil, nil, nil])
+    end
+  end
 end

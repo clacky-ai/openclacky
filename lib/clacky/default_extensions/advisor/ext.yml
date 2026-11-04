@@ -5,8 +5,8 @@ display_name_zh: 工作建议
 description: Recommends next steps after each task, based on your own workflow
 description_zh: 每轮任务结束后，基于你的专属流程推荐下一步工作
 version: "0.1.0"
+icon: icon.svg
 author: OpenClacky
-homepage: https://www.openclacky.com
 license: MIT
 contributes:
   agents:

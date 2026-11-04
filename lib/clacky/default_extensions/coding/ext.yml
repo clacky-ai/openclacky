@@ -3,7 +3,6 @@ name: Coding
 description: AI coding assistant agent
 version: "0.1.0"
 author: OpenClacky
-homepage: https://www.openclacky.com
 license: MIT
 contributes:
   agents:

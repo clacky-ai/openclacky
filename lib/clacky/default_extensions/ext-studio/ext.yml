@@ -3,7 +3,6 @@ name: Extension Studio
 description: AI-driven workspace for building, debugging, and publishing OpenClacky extensions
 version: "0.1.0"
 author: OpenClacky
-homepage: https://www.openclacky.com
 license: MIT
 contributes:
   api: api/handler.rb

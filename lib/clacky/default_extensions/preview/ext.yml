@@ -5,8 +5,8 @@ display_name_zh: 预览
 description: Live preview panel — click an HTML file or localhost URL in chat to open it
 description_zh: 预览面板 — 点击聊天里的 HTML 文件或 localhost 链接打开
 version: "0.1.0"
+icon: icon.svg
 author: OpenClacky
-homepage: https://www.openclacky.com
 license: MIT
 contributes:
   panels:

@@ -1598,19 +1598,31 @@ module Clacky
 
       # Serve a file from a resolved extension container: /ext_ui/<ext_id>/<rel>.
       # The container dir is looked up via the loader (it may live in any layer),
-      # then strict path containment prevents escaping it. JS/CSS only, no-store.
+      # then strict path containment prevents escaping it. Source files and the
+      # icon set are allowed; everything else is refused.
+      EXT_UI_TYPES = {
+        ".js"   => "application/javascript",
+        ".css"  => "text/css",
+        ".png"  => "image/png",
+        ".jpg"  => "image/jpeg",
+        ".jpeg" => "image/jpeg",
+        ".webp" => "image/webp",
+        ".svg"  => "image/svg+xml",
+        ".gif"  => "image/gif",
+      }.freeze
+
       private def serve_ext_ui(req, res)
         rel = req.path.delete_prefix("/ext_ui/")
         ext_id, _, sub = rel.partition("/")
 
-        unit = Clacky::ExtensionLoader.load_all.units.find { |u| u.ext_id == ext_id }
-        unless unit
+        container = Clacky::ExtensionLoader.load_all.containers[ext_id]
+        unless container
           res.status = 404
           res.body   = "not found"
           return
         end
 
-        root = File.expand_path(unit.dir)
+        root = File.expand_path(container[:dir].to_s)
         abs  = File.expand_path(File.join(root, sub))
         unless abs.start_with?(root + File::SEPARATOR) && File.file?(abs)
           res.status = 404
@@ -1618,8 +1630,7 @@ module Clacky
           return
         end
 
-        ext = File.extname(abs)
-        ctype = { ".js" => "application/javascript", ".css" => "text/css" }[ext]
+        ctype = EXT_UI_TYPES[File.extname(abs).downcase]
         unless ctype
           res.status = 415
           res.body   = "unsupported media type"
@@ -1630,7 +1641,7 @@ module Clacky
         res["Content-Type"]  = ctype
         res["Cache-Control"] = "no-store"
         res["Pragma"]        = "no-cache"
-        res.body             = File.read(abs)
+        res.body             = ctype.start_with?("image/") ? File.binread(abs) : File.read(abs)
       end
 
       # Serve agents/<name>/webui/<file> from built-in or user agent dir.
@@ -2954,6 +2965,7 @@ module Clacky
             "description"     => local_desc,
             "description_zh"  => local_desc_zh,
             "author"          => local_author,
+            "icon_url"        => extension_icon_url(container),
             "units"           => local_units,
             "layer"           => "builtin",
             "installed"       => true,
@@ -3010,7 +3022,7 @@ module Clacky
             "description"       => (label && label["description"]) || container.dig(:raw, "description").to_s,
             "description_zh"    => (label && label["description_zh"]) || container.dig(:raw, "description_zh").to_s,
             "author"            => (label && label["author"]) || container[:author].to_s,
-            "icon_url"          => market&.dig("icon_url"),
+            "icon_url"          => builtin ? extension_icon_url(container) : (market&.dig("icon_url") || extension_icon_url(container)),
             "units"             => (label && label["units"]) || units_from_container(container),
             "homepage"          => (label && label["homepage"]) || container[:homepage].to_s,
             "origin"            => (label && (label["origin"] || container[:origin])) || container[:origin],
@@ -3080,13 +3092,21 @@ module Clacky
 
       # GET /api/store/extension?id=<slug-or-id>[&source=brand]
       #
-      # Detail for a single extension. Pass source=brand to query brand-private
-      # extensions via the license-gated API; omit (or any other value) for the
-      # public marketplace API.
+      # Detail for a single extension. A builtin ships with the gem and is not a
+      # marketplace entry — its slug can collide with an unrelated published
+      # extension, so it is answered from the local manifest without asking the
+      # store. Pass source=brand to query brand-private extensions via the
+      # license-gated API; omit (or any other value) for the public catalog.
       def api_store_extension_detail(req, res)
         id = req.query["id"].to_s
         if id.strip.empty?
           json_response(res, 400, { ok: false, error: "Missing id." })
+          return
+        end
+
+        container = extension_container(id)
+        if container && container[:layer] == :builtin
+          json_response(res, 200, { ok: true, extension: local_extension_payload(container) })
           return
         end
 
@@ -3107,42 +3127,83 @@ module Clacky
             "installed_version" => container&.dig(:version),
             "removable"         => container && container[:layer] == :installed,
             "disabled"          => container ? container[:disabled] == true : false,
+            "icon_url"          => ext["icon_url"] || (container && extension_icon_url(container)),
           )
           json_response(res, 200, { ok: true, extension: ext })
+        elsif container && container[:layer] == :installed
+          market = fetch_batch_market_data([id])[id]
+          json_response(res, 200, { ok: true, extension: local_extension_payload(container, market: market) })
         else
-          container = extension_container(id)
-          if container && container[:layer] == :installed
-            market = fetch_batch_market_data([id])[id]
-            # Fall back to local ext.yml for self-authored extensions.
-            local_name   = container[:name].to_s.then { |n| n.empty? ? id : n }
-            local_desc   = container.dig(:raw, "description").to_s
-            local_author = container[:author].to_s
-            local_units  = units_from_container(container)
-            ext = {
-              "id"                => id,
-              "name"              => market ? (market["name"] || id) : local_name,
-              "name_zh"           => market&.dig("name_zh"),
-              "name_en"           => market&.dig("name_en"),
-              "slug"              => id,
-              "version"           => market ? (market["version"] || container[:version]) : container[:version],
-              "installed_version" => container[:version],
-              "description"       => market ? market["description"] : local_desc,
-              "author"            => market ? market["author"] : local_author,
-              "icon_url"          => market&.dig("icon_url"),
-              "units"             => market ? market["units"] : local_units,
-              "homepage"          => market ? (market["homepage"] || "") : container[:homepage].to_s,
-              "origin"            => market ? (market["origin"] || container[:origin]) : container[:origin],
-              "hub_active"        => market&.dig("hub_active"),
-              "unlisted"          => market.nil? || market["unlisted"] == true,
-              "installed"         => true,
-              "removable"         => true,
-              "disabled"          => container[:disabled] == true,
-            }
-            json_response(res, 200, { ok: true, extension: ext })
-          else
-            json_response(res, 404, { ok: false, error: result[:error] || "Not found" })
-          end
+          json_response(res, 404, { ok: false, error: result[:error] || "Not found" })
         end
+      end
+
+      # Local manifest view of an installed extension, used when the marketplace
+      # has nothing to say about it (or must not be asked at all).
+      private def local_extension_payload(container, market: nil)
+        builtin = container[:layer] == :builtin
+        id      = container[:ext_id].to_s
+        # A builtin's manifest is the source of truth — plenty ship with the gem
+        # and were never published.
+        label      = builtin ? nil : market
+        local_name = container[:name].to_s.then { |n| n.empty? ? id : n }
+        local_desc = container.dig(:raw, "description").to_s
+
+        {
+          "id"                => id,
+          "name"              => label ? (label["name"] || id) : local_name,
+          "name_zh"           => (label && label["name_zh"]) || container.dig(:raw, "name_zh"),
+          "name_en"           => (label && label["name_en"]) || container.dig(:raw, "name_en"),
+          "display_name"      => (label && label["display_name"]) || container.dig(:raw, "display_name") || local_name,
+          "display_name_zh"   => (label && label["display_name_zh"]) || container.dig(:raw, "display_name_zh"),
+          "slug"              => id,
+          "version"           => (label && label["version"]) || container[:version],
+          "installed_version" => container[:version],
+          "description"       => (label && label["description"]) || local_desc,
+          "description_zh"    => (label && label["description_zh"]) || container.dig(:raw, "description_zh").to_s,
+          "author"            => (label && label["author"]) || container[:author].to_s,
+          "icon_url"          => builtin ? extension_icon_url(container) : ((label && label["icon_url"]) || extension_icon_url(container)),
+          "units"             => (label && label["units"]) || units_from_container(container),
+          "homepage"          => (label && label["homepage"]) || container[:homepage].to_s,
+          "origin"            => (label && label["origin"]) || container[:origin],
+          "hub_active"        => label && label["hub_active"],
+          "download_count"    => label ? label["download_count"].to_i : 0,
+          "unlisted"          => builtin ? false : (market.nil? || market["unlisted"] == true),
+          "layer"             => container[:layer].to_s,
+          "installed"         => true,
+          "removable"         => container[:layer] == :installed,
+          "disabled"          => container[:disabled] == true,
+          "contributes"       => container[:contributes] || {},
+          "readme"            => (label && label["readme"]).to_s.then { |r| r.strip.empty? ? local_extension_readme(container) : r },
+        }
+      end
+
+      # README.zh.md wins for Chinese clients; README.md is the fallback.
+      private def local_extension_readme(container)
+        dir = container[:dir].to_s
+        return nil if dir.empty?
+
+        names = Thread.current[:lang].to_s.start_with?("zh") ? %w[README.zh.md README.md] : %w[README.md]
+        path  = names.map { |n| File.join(dir, n) }.find { |p| File.file?(p) }
+        path && File.read(path, encoding: "UTF-8")
+      end
+
+      # Public URL for an extension's local icon file, or nil when the manifest
+      # names none (or the file is missing / outside the container). Served by
+      # /ext_ui, so it works for every layer and while the extension is off.
+      private def extension_icon_url(container)
+        rel = container.dig(:raw, "icon").to_s.strip
+        return nil if rel.empty?
+
+        ext_id = container[:ext_id].to_s
+        dir    = container[:dir].to_s
+        return nil if ext_id.empty? || dir.empty?
+
+        root = File.expand_path(dir)
+        abs  = File.expand_path(File.join(root, rel))
+        return nil unless abs.start_with?(root + File::SEPARATOR) && File.file?(abs)
+
+        "/ext_ui/#{ext_id}/#{rel}"
       end
 
       # Locate an installed container by slug/id (nil when not installed).
