@@ -32,12 +32,13 @@ class Element {
     this.textContent = "";
     this.value = "";
     this.classList = {
-      add: n => this.classes.add(n),
-      remove: n => this.classes.delete(n),
-      toggle: (n, on) => (on ? this.classes.add(n) : this.classes.delete(n)),
+      add: (...names) => { names.forEach(n => this.classes.add(n)); this._syncClassName(); },
+      remove: (...names) => { names.forEach(n => this.classes.delete(n)); this._syncClassName(); },
+      toggle: (n, on) => { (on ? this.classes.add(n) : this.classes.delete(n)); this._syncClassName(); },
       contains: n => this.classes.has(n),
     };
   }
+  _syncClassName() { this._className = Array.from(this.classes).join(" "); }
   set className(v) { this._className = v; this.classes = new Set(v.split(/\s+/).filter(Boolean)); }
   get className() { return this._className; }
   set innerHTML(v) { this._innerHTML = v; if (v === "") this.children = []; }
@@ -332,8 +333,39 @@ async function main() {
   await testReopenRefetchesModifiedFile();
   await testTaskCompletedRefreshesOpenTabs();
   await testDirtyTabIsNotOverwritten();
+  await testClosingLastTabRevealsTree();
   testSetContentIsSilent();
   console.log("All workspace file reload tests passed!");
+}
+
+// Closing the last file tab must bring the tree back: with the strip empty it
+// is the only content in the panel, and the toggle button that hid it lives in
+// the (now hidden) viewer.
+async function testClosingLastTabRevealsTree() {
+  const env = boot({ "notes.md": "# hi" });
+  await settle();
+
+  const root = env.container.querySelector(".wv-root");
+  const toggle = env.container.querySelector(".wv-toggle-tree");
+  assert.ok(root, "root rendered");
+  assert.ok(toggle, "tree toggle rendered");
+
+  env.WorkspaceView.openFile("/wd/notes.md");
+  await settle();
+  assert.ok(!root.classList.contains("tree-hidden"), "tree starts visible");
+
+  toggle.click();
+  assert.ok(root.classList.contains("tree-hidden"), "toggle hides the tree");
+
+  env.container.querySelector(".wv-tab-close").click();
+  await settle();
+
+  assert.ok(!root.classList.contains("tree-hidden"), "closing the last tab reveals the tree");
+  assert.ok(!root.classList.contains("has-open-files"), "no tabs left");
+  assert.ok(toggle.classList.contains("active"), "toggle reflects the visible tree");
+
+  toggle.click();
+  assert.ok(!root.classList.contains("tree-hidden"), "an empty strip never hides the tree");
 }
 
 main().catch(err => {

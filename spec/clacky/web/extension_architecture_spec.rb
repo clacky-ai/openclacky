@@ -325,7 +325,7 @@ RSpec.describe "WebUI extension architecture" do
 
     it "makes Files release its borrowed width after the final tab and on teardown" do
       expect(workspace_view_js).to include("Clacky.Aside.requestWidth(VIEWER_ASIDE_WIDTH)")
-      expect(workspace_view_js).to include("if (tabs.length === 0) restoreAsideWidth()")
+      expect(workspace_view_js).to match(/if \(tabs\.length === 0\) \{?\s*restoreAsideWidth\(\)/)
       expect(workspace_view_js).to match(/function destroy\(\) \{\s*restoreAsideWidth\(\)/)
       expect(workspace_view_js).not_to include("requestWidth(VIEWER_ASIDE_WIDTH, { persist: true })")
     end
