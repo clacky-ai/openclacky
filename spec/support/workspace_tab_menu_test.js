@@ -73,6 +73,7 @@ class Element {
     this.children = [];
     this.parentNode = null;
     this.handlers = {};
+    this.listeners = {};
     this.classes = new Set();
     this._className = "";
     this._innerHTML = "";
@@ -123,7 +124,13 @@ class Element {
   setAttribute(k, v) { this.attrs[k] = v; }
   getAttribute(k) { return this.attrs[k]; }
   removeAttribute(k) { delete this.attrs[k]; }
-  addEventListener(kind, fn) { this.handlers[kind] = fn; }
+  // `handlers` keeps the last listener per kind so existing tests can call it
+  // directly; `listeners` keeps all of them, because the DOM fires every one
+  // and a picture is watched by both the viewer and the zoom controller.
+  addEventListener(kind, fn) {
+    this.handlers[kind] = fn;
+    (this.listeners[kind] = this.listeners[kind] || []).push(fn);
+  }
   removeEventListener() {}
   appendChild(child) { this.children.push(child); child.parentNode = this; return child; }
   append(...kids) { kids.forEach(k => this.appendChild(k)); }
@@ -641,6 +648,29 @@ async function tests() {
 
     await clickTabMenu(w, openTabMenu(w, 0), "closetab", "photo.png");
     assert.ok(w.observers.every(o => o.disconnected), "closing the tab stops watching the box");
+  }
+
+  // 18. An image whose bytes never decode — an empty or truncated file — would
+  //     otherwise leave the browser's broken-image glyph in the middle of the
+  //     pane. The pane names the file and says why instead, and a file that
+  //     does decode later clears the message.
+  {
+    const w = boot();
+    await settle();
+    const { img } = await openImage(w);
+    const pane = img.closest(".wv-pane--image");
+    const fire = (kind) => img.listeners[kind].forEach(fn => fn({}));
+
+    fire("error");
+    assert.ok(pane.classList.contains("is-broken"), "a decode failure flags the pane");
+    assert.equal(pane.querySelector(".wv-fallback-name").textContent, "photo.png",
+      "the pane still names the file that failed");
+    assert.equal(pane.querySelector(".wv-fallback-hint").textContent, "workspace.imageBroken",
+      "and says the picture could not be displayed");
+
+    fire("load");
+    assert.ok(!pane.classList.contains("is-broken"), "a picture that decodes clears the message");
+
   }
 }
 
