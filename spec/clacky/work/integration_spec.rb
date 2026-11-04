@@ -154,6 +154,46 @@ RSpec.describe "Secretary server integration" do
     end
   end
 
+  it "pauses a user-interrupted worker and resumes the same session through manage_work" do
+    with_server(agent_config: config) do |server|
+      registry = server.instance_variable_get(:@registry)
+      owner_id = server.send(:build_session, name: "Owner", profile: "secretary")
+      owner = registry.get(owner_id)[:agent]
+      card = server.work_service.delegate(owner, title: "Continue report", task: "Prepare report")
+      worker_id = card["session_id"]
+      worker = registry.get(worker_id)[:agent]
+      started = Queue.new
+      blocker = Queue.new
+      allow(worker).to receive(:think) do
+        worker.history.append(role: "assistant", content: "Saved partial research")
+        started << true
+        blocker.pop
+      end
+      server.work_service.tick
+      Timeout.timeout(5) { started.pop }
+      server.send(:interrupt_session, worker_id)
+      wait_thread(registry, worker_id)
+      paused = server.work_service.list(owner_id).first
+      expect(paused["status"]).to eq("paused")
+      expect(paused["outbox"].last["kind"]).to eq("paused")
+      expect(server).not_to receive(:build_session)
+      tool = owner.tool_registry.get("manage_work")
+      resumed = tool.execute(action: "resume", work_id: card["id"], expected_revision: paused["revision"])
+      expect(resumed).to include("id" => card["id"], "session_id" => worker_id, "status" => "queued", :notify_user => false)
+      expect(tool.execute(action: "resume", work_id: card["id"])["revision"]).to eq(resumed["revision"])
+      allow(worker).to receive(:think) do
+        expect(worker.history.to_a).to include(hash_including(content: "Saved partial research"))
+        calls = [{ id: "finish-resumed", name: "yield_work", arguments: JSON.generate(reason: "completed", summary: "Report completed") }]
+        worker.history.append(role: "assistant", content: nil, tool_calls: calls)
+        { content: nil, tool_calls: calls }
+      end
+      server.work_service.tick
+      wait_thread(registry, worker_id)
+      expect(server.work_service.list(owner_id).size).to eq(1)
+      expect(server.work_service.list(owner_id).first).to include("session_id" => worker_id, "status" => "completed")
+    end
+  end
+
   it "shows a friendly delegation receipt live and when replaying persisted cards" do
     with_server(agent_config: config) do |server|
       sid = server.send(:build_session, name: "Secretary", profile: "secretary")
@@ -224,6 +264,8 @@ RSpec.describe "Secretary server integration" do
   end
 
   it "keeps the panel API read-only and changes work through the secretary tool" do
+    Clacky::ExtensionLoader.load_all(force: true)
+    Clacky::ApiExtensionLoader.load_all(reload: true)
     with_server(agent_config: config) do |server|
       allow(server).to receive(:default_working_dir).and_return(Dir.pwd)
       id = server.send(:build_session, name: "Secretary", profile: "secretary")

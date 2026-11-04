@@ -70,7 +70,7 @@ Server-attached tools access `agent.work_service`; API handlers access
 `work_service`. The service implements delegation, management and yielding without
 requiring extensions to access the HTTP server's private execution methods.
 
-- Secretary: `delegate_work`, `manage_work` (list/get/update/reply/pause/cancel).
+- Secretary: `delegate_work`, `manage_work` (list/get/update/reply/pause/resume/cancel).
 - Worker: `yield_work` (completed/needs_input/waiting_event).
 - UI: read-only `GET /api/ext/secretary/work?session_id=...`. All changes go
   through the secretary's tools in the main conversation.
@@ -208,3 +208,9 @@ return `notify_user: false` to suppress completion alerts and done markers; an
 explicit user question in the same owner turn takes precedence. Main-agent reports
 retain normal notification behavior. The composer shows background work and task
 titles without pretending the main agent is still executing.
+
+User interruption pauses the work card. `manage_work resume` requeues paused or
+failed work in its existing worker session, retaining history and progress; no
+new delegation is created. It accepts optional additional instructions and the
+usual expected_revision check. Repeating resume on queued/running work is a no-op.
+Completed or cancelled work cannot be resumed.

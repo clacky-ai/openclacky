@@ -126,6 +126,17 @@ RSpec.describe Clacky::Work::Service do
     expect(current["status"]).to eq("waiting_event")
   end
 
+  it "resumes failed work without new instructions and retains its worker session" do
+    c = card
+    store.transaction { |d| d["cards"][c["id"]]["status"] = "failed" }
+    expect { service.manage("other", action: "resume", work_id: c["id"]) }.to raise_error(/not found/)
+    expect { service.manage("owner", action: "resume", work_id: c["id"], expected_revision: 0) }.to raise_error(/changed/)
+    resumed = service.manage("owner", action: "resume", work_id: c["id"], expected_revision: 1)
+    expect(resumed).to include("status" => "queued", "session_id" => c["session_id"], "revision" => 2)
+    store.transaction { |d| d["cards"][c["id"]]["status"] = "cancelled" }
+    expect { service.manage("owner", action: "resume", work_id: c["id"]) }.to raise_error(/finished/)
+  end
+
   it "rejects invalid deadlines without changing state" do
     running
     expect { service.yield_work(worker, reason: "waiting_event", summary: "等回复", check_at: "tomorrow") }.to raise_error(ArgumentError)

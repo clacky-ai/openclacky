@@ -39,9 +39,8 @@ module Clacky
         end
       end
 
-      private
 
-      def load_data
+      private def load_data
         return { "cards" => {}, "events" => [] } unless File.exist?(@path)
         data = JSON.parse(File.read(@path)) # Fail closed on corrupt data.
         # Read old cards/outboxes without rewriting history or requiring migration.
