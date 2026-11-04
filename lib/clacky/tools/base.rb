@@ -35,7 +35,10 @@ module Clacky
         self.class.tool_category || "general"
       end
 
-      # Execute the tool - must be implemented by subclasses
+      # Execute the tool - must be implemented by subclasses.
+      # A result hash with end_turn: true records this result and ends the current
+      # agent turn, skipping remaining calls in the batch. It does not schedule
+      # resumption; tools must persist any wait/outcome before returning it.
       def execute(**_args)
         raise NotImplementedError, "#{self.class.name} must implement #execute"
       end

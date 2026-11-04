@@ -38,9 +38,12 @@ RSpec.describe "Secretary server integration" do
       card = owner.tool_registry.get("delegate_work").execute(title: "旅行建议", task: "整理建议")
       worker = registry.get(card["session_id"])[:agent]
       expect(worker.tool_registry.tool_names).to include("yield_work", "web_search")
-      expect(worker.tool_registry.tool_names).not_to include("terminal", "write", "invoke_skill", "delegate_work", "ask_user")
+      expect(worker.tool_registry.tool_names).to include("terminal", "write", "invoke_skill", "ask_user")
+      expect(worker.tool_registry.tool_names).not_to include("delegate_work")
+      output = File.join(server.work_service.instance_variable_get(:@store).instance_variable_get(:@path) + ".output.md")
       allow(worker).to receive(:think) do
         calls = [
+          { id: "write1", name: "write", arguments: JSON.generate(path: output, content: "Travel report") },
           { id: "yield1", name: "yield_work", arguments: JSON.generate(reason: "completed", summary: "建议先确定日期，再比较交通。", display_summary: "旅行建议已整理完成") },
           { id: "after-yield", name: "web_search", arguments: JSON.generate(query: "must not execute") }
         ]
@@ -50,6 +53,7 @@ RSpec.describe "Secretary server integration" do
       expect(worker.tool_registry.get("web_search")).not_to receive(:execute)
       server.work_service.tick
       wait_thread(registry, card["session_id"])
+      expect(File.read(output)).to eq("Travel report")
       expect(server.work_service.list(owner_id).first["status"]).to eq("completed")
       expect(server.work_service.list(owner_id).first["display_summary"]).to eq("旅行建议已整理完成")
       yield_tool = worker.tool_registry.get("yield_work")

@@ -63,6 +63,13 @@ module Clacky
       name == id.to_s || (!!@base_unit && @base_unit.id == id.to_s)
     end
 
+    # Optional worker profile used for delegated work; user profiles inherit it.
+    def work_agent
+      value = @profile_data["work_agent"]
+      value = @base_unit&.spec&.dig("work_agent") if value.nil?
+      value.to_s.strip
+    end
+
     # Skills explicitly disabled for this agent, matched by skill identifier.
     # Declared via `disabled_skills` in profile.yml or the ext agent spec.
     # @return [Array<String>]
@@ -226,6 +233,7 @@ module Clacky
         return {
           "name"        => @name,
           "base_agent"  => @ext_unit.spec["base_agent"],
+          "work_agent"  => @ext_unit.spec["work_agent"],
           "description" => @ext_unit.spec["description"],
           "panels"      => @ext_unit.spec["panels"],
           "skills"      => @ext_unit.spec["skills"],

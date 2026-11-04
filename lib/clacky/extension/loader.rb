@@ -503,6 +503,7 @@ module Clacky
                    "prompt"         => spec["prompt"],
                    "prompt_abs"     => prompt_abs,
                    "base_agent"     => spec["base_agent"],
+                   "work_agent"     => spec["work_agent"],
                    "avatar"         => avatar_rel,
                    "avatar_abs"     => avatar_abs,
                    "description"    => spec["description"].to_s,

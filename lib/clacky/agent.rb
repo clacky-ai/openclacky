@@ -661,7 +661,7 @@ module Clacky
         @hooks.trigger(:on_iteration, @iterations)
 
         consume_steering_inputs
-        @work_service&.guard!(self, "yield_work") if Thread.current[:clacky_work]
+        @work_service&.guard!(self) if Thread.current[:clacky_work]
 
         # Think: LLM reasoning with tool support
         response = think
@@ -1612,7 +1612,7 @@ module Clacky
           # Tool truly not found — let the rescue below handle it with a clear message
         end
 
-        @work_service&.guard!(self, call[:name])
+        @work_service&.guard!(self)
 
         # Hook: before_tool_use
         hook_result = @hooks.trigger(:before_tool_use, call)
@@ -1814,11 +1814,12 @@ module Clacky
           end
 
           results << build_success_result(call, result)
-          if call[:name] == "yield_work" && result.is_a?(Hash) && result[:work_yielded]
+          # Tools may end this turn after committing their result (e.g. a durable wait).
+          if result.is_a?(Hash) && result[:end_turn] == true
             awaiting_feedback = true
             # Settle every call in this batch, but execute nothing after yielding.
             tool_calls.drop(index + 1).each do |remaining|
-              results << build_denied_result(remaining, "Work yielded; remaining calls were not executed", true)
+              results << build_denied_result(remaining, "Turn ended; remaining calls were not executed", true)
             end
             break
           end

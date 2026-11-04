@@ -25,10 +25,9 @@ refresh the Web UI, and create a **生活秘书 / Secretary** session. Open its
 
 ## Scope
 
-- Workers currently have only file reading, search, web research, todo and
-  `yield_work` tools. They cannot use terminal, write/edit, browser, skills, MCP,
-  send messages, book or pay. Drafts and requests return through the secretary.
-  This is a tool restriction in the trusted local runtime, not an OS sandbox.
+- Workers use their profile's normal tools and existing permission checks. Work
+  coordination does not impose a separate read-only allowlist. The built-in worker
+  can create files; additional integrations depend on its configured tools.
 - Automatic incoming association requires an exact `reply_to`, channel and chat
   match. Telegram and Feishu normalize reply references. No heuristic matching
   or autonomous outbound messaging is included. Other replies can be relayed
@@ -58,7 +57,7 @@ execution even if the model returned additional tool calls in the same batch.
 Notifications carry an event ID. The secretary history is persisted before outbox
 acknowledgement; a replay checks history for that ID. This guarantees durable
 receipt within retained history, not exactly-once model reasoning or external
-side effects. The prototype has no autonomous outbound side effects to replay.
+side effects. External side effects still require tool-specific retry/idempotency handling.
 
 The host captures recent verbatim user messages (with original message IDs) at
 delegation and injects current card summaries into secretary turns. It does not
@@ -100,11 +99,6 @@ available for conversation. No extra global WS message flags or host rendering
 branches are added. Panel actions use the existing Composer session-reference
 API and preserve drafts. Historical prototype notifications are left untouched;
 there is no string-based history repair.
-
-Future versions can add controlled outbound channels and additional worker
-profiles. Do not lift the tool allowlist until those actions have corresponding
-authorization and idempotency handling.
-
 
 ## Recurring secretary work
 
@@ -175,8 +169,25 @@ base agent and panels attached to it also remain available. Extensions can use
 Restart the service after upgrading, then refresh the WebUI. The custom agent
 appears in the existing new-conversation picker. Conversations retain the custom
 profile name and keep work isolated by owner session. Scheduled work can belong
-to these conversations too; workers retain their existing restricted profile.
+to these conversations too; workers use the configured work_agent profile.
 
 Prompt edits follow ordinary profile behavior: new/restored agent instances load
 current files. Already loaded instances are not hot-updated. This feature adds no
 prompt snapshots, identity-specific memory, new session fields or outbound tools.
+
+## Choosing a worker
+
+An agent opts into delegation with `work_agent: <profile-id>` in its extension
+agent declaration or user `profile.yml`. The built-in secretary sets
+`work_agent: secretary-worker`. Custom `base_agent` profiles inherit this setting;
+an explicit value overrides it and an empty string disables delegation.
+The target must be an available profile. Its normal built-in and declared
+extension tools load without an additional work-specific allowlist.
+
+Third-party tools can call `agent.work_service.delegate`, `manage`, and
+`yield_work`. A worker must report its outcome through `yield_work` (or its own
+tool calling that service method). The service commits the outcome and returns
+`end_turn: true`. Any tool can return this generic flag to finish the current turn
+after recording its result; remaining tool calls in the batch are settled without
+execution. The flag does not itself schedule a wakeup or pause a work card.
+Work sessions retain revision/cancellation checks regardless of profile name.

@@ -14,7 +14,7 @@ RSpec.describe Clacky::Work::Service do
   let(:dir) { Dir.mktmpdir }
   let(:store) { Clacky::Work::Store.new(File.join(dir, "work.json")) }
   let(:registry) { double("registry") }
-  let(:owner) { double("owner", session_id: "owner", ui: nil, agent_profile: double(name: "secretary"), working_dir: dir, history: double(to_a: [{ role: "user", content: "最好周四，别订太贵的地方" }])) }
+  let(:owner) { double("owner", session_id: "owner", ui: nil, agent_profile: double(name: "secretary", work_agent: "secretary-worker"), working_dir: dir, history: double(to_a: [{ role: "user", content: "最好周四，别订太贵的地方" }])) }
   let(:worker) { double("worker", session_id: "worker", ui: nil, agent_profile: double(name: "secretary-worker")) }
   let(:runner) { double("runner") }
   let(:interrupt) { double("interrupt", call: nil) }
@@ -84,9 +84,18 @@ RSpec.describe Clacky::Work::Service do
   it "fences old tool calls and old yields when requirements change" do
     c = running
     service.manage("owner", action: "update", work_id: c["id"], instruction: "周四不行了")
-    expect { service.guard!(worker, "web_search") }.to raise_error(/updated/)
+    expect { service.guard!(worker) }.to raise_error(/updated/)
     expect { service.yield_work(worker, reason: "completed", summary: "周四约好了") }.to raise_error(/updated/)
     expect(current).to include("revision" => 2, "status" => "queued")
+  end
+
+  it "fences cancelled work regardless of the worker profile name" do
+    allow(worker.agent_profile).to receive(:name).and_return("third-party-worker")
+    idle_registry
+    c = running
+    expect { service.guard!(worker) }.not_to raise_error
+    service.manage("owner", action: "cancel", work_id: c["id"])
+    expect { service.guard!(worker) }.to raise_error(Clacky::AgentInterrupted)
   end
 
   it "commits completion and outbox in the same document" do
@@ -95,7 +104,7 @@ RSpec.describe Clacky::Work::Service do
     expect(result[:work_yielded]).to be(true)
     expect(current["status"]).to eq("completed")
     expect(current["outbox"].first).to include("kind" => "completed", "state" => "pending")
-    expect { service.guard!(worker, "web_search") }.to raise_error(/yielded/)
+    expect { service.guard!(worker) }.to raise_error(/yielded/)
   end
 
   it "rejects invalid deadlines without changing state" do

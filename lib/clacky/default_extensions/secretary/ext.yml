@@ -15,12 +15,13 @@ contributes:
       description_zh: 与你交流，委派后台工作，跟进结果与待办
       order: 2
       prompt: agents/secretary.md
+      work_agent: secretary-worker
       tools: [delegate_work, manage_work]
       panels: [work]
     - id: secretary-worker
       title: Secretary Worker
       title_zh: 秘书工作助手
-      description: Read and research worker with durable handoff
+      description: Delegated worker with durable handoff
       hidden: true
       prompt: agents/worker.md
       tools: [yield_work]

@@ -58,7 +58,8 @@ RSpec.describe "Custom profiles based on the secretary extension" do
       expect(agent.tool_registry.get("manage_work").execute(action: "get", work_id: card["id"])["id"]).to eq(card["id"])
       worker = registry.get(card["session_id"])[:agent]
       expect(worker.agent_profile.name).to eq("secretary-worker")
-      expect(worker.tool_registry.tool_names).not_to include("terminal", "delegate_work")
+      expect(worker.tool_registry.tool_names).to include("terminal", "write")
+      expect(worker.tool_registry.tool_names).not_to include("delegate_work")
       target = server.work_service.schedule_target(sid, title: "Daily report")
       plan = { "id" => "plan-1", "name" => "report", "target" => target }
       expect(server.work_service.dispatch_schedule(plan, "Summarize work", Time.now)["owner_session_id"]).to eq(sid)
@@ -85,15 +86,16 @@ RSpec.describe "Custom profiles based on the secretary extension" do
     expect { Clacky::AgentProfile.load("growth") }.to raise_error(ArgumentError, /not available/)
   end
 
-  it "retains worker restrictions for a customized worker profile" do
+  it "keeps normal tools available for a customized worker profile" do
     write_profile("custom-worker", base_agent: "secretary-worker")
     with_server(agent_config: config) do |server|
       allow(server).to receive(:default_working_dir).and_return(dir)
       sid = server.send(:build_session, name: "Worker", profile: "custom-worker")
       agent = server.instance_variable_get(:@registry).get(sid)[:agent]
       expect(agent.tool_registry.tool_names).to include("yield_work")
-      expect(agent.tool_registry.tool_names).not_to include("terminal", "write", "delegate_work")
-      expect { server.work_service.turn_context(agent) }.to raise_error(Clacky::AgentInterrupted)
+      expect(agent.tool_registry.tool_names).to include("terminal", "write")
+      expect(agent.tool_registry.tool_names).not_to include("delegate_work")
+      expect(server.work_service.turn_context(agent)).to be_nil
     end
   end
 

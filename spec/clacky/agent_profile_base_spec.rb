@@ -86,7 +86,59 @@ RSpec.describe "Extension-backed custom agent profiles" do
       map = server.send(:panel_agents_map)
       expect(map["analysis-pack/findings"]).to include("my-analyst")
       expect(map["analysis-pack/attached"]).to include("my-analyst")
-      expect { server.work_service.delegate(agent, title: "No", task: "No") }.to raise_error(/Only a secretary/)
+      expect { server.work_service.delegate(agent, title: "No", task: "No") }.to raise_error(/no work_agent/)
+    end
+  end
+
+  it "executes a third-party worker tool and honors end_turn without a special tool name" do
+    manifest = File.join(@extension, "ext.yml")
+    data = YAML.safe_load(File.read(manifest))
+    data["contributes"]["agents"] << { "id" => "work-owner", "prompt" => "analyst.md", "work_agent" => "analyst" }
+    File.write(manifest, YAML.dump(data))
+    File.write(@profile_file, YAML.dump({ "base_agent" => "work-owner" }))
+    tool_file = File.join(@extension, "tools", "base_profile_probe.rb")
+    File.write(tool_file, File.read(tool_file).sub('def execute(**); { message: "ok" }; end', <<~RUBY.strip))
+      def execute(**)
+        File.write(File.join(agent.working_dir, "extension-result.txt"), "third-party output")
+        agent.work_service.yield_work(agent, reason: "completed", summary: "Output created")
+      end
+    RUBY
+    Clacky::ExtensionLoader.load_all(force: true)
+    expect(Clacky::AgentProfile.load("my-analyst").work_agent).to eq("analyst")
+    with_server(agent_config: config) do |server|
+      allow(server).to receive(:default_working_dir).and_return(dir)
+      registry = server.instance_variable_get(:@registry)
+      sid = server.send(:build_session, name: "Third-party owner", profile: "my-analyst")
+      owner = registry.get(sid)[:agent]
+      card = server.work_service.delegate(owner, title: "Output", task: "Create an output")
+      worker = registry.get(card["session_id"])[:agent]
+      expect(worker.agent_profile.name).to eq("analyst")
+      expect { server.work_service.guard!(worker) }.to raise_error(Clacky::AgentInterrupted)
+      allow(worker).to receive(:think) do
+        calls = [
+          { id: "custom", name: "base_profile_probe", arguments: "{}" },
+          { id: "skipped", name: "write", arguments: JSON.generate(path: File.join(dir, "unexpected.txt"), content: "bad") }
+        ]
+        worker.history.append(role: "assistant", content: nil, tool_calls: calls)
+        { content: nil, tool_calls: calls }
+      end
+      server.work_service.tick
+      expect(registry.get(card["session_id"])[:thread].join(5)).not_to be_nil
+      expect(File.read(File.join(dir, "extension-result.txt"))).to eq("third-party output")
+      expect(File.exist?(File.join(dir, "unexpected.txt"))).to be(false)
+      expect(worker).to have_received(:think).once
+      expect(server.work_service.list(sid).first["status"]).to eq("completed")
+      expect { server.work_service.guard!(worker) }.to raise_error(Clacky::AgentInterrupted)
+    end
+  end
+
+  it "rejects an unavailable worker before creating a work card" do
+    File.write(@profile_file, YAML.dump({ "base_agent" => "analyst", "work_agent" => "missing-worker" }))
+    with_server(agent_config: config) do |server|
+      sid = server.send(:build_session, name: "Owner", profile: "my-analyst")
+      owner = server.instance_variable_get(:@registry).get(sid)[:agent]
+      expect { server.work_service.delegate(owner, title: "No", task: "No") }.to raise_error(ArgumentError, /not found/)
+      expect(server.work_service.list(sid)).to be_empty
     end
   end
 
