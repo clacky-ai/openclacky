@@ -3,6 +3,18 @@
 module Clacky
   module Locales
     EN = {
+      "work.queued" => "Waiting to start",
+      "work.cancelled" => "Cancelled by you",
+      "work.paused" => "Paused; add instructions to continue",
+      "work.interrupted" => "Interrupted by a server restart. Review progress and add instructions to continue.",
+      "work.running" => "In progress",
+      "work.started" => "Starting: %<title>s",
+      "work.missing_result" => "Execution ended without a yield_work result. Review the execution history.",
+      "work.completed" => "Work completed: %<title>s",
+      "work.needs_user" => "Your decision needed: %<title>s",
+      "work.failed" => "Work needs attention: %<title>s",
+      "work.reply_received" => "Reply received; waiting to resume",
+
       "phase.skill_evolution"           => "Reflecting on this task",
       "phase.memory_update"             => "Updating long-term memory",
       "llm.error.insufficient_credit"   => "Insufficient credit, please top up your account to continue",

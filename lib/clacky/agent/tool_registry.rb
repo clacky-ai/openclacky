@@ -79,6 +79,12 @@ module Clacky
       @downcased_index[tool.name.downcase] = tool.name
     end
 
+    # Host-enforced tool scope for delegated workers; aliases cannot bypass it.
+    def restrict_to(names)
+      @tools.select! { |name, _| names.include?(name) }
+      @downcased_index.select! { |_, name| @tools.key?(name) }
+    end
+
     def get(name)
       @tools[name] || raise(Clacky::ToolCallError, "Tool not found: #{name}")
     end

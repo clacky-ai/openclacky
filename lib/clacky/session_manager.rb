@@ -25,6 +25,8 @@ module Clacky
     # #load_all_sessions.
     LIST_REUSE_WINDOW = 2.0
 
+    attr_accessor :protected_session_ids
+
     def initialize(sessions_dir: nil)
       @sessions_dir = sessions_dir || SESSIONS_DIR
       @recent_list    = nil
@@ -407,7 +409,8 @@ module Clacky
       # Archived sessions are user-curated, so they are exempt from the rolling
       # cap exactly like pinned ones — an archive that silently empties itself
       # would be worse than no archive at all.
-      non_pinned = metas.reject { |s| s[:pinned] || s[:archived_at].to_s != "" }
+      protected_ids = @protected_session_ids ? @protected_session_ids.call : []
+      non_pinned = metas.reject { |s| s[:pinned] || s[:archived_at].to_s != "" || protected_ids.include?(s[:session_id]) }
 
       groups = non_pinned.group_by { |s| group_key_for(s) }
 

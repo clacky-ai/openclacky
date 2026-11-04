@@ -51,6 +51,8 @@ module Clacky
       :status, :error, :updated_at, :source, :config,
       :latest_latency,  # Hash of latency metrics from the most recent LLM call (see Client#send_messages_with_tools)
       :reasoning_effort
+    attr_accessor :work_service
+    attr_reader :tool_registry
     attr_accessor :pinned
     attr_accessor :channel_info
     attr_accessor :project_id
@@ -620,6 +622,8 @@ module Clacky
       # Inject chunk index card if archived chunks exist and index is stale
       inject_chunk_index_if_needed
 
+      work_context = @work_service&.turn_context(self)
+      reference_contexts = Array(reference_contexts) + [work_context] if work_context
       append_user_input(user_input, files: files, reference_contexts: reference_contexts,
                         display_text: display_text, created_at: created_at,
                         references_display: references_display, task_id: task_id)
@@ -657,6 +661,7 @@ module Clacky
         @hooks.trigger(:on_iteration, @iterations)
 
         consume_steering_inputs
+        @work_service&.guard!(self, "yield_work") if Thread.current[:clacky_work]
 
         # Think: LLM reasoning with tool support
         response = think
@@ -1607,6 +1612,8 @@ module Clacky
           # Tool truly not found — let the rescue below handle it with a clear message
         end
 
+        @work_service&.guard!(self, call[:name])
+
         # Hook: before_tool_use
         hook_result = @hooks.trigger(:before_tool_use, call)
         if hook_result[:action] == :deny
@@ -1807,6 +1814,14 @@ module Clacky
           end
 
           results << build_success_result(call, result)
+          if call[:name] == "yield_work" && result.is_a?(Hash) && result[:work_yielded]
+            awaiting_feedback = true
+            # Settle every call in this batch, but execute nothing after yielding.
+            tool_calls.drop(index + 1).each do |remaining|
+              results << build_denied_result(remaining, "Work yielded; remaining calls were not executed", true)
+            end
+            break
+          end
         rescue StandardError => e
           # Log complete error information to debug_logs for troubleshooting
           @debug_logs << {

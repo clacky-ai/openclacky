@@ -24,6 +24,7 @@ require_relative "preview"
 require_relative "web_ui_controller"
 require_relative "model_prices"
 require_relative "scheduler"
+require_relative "../work/service"
 require_relative "../brand_config"
 require_relative "channel"
 require_relative "../banner"
@@ -269,6 +270,7 @@ module Clacky
         @ws_clients      = {}   # session_id => [WebSocketConnection, ...]
         @all_ws_conns    = []   # every connected WS client, regardless of session subscription
         @ws_mutex        = Mutex.new
+        @task_admission_mutex = Mutex.new
         # Version cache: { latest: "x.y.z", checked_at: Time }
         @version_cache   = nil
         @version_mutex   = Mutex.new
@@ -277,6 +279,14 @@ module Clacky
           session_builder:  method(:build_session),
           task_runner:      method(:run_agent_task)
         )
+        @work_service = Clacky::Work::Service.new(
+          store: Clacky::Work::Store.new(File.join(sessions_dir || Clacky::SessionManager::SESSIONS_DIR, "work", "state.json")),
+          registry: @registry, build_session: method(:build_session),
+          submit_task: method(:run_session_task), interrupt: method(:interrupt_session),
+          persist: ->(agent) { @session_manager.save(agent.to_session_data) },
+          publish: ->(sid, type) { broadcast(sid, { type: type, session_id: sid }) }
+        )
+        @session_manager.protected_session_ids = -> { @work_service.protected_session_ids }
         @channel_manager = Clacky::Channel::ChannelManager.new(
           session_registry:  @registry,
           session_builder:   method(:build_session),
@@ -285,6 +295,7 @@ module Clacky
           # No updated_at: clearing a stale channel_info must not bump the session's
           # position in the newest-first list.
           persist_session:   ->(agent) { @session_manager.save(agent.to_session_data) },
+          work_service:      @work_service,
           channel_config:    Clacky::ChannelConfig.load
         )
         @browser_manager = Clacky::BrowserManager.instance
@@ -308,6 +319,8 @@ module Clacky
           Clacky::Logger.info("[HttpServer] Public mode — access key authentication ENABLED")
         end
       end
+
+      attr_reader :work_service
 
       def start
         @start_time = Time.now
@@ -362,6 +375,7 @@ module Clacky
           next if shutdown_once
           shutdown_once = true
           @draining = true
+          @work_service.stop
           # Flip the process-wide cooperative shutdown flag FIRST so agent
           # threads poll it at safe points (stream chunk callbacks, retry
           # loops, main loop) and exit cleanly instead of spinning.
@@ -556,6 +570,7 @@ module Clacky
 
         # Start the background scheduler
         @scheduler.start
+        @work_service.start
         puts "   Scheduler: #{@scheduler.schedules.size} task(s) loaded"
 
         # Reclaim orphaned Time Machine snapshots (sessions deleted earlier
@@ -577,6 +592,7 @@ module Clacky
 
         server.start unless @draining
       ensure
+        @work_service&.stop
         # close only this process's FD, never shutdown the shared kernel socket.
         @inherited_socket.close if @inherited_socket && !@inherited_socket.closed?
       end
@@ -8283,13 +8299,15 @@ module Clacky
             Clacky::Logger.warn("[interrupt] raise failed: #{e.message}")
           end
         end
-      end      # Run a task in a session immediately in the background, without waiting
-      # for the client to subscribe. The user bubble is persisted via
-      # display_text (Agent#run → history → replay_history), so the frontend
-      # only needs to navigate over and load history — no realtime broadcast,
-      # no subscribe-timing race. This is the stable entry point for
-      # programmatic "create session + run now" flows (spawn, extensions).
-      def run_session_task(session_id, prompt, display_message: nil)
+      end
+
+      # Shared submission path for host services and extensions. Execution and
+      # presentation happen only after admission, on the session's owning thread.
+      # display_message supplies the same friendly input for live display and replay.
+      # around_execution, when supplied by a host service, wraps the admitted
+      # execution on its owning thread (e.g. generation fencing and receipts).
+      def run_session_task(session_id, prompt, display_message: nil, reference_contexts: nil,
+                           background: false, &around_execution)
         return unless @registry.exist?(session_id)
 
         agent = nil
@@ -8300,9 +8318,15 @@ module Clacky
         end
         return unless agent
 
-        web_ui&.show_user_message(display_message, source: :web) if display_message
-
-        run_agent_task(session_id, agent) { agent.run(prompt, display_text: display_message) }
+        run_agent_task(session_id, agent, background: background) do
+          execute = lambda do
+            web_ui&.show_user_message(display_message, source: :web) if display_message
+            options = { display_text: display_message }
+            options[:reference_contexts] = reference_contexts if reference_contexts
+            agent.run(prompt, **options)
+          end
+          around_execution ? around_execution.call(execute, agent) : execute.call
+        end
       end
 
       # Start the pending task for a session.
@@ -8378,7 +8402,23 @@ module Clacky
       # Run an agent task in a background thread, handling status updates,
       # session persistence, and idle compression timer lifecycle.
       # Yields to the caller to perform the actual agent.run call.
-      private def run_agent_task(session_id, agent, &task)
+      private def run_agent_task(session_id, agent, background: false, &task)
+        # Admission must be atomic across user messages and coordinator wakeups.
+        (@task_admission_mutex ||= Mutex.new).synchronize do
+          session = @registry.get(session_id)
+          return unless session
+          if session[:status] == :running || (background && session[:thread]&.alive?)
+            unless background
+              broadcast(session_id, { type: "error", session_id: session_id,
+                                      message: "Session is busy; please send your message again." })
+            end
+            return
+          end
+          launch_agent_task(session_id, agent, &task)
+        end
+      end
+
+      private def launch_agent_task(session_id, agent, &task)
         if @registry.running_full?
           broadcast(session_id, { type: "error", session_id: session_id,
                                   message: "Too many concurrent tasks (max #{@registry.max_running_agents}), please try again later" })
@@ -8636,6 +8676,7 @@ module Clacky
         ui = WebUIController.new(session_id, broadcaster)
         agent = Clacky::Agent.new(client, config, working_dir: working_dir, ui: ui, profile: profile,
                                   session_id: session_id, source: source)
+        @work_service&.attach(agent)
         agent.rename(name) unless name.nil? || name.empty?
         idle_timer = build_idle_timer(session_id, agent)
 
@@ -8668,6 +8709,7 @@ module Clacky
         profile = session_data[:agent_profile].to_s
         profile = "general" if profile.empty?
         agent = Clacky::Agent.from_session(client, config, session_data, ui: ui, profile: profile)
+        @work_service&.attach(agent)
         idle_timer = build_idle_timer(original_id, agent)
 
         # Register session atomically with a fully-built agent so no concurrent
