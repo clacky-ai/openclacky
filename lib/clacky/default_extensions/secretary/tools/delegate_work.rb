@@ -3,7 +3,7 @@ module Clacky
   module Tools
     class DelegateWork < Base
       self.tool_name = "delegate_work"
-      self.tool_description = "Start independent read/research work and return its ID immediately. The host includes verbatim user context. No sending, booking, payment or shell access."
+      self.tool_description = "Delegate work to the configured worker and return its ID immediately. Include the objective, authorization boundaries and acceptance criteria."
       self.tool_parameters = {
         type: "object", properties: {
           title: { type: "string", description: "Short work title" },
@@ -30,7 +30,7 @@ module Clacky
 
       def execute(title:, task:, constraints: "", **)
         raise "Delegation requires the OpenClacky web server" unless agent&.work_service
-        agent.work_service.delegate(agent, title: title, task: task, constraints: constraints)
+        agent.work_service.delegate(agent, title: title, task: task, constraints: constraints).merge(notify_user: false)
       end
     end
   end

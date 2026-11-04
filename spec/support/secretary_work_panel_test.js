@@ -10,7 +10,7 @@ class Element {
   const mounts = {}, handlers = {}, requests = [], badges = [];
   let lang = 'zh', schedules = [], extras = [], failedFetch = false;
   const input = { text: '', chips: [] };
-  const card = { id: 'work_1', session_id: 'worker_1', title: '<script>unsafe</script>', status: 'waiting_user',
+  const card = { id: 'work_1', session_id: 'worker_1', title: '<script>unsafe</script>', status: 'needs_input',
     created_at: '2026-11-04T01:30:00Z', revision: 2, progress: '张三周五有空，是否安排晚上七点？', instruction: '约饭的详细原始要求', constraints: '不预订', updates: [] };
   const context = {
     I18n: { lang: () => lang },
@@ -49,7 +49,7 @@ class Element {
   assert(createdTime.textContent.startsWith('创建于：'));
   assert(!has(visible(aside.root), card.instruction));
   assert(visible(aside.root).some(n => n.tag === 'a'), 'history is directly accessible');
-  assert(has(visible(banner.root), '1 件需要你确认'));
+  assert(has(visible(banner.root), '1 件需要协助'));
   const titleButton = visible(banner.root).find(n => n.tag === 'button');
   assert.equal(titleButton.textContent, card.title);
   titleButton.onclick();
@@ -77,8 +77,8 @@ class Element {
   card.created_at = '2026-10-01T00:00:00Z';
   card.status = 'running'; card.progress = 'INTERNAL FULL REPORT\n' + 'details '.repeat(80);
   extras = [
-    { id: 'wait', session_id: 'w2', title: '供应商报价', status: 'waiting_reply', progress: '等待供应商回复', waiting: { check_at: '2026-11-06T07:00:00Z' } },
-    { id: 'need', session_id: 'w3', title: '需要决定', status: 'waiting_user', progress: '是否选周五？' },
+    { id: 'wait', session_id: 'w2', title: '供应商报价', status: 'waiting_event', progress: '等待供应商回复', waiting: { check_at: '2026-11-06T07:00:00Z' } },
+    { id: 'need', session_id: 'w3', title: '需要决定', status: 'needs_input', progress: '是否选周五？' },
     ...Array.from({ length: 7 }, (_, i) => ({ id: 'done' + i, session_id: 'd' + i, title: '完成事项' + i, status: 'completed', progress: '完整结果', created_at: '2026-11-0' + (i + 1) }))
   ];
   await refresh();
@@ -97,12 +97,12 @@ class Element {
   assert(!has(visible(aside.root), '再次检查：'), 'do not promise a check without a deadline');
 
   delete card.display_summary;
-  card.status = 'waiting_reply'; card.progress = '等待张三回复'; extras = [];
+  card.status = 'waiting_event'; card.progress = '等待张三回复'; extras = [];
   handlers['session:subscribed']({ sessionId: 'owner' }); await flush();
-  assert(has(visible(banner.root), '等待 1 个回复'));
+  assert(has(visible(banner.root), '1 件等待事件或定时检查'));
   assert.equal(badges.at(-1), null, 'waiting alone does not request user attention');
   lang = 'en'; handlers.langchange();
-  assert(has(visible(banner.root), 'Awaiting replies: 1'));
+  assert(has(visible(banner.root), 'Waiting for events: 1'));
 
   schedules = [{ name: 'secretary_1', target: { title: 'Morning report' }, enabled: true, cron: '0 9 * * *',
     content: 'Detailed report scope', next_run: '2026-11-05T01:00:00Z' }];

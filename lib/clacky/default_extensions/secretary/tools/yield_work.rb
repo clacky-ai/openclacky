@@ -6,7 +6,7 @@ module Clacky
       self.tool_description = "End this execution: complete with evidence, request a user decision, or wait. Channel matching requires genuine channel/chat/sent-message IDs; otherwise accept a relayed reply in the panel."
       self.tool_parameters = {
         type: "object", properties: {
-          reason: { type: "string", enum: %w[waiting_reply needs_user completed] },
+          reason: { type: "string", enum: %w[waiting_event needs_input completed], description: "needs_input asks the main agent for help or a decision; waiting_event awaits an external reply or timed checkpoint" },
           summary: { type: "string", description: "Result with evidence, concrete question, or what you are waiting for" },
           display_summary: { type: "string", description: "User-facing progress in one short sentence (max 100 characters): result, question or what is awaited. No internal IDs, channel metadata or execution narration." },
           check_at: { type: "string", description: "Optional future ISO8601 timestamp including timezone" },

@@ -13,8 +13,9 @@ module Clacky
       }
       def execute(action:, work_id: nil, instruction: nil, expected_revision: nil, **)
         raise "Work management requires the OpenClacky web server" unless agent&.work_service
-        agent.work_service.manage(agent.session_id, action: action, work_id: work_id,
+        result = agent.work_service.manage(agent.session_id, action: action, work_id: work_id,
                                  instruction: instruction, expected_revision: expected_revision)
+        %w[reply update].include?(action) ? result.merge(notify_user: false) : result
       end
     end
   end

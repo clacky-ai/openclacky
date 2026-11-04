@@ -60,7 +60,7 @@ RSpec.describe Clacky::Work::Service do
     expect(c["progress"]).to eq("等待执行")
     Thread.current[:lang] = "en"
     expect(service.send(:notification_label, c, { "kind" => "completed" })).to eq("工作已完成：约饭")
-    expect(service.send(:notification_label, c.merge("locale" => "en"), { "kind" => "needs_user" })).to eq("Your decision needed: 约饭")
+    expect(service.send(:notification_label, c.merge("locale" => "en"), { "kind" => "needs_input" })).to eq("Your decision needed: 约饭")
     expect(service.send(:notification_label, c.merge("locale" => nil), { "kind" => "completed" })).to eq("Work completed: 约饭")
   end
 
@@ -107,15 +107,34 @@ RSpec.describe Clacky::Work::Service do
     expect { service.guard!(worker) }.to raise_error(/yielded/)
   end
 
+  it "accepts legacy yield reasons and normalizes stored cards and pending reports" do
+    c = running
+    result = service.yield_work(worker, reason: "needs_user", summary: "Question")
+    expect(result).to include(status: "needs_input", end_turn: true, awaiting_feedback: true)
+    store.transaction do |data|
+      data["cards"][c["id"]]["status"] = "waiting_user"
+      data["cards"][c["id"]]["outbox"].first["kind"] = "needs_user"
+    end
+    expect(current["status"]).to eq("needs_input")
+    expect(current["outbox"].first["kind"]).to eq("needs_input")
+    store.transaction do |data|
+      data["cards"][c["id"]]["status"] = "running"
+    end
+    result = service.yield_work(worker, reason: "waiting_reply", summary: "Waiting")
+    expect(result).to include(status: "waiting_event", awaiting_feedback: false)
+    store.transaction { |data| data["cards"][c["id"]]["status"] = "waiting_reply" }
+    expect(current["status"]).to eq("waiting_event")
+  end
+
   it "rejects invalid deadlines without changing state" do
     running
-    expect { service.yield_work(worker, reason: "waiting_reply", summary: "等回复", check_at: "tomorrow") }.to raise_error(ArgumentError)
+    expect { service.yield_work(worker, reason: "waiting_event", summary: "等回复", check_at: "tomorrow") }.to raise_error(ArgumentError)
     expect(current["status"]).to eq("running")
   end
 
   it "keeps display summaries separate from reports and clears them on owner updates" do
     running
-    service.yield_work(worker, reason: "needs_user", summary: "Detailed evidence and internal references", display_summary: "Raise the budget?")
+    service.yield_work(worker, reason: "needs_input", summary: "Detailed evidence and internal references", display_summary: "Raise the budget?")
     expect(current["display_summary"]).to eq("Raise the budget?")
     expect(current["outbox"].last["text"]).to eq("Detailed evidence and internal references")
     service.manage("owner", action: "reply", work_id: card["id"], instruction: "Yes")
@@ -124,13 +143,13 @@ RSpec.describe Clacky::Work::Service do
 
   it "records waiting without notifying the secretary" do
     running
-    service.yield_work(worker, reason: "waiting_reply", summary: "等回复")
-    expect(current).to include("status" => "waiting_reply", "outbox" => [])
+    service.yield_work(worker, reason: "waiting_event", summary: "等回复")
+    expect(current).to include("status" => "waiting_event", "outbox" => [])
   end
 
   it "resumes an exact threaded reply once and treats it as external evidence" do
     running
-    service.yield_work(worker, reason: "waiting_reply", summary: "等回复", channel: "feishu", conversation_id: "chat", reply_to: "sent")
+    service.yield_work(worker, reason: "waiting_event", summary: "等回复", channel: "feishu", conversation_id: "chat", reply_to: "sent")
     event = { chat_id: "chat", message_id: "reply", reply_to: "sent", user_id: "zhang", text: "周五可以" }
     expect(service.receive_event("feishu", event)).to be(true)
     expect(service.receive_event("feishu", event)).to be(true)
@@ -142,21 +161,21 @@ RSpec.describe Clacky::Work::Service do
   it "handles replies that arrive before the worker registers its wait" do
     running
     expect(service.receive_event("feishu", { chat_id: "chat", message_id: "reply", reply_to: "sent", text: "可以" })).to be(false)
-    service.yield_work(worker, reason: "waiting_reply", summary: "等回复", channel: "feishu", conversation_id: "chat", reply_to: "sent")
+    service.yield_work(worker, reason: "waiting_event", summary: "等回复", channel: "feishu", conversation_id: "chat", reply_to: "sent")
     expect(current["status"]).to eq("queued")
   end
 
   it "does not consume unthreaded or wrong-chat messages" do
     running
-    service.yield_work(worker, reason: "waiting_reply", summary: "等回复", channel: "feishu", conversation_id: "chat", reply_to: "sent")
+    service.yield_work(worker, reason: "waiting_event", summary: "等回复", channel: "feishu", conversation_id: "chat", reply_to: "sent")
     expect(service.receive_event("feishu", { chat_id: "chat", message_id: "1", text: "可以" })).to be(false)
     expect(service.receive_event("feishu", { chat_id: "other", message_id: "2", reply_to: "sent", text: "可以" })).to be(false)
-    expect(current["status"]).to eq("waiting_reply")
+    expect(current["status"]).to eq("waiting_event")
   end
 
   it "cancels waiting and ignores late replies" do
     c = running
-    service.yield_work(worker, reason: "waiting_reply", summary: "等回复", channel: "feishu", conversation_id: "chat", reply_to: "sent")
+    service.yield_work(worker, reason: "waiting_event", summary: "等回复", channel: "feishu", conversation_id: "chat", reply_to: "sent")
     allow(registry).to receive(:get).with("worker").and_return({ status: :idle })
     service.manage("owner", action: "cancel", work_id: c["id"])
     expect(service.receive_event("feishu", { chat_id: "chat", message_id: "2", reply_to: "sent", text: "可以" })).to be(false)
@@ -175,7 +194,7 @@ RSpec.describe Clacky::Work::Service do
 
   it "queues an overdue checkpoint without automatically sending anything" do
     c = running
-    service.yield_work(worker, reason: "waiting_reply", summary: "等回复", check_at: (Time.now + 60).iso8601)
+    service.yield_work(worker, reason: "waiting_event", summary: "等回复", check_at: (Time.now + 60).iso8601)
     store.transaction { |d| d["cards"][c["id"]]["waiting"]["check_at"] = (Time.now - 1).iso8601 }
     allow(registry).to receive(:ensure).and_return(false)
     service.tick
@@ -208,7 +227,7 @@ RSpec.describe Clacky::Work::Service do
 
   it "deduplicates delivery after persisted history but before outbox acknowledgement" do
     running
-    service.yield_work(worker, reason: "needs_user", summary: "周五可以吗？")
+    service.yield_work(worker, reason: "needs_input", summary: "周五可以吗？")
     event = current["outbox"].first
     idle_registry
     allow(owner.history).to receive(:to_a).and_return([{ role: "user", content: "[work-event:#{event['id']}]\n问题" }])
@@ -236,7 +255,7 @@ RSpec.describe Clacky::Work::Service do
 
   it "invalidates only the owning extension state after durable changes" do
     running
-    service.yield_work(worker, reason: "waiting_reply", summary: "等回复")
+    service.yield_work(worker, reason: "waiting_event", summary: "等回复")
     service.tick
     service.tick
     expect(published).to eq([["owner", "ext.work.changed"]])

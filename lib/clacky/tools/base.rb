@@ -37,7 +37,10 @@ module Clacky
 
       # Execute the tool - must be implemented by subclasses.
       # A result hash with end_turn: true records this result and ends the current
-      # agent turn, skipping remaining calls in the batch. It does not schedule
+      # agent turn, skipping remaining calls in the batch. Set awaiting_feedback: true
+      # as well only when an answer is needed. notify_user: false suppresses the
+      # completion alert for a handoff turn (an explicit question takes precedence).
+      # Ending a turn does not schedule
       # resumption; tools must persist any wait/outcome before returning it.
       def execute(**_args)
         raise NotImplementedError, "#{self.class.name} must implement #execute"

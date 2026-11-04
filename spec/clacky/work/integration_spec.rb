@@ -31,6 +31,8 @@ RSpec.describe "Secretary server integration" do
       allow(server).to receive(:default_working_dir).and_return(Dir.pwd)
       registry = server.instance_variable_get(:@registry)
       live_events = []
+      finished_events = []
+      allow(server).to receive(:broadcast_all) { |event| finished_events << event }
       allow(server).to receive(:broadcast) { |sid, event| live_events << [sid, event] }
       owner_id = server.send(:build_session, name: "Secretary", profile: "secretary")
       owner = registry.get(owner_id)[:agent]
@@ -75,6 +77,8 @@ RSpec.describe "Secretary server integration" do
       wait_thread(registry, owner_id)
       expect(server.work_service.list(owner_id).first["outbox"].first["state"]).to eq("delivered")
       saved = server.instance_variable_get(:@session_manager).load(owner_id)
+      expect(finished_events).to include(hash_including(type: "task_finished", session_id: owner_id, awaiting_feedback: false))
+      expect(finished_events.find { |event| event[:type] == "task_finished" && event[:session_id] == owner_id }[:notify_user]).not_to be(false)
       expect(saved.to_json).to include("work-event:")
       event_message = owner.history.to_a.find { |m| m[:content].is_a?(String) && m[:content].start_with?("[work-event:") }
       expect(event_message).to include(display_text: "Work completed: 旅行建议")
@@ -91,6 +95,62 @@ RSpec.describe "Secretary server integration" do
       expect(replay.instance_variable_get(:@events)).to include(hash_including(type: "assistant_message", content: "工作完成，以下是建议。"))
       expect(rendered.to_json).not_to include("work-event:", "这是工作结果", "返回 completed")
 
+    end
+  end
+
+  { "completed" => :idle, "waiting_event" => :idle, "needs_input" => :awaiting_feedback }.each do |reason, status|
+    it "ends #{reason} as #{status} without notifying from the worker session" do
+      with_server(agent_config: config) do |server|
+        registry = server.instance_variable_get(:@registry)
+        events = []
+        allow(server).to receive(:broadcast_all) { |event| events << event }
+        sid = server.send(:build_session, name: "Owner", profile: "secretary")
+        owner = registry.get(sid)[:agent]
+        card = server.work_service.delegate(owner, title: "Work", task: "Work")
+        worker = registry.get(card["session_id"])[:agent]
+        allow(worker).to receive(:think) do
+          calls = [{ id: "yield", name: "yield_work", arguments: JSON.generate(reason: reason, summary: "Outcome") }]
+          worker.history.append(role: "assistant", content: nil, tool_calls: calls)
+          { content: nil, tool_calls: calls }
+        end
+        server.work_service.tick
+        wait_thread(registry, card["session_id"])
+        expect(registry.get(card["session_id"])[:status]).to eq(status)
+        expect(events).to include(hash_including(type: "task_finished", session_id: card["session_id"],
+                                                awaiting_feedback: status == :awaiting_feedback, notify_user: false))
+        if status == :awaiting_feedback
+          server.work_service.manage(sid, action: "reply", work_id: card["id"], instruction: "Use the agreed option")
+          reason = "completed"
+          server.work_service.tick
+          wait_thread(registry, card["session_id"])
+          expect(registry.get(card["session_id"])[:status]).to eq(:idle)
+          expect(server.work_service.list(sid).first["status"]).to eq("completed")
+        end
+      end
+    end
+  end
+
+  it "keeps the owner available and suppresses the handoff completion alert" do
+    with_server(agent_config: config) do |server|
+      registry = server.instance_variable_get(:@registry)
+      events = []
+      allow(server).to receive(:broadcast_all) { |event| events << event }
+      sid = server.send(:build_session, name: "Owner", profile: "secretary")
+      owner = registry.get(sid)[:agent]
+      turn = 0
+      allow(owner).to receive(:think) do
+        turn += 1
+        calls = turn == 1 ? [{ id: "delegate", name: "delegate_work", arguments: JSON.generate(title: "Report", task: "Write a report") }] : []
+        owner.history.append(role: "assistant", content: "Delegated", tool_calls: calls)
+        { content: "Delegated", tool_calls: calls }
+      end
+      allow(owner).to receive(:run_skill_evolution_hooks)
+      allow(owner).to receive(:run_memory_update_subagent)
+      server.send(:run_session_task, sid, "Prepare a report")
+      wait_thread(registry, sid)
+      expect(registry.get(sid)[:status]).to eq(:idle)
+      expect(server.work_service.list(sid).first["status"]).to eq("queued")
+      expect(events).to include(hash_including(type: "task_finished", session_id: sid, notify_user: false))
     end
   end
 

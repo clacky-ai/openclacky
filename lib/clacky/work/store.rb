@@ -43,7 +43,15 @@ module Clacky
 
       def load_data
         return { "cards" => {}, "events" => [] } unless File.exist?(@path)
-        JSON.parse(File.read(@path)) # Fail closed; never replace corrupt data with an empty store.
+        data = JSON.parse(File.read(@path)) # Fail closed on corrupt data.
+        # Read old cards/outboxes without rewriting history or requiring migration.
+        data["cards"].each_value do |card|
+          card["status"] = { "waiting_reply" => "waiting_event", "waiting_user" => "needs_input" }.fetch(card["status"], card["status"])
+          Array(card["outbox"]).each do |event|
+            event["kind"] = "needs_input" if event["kind"] == "needs_user"
+          end
+        end
+        data
       end
     end
   end

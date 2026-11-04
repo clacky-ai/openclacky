@@ -71,7 +71,7 @@ Server-attached tools access `agent.work_service`; API handlers access
 requiring extensions to access the HTTP server's private execution methods.
 
 - Secretary: `delegate_work`, `manage_work` (list/get/update/reply/pause/cancel).
-- Worker: `yield_work` (completed/needs_user/waiting_reply).
+- Worker: `yield_work` (completed/needs_input/waiting_event).
 - UI: read-only `GET /api/ext/secretary/work?session_id=...`. All changes go
   through the secretary's tools in the main conversation.
 
@@ -191,3 +191,20 @@ tool calling that service method). The service commits the outcome and returns
 after recording its result; remaining tool calls in the batch are settled without
 execution. The flag does not itself schedule a wakeup or pause a work card.
 Work sessions retain revision/cancellation checks regardless of profile name.
+
+## Handoffs, session status and alerts
+
+`yield_work` uses `needs_input` for a question to the main agent and
+`waiting_event` for an external reply or timed checkpoint. The main agent answers
+from existing information/authorization when possible; otherwise it asks the user
+and relays the answer. Legacy `needs_user` / `waiting_reply` calls and stored
+`waiting_user` / `waiting_reply` cards remain readable and normalize to the new names.
+
+Ending a tool turn does not imply awaiting an answer. `completed` and
+`waiting_event` leave the worker session idle; `needs_input` leaves it
+awaiting_feedback. The work card retains the durable outcome/wait state.
+Worker turns do not alert the user directly. Delegation and reply/update handoffs
+return `notify_user: false` to suppress completion alerts and done markers; an
+explicit user question in the same owner turn takes precedence. Main-agent reports
+retain normal notification behavior. The composer shows background work and task
+titles without pretending the main agent is still executing.
