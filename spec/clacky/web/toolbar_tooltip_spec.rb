@@ -30,11 +30,14 @@ RSpec.describe "Toolbar tooltips" do
       )
     end
 
-    it "routes the open-with split button hint through the tooltip as well" do
-      expect(workspace).to include('openMainBtn.setAttribute("data-tooltip", hint);')
-      expect(workspace).to include('openMainBtn.setAttribute("aria-label", hint);')
+    it "keeps the open-with split button free of tooltips" do
+      # The text half already says "Open" out loud, and the chevron sits right
+      # next to it — a bubble on either half only covers the menu it opens.
+      expect(workspace).to include('openMainBtn.setAttribute("aria-label", label);')
+      expect(workspace).not_to include('openMainBtn.setAttribute("data-tooltip"')
       expect(workspace).not_to include("openMainBtn.title")
-      expect(workspace.scan("setOpenHint(").length).to eq(3)
+      expect(workspace).to include("dropTooltip(openArrowBtn);")
+      expect(workspace.scan("setOpenLabel(").length).to eq(3)
     end
 
     it "hints the tree bar and tab close buttons" do
