@@ -5,14 +5,16 @@ require "json"
 require "time"
 require "securerandom"
 require "fileutils"
+require "monitor"
+require "date"
 
 module Clacky
   module Server
     # Scheduler reads ~/.clacky/schedules.yml and runs tasks on a cron-like schedule.
     #
     # It starts a background thread that ticks every 60 seconds, checks all
-    # configured schedules, and fires any task whose cron expression matches
-    # the current time.
+    # configured schedules, and dispatches due tasks. Persisted next-run cursors
+    # allow a resumed process to catch up the latest missed occurrence.
     #
     # Schedule file format (~/.clacky/schedules.yml):
     #
@@ -28,7 +30,9 @@ module Clacky
       RUNS_FILE      = File.expand_path("~/.clacky/cron_runs.json")
       MAX_RUNS       = 500
 
-      def initialize(session_registry:, session_builder:, task_runner:)
+      def initialize(session_registry:, session_builder:, task_runner:, scheduled_dispatcher: nil)
+        @scheduled_dispatcher = scheduled_dispatcher
+        @schedule_mutex = Monitor.new
         @registry        = session_registry
         @session_builder = session_builder  # callable: (name:, working_dir:) -> session_id
         # Callable that runs a task on an agent with unified status/save/broadcast
@@ -74,62 +78,84 @@ module Clacky
       # ── Schedule CRUD ────────────────────────────────────────────────────────
 
       # Add or update a schedule entry in schedules.yml.
-      def add_schedule(name:, task:, cron:, enabled: true)
-        list = load_schedules
-        # Remove existing entry with the same name
-        list.reject! { |s| s["name"] == name }
-        list << {
-          "name"    => name,
-          "task"    => task,
-          "cron"    => cron,
-          "enabled" => enabled
-        }
-        save_schedules(list)
+      def add_schedule(name:, task:, cron:, enabled: true, target: nil)
+        due = cron_next_run(cron)
+        raise ArgumentError, "Invalid or impossible cron schedule" unless due
+        @schedule_mutex.synchronize do
+          list = load_schedules
+          list.reject! { |s| s["name"] == name }
+          list << {
+            "id" => SecureRandom.hex(12), "name" => name, "task" => task,
+            "cron" => cron, "enabled" => enabled,
+            "target" => target, "next_run_at" => due.utc.iso8601
+          }
+          save_schedules(list)
+        end
       end
 
       # Remove a schedule entry by name.
       def remove_schedule(name)
-        list = load_schedules
-        before_count = list.size
-        list.reject! { |s| s["name"] == name }
-        save_schedules(list)
-        list.size < before_count
+        @schedule_mutex.synchronize do
+          list = load_schedules
+          before_count = list.size
+          list.reject! { |s| s["name"] == name }
+          save_schedules(list)
+          list.size < before_count
+        end
       end
 
       # Update an existing schedule entry (cron and/or enabled).
       # Returns false if the schedule does not exist.
       def update_schedule(name, cron: nil, enabled: nil)
-        list = load_schedules
-        entry = list.find { |s| s["name"] == name }
-        return false unless entry
-
-        entry["cron"]    = cron    unless cron.nil?
-        entry["enabled"] = enabled unless enabled.nil?
-        save_schedules(list)
-        true
+        @schedule_mutex.synchronize do
+          list = load_schedules
+          entry = list.find { |s| s["name"] == name }
+          return false unless entry
+          reset = cron || (enabled == true && entry["enabled"] == false)
+          entry["cron"] = cron unless cron.nil?
+          entry["enabled"] = enabled unless enabled.nil?
+          if reset
+            due = cron_next_run(entry["cron"])
+            raise ArgumentError, "Invalid or impossible cron schedule" unless due
+            entry["next_run_at"] = due.utc.iso8601
+          end
+          save_schedules(list)
+          true
+        end
       end
 
       # ── Composite cron-task helpers ──────────────────────────────────────────
 
       # Create a task file and its schedule in one step.
-      def create_cron_task(name:, content:, cron:, enabled: true)
-        write_task(name, content)
-        add_schedule(name: name, task: name, cron: cron, enabled: enabled)
+      def create_cron_task(name:, content:, cron:, enabled: true, target: nil)
+        @schedule_mutex.synchronize do
+          existing = load_schedules.find { |plan| plan["name"] == name }
+          if existing && (target || existing["target"])
+            raise ArgumentError, "Plan already exists; update it with PATCH or choose another name"
+          end
+          raise ArgumentError, "Invalid or impossible cron schedule" unless cron_next_run(cron)
+          write_task(name, content)
+          add_schedule(name: name, task: name, cron: cron, enabled: enabled, target: target)
+        end
       end
 
       # Update a cron-task: optionally update content and/or schedule fields.
       def update_cron_task(name, content: nil, cron: nil, enabled: nil)
         raise "Cron task not found: #{name}" unless list_tasks.include?(name)
 
-        write_task(name, content) unless content.nil?
-        update_schedule(name, cron: cron, enabled: enabled) if cron || !enabled.nil?
+        @schedule_mutex.synchronize do
+          update_schedule(name, cron: cron, enabled: enabled) if cron || !enabled.nil?
+          write_task(name, content) unless content.nil?
+        end
       end
 
       # Delete a cron-task: remove both the task file and its schedule.
       def delete_cron_task(name)
-        removed_schedule = remove_schedule(name)
-        removed_task     = delete_task(name)
-        removed_schedule || removed_task
+        @schedule_mutex.synchronize do
+          removed_schedule = remove_schedule(name)
+          removed_task = delete_task(name)
+          removed_schedule || removed_task
+        end
       end
 
       # Return a merged list of cron-tasks (task content + schedule metadata).
@@ -149,7 +175,8 @@ module Clacky
             "enabled" => schedule.fetch("enabled", true),
             "scheduled" => !schedule.empty?,
             "last_run" => last_runs[task_name],
-            "next_run" => cron ? cron_next_run(cron) : nil
+            "target" => schedule["target"],
+            "next_run" => schedule["enabled"] == false ? nil : (schedule["next_run_at"] || (cron && cron_next_run(cron)))
           }
         end
       end
@@ -322,17 +349,38 @@ module Clacky
         end
       end
 
-      # Check all enabled schedules against the given time and fire matching ones.
+      # Persist the next occurrence. On resume, collapse missed occurrences to
+      # the latest one; a rejected dispatch retains its deadline for retry.
       private def tick(now)
         maybe_run_backup(now)
-
-        load_schedules.each do |schedule|
-          next unless schedule["enabled"] != false
-          next unless cron_matches?(schedule["cron"].to_s, now)
-
-          fire_task(schedule)
-        rescue => e
-          Clacky::Logger.error("scheduler_tick_error", schedule: schedule["name"], error: e)
+        @schedule_mutex.synchronize do
+          list = load_schedules
+          list.each do |schedule|
+            next if schedule["enabled"] == false
+            begin
+              unless schedule["next_run_at"]
+                # Legacy plans have no cursor: begin with this minute, not an
+                # invented backlog from before the plan existed.
+                schedule["id"] ||= SecureRandom.hex(12)
+                from = Time.at(now.to_i / 60 * 60 - 1)
+                schedule["next_run_at"] = cron_next_run(schedule["cron"], from: from)&.utc&.iso8601
+                save_schedules(list)
+              end
+              next unless schedule["next_run_at"] && Time.iso8601(schedule["next_run_at"]) <= now
+              due = cron_occurrence(schedule["cron"], from: now, direction: -1)
+              next unless due && due >= Time.iso8601(schedule["next_run_at"])
+              accepted = if schedule["target"]
+                           @scheduled_dispatcher&.call(schedule, read_task(schedule["task"]), due)
+                         else
+                           fire_task(schedule)
+                         end
+              next unless accepted
+              schedule["next_run_at"] = cron_next_run(schedule["cron"], from: now)&.utc&.iso8601
+              save_schedules(list)
+            rescue => e
+              Clacky::Logger.error("scheduler_tick_error", schedule: schedule["name"], error: e)
+            end
+          end
         end
       end
 
@@ -357,13 +405,15 @@ module Clacky
         #   * broadcasting session_update
         #   * persisting the session JSON on success/interrupted/error   ← the bit we were missing
         #   * idle-compression timer lifecycle
-        @task_runner.call(session_id, agent) do
+        dispatched = @task_runner.call(session_id, agent) do
           track_run(task_name, session_id, trigger: :schedule) { agent.run(prompt) }
         end
 
         Clacky::Logger.info("scheduler_task_dispatched", task: task_name, session: session_id)
+        dispatched
       rescue => e
         Clacky::Logger.error("scheduler_fire_error", task: schedule["task"], error: e)
+        nil
       end
 
       # Built-in automatic backup hook. Runs as a plain system operation —
@@ -385,54 +435,40 @@ module Clacky
 
       # ── Cron parsing ─────────────────────────────────────────────────────────
 
-      # First time the 5-field cron expression fires strictly after +from+.
-      # Walks day by day (two years max) and only expands the hour/minute grid
-      # for days that match, so a yearly task costs ~365 cheap comparisons.
-      # Returns nil for malformed expressions and impossible ones (Feb 30).
+      # Search calendar days in server-local time, retaining DOM AND DOW semantics.
       private def cron_next_run(expr, from: Time.now)
+        cron_occurrence(expr, from: from, direction: 1)
+      end
+
+      private def cron_occurrence(expr, from:, direction:)
         fields = expr.to_s.strip.split(/\s+/)
         return nil unless fields.size == 5
-
-        sets = [
-          cron_field_values(fields[0], 0, 59),
-          cron_field_values(fields[1], 0, 23),
-          cron_field_values(fields[2], 1, 31),
-          cron_field_values(fields[3], 1, 12),
-          cron_field_values(fields[4], 0, 6)
-        ]
-        return nil if sets.any?(&:nil?)
-
+        sets = fields.zip([[0, 59], [0, 23], [1, 31], [1, 12], [0, 6]]).map do |field, bounds|
+          cron_field_values(field, *bounds)
+        end
+        return nil if sets.any? { |set| set.nil? || set.empty? }
         minutes, hours, doms, months, dows = sets
-        return nil if minutes.empty? || hours.empty? || doms.empty? || months.empty? || dows.empty?
-
-        # Anchor at noon so a day-step never lands on the wrong date across a
-        # DST boundary (Time#+ is absolute seconds, not calendar days).
-        noon  = Time.local(from.year, from.month, from.day, 12)
-        # Minute-of-day of the first candidate; same-day scans start here.
-        floor = from.hour * 60 + from.min + 1
-
-        (0..731).each do |offset|
-          day = noon + offset * 86_400
+        local = from.getlocal
+        date = Date.new(local.year, local.month, local.day)
+        (0..2922).each do |offset|
+          day = date + offset * direction
           next unless months.include?(day.month) && doms.include?(day.day) && dows.include?(day.wday)
-
-          limit = offset.zero? ? floor : 0
-          hours.each do |h|
-            next if h * 60 + minutes.last < limit
-
-            minutes.each do |m|
-              next if h * 60 + m < limit
-
-              return Time.local(day.year, day.month, day.day, h, m, 0)
+          candidates = hours.flat_map do |hour|
+            minutes.map do |minute|
+              Time.local(day.year, day.month, day.day, hour, minute)
             end
           end
+          valid = candidates.select { |time| direction == 1 ? time > from : time <= from }
+          result = direction == 1 ? valid.min : valid.max
+          return result if result
         end
-
         nil
       end
 
       # Concrete values a single cron field can take, mirroring the semantics of
       # #cron_part_matches?. Returns nil when the field is unparseable.
       private def cron_field_values(field, min, max)
+        return nil unless field.to_s.match?(/\A(?:\*|\d+(?:-\d+)?)(?:\/\d+)?(?:,(?:\*|\d+(?:-\d+)?)(?:\/\d+)?)*\z/)
         values = []
         field.to_s.split(",").each do |part|
           part      = part.strip
@@ -449,7 +485,7 @@ module Clacky
                      return nil if value.nil?
                      [value, value]
                    end
-          return nil if lo.nil? || hi.nil? || hi < lo
+          return nil if lo.nil? || hi.nil? || hi < lo || lo < min || hi > max
 
           (lo..hi).each do |v|
             next unless v.between?(min, max)
@@ -522,7 +558,17 @@ module Clacky
 
       private def save_schedules(list)
         FileUtils.mkdir_p(File.dirname(SCHEDULES_FILE))
-        File.write(SCHEDULES_FILE, YAML.dump(list))
+        tmp = "#{SCHEDULES_FILE}.#{SecureRandom.hex(6)}.tmp"
+        begin
+          File.open(tmp, "w", 0o600) do |file|
+            file.write(YAML.dump(list))
+            file.flush
+            file.fsync
+          end
+          File.rename(tmp, SCHEDULES_FILE)
+        ensure
+          FileUtils.rm_f(tmp)
+        end
       end
     end
   end

@@ -250,6 +250,10 @@ module Clacky
       self.class.meta["config"] || {}
     end
 
+    def work_service
+      @http_server&.work_service
+    end
+
     def session_manager
       @http_server&.instance_variable_get(:@session_manager)
     end
@@ -329,11 +333,12 @@ module Clacky
     end
 
     # Submit a prompt to an existing session for execution.
+    # reference_contexts are model-only context; display_message is the visible input.
     # Returns the session_id on success.
     # Raises Halt (409) if the session is already running and `interrupt: false`.
     # When `interrupt: true`, supersedes the current turn (raises AgentInterrupted
     # on the running thread, waits up to 2s for it to exit) then runs the new task.
-    def submit_task(session_id, prompt, display_message: nil, interrupt: false)
+    def submit_task(session_id, prompt, display_message: nil, interrupt: false, reference_contexts: nil)
       reg = registry
       error!("server not ready", status: 503) unless reg
 
@@ -351,7 +356,9 @@ module Clacky
         old_thread&.join(2)
       end
 
-      @http_server.send(:run_session_task, session_id, prompt, display_message: display_message)
+      options = { display_message: display_message }
+      options[:reference_contexts] = reference_contexts if reference_contexts
+      @http_server.send(:run_session_task, session_id, prompt, **options)
       session_id
     end
 

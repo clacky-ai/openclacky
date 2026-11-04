@@ -1,0 +1,39 @@
+id: secretary
+name: Secretary
+display_name: Secretary
+display_name_zh: 生活秘书
+description: Delegate work, track progress and resume after replies
+version: "0.1.0"
+author: OpenClacky
+contributes:
+  api: api/handler.rb
+  agents:
+    - id: secretary
+      title: Secretary
+      title_zh: 生活秘书
+      description: Your main conversation, with background work and follow-up
+      description_zh: 与你交流，委派后台工作，跟进结果与待办
+      order: 2
+      prompt: agents/secretary.md
+      work_agent: secretary-worker
+      tools: [delegate_work, manage_work]
+      panels: [work]
+    - id: secretary-worker
+      title: Secretary Worker
+      title_zh: 秘书工作助手
+      description: Delegated worker with durable handoff
+      hidden: true
+      prompt: agents/worker.md
+      tools: [yield_work]
+  tools:
+    - id: delegate_work
+      file: tools/delegate_work.rb
+    - id: manage_work
+      file: tools/manage_work.rb
+    - id: yield_work
+      file: tools/yield_work.rb
+  panels:
+    - id: work
+      title: Work
+      title_zh: 工作事项
+      view: panels/work/view.js

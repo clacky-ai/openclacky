@@ -51,6 +51,8 @@ module Clacky
       :status, :error, :updated_at, :source, :config,
       :latest_latency,  # Hash of latency metrics from the most recent LLM call (see Client#send_messages_with_tools)
       :reasoning_effort
+    attr_accessor :work_service
+    attr_reader :tool_registry
     attr_accessor :pinned
     attr_accessor :channel_info
     attr_accessor :project_id
@@ -620,6 +622,8 @@ module Clacky
       # Inject chunk index card if archived chunks exist and index is stale
       inject_chunk_index_if_needed
 
+      work_context = @work_service&.turn_context(self)
+      reference_contexts = Array(reference_contexts) + [work_context] if work_context
       append_user_input(user_input, files: files, reference_contexts: reference_contexts,
                         display_text: display_text, created_at: created_at,
                         references_display: references_display, task_id: task_id)
@@ -643,6 +647,9 @@ module Clacky
 
       # Track if ask_user was called
       awaiting_user_feedback = false
+      # A tool handed control back; distinct from finishing a normal reply.
+      yielded = false
+      notify_user = true
       # Heuristic sibling of the above: the reply merely ended with a question
       # mark. Kept separate because it must never reach build_result — the
       # session status it feeds shows a "waiting" badge to the user, and a
@@ -657,6 +664,7 @@ module Clacky
         @hooks.trigger(:on_iteration, @iterations)
 
         consume_steering_inputs
+        @work_service&.guard!(self) if Thread.current[:clacky_work]
 
         # Think: LLM reasoning with tool support
         response = think
@@ -794,9 +802,10 @@ module Clacky
         # Act: Execute tool calls
         action_result = act(response[:tool_calls], assistant_message: response.delete(:history_message))
 
-        # Check if ask_user was called
-        if action_result[:awaiting_feedback]
-          awaiting_user_feedback = true
+        notify_user = false if action_result[:notify_user] == false
+        if action_result[:awaiting_feedback] || action_result[:end_turn]
+          awaiting_user_feedback = !!action_result[:awaiting_feedback]
+          yielded = !!action_result[:end_turn]
           observe(response, action_result[:tool_results])
           flush_pending_injections
           break
@@ -834,13 +843,14 @@ module Clacky
       @input_mutex.synchronize { @accepting_steering = false }
       notify_input_queue
       result = build_result(awaiting_user_feedback: awaiting_user_feedback)
-      result[:queue_paused] = true if awaiting_user_feedback || task_interrupted
+      result[:notify_user] = false if !notify_user && !awaiting_user_feedback
+      result[:queue_paused] = true if yielded || awaiting_user_feedback || task_interrupted
       run_context[:reason] = "tool_denied" if task_interrupted
 
       # Run skill evolution hooks after main loop completes
       # Skip if task was interrupted by user (denied tool) or awaiting user feedback
       # Only for main agent (not subagents) to avoid recursive evolution
-      unless @is_subagent || task_interrupted || awaiting_user_feedback || turn_unfinished
+      unless @is_subagent || task_interrupted || yielded || awaiting_user_feedback || turn_unfinished
         run_skill_evolution_hooks
       end
 
@@ -851,7 +861,7 @@ module Clacky
       # and only then [OK] Task Complete is printed. No cleanup dance,
       # no cross-method progress handle holding.
       # Skip on interrupt / feedback / subagent (self-guarded inside too).
-      unless @is_subagent || task_interrupted || awaiting_user_feedback || turn_unfinished
+      unless @is_subagent || task_interrupted || yielded || awaiting_user_feedback || turn_unfinished
         run_memory_update_subagent
       end
 
@@ -876,7 +886,7 @@ module Clacky
       # in this same thread. Skipped for subagents and interrupts.
       # An explicit request for user feedback pauses the goal as well as the
       # queue. Mere question punctuation still leaves the goal judge in charge.
-      unless @is_subagent || task_interrupted || awaiting_user_feedback
+      unless @is_subagent || task_interrupted || yielded || awaiting_user_feedback
         continuation = maybe_continue_goal(result)
         return continuation if continuation
       end
@@ -1589,6 +1599,8 @@ module Clacky
       feedback = nil
       results = []
       awaiting_feedback = false
+      end_turn = false
+      notify_user = true
 
       tool_calls.each_with_index do |call, index|
         # Resolve tool name: handle case-insensitive and common alias mismatches
@@ -1606,6 +1618,8 @@ module Clacky
         elsif resolved.nil?
           # Tool truly not found — let the rescue below handle it with a clear message
         end
+
+        @work_service&.guard!(self)
 
         # Hook: before_tool_use
         hook_result = @hooks.trigger(:before_tool_use, call)
@@ -1747,6 +1761,8 @@ module Clacky
             result = tool.execute(**args)
           end
 
+          notify_user = false if result.is_a?(Hash) && result[:notify_user] == false
+
           # Hook: after_tool_use
           @hooks.trigger(:after_tool_use, call, result)
 
@@ -1807,6 +1823,16 @@ module Clacky
           end
 
           results << build_success_result(call, result)
+          # Tools may end this turn after committing their result (e.g. a durable wait).
+          if result.is_a?(Hash) && result[:end_turn] == true
+            end_turn = true
+            awaiting_feedback = result[:awaiting_feedback] == true
+            # Settle every call in this batch, but execute nothing after yielding.
+            tool_calls.drop(index + 1).each do |remaining|
+              results << build_denied_result(remaining, "Turn ended; remaining calls were not executed", true)
+            end
+            break
+          end
         rescue StandardError => e
           # Log complete error information to debug_logs for troubleshooting
           @debug_logs << {
@@ -1831,7 +1857,9 @@ module Clacky
         denied: denied,
         feedback: feedback,
         tool_results: results,
-        awaiting_feedback: awaiting_feedback
+        awaiting_feedback: awaiting_feedback,
+        end_turn: end_turn,
+        notify_user: notify_user
       }
     end
 

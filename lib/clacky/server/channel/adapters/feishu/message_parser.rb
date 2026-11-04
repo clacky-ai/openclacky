@@ -112,6 +112,7 @@ module Clacky
               file_attachments: file_attachments,
               doc_urls: extract_doc_urls(text),
               message_id: message_id,
+              reply_to: message["parent_id"],
               timestamp: timestamp,
               chat_type: chat_type,
               mentioned_open_ids: Array(message["mentions"]).filter_map { |m| m.dig("id", "open_id") },

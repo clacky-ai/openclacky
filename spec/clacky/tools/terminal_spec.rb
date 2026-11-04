@@ -660,7 +660,8 @@ RSpec.describe Clacky::Tools::Terminal do
     end
 
     it "captures startup output within the collection window" do
-      script = %(ruby -e 'puts "booted"; STDOUT.flush; sleep 5')
+      # Test output collection without depending on Ruby/Bundler cold-start time.
+      script = "printf 'booted\\n'; sleep 5"
       result = tool.execute(command: script, background: true)
       expect(result[:session_id]).to be_a(Integer)
       expect(result[:output].to_s).to include("booted")

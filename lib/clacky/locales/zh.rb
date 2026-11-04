@@ -3,6 +3,20 @@
 module Clacky
   module Locales
     ZH = {
+      "work.delegating" => "委派：%<title>s",
+      "work.delegated" => "已创建工作事项「%<title>s」，等待执行。可在工作事项面板跟进。",
+      "work.queued" => "等待执行",
+      "work.cancelled" => "用户已取消",
+      "work.paused" => "用户已暂停，补充要求后可继续",
+      "work.interrupted" => "执行因服务重启中断，请核实进展后补充要求以继续。",
+      "work.running" => "执行中",
+      "work.started" => "开始处理：%<title>s",
+      "work.missing_result" => "执行结束但没有调用 yield_work 交回结果，请检查执行记录。",
+      "work.completed" => "工作已完成：%<title>s",
+      "work.needs_user" => "需要你确认：%<title>s",
+      "work.failed" => "工作需要处理：%<title>s",
+      "work.reply_received" => "收到回复，等待继续执行",
+
       "phase.skill_evolution"           => "正在复盘本次任务",
       "phase.memory_update"             => "正在更新长期记忆",
       "llm.error.insufficient_credit"   => "API Key 账户余额不足，请前往控制台充值后继续使用",

@@ -46,7 +46,9 @@ const ctx = vm.createContext({
   _ansiToHtml: s => s,
   _collapseToolGroup() {},
 });
-vm.runInContext(renderSource, ctx);
+const promotedStart = sessions.indexOf("function _isPromotedToolResult(");
+const promotedSource = sessions.slice(promotedStart, sessions.indexOf("\n  }\n", promotedStart) + 4);
+vm.runInContext(promotedSource + "\n" + renderSource, ctx);
 
 const container = { appendChild() {} };
 const history = { group: null, lastItem: null };

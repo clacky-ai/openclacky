@@ -12,6 +12,8 @@ module Clacky
   # Each user profile directory (opt-in override) contains:
   #   - profile.yml       — name, description, skills whitelist
   #   - system_prompt.md  — agent-specific system prompt content
+  #   - base_agent: <extension-agent-id> reuses that agent's rules/tools/panels
+  #     while retaining this profile's name and additional prompt.
   #
   # Global files (shared across all agents) are user-only overrides:
   #   - ~/.clacky/agents/SOUL.md   — agent personality/values (else DEFAULT_SOUL)
@@ -43,13 +45,36 @@ module Clacky
       @profile_data = load_profile_yml
       @description = @profile_data["description"] || ""
       @system_prompt_content = load_agent_file("system_prompt.md")
+      base = @profile_data["base_agent"].to_s.strip
+      unless base.empty?
+        @base_unit = result&.agents&.find { |unit| unit.id == base }
+        raise ArgumentError, "Base agent '#{base}' is not available from an enabled extension" unless @base_unit
+        unless @base_unit.spec["base_agent"].to_s.empty?
+          raise ArgumentError, "Chained base_agent references are not supported"
+        end
+        prompt = @base_unit.spec["prompt_abs"]
+        shared = prompt && File.file?(prompt) ? File.read(prompt).strip : ""
+        @system_prompt_content = [shared, @system_prompt_content].reject(&:empty?).uniq.join("\n\n")
+      end
+    end
+
+    # Extensions can recognize their agent even when a user customizes its name.
+    def based_on?(id)
+      name == id.to_s || (!!@base_unit && @base_unit.id == id.to_s)
+    end
+
+    # Optional worker profile used for delegated work; user profiles inherit it.
+    def work_agent
+      value = @profile_data["work_agent"]
+      value = @base_unit&.spec&.dig("work_agent") if value.nil?
+      value.to_s.strip
     end
 
     # Skills explicitly disabled for this agent, matched by skill identifier.
     # Declared via `disabled_skills` in profile.yml or the ext agent spec.
     # @return [Array<String>]
     def disabled_skills
-      @disabled_skills ||= Array(@profile_data["disabled_skills"]).map(&:to_s)
+      @disabled_skills ||= (Array(@base_unit&.spec&.dig("disabled_skills")) + Array(@profile_data["disabled_skills"])).map(&:to_s).uniq
     end
 
     # Extension tools this agent opts into, via `tools:` in profile.yml or the
@@ -57,15 +82,15 @@ module Clacky
     # id is a bare tool id in the agent's own container: `tools/<id>.rb`.
     # @return [Array<String>]
     def tools
-      @tools ||= Array(@profile_data["tools"]).map(&:to_s)
+      @tools ||= Array((@base_unit ? @base_unit.spec : @profile_data)["tools"]).map(&:to_s)
     end
 
     # Directory of the ext container this agent belongs to, or nil for a user
-    # profile. Extension tools only exist inside containers, so a user profile
-    # cannot reference them.
+    # profile without a base. A derived profile uses its base container and
+    # declared tool set; it cannot add arbitrary cross-container tools.
     # @return [String, nil]
     def container_dir
-      @ext_unit&.dir
+      (@base_unit || @ext_unit)&.dir
     end
 
     # Whether a skill is usable by this agent: it must not be in the agent's
@@ -74,7 +99,7 @@ module Clacky
     # @return [Boolean]
     def skill_allowed?(skill)
       return false if disabled_skills.include?(skill.identifier)
-      skill.allowed_for_agent?(name)
+      skill.allowed_for_agent?(name) || (!!@base_unit && skill.allowed_for_agent?(@base_unit.id))
     end
 
     # @param name [String, Symbol] profile name (e.g. "coding", "general")
@@ -207,6 +232,8 @@ module Clacky
       if @ext_unit
         return {
           "name"        => @name,
+          "base_agent"  => @ext_unit.spec["base_agent"],
+          "work_agent"  => @ext_unit.spec["work_agent"],
           "description" => @ext_unit.spec["description"],
           "panels"      => @ext_unit.spec["panels"],
           "skills"      => @ext_unit.spec["skills"],

@@ -34,7 +34,8 @@ module Clacky
       #   :chat (default)      — one session per chat (all users in a chat share it).
       #   :chat_user           — one session per (chat, user) pair.
       #   :user                — one session per user (merges all chats).
-      def initialize(session_registry:, session_builder:, run_agent_task:, interrupt_session:, channel_config:, persist_session: nil, binding_mode: :chat)
+      def initialize(session_registry:, session_builder:, run_agent_task:, interrupt_session:, channel_config:, persist_session: nil, binding_mode: :chat, work_service: nil)
+        @work_service      = work_service
         @registry          = session_registry
         @session_builder   = session_builder
         @run_agent_task    = run_agent_task
@@ -276,6 +277,8 @@ module Clacky
           handle_command(adapter, event, text)
           return
         end
+
+        return if @work_service&.receive_event(adapter.platform_id, event)
 
         session_id = resolve_session(event)
         if session_id

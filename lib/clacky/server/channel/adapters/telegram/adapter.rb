@@ -276,6 +276,7 @@ module Clacky
               text:       text.strip,
               files:      files,
               message_id: msg["message_id"].to_s,
+              reply_to: msg.dig("reply_to_message", "message_id")&.to_s,
               timestamp:  msg["date"] ? Time.at(msg["date"]) : Time.now,
               chat_type:  is_group ? :group : :direct,
               raw:        msg

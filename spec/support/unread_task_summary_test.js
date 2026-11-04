@@ -48,13 +48,17 @@ const caseBody = name => {
 };
 assert.doesNotMatch(caseBody("session_update"), /markDone\(/);
 const marked = [];
+const alerted = [];
 const onFinished = vm.runInContext(`(function (ev) { switch (ev.type) { ${caseBody("task_finished")} } })`, vm.createContext({
-  Notify: { onTaskFinished() {} },
+  Notify: { onTaskFinished(id) { alerted.push(id); } },
   Projects: { renderSection() {} },
   Sessions: { markDone: id => marked.push(id), markDoneSummary() {}, renderList() {} },
 }));
 onFinished({ type: "task_finished", session_id: "f1", awaiting_feedback: false });
 onFinished({ type: "task_finished", session_id: "f2", awaiting_feedback: true });
+onFinished({ type: "task_finished", session_id: "worker", awaiting_feedback: true, notify_user: false });
+onFinished({ type: "task_finished", session_id: "handoff", awaiting_feedback: false, notify_user: false });
+assert.deepEqual(alerted, ["f1", "f2"], "handoffs and worker outcomes do not alert");
 assert.deepEqual(marked, ["f1"], "awaiting feedback keeps its own dot, not the done ring");
 
 // The summary rides on the done dot and is handed out exactly once.

@@ -330,6 +330,31 @@ async function tests() {
     assert.ok(!group.classes.has("expanded"), "the group collapses when the card is promoted");
   }
 
+  // Markdown tool documents use the normal message renderer, outside the
+  // collapsed execution group, with identical live/replay content.
+  for (const replay of [false, true]) {
+    const { Sessions, messages, context } = boot();
+    const content = "## Quote comparison\n\n1200 versus 1300.\n\n" + "Full evidence. ".repeat(100);
+    const ui = { type: "markdown", content };
+    if (replay) {
+      context.__historyEvents = [
+        { type: "tool_call", name: "yield_work", args: { reason: "completed" } },
+        { type: "tool_result", result: JSON.stringify({ message: content }), ui },
+      ];
+      Sessions._setActiveId("sess-1");
+      await Sessions.loadHistory("sess-1");
+    } else {
+      Sessions.appendToolCall("yield_work", { reason: "completed" }, null);
+      Sessions.appendToolResult(content, ui);
+    }
+    const docs = messages.children.filter(n => n.classes.has("tool-result-document"));
+    assert.equal(docs.length, 1);
+    assert.equal(docs[0].dataset.raw, content, "full report is retained");
+    assert.ok(docs[0].innerHTML.includes("Full evidence."));
+    const group = messages.children.find(n => n.classes.has("tool-group"));
+    assert.equal(group.querySelector(".tool-item-stdout").innerHTML, "");
+  }
+
   // 10. Clicking the toggle expands the card and flips the button copy.
   //     The stub does not parse innerHTML, so the button is synthesised and
   //     parented to the card the way the real markup nests it.
