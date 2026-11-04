@@ -28,6 +28,11 @@ RSpec.describe Clacky::Work::Service do
   let(:card) { service.delegate(owner, title: "约饭", task: "询问时间", constraints: "不预订") }
   after { Thread.current[:clacky_work] = nil; FileUtils.rm_rf(dir) }
 
+  before do
+    allow(owner.agent_profile).to receive(:based_on?) { |id| id == "secretary" }
+    allow(worker.agent_profile).to receive(:based_on?) { |id| id == "secretary-worker" }
+  end
+
   def running
     c = card
     store.transaction { |d| d["cards"][c["id"]]["status"] = "running" }

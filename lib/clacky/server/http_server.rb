@@ -1454,6 +1454,12 @@ module Clacky
         agent_data = agent_profile_data
         agent_data.each do |name, data|
           ext_id = data["_ext_id"]
+          # Base agent panels retain their extension-qualified IDs.
+          base_unit = ext_result&.agents&.find { |unit| unit.id == data["base_agent"] }
+          Array(base_unit&.spec&.dig("panels")).each do |panel|
+            pid = panel.to_s
+            add.call(pid.include?("/") ? pid : "#{base_unit.ext_id}/#{pid}", name)
+          end
           Array(data["panels"]).each do |panel|
             pid = panel.to_s
             full = pid.include?("/") ? pid : (ext_id ? "#{ext_id}/#{pid}" : pid)
@@ -1472,7 +1478,9 @@ module Clacky
           if attach.include?("*")
             all_agent_ids.each { |a| add.call(full_id, a) }
           else
-            attach.each { |a| add.call(full_id, a) if all_agent_ids.include?(a) }
+            all_agent_ids.each do |name|
+              add.call(full_id, name) if attach.include?(name) || attach.include?(agent_data.dig(name, "base_agent"))
+            end
           end
         end
         result
@@ -1486,6 +1494,7 @@ module Clacky
         Array(Clacky::ExtensionLoader.last_result&.agents).each do |unit|
           data[unit.id] = {
             "name"        => unit.id,
+            "base_agent"  => unit.spec["base_agent"],
             "description" => unit.spec["description"],
             "panels"      => unit.spec["panels"],
             "skills"      => unit.spec["skills"],

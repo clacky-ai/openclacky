@@ -146,3 +146,37 @@ No external wakeup service is introduced. Cron cannot execute while the sandbox 
 paused; once something resumes it, due scanning continues. Existing yield_work
 and check_at behavior is unchanged. Email subscriptions and cloud lifecycle APIs
 remain outside this change.
+
+## Custom secretary profiles
+
+Use the existing user-agent directory and agent picker. No separate identity
+store or management page is required. For example, create
+`~/.clacky/agents/my-secretary/profile.yml`:
+
+```yaml
+name: my-secretary
+title: My secretary
+title_zh: 我的秘书
+base_agent: secretary
+```
+
+In the same directory, write `system_prompt.md` with the user's responsibilities,
+preferences and output expectations. The loader composes the secretary extension's
+shared rules followed by this file. Existing base rules, global `SOUL.md` and
+`USER.md` continue to load normally. The profile uses the secretary's declared
+tool set and Work panel. `base_agent` can reference any agent contributed by an
+enabled extension (for example `coding` or a third-party agent), not just
+`secretary`. Only one direct reference is supported: no chains, user-only bases
+or arbitrary cross-container tool merging. Base disabled-skill restrictions are
+retained; custom profiles may disable additional skills. Skills scoped to the
+base agent and panels attached to it also remain available. Extensions can use
+`agent.agent_profile.based_on?(id)` to recognize customized profiles.
+
+Restart the service after upgrading, then refresh the WebUI. The custom agent
+appears in the existing new-conversation picker. Conversations retain the custom
+profile name and keep work isolated by owner session. Scheduled work can belong
+to these conversations too; workers retain their existing restricted profile.
+
+Prompt edits follow ordinary profile behavior: new/restored agent instances load
+current files. Already loaded instances are not hot-updated. This feature adds no
+prompt snapshots, identity-specific memory, new session fields or outbound tools.

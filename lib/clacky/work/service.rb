@@ -56,7 +56,7 @@ module Clacky
       end
 
       def delegate(agent, title:, task:, constraints: "")
-        raise "Only a secretary session can delegate" unless agent.agent_profile.name == "secretary"
+        raise "Only a secretary session can delegate" unless agent.agent_profile.based_on?("secretary")
         raise "Title and task are required" if title.to_s.strip.empty? || task.to_s.strip.empty?
         # Capture source verbatim from host history, not model-supplied quotations.
         source = agent.history.to_a.each_with_index.filter_map do |m, index|
@@ -74,7 +74,7 @@ module Clacky
       def schedule_target(owner_id, title:)
         raise ArgumentError, "Secretary session not found" unless @registry.ensure(owner_id)
         owner = @registry.get(owner_id)[:agent]
-        raise ArgumentError, "Schedule owner must be a secretary" unless owner.agent_profile.name == "secretary"
+        raise ArgumentError, "Schedule owner must be a secretary" unless owner.agent_profile.based_on?("secretary")
         { "type" => "secretary_work", "owner_session_id" => owner_id,
           "title" => title, "locale" => Clacky::I18n.locale }
       end
@@ -92,7 +92,7 @@ module Clacky
         owner_id = target.fetch("owner_session_id")
         return nil unless @registry.ensure(owner_id)
         owner = @registry.get(owner_id)[:agent]
-        raise "Scheduled owner is not a secretary" unless owner.agent_profile.name == "secretary"
+        raise "Scheduled owner is not a secretary" unless owner.agent_profile.based_on?("secretary")
         occurrence = "#{schedule.fetch('id')}:#{due.utc.iso8601(6)}"
         title = "#{target.fetch('title')} · #{due.getlocal.strftime('%Y-%m-%d %H:%M')}"
         @store.transaction do |data|
@@ -203,11 +203,11 @@ module Clacky
       end
 
       def turn_context(agent)
-        if agent.agent_profile.name == "secretary-worker"
+        if agent.agent_profile.based_on?("secretary-worker")
           guard!(agent, "yield_work")
           return nil
         end
-        return nil unless agent.agent_profile.name == "secretary"
+        return nil unless agent.agent_profile.based_on?("secretary")
         cards = list(agent.session_id)
         active, finished = cards.partition { |c| !TERMINAL.include?(c["status"]) }
         summaries = (active + finished.first(5)).first(50).map do |c|
@@ -219,12 +219,12 @@ module Clacky
 
       def attach(agent)
         agent.work_service = self
-        return unless agent.agent_profile.name == "secretary-worker"
+        return unless agent.agent_profile.based_on?("secretary-worker")
         agent.tool_registry.restrict_to(READ_TOOLS)
       end
 
       def guard!(agent, tool_name)
-        return unless agent.agent_profile.name == "secretary-worker"
+        return unless agent.agent_profile.based_on?("secretary-worker")
         raise "Tool is not authorized for this worker" unless READ_TOOLS.include?(tool_name)
         @store.transaction { |data| current_work!(data, agent); nil }
       end
