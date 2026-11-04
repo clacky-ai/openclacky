@@ -157,6 +157,7 @@ function stubCodeEditor() {
 function boot(initialFiles = {}) {
   const files = Object.assign({}, initialFiles);
   const fetches = [];
+  const previewOpens = [];
   const document = makeDocument();
   const CodeEditor = stubCodeEditor();
 
@@ -168,7 +169,10 @@ function boot(initialFiles = {}) {
     localStorage: { getItem: () => null, setItem() {}, removeItem() {} },
     I18n: { t: key => key, lang: () => "en" },
     Modal: { toast: () => {} },
-    Clacky: { ext: { emit() {}, ui: { mountBuiltin() {} } } },
+    Clacky: {
+      ext: { emit() {}, ui: { mountBuiltin() {} } },
+      Preview: { open(rel) { previewOpens.push(rel); return true; } },
+    },
     CodeEditor,
     fetch: async (url, options) => {
       fetches.push({ url: String(url), options });
@@ -209,6 +213,7 @@ function boot(initialFiles = {}) {
     container,
     files,
     fetches,
+    previewOpens,
     updateDiskFile: (name, content) => { files[name] = content; },
     downloads: target => fetches.filter(f => {
       if (!f.options || !f.options.body) return false;
@@ -334,8 +339,23 @@ async function main() {
   await testTaskCompletedRefreshesOpenTabs();
   await testDirtyTabIsNotOverwritten();
   await testClosingLastTabRevealsTree();
+  testHtmlLinkKeepsOriginalPath();
   testSetContentIsSilent();
   console.log("All workspace file reload tests passed!");
+}
+
+// Clicking a file:// link in chat must hand the preview panel the original
+// absolute path. The panel maps it onto /preview/f, which keeps the address
+// bar showing the file's real location instead of the session-relative
+// /preview/s form.
+function testHtmlLinkKeepsOriginalPath() {
+  const env = boot({});
+  env.WorkspaceView.openFile("/wd/moxia-landing/index.html");
+  assert.deepEqual(
+    env.previewOpens,
+    ["file:///wd/moxia-landing/index.html"],
+    "HTML links keep their file:// path"
+  );
 }
 
 // Closing the last file tab must bring the tree back: with the strip empty it
