@@ -7,253 +7,225 @@ disable-model-invocation: false
 user-invocable: true
 ---
 
+
 # Cron Task Creator
 
-A skill for creating, managing, and running scheduled automated tasks in Clacky.
+Create and manage scheduled tasks through the existing cron-task API. This skill
+supports both ordinary tasks and secretary work; they share plan management but
+have different execution and result destinations.
 
-## Architecture Overview
+## Determine the task type
 
-```
-Storage:
-  ~/.clacky/tasks/<name>.md      # Task prompt file (self-contained AI instruction)
-  ~/.clacky/schedules.yml        # All scheduled plans (YAML list)
-  ~/.clacky/logger/clacky-*.log  # Execution logs (daily rotation)
+For an **existing plan**, GET its saved metadata first. Its saved target determines
+its type, regardless of which conversation is currently managing it:
 
-API Base: http://${CLACKY_SERVER_HOST}:${CLACKY_SERVER_PORT}
+| Saved plan | Execution | Result/history |
+|---|---|---|
+| No target (including older plans) | Ordinary agent session | Tasks run history and execution session |
+| target.type = secretary_work | Work card and worker session | Owning secretary conversation and work card |
 
-Cron-Tasks API (unified — manages task file + schedule together):
-  GET    /api/cron-tasks              → list all cron tasks with schedule info
-  POST   /api/cron-tasks              → create task + schedule {name, content, cron, enabled?}
-  PATCH  /api/cron-tasks/:name        → update {content?, cron?, enabled?}
-  DELETE /api/cron-tasks/:name        → delete task file + schedule
-  POST   /api/cron-tasks/:name/run    → execute immediately (creates a new session)
-```
+Do not convert an old ordinary task to secretary work because it is opened from a
+secretary conversation. PATCH preserves the target. Do not recreate a plan just
+to edit it. Moving an existing plan to another execution type or owner is not a
+PATCH capability; explain this if the user requests it and establish the intended
+replacement before creating/deleting anything.
 
-## Cron Expression Quick Reference
+For a **new plan**:
 
-| Expression       | Meaning                    |
-|-----------------|---------------------------|
-| `0 9 * * 1-5`  | Weekdays at 09:00         |
-| `0 9 * * *`    | Every day at 09:00        |
-| `0 */2 * * *`  | Every 2 hours             |
-| `*/30 * * * *` | Every 30 minutes          |
-| `0 19 * * *`   | Every day at 19:00        |
-| `0 8 * * 1`    | Every Monday at 08:00     |
-| `0 0 1 * *`    | First day of every month  |
+- In an ordinary conversation, create an ordinary task as before.
+- In a known secretary conversation, create secretary work by default, unless the
+  user explicitly requests an independent ordinary task.
+- CLACKY_SESSION_ID exists for ordinary sessions too; its presence alone does not
+  identify a secretary. Use the current agent role, not the task title (e.g.
+  "morning report"), to choose the default.
+- Secretary workers currently support read/research work. Do not silently send a
+  task requiring writes, shell execution, email sending or booking to a worker
+  that cannot perform it. Explain the mismatch and clarify the intended execution
+  or report-only scope. Ordinary tasks retain their existing tools/permissions.
 
-Field order: `minute hour day-of-month month day-of-week`
+Both types use server-local cron time. Only ask for missing requirements; do not
+introduce an extra confirmation when the user's intent is already clear.
 
----
+## API and storage
 
-## Operations
+Base URL: `http://${CLACKY_SERVER_HOST}:${CLACKY_SERVER_PORT}`.
+Use the server's configured authentication if required; do not print credentials.
 
-### 1. LIST — Show all tasks
+| Operation | Endpoint |
+|---|---|
+| List plans | GET /api/cron-tasks |
+| Create | POST /api/cron-tasks |
+| Edit or enable/disable | PATCH /api/cron-tasks/:name |
+| Delete | DELETE /api/cron-tasks/:name |
+| Run once now | POST /api/cron-tasks/:name/run |
+| Ordinary run history | GET /api/cron-runs?task=:name |
+| Secretary work history | GET /api/ext/secretary/work?session_id=:owner |
 
-```bash
-curl -s http://${CLACKY_SERVER_HOST}:${CLACKY_SERVER_PORT}/api/cron-tasks
-```
+Prompts are stored in `~/.clacky/tasks/<name>.md`; plans are stored in
+`~/.clacky/schedules.yml`. Use the API for changes rather than editing these files.
+GET returns name, content, cron, enabled, next_run, last_run and optional target.
+Names are global, not per conversation. Always inspect the response and handle
+errors before reporting success.
 
-Display each task: name, cron schedule, enabled status, content preview.
-
-If no tasks exist, inform the user and offer to create one or show templates.
-
-**Key tip**: Remind the user that the Clacky WebUI Task Panel (sidebar → Tasks) also shows all tasks and supports direct management.
-
----
-
-### 2. CREATE — New task
-
-**Step 1: Gather required info** (only ask for what's missing)
-- What should the task DO? (goal, behavior, output format)
-- How often should it run? (or is it manual-only without a schedule?)
-- Any specific parameters? (URLs, file paths, output location, language)
-
-**Step 2: Generate task name**
-- Rule: only `[a-z0-9_-]`, lowercase, no spaces
-- Examples: `daily_report`, `price_monitor`, `weekly_summary`
-
-**Step 3: Write the task prompt**
-
-The prompt must be:
-- **Self-contained**: the agent running it has zero prior context — include everything needed
-- **Written as direct instructions** to an AI agent (imperative, not conversational)
-- **Detailed**: include URLs, file paths, output format, language, expected output location
-
-Good task prompt example:
-```
-You are a price monitoring assistant. Complete the following task:
-
-## Goal
-Check the current BTC price on CoinGecko, compare with yesterday's price, and log an alert if the change exceeds 5%.
-
-## Steps
-1. Fetch https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd&include_24hr_change=true
-2. Parse the JSON response to get current price and 24h change
-3. If |change| > 5%, write an alert to ~/price_alerts/alert_YYYY-MM-DD.txt
-4. Print the current price and change percentage
-
-Execute immediately.
-```
-
-**Step 4: Create via API**
+## 1. List and select
 
 ```bash
-curl -s -X POST http://${CLACKY_SERVER_HOST}:${CLACKY_SERVER_PORT}/api/cron-tasks \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "task_name",
-    "content": "task prompt content...",
-    "cron": "0 9 * * *",
-    "enabled": true
-  }'
+curl -s "http://${CLACKY_SERVER_HOST}:${CLACKY_SERVER_PORT}/api/cron-tasks"
 ```
 
-**Step 5: Confirm creation**
+For "all my scheduled tasks", show both types. For "this secretary's plans",
+filter target.owner_session_id to the actual current CLACKY_SESSION_ID. When the
+user names an existing plan, resolve it from the list, including ordinary plans.
+If names/titles are ambiguous, clarify before mutating. Do not select another
+secretary's similarly named plan by accident; an explicit request to manage a
+particular existing plan may refer to a different conversation.
 
-```
-✅ Task created successfully!
+Display a friendly title (target.title when present), time, enabled state, next
+run and result destination. Include ordinary last_run status when available; do
+not interpret a secretary plan's empty cron last_run as "never executed". Use its
+work history below. The existing WebUI Tasks panel remains the global management
+surface; the secretary Work panel shows that conversation's plans and work.
 
-📋 Task name: daily_standup
-⏰ Schedule: Weekdays at 09:00 (cron: 0 9 * * 1-5)
+## 2. Create
 
-View and manage this task in the Clacky WebUI → Tasks panel. Click ▶ Run to execute immediately.
-```
+Gather the objective, frequency, sources and required output. Write a self-contained
+prompt: each execution starts a fresh session. Include needed paths/URLs, report
+scope, language and output requirements. Secretary workers receive recent work
+summaries, but do not automatically have mailbox/calendar access or the full
+conversation. Do not promise unavailable sources or actions.
 
----
+Choose a distinct lowercase name using `[a-z0-9_-]`. Check existing names first.
+Do not use POST to overwrite a plan; use PATCH when editing the intended plan.
 
-### 3. EDIT — Modify an existing task
+Ordinary task payload (the existing format remains valid):
 
-**Step 1**: Identify the task (if unclear, LIST first and ask)
-
-**Step 2**: Show current state via LIST or ask user to confirm
-
-**Step 3**: Update via API
-
-```bash
-# Update content only
-curl -s -X PATCH http://${CLACKY_SERVER_HOST}:${CLACKY_SERVER_PORT}/api/cron-tasks/task_name \
-  -H "Content-Type: application/json" \
-  -d '{"content": "new prompt content..."}'
-
-# Update cron schedule only
-curl -s -X PATCH http://${CLACKY_SERVER_HOST}:${CLACKY_SERVER_PORT}/api/cron-tasks/task_name \
-  -H "Content-Type: application/json" \
-  -d '{"cron": "0 8 * * 1-5"}'
-
-# Update both
-curl -s -X PATCH http://${CLACKY_SERVER_HOST}:${CLACKY_SERVER_PORT}/api/cron-tasks/task_name \
-  -H "Content-Type: application/json" \
-  -d '{"content": "...", "cron": "0 8 * * 1-5"}'
+```json
+{
+  "name": "daily_file_summary",
+  "content": "Read the specified project notes and write the requested daily summary to the agreed output path. Include the actual paths and acceptance criteria here.",
+  "cron": "0 9 * * *",
+  "enabled": true
+}
 ```
 
-**Step 4**: Confirm changes
+For secretary work, use the same payload fields and add:
 
-```
-✅ Task updated!
-📋 daily_standup
-  Schedule: 0 9 * * 1-5 → 0 8 * * 1-5 (now weekdays at 08:00)
-```
-
----
-
-### 4. ENABLE / DISABLE — Toggle a task
-
-```bash
-# Disable
-curl -s -X PATCH http://${CLACKY_SERVER_HOST}:${CLACKY_SERVER_PORT}/api/cron-tasks/task_name \
-  -H "Content-Type: application/json" \
-  -d '{"enabled": false}'
-
-# Enable
-curl -s -X PATCH http://${CLACKY_SERVER_HOST}:${CLACKY_SERVER_PORT}/api/cron-tasks/task_name \
-  -H "Content-Type: application/json" \
-  -d '{"enabled": true}'
+```json
+{
+  "name": "morning_report",
+  "title": "Morning report",
+  "content": "Summarize current work progress, completed items, blockers and decisions needed. Report in the user's requested language through the secretary.",
+  "cron": "0 9 * * *",
+  "enabled": true,
+  "owner_session_id": "<actual current CLACKY_SESSION_ID>"
+}
 ```
 
-Confirm:
-```
-✅ daily_standup has been disabled.
-   To re-enable: say "enable daily_standup"
-```
+Read the actual session ID from the terminal environment; never submit the
+placeholder or guess an ID. The API validates that the owner is a secretary.
+Omit owner_session_id and title for ordinary tasks. Do not send a raw target hash.
+For secretary notifications, use the existing X-Lang header (zh/en) when the
+user's language is known.
 
----
+Serialize the selected payload into a temporary JSON file, preserving literal
+user text. Then POST it with `Content-Type: application/json` and
+`--data-binary @<payload-file>`; do not interpolate user content into shell code.
+The API requires a cron expression, even for a plan initially disabled.
 
-### 5. DELETE — Remove a task
+After success, confirm the time and destination:
 
-Always confirm before deleting (unless the user has explicitly said to delete):
+- Ordinary: the task runs in an independent session; results are available in
+  Tasks / the execution session (plus any output explicitly requested).
+- Secretary: each occurrence creates work and reports back to its owning
+  secretary conversation. The Work panel shows progress.
 
-```
-⚠️ Are you sure you want to delete daily_standup? This cannot be undone.
-```
+Do not tell users that an ordinary task will report to the current conversation.
 
-```bash
-curl -s -X DELETE http://${CLACKY_SERVER_HOST}:${CLACKY_SERVER_PORT}/api/cron-tasks/task_name
-```
+## 3. Edit
 
----
+Read the selected plan, retain its type and owner, and PATCH only requested fields:
 
-### 6. HISTORY — View run history
-
-Read the daily log files directly:
-
-```bash
-grep "task_name" ~/.clacky/logger/clacky-$(date +%Y-%m-%d).log | tail -20
+```json
+{"cron": "0 18 * * *"}
 ```
 
-Or search across recent days:
-```bash
-grep -h "task_name" ~/.clacky/logger/clacky-*.log | tail -30
+```json
+{"content": "Updated self-contained instructions"}
 ```
 
-Display format:
-```
-📊 Run History: ai_news_x_daily
+The supported fields are content, cron and enabled. Omitted fields remain intact.
+Neither owner_session_id nor title is editable through this endpoint. Report the
+actual changed fields after success. Editing an ordinary task from a secretary
+conversation leaves it ordinary; editing secretary work from another conversation
+leaves its result destination unchanged.
 
-Mar 10  19:00  ❌ Failed  — JSON::ParserError: unexpected end of input
-Mar 09  19:00  ✅ Success — took 1m 42s
-Mar 08  19:00  ✅ Success — took 2m 10s
-```
+## 4. Enable or disable
 
----
+PATCH `{"enabled": false}` to pause future occurrences, or
+`{"enabled": true}` to enable them. Re-enabling starts from the next future slot;
+it does not backfill the disabled period.
 
-### 7. RUN NOW — Execute immediately
+For both types, disabling a plan does not interrupt an execution already created.
+For secretary work, if the user also wants an existing work item paused/cancelled,
+handle that separately through the owning secretary's work-management path.
+manage_work manages work cards, not cron plans.
 
-```bash
-curl -s -X POST http://${CLACKY_SERVER_HOST}:${CLACKY_SERVER_PORT}/api/cron-tasks/task_name/run
-```
+## 5. Delete
 
-This creates a new session. Tell the user:
-```
-▶️ Task started in a new session.
-   View it in the Clacky WebUI → Sessions panel.
-```
+DELETE the selected plan by its exact name. An explicit deletion request already
+authorizes deletion; clarify only if the intended plan is ambiguous. Explain that
+removing the plan stops future occurrences, not existing executions or their
+history. Do not cancel a work card merely because its plan was deleted.
 
----
+## 6. History and results
 
-### 8. TEMPLATES — Browse common task templates
+Use the saved type, not the current conversation, to choose the history source:
 
-When user says "what templates are there" or "what can I automate":
+- Ordinary: GET /api/cron-runs with task set to the plan's name. Show statuses and
+  link/reference the returned execution session. Logs under ~/.clacky/logger/
+  can help diagnose failures if run metadata is insufficient.
+- Secretary: GET /api/ext/secretary/work with session_id set to the saved
+  target.owner_session_id. Select cards whose schedule_name equals the plan name.
+  Show scheduled_at, status and progress; use the card's session_id for execution
+  details. Results return to the saved owner. Do not use cron-run history as the
+  source of completion status for these plans.
 
-```
-📚 Common Task Templates — pick one to get started:
+Missing records are not evidence of success or failure. Describe what is known.
 
-1. 📰 AI News Digest       — Daily fetch of AI news from X/RSS, generate Markdown report
-2. 💰 Price Monitor        — Check crypto/stock prices on a schedule, log alerts on anomalies
-3. 📊 Weekly Work Summary  — Every Monday, summarize last week's work into a report
-4. 🌤 Weather Reminder     — Fetch weather every morning and save to file
-5. 🔍 Competitor Monitor   — Periodically scrape competitor sites for changes
-6. 📝 Journal Prompt       — Evening reminder to journal with daily reflection questions
-7. 🔗 Link Health Check    — Periodically verify specified URLs are accessible
-8. 📂 File Backup          — Regularly back up a specified directory to another location
+## 7. Run now
 
-Tell me which one interests you, or describe your own use case!
-```
+POST /api/cron-tasks/:name/run for either type. This does not change the recurrence.
 
----
+- Ordinary: the API prepares an execution session. Open the returned session in
+  the existing UI to start/view the pending run. Do not claim completion from 202.
+- Secretary: the API queues a work card and returns its worker session. The result
+  will return to the saved secretary owner, even if requested from another chat.
+  If 409 reports an unfinished previous work or unavailable owner, explain the
+  blocker; do not bypass it by creating an ordinary task or a duplicate plan.
 
-## Important Notes
+## Timing and templates
 
-- Task names: only `[a-z0-9_-]`, no spaces, no uppercase
-- Task prompt files must be **self-contained** — the executing agent has no prior memory
-- Clacky server must be running for cron to trigger automatically (checked every minute)
-- The WebUI Task Panel is the preferred interface for managing tasks — always remind the user to check it after changes
+The server checks schedules roughly once per minute and must be running/resumed.
+Cron does not wake a paused sandbox. Tracked missed occurrences collapse to the
+latest one. Older plans without a stored cursor begin tracking when first loaded;
+do not promise recovery of a pre-upgrade backlog.
+
+For secretary plans, only one unfinished work item per plan is allowed. A waiting,
+paused, failed or decision-needed item blocks the next occurrence until resolved
+or cancelled. Ordinary plans retain their existing execution behavior; do not
+apply this worker restriction to them.
+
+| Expression | Meaning in server-local time |
+|---|---|
+| 0 9 * * 1-5 | Weekdays at 09:00 |
+| 0 9 * * * | Daily at 09:00 |
+| 0 20 * * * | Daily at 20:00 |
+| 0 */2 * * * | Every two hours |
+| */30 * * * * | Every 30 minutes |
+| 0 9 1 * * | First day of each month at 09:00 |
+
+Offer templates appropriate to the selected execution type. Research digests,
+work-progress reports and competitor monitoring can fit secretary workers.
+File-writing reports, backups and shell-based checks use ordinary task capabilities
+and permissions. Include actual inputs and output requirements before creating a
+template-derived task; a template is not proof that a data source is connected.

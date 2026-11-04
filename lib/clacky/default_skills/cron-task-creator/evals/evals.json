@@ -33,6 +33,51 @@
         "显示了变更前后的对比",
         "任务文件内容未被修改"
       ]
+    },
+    {
+      "id": 4,
+      "prompt": "当前是普通会话。帮我每天早上9点生成一份早报，在独立执行会话里查看。",
+      "expected_output": "使用原有 cron API 创建普通任务，不因早报名称而添加秘书归属。",
+      "assertions": [
+        "POST 不包含 owner_session_id",
+        "使用 cron 0 9 * * *",
+        "说明独立执行会话的结果位置，不承诺回到当前对话"
+      ]
+    },
+    {
+      "id": 5,
+      "prompt": "当前是秘书会话，CLACKY_SESSION_ID 是有效秘书会话。每天晚上8点汇总我的工作进展，并在这里告诉我。",
+      "expected_output": "通过同一个 cron skill/API 创建有秘书归属的计划。",
+      "assertions": [
+        "从环境读取实际 CLACKY_SESSION_ID 作为 owner_session_id",
+        "使用 cron 0 20 * * *",
+        "不调用 manage_work 创建计划",
+        "说明结果回到归属秘书会话",
+        "不要求 timezone 参数"
+      ]
+    },
+    {
+      "id": 6,
+      "prompt": "当前是秘书会话。把旧任务 daily_file_summary 改到每天18点。GET 显示该计划没有 target。",
+      "expected_output": "只 PATCH cron，保留普通任务执行方式。",
+      "assertions": [
+        "使用 PATCH 而非删除重建",
+        "只修改 cron 为 0 18 * * *",
+        "不添加 owner_session_id 或改变执行类型",
+        "不修改任务内容"
+      ]
+    },
+    {
+      "id": 7,
+      "prompt": "当前是普通会话。查看 morning_report 的结果并立刻运行一次。GET 显示该计划 target.type 为 secretary_work，归属会话为 secretary_a。",
+      "expected_output": "依据保存的秘书目标选择工作历史和运行结果目的地。",
+      "assertions": [
+        "通过归属会话的 work API 并按 schedule_name 查询工作记录",
+        "调用原 cron run API",
+        "说明结果仍回到 secretary_a，不回到当前会话",
+        "不将缺少 cron last_run 当作没有执行过",
+        "409 时不绕过限制创建普通任务"
+      ]
     }
   ]
 }

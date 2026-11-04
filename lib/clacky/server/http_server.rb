@@ -277,11 +277,12 @@ module Clacky
         @scheduler       = Scheduler.new(
           session_registry: @registry,
           session_builder:  method(:build_session),
-          task_runner:      method(:run_agent_task)
+          task_runner:      method(:run_agent_task),
+          scheduled_dispatcher: ->(plan, prompt, due) { @work_service.dispatch_schedule(plan, prompt, due) }
         )
         @work_service = Clacky::Work::Service.new(
           store: Clacky::Work::Store.new(File.join(sessions_dir || Clacky::SessionManager::SESSIONS_DIR, "work", "state.json")),
-          registry: @registry, build_session: method(:build_session),
+          registry: @registry, build_session: method(:build_session), scheduler: @scheduler,
           submit_task: method(:run_session_task), interrupt: method(:interrupt_session),
           persist: ->(agent) { @session_manager.save(agent.to_session_data) },
           publish: ->(sid, type) { broadcast(sid, { type: type, session_id: sid }) }
@@ -5224,8 +5225,18 @@ module Clacky
           return json_response(res, 422, { error: "cron must have 5 fields (min hour dom month dow)" })
         end
 
-        @scheduler.create_cron_task(name: name, content: content, cron: cron, enabled: enabled)
+        target = nil
+        if body.key?("owner_session_id")
+          owner_id = body["owner_session_id"].to_s.strip
+          return json_response(res, 422, { error: "owner_session_id is required for secretary plans" }) if owner_id.empty?
+          title = body["title"].to_s.strip
+          target = @work_service.schedule_target(owner_id, title: title.empty? ? name : title)
+        end
+        @scheduler.create_cron_task(name: name, content: content, cron: cron, enabled: enabled,
+                                    target: target)
         json_response(res, 201, { ok: true, name: name })
+      rescue ArgumentError => e
+        json_response(res, 422, { error: e.message })
       end
 
       # PATCH /api/cron-tasks/:name — update content and/or cron/enabled
@@ -5242,6 +5253,8 @@ module Clacky
 
         @scheduler.update_cron_task(name, content: content, cron: cron, enabled: enabled)
         json_response(res, 200, { ok: true, name: name })
+      rescue ArgumentError => e
+        json_response(res, 422, { error: e.message })
       rescue => e
         json_response(res, 404, { error: e.message })
       end
@@ -5274,6 +5287,13 @@ module Clacky
       def api_run_cron_task(name, res)
         unless @scheduler.list_tasks.include?(name)
           return json_response(res, 404, { error: "Cron task not found: #{name}" })
+        end
+
+        schedule = @scheduler.schedules.find { |plan| plan["task"] == name }
+        if schedule && schedule["target"]
+          card = @work_service.dispatch_schedule(schedule, @scheduler.read_task(name), Time.now)
+          return json_response(res, 409, { error: "Previous work is unfinished or its owner is unavailable" }) unless card
+          return json_response(res, 202, { ok: true, session: @registry.session_summary(card["session_id"]) })
         end
 
         prompt       = @scheduler.read_task(name)

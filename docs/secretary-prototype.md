@@ -104,3 +104,45 @@ there is no string-based history repair.
 Future versions can add controlled outbound channels and additional worker
 profiles. Do not lift the tool allowlist until those actions have corresponding
 authorization and idempotency handling.
+
+
+## Recurring secretary work
+
+The existing cron-task-creator skill and cron-task API own all plan management.
+The secretary supplies owner_session_id from CLACKY_SESSION_ID, a friendly title,
+a self-contained content prompt, cron when creating
+through POST /api/cron-tasks. The API validates the owner and saves an execution
+target. Existing GET/PATCH/DELETE/RUN routes manage the same plan; PATCH preserves
+its target. The global API remains the user's management surface; the skill selects
+plans by target.owner_session_id before changing them. Duplicate creates cannot
+overwrite a secretary plan; use PATCH or a distinct name. manage_work remains
+limited to individual work cards; there are no schedule-management tool actions.
+
+For example, ask the secretary to prepare a morning report at 09:00 and an evening
+report at 20:00 in server-local time. Specify sources and report scope; the prototype
+has no automatic mailbox/calendar access. Each occurrence creates a fresh worker
+session and durable work card; results return through the ordinary outbox and
+friendly display_text path. Workers receive the plan instruction, occurrence time
+and up to 50 recent work summaries. The work aside shows plans and their next due
+time; changes are discussed in the existing conversation. Existing cron-task
+management APIs also list/manage these plans; Run Now follows the work-card path.
+
+Plans and prompts reuse schedules.yml and tasks/*.md. Next occurrence timestamps
+are saved atomically. A restored process or resumed sandbox catches up only the
+latest missed occurrence. A secretary occurrence is deduplicated by plan ID and
+scheduled UTC instant in the work store, including when the plan cursor failed to
+save after card creation. One unfinished card per plan is allowed: queued, running,
+waiting, paused, failed and decision-needed work blocks the next occurrence until
+resolved or cancelled. Pausing/deleting a plan does not cancel existing cards;
+re-enabling or changing its timing starts from the next future occurrence.
+
+Schedules use server-local time. Legacy plans without a cursor
+begin tracking at the first scheduler tick (no invented pre-upgrade backlog).
+Existing cron DOM/DOW AND semantics are retained. Receipt-based crash deduplication
+is provided by secretary work cards; ordinary cron sessions keep their existing
+execution path and do not gain an exactly-once execution guarantee.
+
+No external wakeup service is introduced. Cron cannot execute while the sandbox is
+paused; once something resumes it, due scanning continues. Existing yield_work
+and check_at behavior is unchanged. Email subscriptions and cloud lifecycle APIs
+remain outside this change.

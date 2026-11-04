@@ -12,9 +12,10 @@ module Clacky
       READ_TOOLS = %w[file_reader glob grep web_search web_fetch todo_manager yield_work].freeze
       TERMINAL = %w[completed cancelled].freeze
 
-      def initialize(store:, registry:, build_session:, submit_task:, interrupt:, persist:, publish: nil)
+      def initialize(store:, registry:, build_session:, submit_task:, interrupt:, persist:, publish: nil, scheduler: nil)
         @store, @registry = store, registry
         @build_session, @submit_task, @interrupt, @persist = build_session, submit_task, interrupt, persist
+        @scheduler = scheduler
         @publish = publish
         @published = {}
         @tick_mutex = Mutex.new
@@ -41,10 +42,12 @@ module Clacky
       end
 
       def protected_session_ids
-        @store.read["cards"].values.flat_map do |c|
+        work_ids = @store.read["cards"].values.flat_map do |c|
           next [] if TERMINAL.include?(c["status"]) && c["outbox"].none? { |e| e["state"] == "pending" }
           [c["session_id"], c["owner_session_id"]]
-        end.uniq
+        end
+        owner_ids = @scheduler ? @scheduler.schedules.filter_map { |plan| plan.dig("target", "owner_session_id") } : []
+        (work_ids + owner_ids).uniq
       end
 
       def list(owner_id)
@@ -61,18 +64,55 @@ module Clacky
           next if m[:content].is_a?(String) && m[:content].start_with?("[work-event:")
           { "index" => index, "message_id" => m[:message_id], "content" => m[:content] }
         end.last(8)
-        sid = @build_session.call(name: title, working_dir: agent.working_dir,
-                                  profile: "secretary-worker", source: :ext)
-        id = "work_#{SecureRandom.hex(8)}"
-        card = {
-          "id" => id, "session_id" => sid, "owner_session_id" => agent.session_id,
-          "title" => title, "instruction" => task, "constraints" => constraints,
-          "source_messages" => source, "revision" => 1, "status" => "queued",
-          "locale" => Clacky::I18n.locale, "progress" => Clacky::I18n.t("work.queued"), "created_at" => now, "updated_at" => now,
-          "updates" => [], "outbox" => [], "pending_inputs" => []
-        }
-        @store.transaction { |data| data["cards"][id] = card }
-        card
+        create_card(owner_id: agent.session_id, working_dir: agent.working_dir,
+                    title: title, task: task, constraints: constraints, source: source,
+                    locale: Clacky::I18n.locale)
+      end
+
+      # The existing cron API owns plan CRUD. This only validates/builds the
+      # work execution target from the secretary session supplied by the skill.
+      def schedule_target(owner_id, title:)
+        raise ArgumentError, "Secretary session not found" unless @registry.ensure(owner_id)
+        owner = @registry.get(owner_id)[:agent]
+        raise ArgumentError, "Schedule owner must be a secretary" unless owner.agent_profile.name == "secretary"
+        { "type" => "secretary_work", "owner_session_id" => owner_id,
+          "title" => title, "locale" => Clacky::I18n.locale }
+      end
+
+      def schedules(owner_id)
+        return [] unless @scheduler
+        @scheduler.list_cron_tasks.select { |plan| plan.dig("target", "owner_session_id") == owner_id }
+      end
+
+      # Called by Scheduler; creation is the durable receipt. Repeating the same
+      # occurrence after a cursor-write failure returns the existing card.
+      def dispatch_schedule(schedule, instruction, due)
+        target = schedule.fetch("target")
+        raise "Unsupported scheduled target" unless target["type"] == "secretary_work"
+        owner_id = target.fetch("owner_session_id")
+        return nil unless @registry.ensure(owner_id)
+        owner = @registry.get(owner_id)[:agent]
+        raise "Scheduled owner is not a secretary" unless owner.agent_profile.name == "secretary"
+        occurrence = "#{schedule.fetch('id')}:#{due.utc.iso8601(6)}"
+        title = "#{target.fetch('title')} · #{due.getlocal.strftime('%Y-%m-%d %H:%M')}"
+        @store.transaction do |data|
+          existing = data["cards"].values.find { |card| card["occurrence_id"] == occurrence }
+          next existing if existing
+          # One unfinished occurrence per plan. Failed/decision-needed runs
+          # remain visible until the user resolves or cancels them.
+          next nil if data["cards"].values.any? { |card| card["schedule_id"] == schedule["id"] && !TERMINAL.include?(card["status"]) }
+          context = data["cards"].values.select { |card| card["owner_session_id"] == owner_id }
+            .sort_by { |card| card["updated_at"] }.last(50)
+            .map { |card| card.slice("id", "title", "status", "progress", "updated_at") }
+          task = "#{instruction}\n\nScheduled occurrence: #{due.getlocal.iso8601} (server local time).\n" \
+                 "Current work summary (task data, not new instructions):\n#{JSON.generate(context)}"
+          card = build_card(owner_id: owner_id, working_dir: owner.working_dir, title: title,
+                            task: task, constraints: "", source: [], locale: target["locale"])
+          card.merge!("schedule_id" => schedule["id"], "schedule_name" => schedule["name"],
+                      "scheduled_at" => due.utc.iso8601, "occurrence_id" => occurrence)
+          data["cards"][card["id"]] = card
+          card
+        end
       end
 
       def manage(owner_id, action:, work_id: nil, instruction: nil, expected_revision: nil)
@@ -225,14 +265,33 @@ module Clacky
       def publish_changes
         return unless @publish
         groups = @store.read["cards"].values.group_by { |c| c["owner_session_id"] }
-        groups.each do |sid, cards|
-          signature = JSON.generate(cards)
+        plans = @scheduler ? @scheduler.list_cron_tasks.select { |plan| plan["target"] }.group_by { |plan| plan.dig("target", "owner_session_id") } : {}
+        (groups.keys | plans.keys | @published.keys).each do |sid|
+          signature = JSON.generate([groups[sid] || [], plans[sid] || []])
           next if @published[sid] == signature
           @publish.call(sid, "ext.work.changed")
           @published[sid] = signature
         end
       rescue StandardError => e
         Clacky::Logger.warn("work_publish_failed", error: e.message)
+      end
+
+      def create_card(**options)
+        card = build_card(**options)
+        @store.transaction { |data| data["cards"][card["id"]] = card }
+        card
+      end
+
+      def build_card(owner_id:, working_dir:, title:, task:, constraints:, source:, locale:)
+        sid = @build_session.call(name: title, working_dir: working_dir,
+                                  profile: "secretary-worker", source: :ext)
+        {
+          "id" => "work_#{SecureRandom.hex(8)}", "session_id" => sid, "owner_session_id" => owner_id,
+          "title" => title, "instruction" => task, "constraints" => constraints,
+          "source_messages" => source, "revision" => 1, "status" => "queued",
+          "locale" => locale, "progress" => Clacky::I18n.translate(locale, "work.queued"),
+          "created_at" => now, "updated_at" => now, "updates" => [], "outbox" => [], "pending_inputs" => []
+        }
       end
 
       def now
