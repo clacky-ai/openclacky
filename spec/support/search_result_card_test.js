@@ -1,6 +1,6 @@
 "use strict";
 
-// Regression harness for promoting web_search results into their own card.
+// Regression harness for promoting structured tool UIs into their own card.
 //
 // The structured result used to be injected into the tool-item's stdout, which
 // _completeToolItem hides the moment the tool finishes — so the card was only
@@ -34,6 +34,7 @@ class Element {
     this._className = "";
     this._innerHTML = "";
     this.textContent = "";
+    this.contentWindow = { postMessage() {} };
     this.classList = {
       add: n => this.classes.add(n),
       remove: n => this.classes.delete(n),
@@ -123,6 +124,7 @@ class Element {
 
 function boot() {
   const nodes = {};
+  const windowHandlers = {};
   const unrefTimeout = (fn, ms, ...args) => {
     const timer = setTimeout(fn, ms, ...args);
     if (timer.unref) timer.unref();
@@ -136,6 +138,7 @@ function boot() {
     querySelector: () => null,
     querySelectorAll: () => [],
     body: new Element(),
+    documentElement: { getAttribute: () => "light" },
   };
 
   const context = {
@@ -163,7 +166,9 @@ function boot() {
     Composer: autoStub({ text: () => "", chips: () => [] }),
     IME: autoStub({ track: () => ({ isComposing: () => false, dispose() {} }) }),
     alert() {},
+    addEventListener(type, handler) { windowHandlers[type] = handler; },
   };
+  context.__windowHandlers = windowHandlers;
   context.window = context;
   context.globalThis = context;
   vm.createContext(context);
@@ -195,7 +200,15 @@ const PAYLOAD = {
   ],
 };
 
+const ARTIFACT_PAYLOAD = {
+  artifact_id: "d".repeat(64),
+  title: "Release timeline",
+  height: 480,
+};
+const ARTIFACT_REFERENCE = `visualize${JSON.stringify(ARTIFACT_PAYLOAD)}`;
+
 const cardsIn = messages => messages.children.filter(c => c.classes.has("search-card"));
+const artifactsIn = messages => messages.children.filter(c => c.classes.has("artifact-card"));
 
 async function tests() {
   // 1. Live search: the card is a sibling of the tool group, not stdout content.
@@ -357,6 +370,61 @@ async function tests() {
     onClick({ target: btn, preventDefault() {}, stopPropagation() {} });
     assert.ok(card.classes.has("is-collapsed"), "clicking again collapses the card");
     assert.match(btn.textContent, /Show all 5 results/, "the button offers the full list again");
+  }
+
+  // 11. A live assistant content reference becomes an artifact card while
+  //     the surrounding Markdown remains an ordinary assistant message.
+  {
+    const { Sessions, messages } = boot();
+    Sessions.appendMsg("assistant", `Here is the timeline.\n\n${ARTIFACT_REFERENCE}`);
+
+    const cards = artifactsIn(messages);
+    assert.equal(cards.length, 1, "one standalone artifact card is appended");
+    assert.match(cards[0].innerHTML, /Release timeline/, "the visualization title is shown");
+    assert.match(cards[0].innerHTML,
+      /artifact-card-icon">\s*<svg[^>]*stroke-width="1\.8"[^>]*><path d="M8\.5 15\.5 15\.5 8\.5"\/><circle cx="6" cy="6" r="3\.5"\/><circle cx="18" cy="6" r="3\.5"\/><circle cx="6" cy="18" r="3\.5"\/><circle cx="18" cy="18" r="3\.5"\/><\/svg>/,
+      "the visualization uses the connected-nodes icon at the standard stroke weight");
+    assert.match(cards[0].innerHTML, /src="\/api\/artifacts\/d{64}"/, "the content-addressed endpoint is used");
+    assert.match(cards[0].innerHTML, /sandbox="allow-scripts"/, "the iframe permits scripts only");
+    assert.ok(!cards[0].innerHTML.includes("allow-same-origin"), "the iframe keeps an opaque origin");
+    const bubble = messages.children.find(c => c.classes.has("msg-assistant"));
+    assert.match(bubble.innerHTML, /Here is the timeline/, "the text explanation remains visible");
+    assert.ok(!bubble.dataset.raw.includes("visualize"), "copy text excludes the host-only reference");
+  }
+
+  // 12. History replay parses the same persisted assistant content reference.
+  {
+    const { Sessions, messages, context } = boot();
+    context.__historyEvents = [
+      { type: "assistant_message", content: `Saved view.\n\n${ARTIFACT_REFERENCE}` },
+    ];
+    Sessions._setActiveId("sess-artifact");
+    await Sessions.loadHistory("sess-artifact");
+
+    assert.equal(artifactsIn(messages).length, 1, "replayed artifact renders one standalone card");
+  }
+
+  // 13. A ResizeObserver message also marks the artifact ready. In a fast
+  //     iframe, this can arrive after the initial ready post raced the parent.
+  {
+    const { Sessions, messages, context } = boot();
+    Sessions.appendMsg("assistant", ARTIFACT_REFERENCE);
+
+    const card = artifactsIn(messages)[0];
+    const frame = card.querySelector(".artifact-card-frame");
+    card.classList.add("is-error");
+    context.__windowHandlers.message({
+      source: frame.contentWindow,
+      data: {
+        type: "clacky:artifact-resize",
+        artifact_id: ARTIFACT_PAYLOAD.artifact_id,
+        height: 388,
+      },
+    });
+
+    assert.ok(card.classes.has("is-ready"), "a valid resize proves the frame loaded");
+    assert.ok(!card.classes.has("is-error"), "a late valid message clears the timeout error");
+    assert.equal(frame.style.height, "388px", "the measured artifact height is applied");
   }
 }
 
