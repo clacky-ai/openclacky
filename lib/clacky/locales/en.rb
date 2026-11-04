@@ -3,6 +3,8 @@
 module Clacky
   module Locales
     EN = {
+      "work.delegating" => "Delegate: %<title>s",
+      "work.delegated" => "Created work item “%<title>s”, waiting to start. Follow its progress in the Work panel.",
       "work.queued" => "Waiting to start",
       "work.cancelled" => "Cancelled by you",
       "work.paused" => "Paused; add instructions to continue",

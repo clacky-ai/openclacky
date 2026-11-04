@@ -3,6 +3,8 @@
 module Clacky
   module Locales
     ZH = {
+      "work.delegating" => "委派：%<title>s",
+      "work.delegated" => "已创建工作事项「%<title>s」，等待执行。可在工作事项面板跟进。",
       "work.queued" => "等待执行",
       "work.cancelled" => "用户已取消",
       "work.paused" => "用户已暂停，补充要求后可继续",

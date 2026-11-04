@@ -99,6 +99,15 @@ RSpec.describe Clacky::Work::Service do
     expect(current["status"]).to eq("running")
   end
 
+  it "keeps display summaries separate from reports and clears them on owner updates" do
+    running
+    service.yield_work(worker, reason: "needs_user", summary: "Detailed evidence and internal references", display_summary: "Raise the budget?")
+    expect(current["display_summary"]).to eq("Raise the budget?")
+    expect(current["outbox"].last["text"]).to eq("Detailed evidence and internal references")
+    service.manage("owner", action: "reply", work_id: card["id"], instruction: "Yes")
+    expect(current).not_to have_key("display_summary")
+  end
+
   it "records waiting without notifying the secretary" do
     running
     service.yield_work(worker, reason: "waiting_reply", summary: "等回复")

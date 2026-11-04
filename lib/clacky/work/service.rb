@@ -132,6 +132,7 @@ module Clacky
           c["outbox"].each { |e| e["state"] = "superseded" if e["state"] == "pending" }
           if %w[cancel pause].include?(action)
             c["status"] = action == "cancel" ? "cancelled" : "paused"
+            c.delete("display_summary")
             c["progress"] = translate(c, action == "cancel" ? "cancelled" : "paused")
             c.delete("waiting")
             c["pending_inputs"] = []
@@ -139,6 +140,7 @@ module Clacky
             raise "Instruction is required" if instruction.to_s.strip.empty?
             c["updates"] << { "revision" => c["revision"], "text" => instruction, "at" => now, "source" => "owner" }
             c["pending_inputs"] << { "kind" => "owner_update", "text" => instruction }
+            c.delete("display_summary")
             c["status"] = "queued"
             c.delete("waiting")
           end
@@ -150,7 +152,7 @@ module Clacky
         result
       end
 
-      def yield_work(agent, reason:, summary:, check_at: nil, channel: nil, conversation_id: nil, reply_to: nil)
+      def yield_work(agent, reason:, summary:, display_summary: nil, check_at: nil, channel: nil, conversation_id: nil, reply_to: nil)
         raise "Unknown yield reason" unless %w[waiting_reply needs_user completed].include?(reason)
         raise "Summary is required" if summary.to_s.strip.empty?
         deadline = check_at.to_s.empty? ? nil : Time.iso8601(check_at).utc.iso8601
@@ -162,7 +164,10 @@ module Clacky
         @store.transaction do |data|
           c = current_work!(data, agent)
           c["status"] = { "waiting_reply" => "waiting_reply", "needs_user" => "waiting_user", "completed" => "completed" }.fetch(reason)
+          c.delete("display_summary")
           c["progress"] = summary
+          concise = display_summary.to_s.strip
+          c["display_summary"] = concise if !concise.empty? && concise.length <= 100
           c["updated_at"] = now
           if reason == "waiting_reply"
             c["waiting"] = { "check_at" => deadline, "channel" => channel,
@@ -229,6 +234,7 @@ module Clacky
           data["cards"].each_value do |c|
             next unless c["status"] == "running"
             c["status"] = "failed"
+            c.delete("display_summary")
             c["progress"] = translate(c, "interrupted")
             notify(c, "failed", c["progress"])
           end
@@ -244,6 +250,7 @@ module Clacky
               match_events(data, c)
               deadline = c.dig("waiting", "check_at")
               next unless c["status"] == "waiting_reply" && deadline && Time.iso8601(deadline) <= Time.now
+              c.delete("display_summary")
               c["status"] = "queued"
               c["pending_inputs"] << { "kind" => "deadline", "text" => "The waiting deadline has passed. Decide the next step; this does not authorize reminders or sending messages." }
               c.delete("waiting")
@@ -337,6 +344,7 @@ module Clacky
           live = data["cards"][snapshot["id"]]
           next unless live["status"] == "queued"
           live["status"] = "running"
+          live.delete("display_summary")
           live["progress"] = translate(live, "running")
           live["updated_at"] = now
           live
@@ -372,6 +380,7 @@ module Clacky
           live = data["cards"][c["id"]]
           next unless live && live["status"] == "running" && live["revision"] == c["revision"]
           live["status"] = "failed"
+          live.delete("display_summary")
           live["progress"] = error || translate(live, "missing_result")
           notify(live, "failed", live["progress"])
         end
@@ -457,6 +466,7 @@ module Clacky
         e["work_id"] = c["id"]
         c["pending_inputs"] << { "kind" => "external_reply", "text" => e["text"], "event_id" => e["id"], "sender" => e["sender"] }
         c["status"] = "queued"
+        c.delete("display_summary")
         c["progress"] = translate(c, "reply_received")
         c.delete("waiting")
       end

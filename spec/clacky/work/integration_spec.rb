@@ -41,7 +41,7 @@ RSpec.describe "Secretary server integration" do
       expect(worker.tool_registry.tool_names).not_to include("terminal", "write", "invoke_skill", "delegate_work", "ask_user")
       allow(worker).to receive(:think) do
         calls = [
-          { id: "yield1", name: "yield_work", arguments: JSON.generate(reason: "completed", summary: "建议先确定日期，再比较交通。") },
+          { id: "yield1", name: "yield_work", arguments: JSON.generate(reason: "completed", summary: "建议先确定日期，再比较交通。", display_summary: "旅行建议已整理完成") },
           { id: "after-yield", name: "web_search", arguments: JSON.generate(query: "must not execute") }
         ]
         worker.history.append(role: "assistant", content: nil, tool_calls: calls)
@@ -51,6 +51,15 @@ RSpec.describe "Secretary server integration" do
       server.work_service.tick
       wait_thread(registry, card["session_id"])
       expect(server.work_service.list(owner_id).first["status"]).to eq("completed")
+      expect(server.work_service.list(owner_id).first["display_summary"]).to eq("旅行建议已整理完成")
+      yield_tool = worker.tool_registry.get("yield_work")
+      expect(yield_tool.ui_result(error: "rejected")).to be_nil
+      expect(yield_tool.format_call(reason: "completed", display_summary: "旅行建议已整理完成")).to eq("旅行建议已整理完成")
+      expected_ui = { type: "markdown", content: "建议先确定日期，再比较交通。" }
+      expect(live_events).to include([card["session_id"], hash_including(type: "tool_result", ui: expected_ui)])
+      worker_events = []
+      worker.replay_history(Clacky::Server::HistoryCollector.new(card["session_id"], worker_events))
+      expect(worker_events).to include(hash_including(type: "tool_result", ui: expected_ui))
       expect(worker).to have_received(:think).once
       allow(owner).to receive(:think) do
         owner.history.append(role: "assistant", content: "工作完成，以下是建议。", task_id: owner.instance_variable_get(:@current_task_id))
@@ -78,6 +87,28 @@ RSpec.describe "Secretary server integration" do
       expect(replay.instance_variable_get(:@events)).to include(hash_including(type: "assistant_message", content: "工作完成，以下是建议。"))
       expect(rendered.to_json).not_to include("work-event:", "这是工作结果", "返回 completed")
 
+    end
+  end
+
+  it "shows a friendly delegation receipt live and when replaying persisted cards" do
+    with_server(agent_config: config) do |server|
+      sid = server.send(:build_session, name: "Secretary", profile: "secretary")
+      owner = server.instance_variable_get(:@registry).get(sid)[:agent]
+      tool = owner.tool_registry.get("delegate_work")
+      card = tool.execute(title: "Check travel prices", task: "Private detailed instructions")
+      expect(tool.format_call(title: card["title"])).to eq("Delegate: Check travel prices")
+      expect(tool.format_result(card)).to include("waiting to start")
+      expected = tool.ui_result(card)
+      expect(expected[:content]).not_to include("Private detailed instructions", card["id"])
+      expect(tool.ui_result(error: "denied")).to be_nil
+      expect(tool.ui_result(card.merge("locale" => "zh"))[:content]).to include("等待执行")
+      owner.history.append(role: "assistant", content: nil, tool_calls: [
+        { id: "delegate", name: "delegate_work", arguments: JSON.generate(title: card["title"], task: "Private detailed instructions") }
+      ])
+      owner.history.append(role: "tool", tool_call_id: "delegate", content: JSON.generate(card))
+      events = []
+      owner.replay_history(Clacky::Server::HistoryCollector.new(sid, events))
+      expect(events).to include(hash_including(type: "tool_result", ui: expected))
     end
   end
 

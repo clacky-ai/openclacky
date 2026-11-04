@@ -79,9 +79,11 @@ class Element {
     ...Array.from({ length: 7 }, (_, i) => ({ id: 'done' + i, session_id: 'd' + i, title: '完成事项' + i, status: 'completed', progress: '完整结果', created_at: '2026-11-0' + (i + 1) }))
   ];
   await refresh();
-  const preview = visible(aside.root).find(n => n.className === 'secretary-work-preview' && n.textContent.startsWith('INTERNAL'));
-  assert(preview.textContent.length <= 141, 'output preview is bounded');
-  assert(!has(walk(aside.root), card.progress), 'full output does not flood the panel');
+  assert(!has(walk(aside.root), card.progress), 'legacy long reports stay in execution history');
+  card.display_summary = '正在比较两份报价';
+  await refresh();
+  assert(has(visible(aside.root), card.display_summary));
+  assert(!has(visible(aside.root), 'INTERNAL FULL REPORT'));
   const titles = visible(aside.root).filter(n => n.tag === 'strong').map(n => n.textContent);
   assert.equal(titles[0], '完成事项6', 'newest created item first regardless of status');
   assert.equal(titles[6], '完成事项0');
@@ -91,6 +93,7 @@ class Element {
   await refresh();
   assert(!has(visible(aside.root), '再次检查：'), 'do not promise a check without a deadline');
 
+  delete card.display_summary;
   card.status = 'waiting_reply'; card.progress = '等待张三回复'; extras = [];
   handlers['session:subscribed']({ sessionId: 'owner' }); await flush();
   assert(has(visible(banner.root), '等待 1 个回复'));
