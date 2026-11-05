@@ -28,8 +28,9 @@ module Clacky
       # bytes the caller passed in. Output is then normalised to UTF-8 because
       # git inherits the locale, and under a non-UTF-8 locale the raw bytes come
       # back tagged US-ASCII, where String#split would raise on multibyte paths.
+      # LC_ALL=C pins git's messages to English so the UI can recognise them.
       def git(dir, *args)
-        out, err, status = Open3.capture3("git", "-C", dir.to_s, "-c", "core.quotePath=false", *args)
+        out, err, status = Open3.capture3({ "LC_ALL" => "C" }, "git", "-C", dir.to_s, "-c", "core.quotePath=false", *args)
         [Utils::Encoding.to_utf8(out), Utils::Encoding.to_utf8(err), status.success?]
       rescue StandardError => e
         ["", e.message, false]

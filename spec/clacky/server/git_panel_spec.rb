@@ -778,6 +778,28 @@ RSpec.describe Clacky::Server::GitPanel, ".checkout" do
     expect(current).to eq(base)
   end
 
+  it "reports git errors in English regardless of the server locale" do
+    base = current
+    run "git", "checkout", "-q", "-b", "conflict"
+    write "a.txt", "conflict\n"
+    commit_all "conflict"
+    run "git", "checkout", "-q", base
+    write "a.txt", "uncommitted\n"
+
+    saved = ENV.to_h.slice("LC_ALL", "LANG", "LANGUAGE")
+    begin
+      ENV["LC_ALL"] = "zh_CN.UTF-8"
+      ENV["LANG"] = "zh_CN.UTF-8"
+      ENV["LANGUAGE"] = "zh_CN"
+      result = described_class.checkout(@dir, branch: "conflict")
+    ensure
+      %w[LC_ALL LANG LANGUAGE].each { |k| ENV[k] = saved[k] }
+    end
+
+    expect(result[:error]).to start_with("error: Your local changes")
+    expect(result[:error]).to include("a.txt", "Aborting")
+  end
+
   describe ".branch_name" do
     it "returns nil for a detached HEAD" do
       head = run("git", "rev-parse", "HEAD").strip
