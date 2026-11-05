@@ -11656,10 +11656,13 @@ button:focus-visible { outline: 2px solid var(--color-accent-primary); outline-o
 }
 .ext-row-menu-item:hover { background: var(--color-bg-hover); }
 /* Same treatment as .session-actions-menu-icon, so row menus match the
-   sidebar and workspace menus: neutral grey icon, red for destructive items. */
+   sidebar and workspace menus: neutral grey icon, red text only on hover. */
 .ext-row-menu-item svg { flex-shrink: 0; color: var(--color-text-secondary); }
-.ext-row-menu-danger { color: var(--color-error); }
-.ext-row-menu-danger svg { color: var(--color-error); }
+.ext-row-menu-item.ext-row-menu-danger:hover {
+  background: var(--color-error-bg);
+  color: var(--color-error);
+}
+.ext-row-menu-item.ext-row-menu-danger:hover svg { color: var(--color-error); }
 
 .extension-detail {
   flex: 1;

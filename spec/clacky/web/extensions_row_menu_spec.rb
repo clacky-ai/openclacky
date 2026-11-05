@@ -87,8 +87,9 @@ RSpec.describe "Extensions row action menu UI" do
     expect(view).to include('if (_menuBtn && _menuBtn.getAttribute("data-ext-more") === String(id)) _closeMenu();')
   end
 
-  it "themes uninstall as dangerous and floats the menu above the panel" do
-    expect(styles).to match(/\.ext-row-menu-danger \{ color: var\(--color-error\); \}/)
+  it "themes uninstall as dangerous on hover and floats the menu above the panel" do
+    expect(styles).to match(/\.ext-row-menu-item\.ext-row-menu-danger:hover \{.*?background: var\(--color-error-bg\);.*?color: var\(--color-error\);/m)
+    expect(styles).not_to match(/^\.ext-row-menu-danger \{ color: var\(--color-error\); \}/)
     expect(styles).to match(/\.ext-row-menu \{.*?position: fixed;.*?z-index: 1200;/m)
     expect(styles).to include(".ext-row-menu[hidden] { display: none; }")
   end
