@@ -136,17 +136,15 @@ module Clacky
           model_entry = @config.find_model_by_name_and_url(saved_model_name, saved_base_url)
           if model_entry && model_entry["id"]
             switch_model_by_id(model_entry["id"])
-          end
-        end
 
-        # Re-apply the per-session sub-model pin (if any). Done AFTER
-        # switch_model_by_id so the overlay isn't cleared by the card switch
-        # invariant. Validation happens at write-time (the WebUI/API enforces
-        # the name belongs to the card's provider) — at restore-time we trust
-        # what we previously wrote.
-        saved_sub_model = session_data.dig(:config, :sub_model)
-        if saved_sub_model && !saved_sub_model.to_s.empty?
-          set_session_sub_model(saved_sub_model)
+            # The sub-model pin belongs to the saved card's provider, so it is
+            # only re-applied when that card was found; on the fallback card it
+            # would pair a foreign model name with the wrong credentials.
+            saved_sub_model = session_data.dig(:config, :sub_model)
+            if saved_sub_model && !saved_sub_model.to_s.empty?
+              set_session_sub_model(saved_sub_model)
+            end
+          end
         end
 
         # Rebuild and refresh the system prompt so any newly installed skills
