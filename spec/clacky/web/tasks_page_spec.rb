@@ -6,6 +6,7 @@ RSpec.describe "Scheduled tasks page UI" do
   let(:store)   { File.read(File.join(web_dir, "features/tasks/store.js")) }
   let(:html)    { File.read(File.join(web_dir, "index.html")) }
   let(:styles)  { File.read(File.join(web_dir, "app.css")) }
+  let(:i18n)    { File.read(File.join(web_dir, "i18n.js")) }
 
   it "has scheduled / run-history tabs and a shared search box" do
     expect(html).to include('data-tab="tasks" data-i18n="tasks.tab.tasks"')
@@ -65,6 +66,24 @@ RSpec.describe "Scheduled tasks page UI" do
   it "loads run history from the API and opens the run's session" do
     expect(store).to include('fetch("/api/cron-runs")')
     expect(view).to include('Router.navigate("session", { id: r.session_id })')
+  end
+
+  it "offers starter examples in the empty state and sends their prompt to the AI" do
+    expect(view).to include("function _renderEmptyState()")
+    expect(view).to include('class="task-example" data-example="${ex.id}"')
+    expect(view).to include('Tasks.createInSession(I18n.t("tasks.examples." + ex.id + ".prompt"))')
+    expect(store).to include("createInSession(prompt)")
+    expect(store).to include("`/cron-task-creator ${command}`")
+    expect(styles).to include(".task-examples-grid {")
+    expect(styles).to include(".task-example:hover {")
+
+    %w[news daily weekly standup competitor words story why parents checkup].each do |id|
+      %w[title desc prompt].each do |field|
+        key = %("tasks.examples.#{id}.#{field}")
+        expect(i18n.scan(key).length).to eq(2), "#{key} must exist in both locales"
+      end
+    end
+    expect(i18n).to include("发送到我的飞书", "发送到我的钉钉")
   end
 
   it "opens the full prompt in a modal instead of expanding the card" do
