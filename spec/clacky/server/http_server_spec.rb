@@ -2257,8 +2257,8 @@ RSpec.describe Clacky::Server::HttpServer do
         server.send(:handle_user_message, sid, "hold that thought")
 
         expect(agent).to have_received(:enqueue_input).with(
-          "hold that thought", delivery: :queue, files: [], references_display: [],
-          reference_contexts: [], created_at: kind_of(Float)
+          "hold that thought", delivery: :queue, files: [], reference_contexts: [],
+          created_at: kind_of(Float)
         )
         expect(server).to have_received(:broadcast).with(
           sid, { type: "input_enqueued", session_id: sid, created_at: kind_of(Float) }
@@ -2277,8 +2277,8 @@ RSpec.describe Clacky::Server::HttpServer do
         server.send(:handle_user_message, sid, "steer me")
 
         expect(agent).to have_received(:enqueue_input).with(
-          "steer me", delivery: :steer, files: [], references_display: [],
-          reference_contexts: [], created_at: kind_of(Float)
+          "steer me", delivery: :steer, files: [], reference_contexts: [],
+          created_at: kind_of(Float)
         )
         expect(server).to have_received(:broadcast).with(
           sid, { type: "input_enqueued", session_id: sid, created_at: kind_of(Float) }
@@ -2327,15 +2327,14 @@ RSpec.describe Clacky::Server::HttpServer do
       agent
     end
 
-    # Drive the full message path (not build_reference_contexts directly) and
-    # record the keyword args handed to agent.run so we can assert on the
-    # reference_contexts that end up in the LLM request.
+    # Verify the server supplies resolved model context and reference metadata together.
     def send_reference_message(server, session_id, content, references)
       agent = seed_reference_agent(server, session_id)
       captured = {}
       allow(server).to receive(:run_agent_task) { |_sid, _a, &blk| blk.call }
       allow(agent).to receive(:run) { |*_args, **kwargs| captured[:kwargs] = kwargs }
       server.send(:handle_user_message, session_id, content, [], references: references)
+      captured[:contexts] = captured[:kwargs][:reference_contexts].filter_map { |ref| ref.is_a?(Hash) ? ref[:context] : ref }
       captured
     end
 
@@ -2347,10 +2346,10 @@ RSpec.describe Clacky::Server::HttpServer do
         refs = [{ "type" => "session", "session_id" => "past-123", "name" => "Past Chat" }]
         captured = send_reference_message(server, "sid-ref-1", "hello", refs)
 
-        expect(captured[:kwargs][:reference_contexts]).to eq([
+        expect(captured[:contexts]).to eq([
           "[Referenced conversation: Past Chat]\nSession ID: past-123\nSession file: /tmp/s/past-123.json"
         ])
-        expect(captured[:kwargs][:references_display]).to eq(refs)
+        expect(captured[:kwargs][:reference_contexts].map { |ref| ref.reject { |key, _| key.to_s == "context" } }).to eq(refs)
       end
     end
 
@@ -2362,7 +2361,7 @@ RSpec.describe Clacky::Server::HttpServer do
         captured = send_reference_message(server, "sid-ref-2", "hi",
           [{ "type" => "session", "session_id" => "past-456" }])
 
-        expect(captured[:kwargs][:reference_contexts]).to eq([
+        expect(captured[:contexts]).to eq([
           "[Referenced conversation: past-456]\nSession ID: past-456"
         ])
       end
@@ -2373,7 +2372,7 @@ RSpec.describe Clacky::Server::HttpServer do
         captured = send_reference_message(server, "sid-ref-3", "hi",
           [{ "type" => "session", "session_id" => "", "name" => "Empty" }])
 
-        expect(captured[:kwargs][:reference_contexts]).to eq([])
+        expect(captured[:contexts]).to eq([])
       end
     end
 
@@ -2382,10 +2381,10 @@ RSpec.describe Clacky::Server::HttpServer do
         refs = [{ "type" => "quote", "label" => "Assistant · #2", "text" => "The quick brown fox." }]
         captured = send_reference_message(server, "sid-ref-5", "what does this mean", refs)
 
-        expect(captured[:kwargs][:reference_contexts]).to eq([
+        expect(captured[:contexts]).to eq([
           "[Quoted excerpt from this conversation: Assistant · #2]\nThe quick brown fox."
         ])
-        expect(captured[:kwargs][:references_display]).to eq(refs)
+        expect(captured[:kwargs][:reference_contexts].map { |ref| ref.reject { |key, _| key.to_s == "context" } }).to eq(refs)
       end
     end
 
@@ -2396,13 +2395,13 @@ RSpec.describe Clacky::Server::HttpServer do
           { "type" => "quote", "label" => "Empty", "text" => "   " }
         ])
 
-        expect(captured[:kwargs][:reference_contexts]).to eq([
+        expect(captured[:contexts]).to eq([
           "[Quoted excerpt from this conversation]\njust the text"
         ])
       end
     end
 
-    it "ignores unknown types and non-hash entries" do
+    it "ignores unknown types and nil while retaining legacy text contexts" do
       with_server(agent_config: agent_config) do |server|
         sm = server.instance_variable_get(:@session_manager)
         allow(sm).to receive(:files_for).with("past-789").and_return(json_path: "/tmp/s/past-789.json")
@@ -2415,8 +2414,8 @@ RSpec.describe Clacky::Server::HttpServer do
         ]
         captured = send_reference_message(server, "sid-ref-4", "hi", refs)
 
-        expect(captured[:kwargs][:reference_contexts]).to eq([
-          "[Referenced conversation: Kept]\nSession ID: past-789\nSession file: /tmp/s/past-789.json"
+        expect(captured[:contexts]).to eq([
+          "[Referenced conversation: Kept]\nSession ID: past-789\nSession file: /tmp/s/past-789.json", "not-a-hash"
         ])
       end
     end

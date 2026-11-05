@@ -100,6 +100,16 @@ RSpec.describe "ApiExtension#submit_task" do
     expect(result).to eq("sess-1")
   end
 
+  it "passes a single reference payload with the full prompt" do
+    allow(registry).to receive(:exist?).with("sess-1").and_return(true)
+    allow(registry).to receive(:get).with("sess-1").and_return({ status: :idle })
+    references = [{ type: "session", session_id: "worker", name: "Report" }]
+    expect(http_server).to receive(:send).with(:run_session_task, "sess-1", "Full report",
+      display_message: "Report ready", reference_contexts: references)
+    instance.submit_task("sess-1", "Full report", display_message: "Report ready",
+                         reference_contexts: references)
+  end
+
   it "raises 409 if session is already running" do
     allow(registry).to receive(:exist?).with("sess-1").and_return(true)
     allow(registry).to receive(:get).with("sess-1").and_return({ status: :running })

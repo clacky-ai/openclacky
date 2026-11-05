@@ -38,6 +38,7 @@ RSpec.describe "Secretary server integration" do
       owner = registry.get(owner_id)[:agent]
       owner.history.append(role: "user", content: "帮我整理旅行建议", message_id: "original")
       card = owner.tool_registry.get("delegate_work").execute(title: "旅行建议", task: "整理建议")
+      expect(card["id"]).to eq(card["session_id"])
       worker = registry.get(card["session_id"])[:agent]
       expect(worker.tool_registry.tool_names).to include("yield_work", "web_search")
       expect(worker.tool_registry.tool_names).to include("terminal", "write", "invoke_skill", "ask_user")
@@ -81,9 +82,11 @@ RSpec.describe "Secretary server integration" do
       expect(finished_events.find { |event| event[:type] == "task_finished" && event[:session_id] == owner_id }[:notify_user]).not_to be(false)
       expect(saved.to_json).to include("work-event:")
       event_message = owner.history.to_a.find { |m| m[:content].is_a?(String) && m[:content].start_with?("[work-event:") }
-      expect(event_message).to include(display_text: "Work completed: 旅行建议")
-      expect(event_message[:content]).not_to include("建议先确定日期")
-      expect(owner.history.to_a).to include(hash_including(system_injected: true, content: a_string_including("建议先确定日期")))
+      reference = { type: "session", session_id: card["id"], name: card["title"] }
+      expect(event_message).to include(display_text: "Work completed: 旅行建议", display_references: [reference])
+      expect(live_events).to include([owner_id, hash_including(type: "history_user_message", references: [reference])])
+      expect(event_message[:content]).to include("建议先确定日期")
+      expect(owner.history.to_a).to include(hash_including(system_injected: true, content: a_string_including("Referenced conversation")))
       expect(event_message[:system_injected]).not_to be(true)
       expect(live_events).to include([owner_id, hash_including(type: "history_user_message", content: "Work completed: 旅行建议")])
       expect(live_events).to include([owner_id, hash_including(type: "assistant_message", content: "工作完成，以下是建议。")])
@@ -92,6 +95,8 @@ RSpec.describe "Secretary server integration" do
       owner.replay_history(replay)
       rendered = replay.instance_variable_get(:@events).select { |e| e[:type] == "history_user_message" }
       expect(rendered.map { |e| e[:content] }).to eq(["帮我整理旅行建议", "Work completed: 旅行建议"])
+      expect(rendered.last[:references]).to eq([reference])
+      expect(saved[:messages]).to include(hash_including(display_references: [reference]))
       expect(replay.instance_variable_get(:@events)).to include(hash_including(type: "assistant_message", content: "工作完成，以下是建议。"))
       expect(rendered.to_json).not_to include("work-event:", "这是工作结果", "返回 completed")
 
@@ -228,8 +233,7 @@ RSpec.describe "Secretary server integration" do
         { content: "已收到更新。", tool_calls: [] }
       end
       allow(agent).to receive(:run_skill_evolution_hooks)
-      server.send(:run_session_task, sid, "internal-event", display_message: "后台更新",
-                  reference_contexts: ["private-context"])
+      server.send(:run_session_task, sid, "internal-event", display_message: "后台更新", reference_contexts: ["private-context"])
       wait_thread(registry, sid)
       expect(agent.ui).to have_received(:show_user_message).with("后台更新", source: :web)
       expect(agent.history.to_a).to include(hash_including(content: "internal-event", display_text: "后台更新"))
@@ -238,6 +242,35 @@ RSpec.describe "Secretary server integration" do
       expect(events).to include(hash_including(type: "history_user_message", content: "后台更新"))
       expect(events).to include(hash_including(type: "assistant_message", content: "已收到更新。"))
       expect(events.to_json).not_to include("private-context", "internal-event")
+    end
+  end
+
+  it "replays and continues a legacy ordinary session without rewriting its references" do
+    with_server(agent_config: config) do |server|
+      sid = server.send(:build_session, name: "Legacy chat", profile: "general")
+      agent = server.instance_variable_get(:@registry).get(sid)[:agent]
+      refs = [
+        { type: "session", session_id: "past-chat", name: "Past chat" },
+        { type: "quote", label: "Earlier answer", text: "Original quote" },
+        { type: "file", path: "/tmp/context.md", name: "context.md" }
+      ]
+      agent.history.append(role: "user", content: "original input", display_text: "Visible input",
+                           display_references: refs, task_id: 1)
+      agent.history.append(role: "user", content: "old hidden reference context", system_injected: true, task_id: 1)
+      agent.history.append(role: "assistant", content: "Old answer", task_id: 1)
+      saved = JSON.parse(JSON.generate(agent.to_session_data), symbolize_names: true)
+      restored = Clacky::Agent.from_session(double("client"), config.deep_copy, saved, ui: nil, profile: "general")
+      events = []
+      restored.replay_history(Clacky::Server::HistoryCollector.new(sid, events))
+      expect(events).to include(hash_including(type: "history_user_message", content: "Visible input", references: refs))
+      expect(events.to_json).not_to include("old hidden reference context")
+      expect(restored.history.to_api.to_json).to include("old hidden reference context")
+      allow(restored).to receive(:think).and_return(content: "New answer", tool_calls: [])
+      allow(restored).to receive(:run_skill_evolution_hooks)
+      allow(restored).to receive(:run_memory_update_subagent)
+      restored.run("Continue", reference_contexts: [{ type: "quote", text: "New quote", context: "[Quoted excerpt from this conversation]\nNew quote" }])
+      expect(restored.history.to_a).to include(hash_including(content: "original input", display_references: refs))
+      expect(restored.history.to_a).to include(hash_including(content: "[Quoted excerpt from this conversation]\nNew quote", system_injected: true))
     end
   end
 
@@ -250,7 +283,7 @@ RSpec.describe "Secretary server integration" do
       allow(agent).to receive(:think).and_return({ content: "已记录", tool_calls: [] })
       agent.run("保留之前的用户消息")
       allow(agent).to receive(:think).and_raise(Clacky::BadRequestError.new("bad request"))
-      expect { agent.run("internal-event", reference_contexts: ["hidden detail"]) }.to raise_error(Clacky::BadRequestError)
+      expect { agent.run("internal-event", reference_contexts: [{ type: "quote", text: "hidden detail", context: "[Quoted excerpt from this conversation]\nhidden detail" }]) }.to raise_error(Clacky::BadRequestError)
       snapshot = agent.to_session_data(status: :error, error_message: "bad request")
       # Restoring must retain the work-report turn as an error boundary as well.
       restored = Clacky::Agent.from_session(agent.instance_variable_get(:@client), config.deep_copy, snapshot, ui: nil, profile: "general")

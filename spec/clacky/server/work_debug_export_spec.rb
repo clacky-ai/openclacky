@@ -26,10 +26,10 @@ RSpec.describe "Work debug export" do
     end
     store.transaction do |data|
       data["cards"] = {
-        "work_1" => { "id" => "work_1", "owner_session_id" => "owner", "session_id" => "worker", "revision" => 2, "outbox" => [] },
-        "work_2" => { "id" => "work_2", "owner_session_id" => "other", "session_id" => "sibling", "outbox" => [] }
+        "worker" => { "id" => "worker", "owner_session_id" => "owner", "session_id" => "worker", "revision" => 2, "outbox" => [] },
+        "sibling" => { "id" => "sibling", "owner_session_id" => "other", "session_id" => "sibling", "outbox" => [] }
       }
-      data["events"] = [{ "id" => "event_1", "work_id" => "work_1" }, { "id" => "private_event", "work_id" => "work_2" }]
+      data["events"] = [{ "id" => "event_1", "work_id" => "worker" }, { "id" => "private_event", "work_id" => "sibling" }]
     end
     allow(Clacky::Logger).to receive(:current_log_file).and_return(nil)
   end
@@ -55,8 +55,8 @@ RSpec.describe "Work debug export" do
     files = export("own") # Resolve a user-supplied prefix before looking up work.
     expect(JSON.parse(files.fetch("session.json"))["session_id"]).to eq("owner")
     expect(files.fetch("work/sessions/worker/#{File.basename(chunk)}")).to eq("archived worker history")
-    expect(JSON.parse(files.fetch("work/cards.json")).map { |card| card["id"] }).to eq(["work_1"])
-    expect(JSON.parse(files.fetch("work/events.json"))).to eq([{ "id" => "event_1", "work_id" => "work_1" }])
+    expect(JSON.parse(files.fetch("work/cards.json")).map { |card| card["id"] }).to eq(["worker"])
+    expect(JSON.parse(files.fetch("work/events.json"))).to eq([{ "id" => "event_1", "work_id" => "worker" }])
     expect(files.keys).not_to include("work/sessions/sibling/session.json")
     manifest = JSON.parse(files.fetch("work/manifest.json"))
     expect(manifest["sessions"]).to eq([{ "session_id" => "worker", "path" => "work/sessions/worker/session.json", "status" => "included" }])

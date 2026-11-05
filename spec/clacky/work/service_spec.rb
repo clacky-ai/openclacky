@@ -231,7 +231,7 @@ RSpec.describe Clacky::Work::Service do
     service.tick
     expect(current["status"]).to eq("completed")
     service.tick
-    expect(owner).to have_received(:run).with(a_string_including("Work completed"), hash_including(reference_contexts: [a_string_including("研究结果")]))
+    expect(owner).to have_received(:run).with(a_string_including("研究结果"), hash_including(reference_contexts: [hash_including(type: "session", session_id: current["id"])]))
     expect(persist).to have_received(:call).with(owner)
     expect(current["outbox"].first["state"]).to eq("delivered")
   end
