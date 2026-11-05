@@ -35,6 +35,13 @@ RSpec.describe "Scheduled tasks page UI" do
     expect(styles).not_to include(".task-section-empty")
   end
 
+  it "lists active plans first, newest first inside each group" do
+    expect(view).to include("function _isPaused(t) {")
+    expect(view).to include("function _createdAt(t) {")
+    expect(view).to include("function _sortTasks(tasks) {")
+    expect(view).to include("_sortTasks(shown).forEach")
+  end
+
   it "shows the next run on each card" do
     expect(view).to include("_nextRunLabel(t.next_run)")
     expect(view).to include("task-card-next")

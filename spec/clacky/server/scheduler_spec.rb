@@ -89,6 +89,25 @@ RSpec.describe Clacky::Server::Scheduler do
     it "returns an empty array when schedules file does not exist" do
       expect(scheduler.schedules).to eq([])
     end
+
+    it "stamps created_at once and keeps it when the schedule is replaced" do
+      scheduler.add_schedule(name: "Morning", task: "daily_report", cron: "0 9 * * 1-5")
+      stamp = scheduler.schedules.first["created_at"]
+      expect(stamp).to match(/\A\d{4}-\d{2}-\d{2}T/)
+
+      scheduler.add_schedule(name: "Morning", task: "daily_report", cron: "0 8 * * *")
+      expect(scheduler.schedules.first["created_at"]).to eq(stamp)
+    end
+
+    it "exposes created_at on merged cron tasks, falling back to the task file mtime" do
+      scheduler.write_task("legacy", "prompt")
+      scheduler.add_schedule(name: "Morning", task: "daily_report", cron: "0 9 * * 1-5")
+
+      tasks = scheduler.list_cron_tasks.each_with_object({}) { |t, h| h[t["name"]] = t }
+      expect(tasks["Morning"]).to be_nil
+      expect(tasks["daily_report"]["created_at"]).to match(/\A\d{4}-\d{2}-\d{2}T/)
+      expect(tasks["legacy"]["created_at"]).to match(/\A\d{4}-\d{2}-\d{2}T/)
+    end
   end
 
   # ── Cron matching ────────────────────────────────────────────────────────────

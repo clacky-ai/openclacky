@@ -84,12 +84,15 @@ module Clacky
         raise ArgumentError, "Invalid or impossible cron schedule" unless due
         @schedule_mutex.synchronize do
           list = load_schedules
+          previous = list.find { |s| s["name"] == name }
           list.reject! { |s| s["name"] == name }
           entry = {
             "id" => SecureRandom.hex(12), "name" => name, "task" => task,
             "cron" => cron, "enabled" => enabled,
             "target" => target, "next_run_at" => due.utc.iso8601
           }
+          created = previous && previous["created_at"]
+          entry["created_at"] = created || Time.now.utc.iso8601
           entry["title"] = title unless title.nil? || title.to_s.empty?
           list << entry
           save_schedules(list)
@@ -186,6 +189,17 @@ module Clacky
           target   = schedule["target"]
           title    = schedule["title"]
           title    = target["title"] if title.to_s.empty? && target.is_a?(Hash)
+          created_at = schedule["created_at"]
+          created_at ||= begin
+            stat = File.stat(task_file_path(task_name))
+            begin
+              stat.birthtime.utc.iso8601
+            rescue NotImplementedError
+              stat.mtime.utc.iso8601
+            end
+          rescue StandardError
+            nil
+          end
           {
             "name"    => task_name,
             "title"   => title,
@@ -193,6 +207,7 @@ module Clacky
             "cron"    => cron,
             "enabled" => schedule.fetch("enabled", true),
             "scheduled" => !schedule.empty?,
+            "created_at" => created_at,
             "last_run" => last_runs[task_name],
             "target" => target,
             "next_run" => schedule["enabled"] == false ? nil : (schedule["next_run_at"] || (cron && cron_next_run(cron)))
