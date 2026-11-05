@@ -3690,6 +3690,8 @@ body {
   transition: width var(--transition-base);
 }
 #session-aside.collapsed { width: 0; border-left: none; }
+.booting #sidebar,
+.booting #session-aside { transition: none; }
 /* Empty slot (no panels for this agent) → collapse the whole column. */
 #session-aside:has(.session-aside-slot:empty) { width: 0; border-left: none; }
 #session-aside:has(.session-aside-slot:empty) .session-aside-resize,
