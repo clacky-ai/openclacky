@@ -239,13 +239,21 @@ RSpec.describe Clacky::Server::WebUIController, "streamed assistant reply" do
     events.select { |e| e[:type] == type }
   end
 
-  it "emits each fragment with the offset it starts at, per kind" do
+  it "emits each fragment with the UTF-8 byte offset it starts at, per kind" do
     controller.stream_assistant_delta(:reasoning, "plan")
     controller.stream_assistant_delta(:text, "Hel")
     controller.stream_assistant_delta(:text, "lo")
+    controller.stream_assistant_delta(:text, "👍")
+    controller.stream_assistant_delta(:text, "!")
 
     expect(of_type("assistant_delta").map { |e| [e[:kind], e[:delta], e[:offset]] })
-      .to eq([["reasoning", "plan", 0], ["text", "Hel", 0], ["text", "lo", 3]])
+      .to eq([
+        ["reasoning", "plan", 0],
+        ["text", "Hel", 0],
+        ["text", "lo", 3],
+        ["text", "👍", 5],
+        ["text", "!", 9]
+      ])
     expect(of_type("assistant_delta").map { |e| e[:stream_id] }.uniq.size).to eq(1)
   end
 
@@ -312,7 +320,12 @@ RSpec.describe Clacky::Server::WebUIController, "streamed assistant reply" do
     expect(by_phase["phase-a"].first[:stream_id]).not_to eq(by_phase["phase-b"].first[:stream_id])
     expect(by_phase["phase-a"].map { |e| e[:delta] }.join).to eq("phase-a-0 phase-a-1 phase-a-2 ")
     expect(by_phase["phase-b"].map { |e| e[:delta] }.join).to eq("phase-b-0 phase-b-1 phase-b-2 ")
-    expect(by_phase["phase-a"].map { |e| e[:offset] }).to eq([0, 10, 20])
+    expect(by_phase["phase-a"].map { |e| e[:offset] }).to eq([0, "phase-a-0 ".bytesize, ("phase-a-0 phase-a-1 ").bytesize])
+
+    Thread.current[:clacky_phase_id] = "phase-a"
+    controller.phase_end("phase-a")
+    expect(of_type("assistant_stream_discard").map { |e| e[:stream_id] })
+      .to eq([by_phase["phase-a"].first[:stream_id]])
 
     Thread.current[:clacky_phase_id] = "phase-a"
     controller.discard_assistant_stream

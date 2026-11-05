@@ -1387,6 +1387,11 @@ module Clacky
     end
 
     private def think
+      # A previous attempt can die after streaming and before the committed
+      # message takes the buffer. Drop it before progress goes active, or a
+      # resubscribe during compression replays the abandoned text.
+      @ui.discard_assistant_stream if @ui&.respond_to?(:discard_assistant_stream)
+
       # Check API key before starting progress indicator
       if @client.instance_variable_get(:@api_key).nil? || @client.instance_variable_get(:@api_key).empty?
         @ui&.show_error("API key is not configured! Please run /config to set up your API key.")

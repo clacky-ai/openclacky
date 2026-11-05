@@ -199,15 +199,17 @@ module Clacky
         forward_to_subscribers { |sub| sub.show_assistant_message(content, files: files, interim: interim) }
       end
 
-      # Each assistant_delta carries the character offset it starts at, so a
+      # Each assistant_delta carries the UTF-8 byte offset it starts at, so a
       # browser that also received a replay snapshot can drop the overlap.
+      # Byte offsets, not characters: JS string length is UTF-16 code units,
+      # and a character offset drops or duplicates text after an emoji.
       # The client already merges fragments per network read. Not forwarded to
       # channel subscribers: IM platforms deliver whole messages only.
       def stream_assistant_delta(kind, text)
         kind = kind.to_sym == :reasoning ? :reasoning : :text
         id, offset = @stream_mutex.synchronize do
           stream = (@live_streams[assistant_stream_key] ||= new_assistant_stream)
-          offset = stream[kind].length
+          offset = stream[kind].bytesize
           stream[kind] << text
           [stream[:id], offset]
         end
@@ -362,6 +364,11 @@ module Clacky
       end
 
       def phase_end(phase_id, summary: nil)
+        # A cancel or error can close the phase with a reply still streaming.
+        # The committed message already took its buffer, so the normal path
+        # deletes nothing. Do this before clearing the thread-local: the
+        # buffer is keyed by that phase.
+        discard_assistant_stream if Thread.current[:clacky_phase_id] == phase_id
         # Clear thread-local before emitting end so the end event itself
         # doesn't get tagged with the phase_id it's closing.
         Thread.current[:clacky_phase_id] = nil if Thread.current[:clacky_phase_id] == phase_id
