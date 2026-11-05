@@ -10,6 +10,17 @@ module Clacky
     # @param content [String] text portion of the assistant reply (file:// links stripped)
     # @param files   [Array<Hash>] extracted file refs: [{ name:, path:, inline: }]
     def show_assistant_message(content, files:, interim: false, created_at: nil); end
+
+    # Partial assistant output while the LLM is still generating.
+    # kind is :text or :reasoning. Display-only: the next show_assistant_message
+    # supersedes everything streamed since the previous one, so UIs that cannot
+    # render partial output (CLI, IM channels) simply ignore it.
+    def stream_assistant_delta(kind, text); end
+
+    # Drop partial output from an LLM attempt that will not become a message
+    # (retry, fake tool call, interrupt).
+    def discard_assistant_stream; end
+
     def show_feedback_request(question, context, options, questions: nil); end
     def show_subagent_start(skill: nil, iterations: nil, cost_usd: nil); end
     def show_subagent_end; end

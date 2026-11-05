@@ -793,6 +793,8 @@ module Clacky
         # Show assistant message if there's content before tool calls
         if response[:content] && !response[:content].empty?
           emit_assistant_message(response[:content], reasoning_content: response[:reasoning_content], interim: true, created_at: response[:created_at])
+        else
+          @ui&.discard_assistant_stream
         end
 
         # Show token usage after assistant message (or immediately if no message).
@@ -1456,7 +1458,10 @@ module Clacky
       begin
         response = call_llm(
           agent_upstream_fails: @task_upstream_fails,
-          agent_upgrade_fails: @task_upgrade_fails
+          agent_upgrade_fails: @task_upgrade_fails,
+          # Each phase owns its own stream, so a subagent can stream without
+          # writing into the parent turn or a sibling phase.
+          stream_reply: true
         )
       rescue
         # Ensure the spinner is stopped on any error path before it bubbles up.

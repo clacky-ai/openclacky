@@ -45,7 +45,11 @@ module Clacky
       #   Inside call_llm we only *update in place* during retries, so the
       #   already-live progress slot shows meaningful transient status
       #   ("Network failed… attempt 2/10", etc.).
-      private def call_llm(agent_upstream_fails: nil, agent_upgrade_fails: nil)
+      #
+      # stream_reply: forward text/reasoning fragments to the UI as they arrive.
+      #   Only the user-facing reply enables it; compression summaries must not
+      #   leak into the chat.
+      private def call_llm(agent_upstream_fails: nil, agent_upgrade_fails: nil, stream_reply: false)
         # Transition :fallback_active → :probing if cooling-off has expired.
         @config.maybe_start_probing
         refresh_client_if_card_changed!
@@ -110,6 +114,9 @@ module Clacky
         begin
           begin
           Clacky::Shutdown.checkpoint!
+          # A previous attempt may have streamed text before failing a
+          # post-response check; this attempt replaces it.
+          @ui&.discard_assistant_stream if stream_reply
           # Use active_messages (Time Machine) when undone, otherwise send full history.
           # to_api strips internal fields and handles orphaned tool_calls.
           messages_to_send = if respond_to?(:active_messages)
@@ -126,6 +133,7 @@ module Clacky
             enable_caching: @config.enable_prompt_caching,
             reasoning_effort: @reasoning_effort,
             on_chunk: build_progress_on_chunk,
+            on_delta: (build_reply_on_delta if stream_reply),
             agent_upstream_fails: (agent_upstream_fails || 0) + floor_fails,
             agent_upgrade_fails: (agent_upgrade_fails || 0) + upgrade_fails
           )
@@ -855,6 +863,13 @@ module Clacky
           last_emit_at = now
           @ui.stream_thinking_progress(input_tokens: input_tokens, output_tokens: output_tokens)
         }
+      end
+
+      # Forward streamed reply fragments to the UI, already merged per network
+      # read by the client.
+      private def build_reply_on_delta
+        return nil unless @ui
+        ->(kind, text) { @ui.stream_assistant_delta(kind, text) }
       end
     end
   end

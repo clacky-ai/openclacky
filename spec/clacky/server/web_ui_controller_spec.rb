@@ -230,3 +230,101 @@ RSpec.describe Clacky::Server::WebUIController, "feedback countdown" do
     expect(next_event).to include(resolved: true)
   end
 end
+
+RSpec.describe Clacky::Server::WebUIController, "streamed assistant reply" do
+  let(:events) { [] }
+  let(:controller) { described_class.new("test-session", ->(_sid, event) { events << event }) }
+
+  def of_type(type)
+    events.select { |e| e[:type] == type }
+  end
+
+  it "emits each fragment with the offset it starts at, per kind" do
+    controller.stream_assistant_delta(:reasoning, "plan")
+    controller.stream_assistant_delta(:text, "Hel")
+    controller.stream_assistant_delta(:text, "lo")
+
+    expect(of_type("assistant_delta").map { |e| [e[:kind], e[:delta], e[:offset]] })
+      .to eq([["reasoning", "plan", 0], ["text", "Hel", 0], ["text", "lo", 3]])
+    expect(of_type("assistant_delta").map { |e| e[:stream_id] }.uniq.size).to eq(1)
+  end
+
+  it "tags the final assistant_message with the stream it supersedes" do
+    controller.stream_assistant_delta(:reasoning, "think")
+    stream_id = of_type("assistant_delta").first[:stream_id]
+
+    controller.show_assistant_message("<think>\nthink\n</think>\nDone", files: [])
+    controller.show_assistant_message("Next", files: [])
+
+    messages = of_type("assistant_message")
+    expect(messages.first[:stream_id]).to eq(stream_id)
+    expect(messages.last).not_to have_key(:stream_id)
+  end
+
+  it "discards an open stream once and starts a fresh id afterwards" do
+    controller.stream_assistant_delta(:text, "draft")
+    first_id = of_type("assistant_delta").first[:stream_id]
+
+    controller.discard_assistant_stream
+    controller.discard_assistant_stream
+    controller.stream_assistant_delta(:text, "retry")
+
+    expect(of_type("assistant_stream_discard").map { |e| e[:stream_id] }).to eq([first_id])
+    expect(of_type("assistant_delta").last).to include(offset: 0)
+    expect(of_type("assistant_delta").last[:stream_id]).not_to eq(first_id)
+  end
+
+  it "replays the live reply as offset-0 snapshots" do
+    controller.show_progress("Thinking")
+    controller.stream_assistant_delta(:reasoning, "plan")
+    controller.stream_assistant_delta(:text, "Hi")
+    controller.stream_assistant_delta(:text, " there")
+    events.clear
+
+    controller.replay_live_state
+
+    expect(of_type("assistant_delta").map { |e| [e[:kind], e[:delta], e[:offset], e[:snapshot]] })
+      .to eq([["reasoning", "plan", 0, true], ["text", "Hi there", 0, true]])
+  end
+
+  it "does not replay a stream once progress has ended" do
+    controller.stream_assistant_delta(:text, "Hi")
+    events.clear
+
+    controller.replay_live_state
+
+    expect(of_type("assistant_delta")).to be_empty
+  end
+
+  it "keeps concurrent phases on separate streams" do
+    threads = %w[phase-a phase-b].map do |phase|
+      Thread.new do
+        Thread.current[:clacky_phase_id] = phase
+        3.times { |i| controller.stream_assistant_delta(:text, "#{phase}-#{i} ") }
+      end
+    end
+    threads.each(&:join)
+
+    by_phase = of_type("assistant_delta").group_by { |e| e[:phase_id] }
+    expect(by_phase.keys).to contain_exactly("phase-a", "phase-b")
+    expect(by_phase["phase-a"].map { |e| e[:stream_id] }.uniq.size).to eq(1)
+    expect(by_phase["phase-b"].map { |e| e[:stream_id] }.uniq.size).to eq(1)
+    expect(by_phase["phase-a"].first[:stream_id]).not_to eq(by_phase["phase-b"].first[:stream_id])
+    expect(by_phase["phase-a"].map { |e| e[:delta] }.join).to eq("phase-a-0 phase-a-1 phase-a-2 ")
+    expect(by_phase["phase-b"].map { |e| e[:delta] }.join).to eq("phase-b-0 phase-b-1 phase-b-2 ")
+    expect(by_phase["phase-a"].map { |e| e[:offset] }).to eq([0, 10, 20])
+
+    Thread.current[:clacky_phase_id] = "phase-a"
+    controller.discard_assistant_stream
+    expect(of_type("assistant_stream_discard").map { |e| e[:stream_id] })
+      .to eq([by_phase["phase-a"].first[:stream_id]])
+
+    controller.show_progress("Thinking")
+    events.clear
+    controller.replay_live_state
+    expect(of_type("assistant_delta").map { |e| e[:stream_id] }.uniq)
+      .to eq([by_phase["phase-b"].first[:stream_id]])
+  ensure
+    Thread.current[:clacky_phase_id] = nil
+  end
+end

@@ -39,6 +39,26 @@ RSpec.describe Clacky::OpenAIStreamAggregator do
     expect(progress[1]).to eq([0, 4])
   end
 
+  it "forwards text and reasoning fragments to on_delta as they arrive" do
+    deltas = []
+    agg = described_class.new(on_chunk: ->(**) {}, on_delta: ->(kind, text) { deltas << [kind, text] })
+
+    agg.handle({ choices: [{ index: 0, delta: { reasoning_content: "hmm" } }] }.to_json)
+    agg.handle({ choices: [{ index: 0, delta: { content: "Hi" } }] }.to_json)
+    agg.handle({ choices: [{ index: 0, delta: { content: "" } }] }.to_json)
+    agg.handle({ choices: [{ index: 0, delta: { tool_calls: [{ index: 0, id: "c", function: { name: "shell", arguments: "{}" } }] } }] }.to_json)
+
+    expect(deltas).to eq([[:reasoning, "hmm"], [:text, "Hi"]])
+  end
+
+  it "keeps assembling when on_delta raises" do
+    agg = described_class.new(on_delta: ->(_kind, _text) { raise "boom" })
+
+    agg.handle({ choices: [{ index: 0, delta: { content: "Hi" } }] }.to_json)
+
+    expect(agg.to_h["choices"].first["message"]["content"]).to eq("Hi")
+  end
+
   it "concatenates streamed tool_call arguments across frames" do
     agg = described_class.new
 

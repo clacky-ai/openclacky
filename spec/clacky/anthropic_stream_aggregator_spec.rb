@@ -37,6 +37,18 @@ RSpec.describe Clacky::AnthropicStreamAggregator do
     expect(progress_events.last).to eq([12, 5])
   end
 
+  it "forwards text and thinking deltas to on_delta but not tool input" do
+    deltas = []
+    agg = described_class.new(on_delta: ->(kind, text) { deltas << [kind, text] })
+
+    agg.handle("content_block_delta", { index: 0, delta: { type: "thinking_delta", thinking: "plan" } }.to_json)
+    agg.handle("content_block_delta", { index: 1, delta: { type: "text_delta", text: "Hi" } }.to_json)
+    agg.handle("content_block_start", { index: 2, content_block: { type: "tool_use", id: "t", name: "shell" } }.to_json)
+    agg.handle("content_block_delta", { index: 2, delta: { type: "input_json_delta", partial_json: "{}" } }.to_json)
+
+    expect(deltas).to eq([[:reasoning, "plan"], [:text, "Hi"]])
+  end
+
   it "concatenates streamed tool_use input_json_delta fragments and parses JSON" do
     agg = described_class.new
 
