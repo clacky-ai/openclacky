@@ -86,7 +86,11 @@ def saved_bot_token
   yml_path = File.expand_path("~/.clacky/channels.yml")
   return nil unless File.exist?(yml_path)
   data = YAML.safe_load(File.read(yml_path), permitted_classes: [Symbol], aliases: true) rescue nil
-  data&.dig("channels", "discord", "bot_token") || data&.dig(:channels, :discord, :bot_token)
+  channels = data.is_a?(Hash) ? (data["channels"] || data[:channels]) : nil
+  entries  = channels.is_a?(Hash) ? (channels["discord"] || channels[:discord]) : nil
+  entries  = [entries] if entries.is_a?(Hash)
+  first    = Array(entries).find { |inst| inst.is_a?(Hash) }
+  first && (first["bot_token"] || first[:bot_token])
 end
 
 def save_to_server(bot_token:)

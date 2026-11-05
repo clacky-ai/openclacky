@@ -26,6 +26,24 @@ module Clacky
       # Base adapter interface for IM platforms.
       # Subclasses must implement every abstract method below.
       class Base
+        DEFAULT_INSTANCE_ID = "default"
+
+        attr_writer :instance_id, :instance_name
+
+        # Identifier of the configured instance this adapter serves. The first
+        # instance of a platform keeps the historical id "default".
+        # @return [String]
+        def instance_id
+          id = @instance_id.to_s
+          id.empty? ? DEFAULT_INSTANCE_ID : id
+        end
+
+        # Human-readable name of this instance (e.g. "Company Feishu").
+        # @return [String]
+        def instance_name
+          @instance_name.to_s
+        end
+
         # @return [Symbol] e.g. :feishu, :wecom
         def self.platform_id
           raise NotImplementedError, "#{self} must implement .platform_id"

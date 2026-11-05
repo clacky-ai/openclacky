@@ -814,14 +814,19 @@ module Clacky
             api_group_history(chat_id, res)
           elsif method == "GET" && path.match?(%r{^/api/channels/[^/]+/users$})
             platform = path.sub("/api/channels/", "").sub("/users", "")
-            api_list_channel_users(platform, res)
+            api_list_channel_users(platform, req, res)
           elsif method == "POST" && path.match?(%r{^/api/channels/qq/qr/start$})
-            api_qq_qr_start(res)
+            api_qq_qr_start(req, res)
           elsif method == "POST" && path.match?(%r{^/api/channels/qq/qr/poll$})
             api_qq_qr_poll(req, res)
           elsif method == "POST" && path.match?(%r{^/api/channels/[^/]+/test$})
             platform = path.sub("/api/channels/", "").sub("/test", "")
             api_test_channel(platform, req, res)
+          elsif method == "DELETE" && path.match?(%r{^/api/channels/[^/]+/instances/[^/]+$})
+            rest        = path.sub("/api/channels/", "")
+            platform    = rest.split("/").first
+            instance_id = URI.decode_www_form_component(rest.split("/").last)
+            api_delete_channel(platform, res, instance_id)
           elsif method == "PATCH" && path == "/api/channels/status_messages"
             api_channel_status_messages(req, res)
           elsif method == "PATCH" && path == "/api/channels/process_messages"
@@ -4300,18 +4305,31 @@ module Clacky
       end
 
       def api_list_channels(res)
-        config   = Clacky::ChannelConfig.load
-        running  = @channel_manager.running_platforms
+        config  = Clacky::ChannelConfig.load
+        running = @channel_manager.running_instances
 
         platforms = Clacky::Channel::Adapters.all.map do |klass|
-          platform = klass.platform_id
-          raw      = config.instance_variable_get(:@channels)[platform.to_s] || {}
+          platform  = klass.platform_id
+          instances = config.instances(platform).map do |inst|
+            {
+              id:         inst["id"],
+              name:       inst["name"].to_s,
+              enabled:    !!inst["enabled"],
+              running:    running.any? { |r| r[:platform] == platform && r[:instance_id] == inst["id"] },
+              has_config: !config.platform_config(platform, inst["id"]).nil?
+            }.merge(platform_safe_fields(platform, config, inst["id"]))
+          end
+
+          primary = instances.first || { id: Clacky::ChannelConfig::DEFAULT_INSTANCE_ID, name: "", enabled: false, running: false, has_config: false }
           {
-            platform:  platform,
-            enabled:   !!raw["enabled"],
-            running:   running.include?(platform),
-            has_config: !config.platform_config(platform).nil?
-          }.merge(platform_safe_fields(platform, config))
+            platform:   platform,
+            id:         primary[:id],
+            name:       primary[:name],
+            enabled:    instances.any? { |inst| inst[:enabled] },
+            running:    running.any? { |r| r[:platform] == platform },
+            has_config: !instances.empty?,
+            instances:  instances
+          }.merge(platform_safe_fields(platform, config, primary[:id]))
         end
 
         json_response(res, 200, { channels: platforms, status_messages: config.status_messages_enabled?, process_messages: config.process_messages_enabled?, progress_cards: config.progress_cards_enabled? })
@@ -4606,6 +4624,7 @@ module Clacky
         platform = platform.to_sym
         body     = parse_json_body(req)
         message  = body["message"].to_s.strip
+        instance_id = body["instance_id"].to_s.strip
 
         if message.empty?
           json_response(res, 400, { ok: false, error: "message is required" })
@@ -4616,7 +4635,7 @@ module Clacky
         user_id = body["user_id"].to_s.strip
         if user_id.empty?
           # Default to the most-recently active user for this platform
-          known = @channel_manager.known_users(platform)
+          known = @channel_manager.known_users(platform, instance_id)
           if known.empty?
             json_response(res, 503, {
               ok:    false,
@@ -4627,21 +4646,21 @@ module Clacky
           user_id = known.last
         end
 
-        result = @channel_manager.send_to_user(platform, user_id, message)
+        result = @channel_manager.send_to_user(platform, user_id, message, instance_id)
         if result.nil?
           json_response(res, 400, {
             ok:    false,
             error: "Failed to send message. The :#{platform} adapter may not be running, or no context_token is available for user #{user_id}."
           })
         else
-          json_response(res, 200, { ok: true, platform: platform, user_id: user_id })
+          json_response(res, 200, { ok: true, platform: platform, instance_id: instance_id, user_id: user_id })
         end
       rescue StandardError => e
         json_response(res, 500, { ok: false, error: e.message })
       end
 
-      # GET /api/channels/:platform/users
-      # Returns the list of known user IDs for the given platform.
+      # GET /api/channels/:platform/users?instance_id=...
+      # Returns the list of known user IDs for the given platform (or instance).
       # These are users who have sent at least one message to the bot in this server session.
       #
       # For Weixin: returns users with a cached context_token (required for proactive messaging).
@@ -4649,10 +4668,11 @@ module Clacky
       #
       # Response:
       #   200 { users: ["uid1", "uid2", ...] }
-      def api_list_channel_users(platform, res)
-        platform = platform.to_sym
-        users    = @channel_manager.known_users(platform)
-        json_response(res, 200, { platform: platform, users: users })
+      def api_list_channel_users(platform, req, res)
+        platform    = platform.to_sym
+        instance_id = req.query["instance_id"].to_s.strip
+        users       = @channel_manager.known_users(platform, instance_id)
+        json_response(res, 200, { platform: platform, instance_id: instance_id, users: users })
       rescue StandardError => e
         json_response(res, 500, { ok: false, error: e.message })
       end
@@ -4921,13 +4941,24 @@ module Clacky
 
       # POST /api/channels/:platform
       # Body: { fields... }  (platform-specific credential fields)
+      # Optional: { instance_id, name } to target an additional instance of the
+      # same platform. Without instance_id the default (first) instance is
+      # updated, which keeps older clients and skill curls working unchanged.
       # Saves credentials and optionally (re)starts the adapter.
       def api_save_channel(platform, req, res)
         platform = platform.to_sym
         body     = parse_json_body(req)
         config   = Clacky::ChannelConfig.load
 
-        fields = body.transform_keys(&:to_sym).reject { |k, _| k == :platform }
+        instance_id = body["instance_id"].to_s.strip
+        name        = body["name"].is_a?(String) ? body["name"].strip : nil
+        if !instance_id.empty? && !valid_instance_id?(instance_id)
+          json_response(res, 422, { ok: false, error: "instance_id may only contain letters, digits, '-' and '_'" })
+          return
+        end
+        return json_response(res, 422, { ok: false, error: "name is too long" }) if name && name.length > 60
+
+        fields = body.transform_keys(&:to_sym).reject { |k, _| %i[platform instance_id name id].include?(k) }
         fields = fields.transform_values { |v| v.is_a?(String) ? v.strip : v }
 
         # Record when the token was last updated so clients can detect re-login
@@ -4935,10 +4966,12 @@ module Clacky
         fields[:token_updated_at] = Time.now.to_i if platform == :discord && fields.key?(:bot_token)
 
         # Validate credentials against live API before persisting.
-        # Merge with existing config so partial updates (e.g. allowed_users only) still validate correctly.
+        # Merge with the target instance's existing config so partial updates
+        # (e.g. allowed_users only) still validate correctly. A new instance
+        # does not inherit the default instance's credentials.
         klass = Clacky::Channel::Adapters.find(platform)
         if klass && klass.respond_to?(:test_connection)
-          existing = config.platform_config(platform) || {}
+          existing = config.platform_config(platform, instance_id) || {}
           merged   = existing.merge(fields)
           result   = klass.test_connection(merged)
           unless result[:ok]
@@ -4947,13 +4980,19 @@ module Clacky
           end
         end
 
-        config.set_platform(platform, **fields)
+        resolved_id = config.set_platform(
+          platform,
+          instance_id: instance_id,
+          name: name,
+          enabled: body.key?("enabled") ? body["enabled"] == true : nil,
+          **fields
+        )
         config.save
 
-        # Hot-reload: stop existing adapter for this platform (if running) and restart
-        @channel_manager.reload_platform(platform, config)
+        # Hot-reload only the affected instance.
+        @channel_manager.reload_platform(platform, config, resolved_id)
 
-        json_response(res, 200, { ok: true })
+        json_response(res, 200, { ok: true, instance_id: resolved_id })
       rescue StandardError => e
         json_response(res, 422, { ok: false, error: e.message })
       end
@@ -4962,13 +5001,14 @@ module Clacky
       # Creates a QQ "lite bind" task and returns the official connect URL
       # (Tencent renders the QR). The AES key is held server-side, keyed by
       # task_id, so the poll step can decrypt the returned AppSecret.
-      def api_qq_qr_start(res)
+      def api_qq_qr_start(req, res)
+        instance_id = parse_json_body(req)["instance_id"].to_s.strip
         binder = Clacky::Channel::Adapters::Qq::QrBinder.new
         task   = binder.create_task
-        qr_bind_store[task[:task_id]] = { "key" => task[:key], "created_at" => Time.now.to_i }
+        qr_bind_store[task[:task_id]] = { "key" => task[:key], "instance_id" => instance_id, "created_at" => Time.now.to_i }
         prune_qr_bind_store
 
-        json_response(res, 200, { ok: true, task_id: task[:task_id], connect_url: task[:connect_url] })
+        json_response(res, 200, { ok: true, task_id: task[:task_id], connect_url: task[:connect_url], instance_id: instance_id })
       rescue StandardError => e
         json_response(res, 422, { ok: false, error: e.message })
       end
@@ -4997,9 +5037,9 @@ module Clacky
             user_openid: result[:user_openid],
             key: stored["key"]
           )
-          persist_qq_qr_credentials(creds)
+          persist_qq_qr_credentials(creds, stored["instance_id"])
           qr_bind_store.delete(task_id)
-          json_response(res, 200, { ok: true, status: "completed", app_id: creds[:app_id] })
+          json_response(res, 200, { ok: true, status: "completed", app_id: creds[:app_id], instance_id: stored["instance_id"].to_s })
         else
           json_response(res, 200, { ok: true, status: "pending" })
         end
@@ -5008,21 +5048,22 @@ module Clacky
       end
 
       # Persist scanned QQ credentials and ensure the scanning user can talk
-      # to the bot (merged with any existing whitelist).
-      def persist_qq_qr_credentials(creds)
+      # to the bot (merged with that instance's existing whitelist).
+      def persist_qq_qr_credentials(creds, instance_id = nil)
         config = Clacky::ChannelConfig.load
-        existing = config.platform_config(:qq) || {}
+        existing = config.platform_config(:qq, instance_id) || {}
         whitelist = Array(existing[:allowed_users]).map(&:to_s)
         whitelist << creds[:user_openid] unless creds[:user_openid].to_s.empty?
 
-        config.set_platform(
+        resolved_id = config.set_platform(
           :qq,
+          instance_id: instance_id,
           app_id: creds[:app_id],
           app_secret: creds[:app_secret],
           allowed_users: whitelist.uniq
         )
         config.save
-        @channel_manager.reload_platform(:qq, config)
+        @channel_manager.reload_platform(:qq, config, resolved_id)
       end
 
       def qr_bind_store
@@ -5038,16 +5079,20 @@ module Clacky
       end
 
       # DELETE /api/channels/:platform
-      # Disables the platform (keeps credentials, sets enabled: false).
-      def api_delete_channel(platform, res)
+      # DELETE /api/channels/:platform/instances/:id
+      # Removes the instance from channels.yml and stops its adapter.
+      # Without an instance id the whole platform entry is removed.
+      def api_delete_channel(platform, res, instance_id = nil)
         platform = platform.to_sym
         config   = Clacky::ChannelConfig.load
-        config.disable_platform(platform)
+        removed  = config.remove_platform(platform, instance_id)
+        return json_response(res, 404, { ok: false, error: "instance not found" }) unless removed
+
         config.save
 
-        @channel_manager.reload_platform(platform, config)
+        @channel_manager.reload_platform(platform, config, instance_id)
 
-        json_response(res, 200, { ok: true })
+        json_response(res, 200, { ok: true, instance_id: instance_id })
       rescue StandardError => e
         json_response(res, 422, { ok: false, error: e.message })
       end
@@ -5106,29 +5151,34 @@ module Clacky
       end
 
       # PATCH /api/channels/:platform/enabled
-      # Body: { enabled: true|false }
-      # Toggles the platform on/off without touching credentials.
-      # Enabling requires the platform to already be configured.
+      # Body: { enabled: true|false, instance_id?: "..." }
+      # Toggles an instance on/off without touching credentials. Without an
+      # instance_id the default (first) instance is toggled.
+      # Enabling requires the instance to already be configured.
       def api_toggle_channel(platform, req, res)
         platform = platform.to_sym
-        enabled  = parse_json_body(req)["enabled"] == true
+        body     = parse_json_body(req)
+        enabled  = body["enabled"] == true
 
         config = Clacky::ChannelConfig.load
+        instance_id = body["instance_id"].to_s.strip
+        instance_id = config.instances(platform).first&.fetch("id", nil) if instance_id.empty?
+
+        unless instance_id && config.instance(platform, instance_id)
+          json_response(res, 422, { ok: false, error: "Platform is not configured yet" })
+          return
+        end
 
         if enabled
-          unless config.platform_config(platform)
-            json_response(res, 422, { ok: false, error: "Platform is not configured yet" })
-            return
-          end
-          config.enable_platform(platform)
+          config.enable_platform(platform, instance_id)
         else
-          config.disable_platform(platform)
+          config.disable_platform(platform, instance_id)
         end
 
         config.save
-        @channel_manager.reload_platform(platform, config)
+        @channel_manager.reload_platform(platform, config, instance_id)
 
-        json_response(res, 200, { ok: true, enabled: config.enabled?(platform) })
+        json_response(res, 200, { ok: true, instance_id: instance_id, enabled: config.enabled?(platform, instance_id) })
       rescue StandardError => e
         json_response(res, 422, { ok: false, error: e.message })
       end
@@ -5153,9 +5203,15 @@ module Clacky
         json_response(res, 200, { ok: false, error: e.message })
       end
 
-      # Returns non-secret fields for a platform (masked secrets).
-      private def platform_safe_fields(platform, config)
-        raw = config.instance_variable_get(:@channels)[platform.to_s] || {}
+      # Instance ids are used in channel binding keys and thread names, so keep
+      # them to a small, predictable character set.
+      private def valid_instance_id?(id)
+        id.to_s.match?(/\A[A-Za-z0-9][A-Za-z0-9_-]{0,39}\z/)
+      end
+
+      # Returns non-secret fields for a platform instance (masked secrets).
+      private def platform_safe_fields(platform, config, instance_id = nil)
+        raw = config.instance(platform, instance_id) || {}
         case platform.to_sym
         when :feishu
           {

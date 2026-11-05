@@ -6,7 +6,7 @@ require "clacky/server/channel"
 RSpec.describe Clacky::Channel::ChannelManager, "route_message input behavior" do
   let(:registry) { Clacky::Server::SessionRegistry.new(agent_config: Clacky::AgentConfig.new) }
   let(:agent) { double("agent") }
-  let(:adapter) { double("adapter", platform_id: :feishu) }
+  let(:adapter) { double("adapter", platform_id: :feishu, instance_id: "default") }
   let(:interrupts) { [] }
   let(:runs) { [] }
   let(:channel_config) do

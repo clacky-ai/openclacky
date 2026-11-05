@@ -47,25 +47,26 @@ module Clacky
         @adapter_threads   = []
         @running           = false
         @mutex             = Mutex.new
-        @session_counters  = Hash.new(0)
+        @session_counters  = {}
         @dedup_mutex       = Mutex.new
         @last_message      = {}  # channel_key => [digest, monotonic_time]
       end
 
-      # Start all enabled adapters in background threads. Non-blocking.
+      # Start all enabled adapter instances in background threads. Non-blocking.
       def start
-        enabled_platforms = @channel_config.enabled_platforms
-        if enabled_platforms.empty?
+        enabled = @channel_config.enabled_instances
+        if enabled.empty?
           Clacky::Logger.info("[ChannelManager] No channels configured — skipping")
           return
         end
 
-        Clacky::Logger.info("[ChannelManager] Starting channels: #{enabled_platforms.join(", ")}")
+        labels = enabled.map { |platform, inst| instance_label(platform, inst["id"]) }
+        Clacky::Logger.info("[ChannelManager] Starting channels: #{labels.join(", ")}")
         @running = true
 
         restore_channel_bindings
 
-        enabled_platforms.each { |platform| start_adapter(platform) }
+        enabled.each { |platform, inst| start_adapter(platform, inst["id"]) }
       end
 
       # Stop all adapters gracefully.
@@ -85,23 +86,41 @@ module Clacky
 
       # @return [Array<Symbol>] platforms currently running
       def running_platforms
-        @mutex.synchronize { @adapters.map(&:platform_id) }
+        @mutex.synchronize { @adapters.map(&:platform_id).uniq }
+      end
+
+      # @return [Array<Hash>] running instances as { platform:, instance_id: }
+      def running_instances
+        @mutex.synchronize do
+          @adapters.map { |a| { platform: a.platform_id, instance_id: a.instance_id } }
+        end
+      end
+
+      # Return the currently-live adapter for a platform (and optionally one
+      # configured instance). Thread-safe — acquires @mutex to read @adapters.
+      #
+      # A nil instance id resolves to the default instance, falling back to the
+      # first running adapter of that platform. An explicit id never falls back
+      # to another instance, so replies can't leak between two Feishu apps.
+      # @param platform [Symbol, String]
+      # @param instance_id [String, nil]
+      # @return [Object, nil]
+      def adapter_for(platform, instance_id = nil)
+        platform = platform.to_sym
+        @mutex.synchronize do
+          if instance_id.nil? || instance_id.to_s.empty?
+            @adapters.find { |a| a.platform_id == platform && a.instance_id == ChannelConfig::DEFAULT_INSTANCE_ID } ||
+              @adapters.find { |a| a.platform_id == platform }
+          else
+            @adapters.find { |a| a.platform_id == platform && a.instance_id == instance_id.to_s }
+          end
+        end
       end
 
       # Proactively send a message to a user on the given platform.
       #
       # For Weixin (iLink protocol) a context_token is required for every outbound
       # message.  This method looks up the most-recently cached token for user_id.
-
-      # Return the currently-live adapter for a given platform, or nil if none running.
-      # Thread-safe — acquires @mutex to read from @adapters.
-      # @param platform [Symbol, String]
-      # @return [Object, nil]
-      def adapter_for(platform)
-        platform = platform.to_sym
-        @mutex.synchronize { @adapters.find { |a| a.platform_id == platform } }
-      end
-
       # If no token is found the message cannot be delivered and nil is returned.
       #
       # For Feishu and WeCom the chat_id / user_id is sufficient — no token needed.
@@ -109,33 +128,35 @@ module Clacky
       # @param platform [Symbol, String] e.g. :weixin, :feishu, :wecom
       # @param user_id  [String]         IM user identifier
       # @param message  [String]         plain-text (or markdown) message to send
+      # @param instance_id [String, nil] nil uses the default instance
       # @return [Hash, nil]  adapter result hash, or nil on failure
-      def send_to_user(platform, user_id, message)
+      def send_to_user(platform, user_id, message, instance_id = nil)
         platform = platform.to_sym
-        adapter  = adapter_for(platform)
+        adapter  = adapter_for(platform, instance_id)
 
         unless adapter
-          Clacky::Logger.warn("[ChannelManager] send_to_user: no running adapter for :#{platform}")
+          Clacky::Logger.warn("[ChannelManager] send_to_user: no running adapter for #{instance_label(platform, instance_id)}")
           return nil
         end
 
-        Clacky::Logger.info("[ChannelManager] send_to_user :#{platform} → #{user_id}")
+        Clacky::Logger.info("[ChannelManager] send_to_user #{instance_label(platform, instance_id)} → #{user_id}")
         adapter.send_text(user_id, message)
       rescue StandardError => e
         Clacky::Logger.error("[ChannelManager] send_to_user failed: #{e.message}")
         nil
       end
 
-      # Return a list of known user IDs for the given platform.
+      # Return a list of known user IDs for the given platform (or instance).
       # Collected from every message that has been processed since the server started.
       # Weixin stores context_tokens keyed by user_id; feishu/wecom track chat_ids
       # via the session binding table in the registry.
       #
       # @param platform [Symbol, String]
+      # @param instance_id [String, nil] nil aggregates every instance
       # @return [Array<String>]
-      def known_users(platform)
+      def known_users(platform, instance_id = nil)
         platform = platform.to_sym
-        adapter  = adapter_for(platform)
+        adapter  = adapter_for(platform, instance_id)
         return [] unless adapter
 
         # Weixin adapter exposes @context_tokens whose keys are user_ids
@@ -148,17 +169,17 @@ module Clacky
         #   :user       → "platform:user:USER_ID"
         #   :chat       → "platform:chat:CHAT_ID"
         #   :chat_user  → "platform:chat:CHAT_ID:user:USER_ID"
+        # Extra instances prefix the platform with "platform#instance_id".
         #
         # For send_text we need the chat_id (Feishu/WeCom use chat_id as the
         # receive_id for outbound messages), so we extract the chat portion.
-        prefix = "#{platform}:"
         ids = []
         @registry.list(archived: nil).each do |summary|
           @registry.with_session(summary[:id]) do |s|
             (s[:channel_keys] || []).each do |key|
-              next unless key.start_with?(prefix)
+              remainder = channel_key_payload(key, platform, instance_id)
+              next unless remainder
 
-              remainder = key.sub(prefix, "") # e.g. "chat:OC_ID:user:OU_ID" or "user:UID" or "chat:CID"
               ids << extract_chat_id(remainder)
             end
           end
@@ -166,27 +187,36 @@ module Clacky
         ids.compact.uniq
       end
 
-      # Hot-reload a single platform adapter with updated config.
-      # Stops the existing adapter (if running), then starts a new one if enabled.
+      # Hot-reload platform adapters with updated config.
+      # With an instance id, only that instance is restarted; without one, every
+      # enabled instance of the platform is rebuilt.
       # @param platform [Symbol]
       # @param config [Clacky::ChannelConfig]
-      def reload_platform(platform, config)
-        # Stop existing adapter for this platform
+      # @param instance_id [String, nil]
+      def reload_platform(platform, config, instance_id = nil)
+        @channel_config = config
+
         @mutex.synchronize do
-          existing = @adapters.find { |a| a.platform_id == platform }
-          if existing
-            safe_stop_adapter(existing)
-            @adapters.delete(existing)
+          targets = @adapters.select do |a|
+            a.platform_id == platform &&
+              (instance_id.nil? || instance_id.to_s.empty? || a.instance_id == instance_id.to_s)
           end
+          targets.each { |a| safe_stop_adapter(a) }
+          @adapters.reject! { |a| targets.include?(a) }
         end
 
-        # Start new adapter if enabled
-        if config.enabled?(platform)
-          @channel_config = config
-          start_adapter(platform)
-          Clacky::Logger.info("[ChannelManager] :#{platform} adapter reloaded")
+        if instance_id.nil? || instance_id.to_s.empty?
+          config.instances(platform).each do |inst|
+            start_adapter(platform, inst["id"]) if inst["enabled"]
+          end
+        elsif config.enabled?(platform, instance_id)
+          start_adapter(platform, instance_id)
+        end
+
+        if @adapters.any? { |a| a.platform_id == platform }
+          Clacky::Logger.info("[ChannelManager] #{instance_label(platform, instance_id)} adapter reloaded")
         else
-          Clacky::Logger.info("[ChannelManager] :#{platform} disabled — adapter not started")
+          Clacky::Logger.info("[ChannelManager] #{instance_label(platform, instance_id)} disabled — adapter not started")
         end
       end
 
@@ -197,27 +227,39 @@ module Clacky
         @channel_config = config
       end
 
-      def start_adapter(platform)
+      def start_adapter(platform, instance_id = nil)
         klass = Adapters.find(platform)
         unless klass
           Clacky::Logger.warn("[ChannelManager] No adapter registered for :#{platform} — skipping")
           return
         end
 
-        raw_config = @channel_config.platform_config(platform)
-        Clacky::Logger.info("[ChannelManager] Initializing :#{platform} adapter")
+        raw_config = @channel_config.platform_config(platform, instance_id)
+        return if raw_config.nil?
+
+        inst = @channel_config.instance(platform, instance_id)
+        id   = inst ? inst["id"] : ChannelConfig::DEFAULT_INSTANCE_ID
+
+        already_running = @mutex.synchronize do
+          @adapters.any? { |a| a.platform_id == platform.to_sym && a.instance_id == id }
+        end
+        return if already_running
+
+        Clacky::Logger.info("[ChannelManager] Initializing #{instance_label(platform, id)} adapter")
         adapter = klass.new(raw_config)
+        adapter.instance_id   = id
+        adapter.instance_name = inst["name"].to_s if inst
 
         errors = adapter.validate_config(raw_config)
         if errors.any?
-          Clacky::Logger.warn("[ChannelManager] Config errors for :#{platform}: #{errors.join(", ")}")
+          Clacky::Logger.warn("[ChannelManager] Config errors for #{instance_label(platform, id)}: #{errors.join(", ")}")
           return
         end
 
         @mutex.synchronize { @adapters << adapter }
-        Clacky::Logger.info("[ChannelManager] :#{platform} adapter ready, starting thread")
+        Clacky::Logger.info("[ChannelManager] #{instance_label(platform, id)} adapter ready, starting thread")
 
-        thread = Clacky::ThreadRegistry.spawn(name: "channel-#{platform}") do
+        thread = Clacky::ThreadRegistry.spawn(name: adapter_thread_name(platform, id)) do
           adapter_loop(adapter)
         end
 
@@ -225,30 +267,33 @@ module Clacky
       end
 
       def adapter_loop(adapter)
-        Clacky::Logger.info("[ChannelManager] :#{adapter.platform_id} adapter loop started")
+        Clacky::Logger.info("[ChannelManager] #{adapter_label(adapter)} adapter loop started")
         adapter.start do |event|
+          event[:channel_instance_id] ||= adapter.instance_id
           summary = event[:text].to_s.lines.first.to_s.strip[0, 80]
           summary = "[image]" if summary.empty? && !event[:files].to_a.empty?
-          Clacky::Logger.info("[ChannelManager] :#{adapter.platform_id} message from #{event[:user_id]} in #{event[:chat_id]}: #{summary}")
+          Clacky::Logger.info("[ChannelManager] #{adapter_label(adapter)} message from #{event[:user_id]} in #{event[:chat_id]}: #{summary}")
           route_message(adapter, event)
         rescue StandardError => e
-          Clacky::Logger.warn("[ChannelManager] Error routing :#{adapter.platform_id} message: #{e.message}\n#{e.backtrace.first(3).join("\n")}")
+          Clacky::Logger.warn("[ChannelManager] Error routing #{adapter_label(adapter)} message: #{e.message}\n#{e.backtrace.first(3).join("\n")}")
           adapter.send_text(event[:chat_id], "Error: #{e.message}")
         end
       rescue StandardError => e
         if @running && !Clacky::Shutdown.requested?
-          Clacky::Logger.warn("[ChannelManager] :#{adapter.platform_id} adapter crashed: #{e.message}\n#{e.backtrace.first(3).join("\n")}")
-          Clacky::Logger.info("[ChannelManager] :#{adapter.platform_id} restarting in 5s...")
+          Clacky::Logger.warn("[ChannelManager] #{adapter_label(adapter)} adapter crashed: #{e.message}\n#{e.backtrace.first(3).join("\n")}")
+          Clacky::Logger.info("[ChannelManager] #{adapter_label(adapter)} restarting in 5s...")
           Clacky::Shutdown.sleep(5)
           retry
         else
           # Shutting down — the adapter was stopped, not crashed (e.g. a ws
           # socket closed mid-read raises EBADF). Keep the log quiet.
-          Clacky::Logger.debug("[ChannelManager] :#{adapter.platform_id} adapter stopped: #{e.message}")
+          Clacky::Logger.debug("[ChannelManager] #{adapter_label(adapter)} adapter stopped: #{e.message}")
         end
       end
 
       def route_message(adapter, event)
+        event[:channel_instance_id] ||= adapter.instance_id
+
         if event[:observe_only]
           return
         end
@@ -425,7 +470,7 @@ module Clacky
               end
             end
           else
-            channel_ui = ChannelUIController.new(event, -> { adapter_for(event[:platform]) }, -> { @channel_config.status_messages_enabled? }, -> { @channel_config.process_messages_enabled? }, -> { @channel_config.progress_cards_enabled? })
+            channel_ui = ChannelUIController.new(event, -> { adapter_for(event[:platform], event[:channel_instance_id]) }, -> { @channel_config.status_messages_enabled? }, -> { @channel_config.process_messages_enabled? }, -> { @channel_config.progress_cards_enabled? })
           end
 
           @persist_session&.call(cleared_agent) if cleared_agent
@@ -753,15 +798,14 @@ module Clacky
       def auto_create_session(adapter, event)
         key      = channel_key(event)
         platform = event[:platform].to_s
-        count    = @mutex.synchronize { @session_counters[platform] += 1 }
-        name     = "#{platform}-#{count}"
+        name     = next_session_name(platform)
         session_id = @session_builder.call(name: name, source: :channel)
         bind_key_to_session(key, session_id)
 
         # Create a long-lived ChannelUIController for this session and subscribe it
         # to the session's WebUIController. It stays for the session's full lifetime
         # so all events (agent output, errors, status) flow through web_ui → channel_ui.
-        channel_ui = ChannelUIController.new(event, -> { adapter_for(event[:platform]) }, -> { @channel_config.status_messages_enabled? }, -> { @channel_config.process_messages_enabled? }, -> { @channel_config.progress_cards_enabled? })
+        channel_ui = ChannelUIController.new(event, -> { adapter_for(event[:platform], event[:channel_instance_id]) }, -> { @channel_config.status_messages_enabled? }, -> { @channel_config.process_messages_enabled? }, -> { @channel_config.progress_cards_enabled? })
         @registry.with_session(session_id) do |s|
           s[:ui]&.subscribe_channel(channel_ui)
           s[:channel_ui] = channel_ui
@@ -769,6 +813,28 @@ module Clacky
 
         Clacky::Logger.info("[ChannelManager] Auto-created session #{session_id[0, 8]} for #{key}")
         session_id
+      end
+
+      # Channel session names resume from the highest "platform-N" already on
+      # disk. Counters are process-local, so without this seed a restart restarts
+      # numbering at 1 and produces duplicate names (e.g. two "weixin-1" rows).
+      private def next_session_name(platform)
+        @mutex.synchronize do
+          @session_counters[platform] ||= highest_session_number(platform)
+          @session_counters[platform] += 1
+          "#{platform}-#{@session_counters[platform]}"
+        end
+      end
+
+      private def highest_session_number(platform)
+        prefix = "#{platform}-"
+        @registry.list(archived: nil).map do |summary|
+          name = summary[:name].to_s
+          next unless name.start_with?(prefix)
+
+          tail = name[prefix.length..]
+          tail.to_i if tail.match?(/\A\d+\z/)
+        end.compact.max || 0
       end
 
       # Retrieve the ChannelUIController bound to a session (if any).
@@ -788,7 +854,7 @@ module Clacky
         end
         return unless needs_attach
 
-        channel_ui = ChannelUIController.new(event, -> { adapter_for(event[:platform]) }, -> { @channel_config.status_messages_enabled? }, -> { @channel_config.process_messages_enabled? }, -> { @channel_config.progress_cards_enabled? })
+        channel_ui = ChannelUIController.new(event, -> { adapter_for(event[:platform], event[:channel_instance_id]) }, -> { @channel_config.status_messages_enabled? }, -> { @channel_config.process_messages_enabled? }, -> { @channel_config.progress_cards_enabled? })
         @registry.with_session(session_id) do |s|
           next unless s[:ui] && s[:channel_ui].nil?
           s[:ui].subscribe_channel(channel_ui)
@@ -880,30 +946,74 @@ module Clacky
       end
 
       def channel_key(event)
-        platform = event[:platform].to_s
+        prefix = channel_key_prefix(event[:platform], event[:channel_instance_id])
         case @binding_mode
-        when :chat      then "#{platform}:chat:#{event[:chat_id]}"
-        when :user      then "#{platform}:user:#{event[:user_id]}"
+        when :chat      then "#{prefix}:chat:#{event[:chat_id]}"
+        when :user      then "#{prefix}:user:#{event[:user_id]}"
         else # :chat_user
-          "#{platform}:chat:#{event[:chat_id]}:user:#{event[:user_id]}"
+          "#{prefix}:chat:#{event[:chat_id]}:user:#{event[:user_id]}"
         end
       end
 
       def channel_key_from_info(channel_info)
-        platform = channel_info[:platform].to_s
+        prefix   = channel_key_prefix(channel_info[:platform], channel_info[:channel_instance_id])
         chat_id  = channel_info[:chat_id].to_s
         user_id  = channel_info[:user_id].to_s
         case @binding_mode
-        when :chat      then "#{platform}:chat:#{chat_id}"
-        when :user      then "#{platform}:user:#{user_id}"
+        when :chat      then "#{prefix}:chat:#{chat_id}"
+        when :user      then "#{prefix}:user:#{user_id}"
         else # :chat_user
-          "#{platform}:chat:#{chat_id}:user:#{user_id}"
+          "#{prefix}:chat:#{chat_id}:user:#{user_id}"
         end
+      end
+
+      # The first (default) instance keeps the historical key format
+      # "feishu:chat:xxx"; extra instances use "feishu#work:chat:xxx" so two
+      # apps of the same platform never share a binding.
+      private def channel_key_prefix(platform, instance_id)
+        platform = platform.to_s
+        id = instance_id.to_s
+        return platform if id.empty? || id == ChannelConfig::DEFAULT_INSTANCE_ID
+        "#{platform}##{id}"
+      end
+
+      # Strip the platform/instance prefix from a channel key, returning the
+      # binding payload ("chat:..." / "user:..."). nil when the key belongs to
+      # another platform or instance.
+      private def channel_key_payload(key, platform, instance_id)
+        platform = platform.to_s
+        if instance_id.nil? || instance_id.to_s.empty?
+          if key.start_with?("#{platform}:")
+            key.sub("#{platform}:", "")
+          elsif key.start_with?("#{platform}#")
+            key.sub("#{platform}#", "").split(":", 2)[1]
+          end
+        else
+          prefix = "#{channel_key_prefix(platform, instance_id)}:"
+          key.sub(prefix, "") if key.start_with?(prefix)
+        end
+      end
+
+      private def instance_label(platform, instance_id = nil)
+        id = instance_id.to_s
+        return ":#{platform}" if id.empty? || id == ChannelConfig::DEFAULT_INSTANCE_ID
+        ":#{platform}##{id}"
+      end
+
+      private def adapter_label(adapter)
+        instance_label(adapter.platform_id, adapter.instance_id)
+      end
+
+      private def adapter_thread_name(platform, instance_id)
+        id = instance_id.to_s
+        return "channel-#{platform}" if id.empty? || id == ChannelConfig::DEFAULT_INSTANCE_ID
+        "channel-#{platform}-#{id}"
       end
 
       private def extract_channel_info(event)
         {
           platform: event[:platform],
+          channel_instance_id: event[:channel_instance_id],
           user_id:  event[:user_id],
           chat_id:  event[:chat_id]
         }
@@ -956,7 +1066,7 @@ module Clacky
           next unless bound_keys.add?(key)
           bind_key_to_session(key, summary[:id])
 
-          event = { platform: info[:platform], chat_id: info[:chat_id] }
+          event = { platform: info[:platform], channel_instance_id: info[:channel_instance_id], chat_id: info[:chat_id] }
           ensure_channel_ui_subscribed(summary[:id], event)
 
           Clacky::Logger.info("[ChannelManager] Restored channel binding #{key} -> session #{summary[:id][0, 8]}")

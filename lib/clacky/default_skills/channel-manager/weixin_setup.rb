@@ -44,6 +44,10 @@ end
 FETCH_QR_MODE = ARGV.include?("--fetch-qr")
 QRCODE_ID_IDX = ARGV.index("--qrcode-id")
 GIVEN_QRCODE_ID = QRCODE_ID_IDX ? ARGV[QRCODE_ID_IDX + 1] : nil
+INSTANCE_ID_IDX = ARGV.index("--instance-id")
+GIVEN_INSTANCE_ID = INSTANCE_ID_IDX ? ARGV[INSTANCE_ID_IDX + 1].to_s.strip : ""
+NAME_IDX = ARGV.index("--name")
+GIVEN_NAME = NAME_IDX ? ARGV[NAME_IDX + 1].to_s.strip : ""
 
 # ---------------------------------------------------------------------------
 # Logging (suppress in --fetch-qr mode so stdout is clean JSON)
@@ -145,7 +149,10 @@ end
 
 def save_to_server(token:, base_url:)
   uri  = URI("#{CLACKY_SERVER_URL}/api/channels/weixin")
-  body = JSON.generate({ token: token, base_url: base_url })
+  body = { token: token, base_url: base_url }
+  body[:instance_id] = GIVEN_INSTANCE_ID unless GIVEN_INSTANCE_ID.empty?
+  body[:name]        = GIVEN_NAME        unless GIVEN_NAME.empty?
+  body = JSON.generate(body)
 
   http = Net::HTTP.new(uri.host, uri.port)
   http.read_timeout = 15
