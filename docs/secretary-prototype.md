@@ -212,7 +212,17 @@ User interruption pauses the work card. `manage_work resume` requeues paused or
 failed work in its existing worker session, retaining history and progress; no
 new delegation is created. It accepts optional additional instructions and the
 usual expected_revision check. Repeating resume on queued/running work is a no-op.
-Completed or cancelled work cannot be resumed.
+Completed work accepts `reply`/`update` to refine the result in the same session;
+completion means there is no work pending, not that the user has accepted it.
+`resume` remains for interrupted work. Cancelled work cannot be restarted by feedback.
+
+Users can also speak directly in a worker conversation. Messages and their files,
+references and timestamps are saved in the work card's existing `pending_inputs`.
+The same coordinator dispatches them to the same worker session with revision
+protection; there is no separate user-turn execution wrapper. Feedback arriving
+during execution waits for the current turn. After completion (or a question),
+pending user messages continue through the coordinator. Paused/failed work does
+not automatically restart. Owner updates still invalidate outdated executions.
 
 ## Debug downloads
 
@@ -253,3 +263,12 @@ It adds a model-only `context` value to each resolved reference in the existing
 UI/history reference metadata; it does not look up sessions or require a server
 SessionManager injection. Legacy text-only contexts and saved queued inputs remain
 supported.
+
+Work reports include the original request, latest feedback, worker outcome and a
+status-specific next step. `needs_input` asks the owner to answer from existing
+information before consulting the user; refinements continue the same work.
+Outbox event IDs remain in the work store, not in model-visible content or session
+message IDs. Delivery uses pending/delivered state without scanning session history.
+A crash after session persistence but before acknowledgement can repeat a report.
+When capturing verbatim user context, host submissions carrying `display_text`
+are excluded so generated reports are not treated as user authorization.

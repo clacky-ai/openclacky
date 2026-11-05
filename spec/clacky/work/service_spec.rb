@@ -71,6 +71,14 @@ RSpec.describe Clacky::Work::Service do
     expect(service.protected_session_ids).to contain_exactly("owner", "worker")
   end
 
+  it "does not capture work reports as user authorization when delegating again" do
+    allow(owner.history).to receive(:to_a).and_return([
+      { role: "user", content: "Actual user request", message_id: "user-1" },
+      { role: "user", content: "Worker report", display_text: "Work completed", message_id: "report-1" }
+    ])
+    expect(card["source_messages"].map { |m| m["content"] }).to eq(["Actual user request"])
+  end
+
   it "isolates management by owner" do
     expect { service.manage("other", action: "cancel", work_id: card["id"]) }.to raise_error(/not found/)
     expect(service.list("other")).to eq([])
@@ -105,6 +113,80 @@ RSpec.describe Clacky::Work::Service do
     expect(current["status"]).to eq("completed")
     expect(current["outbox"].first).to include("kind" => "completed", "state" => "pending")
     expect { service.guard!(worker) }.to raise_error(/yielded/)
+  end
+
+  %w[reply update].each do |action|
+    it "continues completed work through #{action} without creating another session" do
+      c = running
+      service.yield_work(worker, reason: "completed", summary: "First draft")
+      result = service.manage("owner", action: action, work_id: c["id"], instruction: "Make it shorter")
+      expect(result).to include("id" => c["id"], "session_id" => "worker", "status" => "queued", "revision" => 2)
+      expect(result["outbox"].first["state"]).to eq("superseded")
+      expect { service.guard!(worker) }.to raise_error(Clacky::AgentInterrupted)
+    end
+  end
+
+  it "queues direct feedback durably without interrupting the running execution" do
+    c = running
+    expect(runner).not_to receive(:call)
+    expect(service.receive_input("worker", "Why this option?", files: [{ path: "notes.txt" }])).to be(true)
+    expect { service.guard!(worker) }.not_to raise_error
+    expect(current).to include("status" => "running", "revision" => 1)
+    expect(current["pending_inputs"].last).to include("kind" => "user_message", "text" => "Why this option?", "options" => { "files" => [{ "path" => "notes.txt" }] })
+    service.manage("owner", action: "update", work_id: c["id"], instruction: "Changed requirements")
+    expect(current["revision"]).to eq(2)
+    expect { service.guard!(worker) }.to raise_error(Clacky::AgentInterrupted)
+  end
+
+  it "dispatches feedback received during background execution on the next coordinator tick" do
+    card
+    idle_registry
+    turns = 0
+    allow(runner).to receive(:call) do |_sid, prompt, **_options, &block|
+      block.call(lambda {
+        turns += 1
+        if turns == 1
+          service.receive_input("worker", "Refine this")
+        else
+          expect(prompt).to eq("Refine this")
+          expect(service.turn_context(worker)).to include("speaking directly")
+        end
+        service.yield_work(worker, reason: "completed", summary: "Result")
+        { status: :success }
+      }, worker)
+      :thread
+    end
+    service.tick
+    expect(current["status"]).to eq("queued")
+    service.tick
+    expect(current["status"]).to eq("completed")
+    expect(current["pending_inputs"]).to be_empty
+    expect(turns).to eq(2)
+  end
+
+  it "retains feedback and attachments when execution admission is deferred" do
+    card
+    idle_registry
+    service.receive_input("worker", "Review", files: [{ path: "notes.txt" }])
+    allow(runner).to receive(:call).and_return(nil)
+    service.tick
+    expect(current["status"]).to eq("queued")
+    expect(current["pending_inputs"].last.dig("options", "files")).to eq([{ "path" => "notes.txt" }])
+  end
+
+  it "rejects direct messages to cancelled work without executing" do
+    card
+    idle_registry
+    service.manage("owner", action: "cancel", work_id: card["id"])
+    expect { service.receive_input("worker", "Continue") }.to raise_error(/cancelled/)
+    expect(current["status"]).to eq("cancelled")
+  end
+
+  it "gives the owner the request, latest feedback and an explicit next step" do
+    c = card.merge("updates" => [{ "source" => "user", "text" => "Shorter please" }])
+    prompt = service.send(:report_prompt, c, { "kind" => "needs_input", "text" => "Which date?" })
+    expect(prompt).to include("询问时间", "Shorter please", "Which date?", "First answer", "manage_work reply")
+    expect(prompt).not_to include("work-event:")
   end
 
   it "accepts legacy yield reasons and normalizes stored cards and pending reports" do
@@ -236,12 +318,12 @@ RSpec.describe Clacky::Work::Service do
     expect(current["outbox"].first["state"]).to eq("delivered")
   end
 
-  it "deduplicates delivery after persisted history but before outbox acknowledgement" do
+  it "does not redeliver an acknowledged report" do
     running
-    service.yield_work(worker, reason: "needs_input", summary: "周五可以吗？")
+    service.yield_work(worker, reason: "needs_input", summary: "Which date?")
     event = current["outbox"].first
+    service.send(:ack, current["id"], event["id"])
     idle_registry
-    allow(owner.history).to receive(:to_a).and_return([{ role: "user", content: "[work-event:#{event['id']}]\n问题" }])
     expect(runner).not_to receive(:call)
     service.tick
     expect(current["outbox"].first["state"]).to eq("delivered")

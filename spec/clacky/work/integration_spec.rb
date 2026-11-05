@@ -80,12 +80,14 @@ RSpec.describe "Secretary server integration" do
       saved = server.instance_variable_get(:@session_manager).load(owner_id)
       expect(finished_events).to include(hash_including(type: "task_finished", session_id: owner_id, awaiting_feedback: false))
       expect(finished_events.find { |event| event[:type] == "task_finished" && event[:session_id] == owner_id }[:notify_user]).not_to be(false)
-      expect(saved.to_json).to include("work-event:")
-      event_message = owner.history.to_a.find { |m| m[:content].is_a?(String) && m[:content].start_with?("[work-event:") }
+      expect(saved.to_json).not_to include("work-event:")
+      event_message = owner.history.to_a.find { |m| m[:display_text] == "Work completed: 旅行建议" }
       reference = { type: "session", session_id: card["id"], name: card["title"] }
       expect(event_message).to include(display_text: "Work completed: 旅行建议", display_references: [reference])
       expect(live_events).to include([owner_id, hash_including(type: "history_user_message", references: [reference])])
-      expect(event_message[:content]).to include("建议先确定日期")
+      expect(event_message[:content]).to include("建议先确定日期", "Original request: 整理建议", "Next step:")
+      expect(event_message[:content]).not_to include("work-event:")
+      expect(owner.history.to_api.to_json).not_to include("work-event:")
       expect(owner.history.to_a).to include(hash_including(system_injected: true, content: a_string_including("Referenced conversation")))
       expect(event_message[:system_injected]).not_to be(true)
       expect(live_events).to include([owner_id, hash_including(type: "history_user_message", content: "Work completed: 旅行建议")])
@@ -100,6 +102,52 @@ RSpec.describe "Secretary server integration" do
       expect(replay.instance_variable_get(:@events)).to include(hash_including(type: "assistant_message", content: "工作完成，以下是建议。"))
       expect(rendered.to_json).not_to include("work-event:", "这是工作结果", "返回 completed")
 
+    end
+  end
+
+  it "accepts direct feedback and queued follow-ups in the same completed worker with references" do
+    with_server(agent_config: config) do |server|
+      registry = server.instance_variable_get(:@registry)
+      owner_id = server.send(:build_session, name: "Owner", profile: "secretary")
+      owner = registry.get(owner_id)[:agent]
+      card = server.work_service.delegate(owner, title: "Report", task: "Prepare report")
+      worker = registry.get(card["session_id"])[:agent]
+      turn = 0
+      allow(worker).to receive(:think) do
+        turn += 1
+        if turn == 2
+          # WebSocket input arrives on a request thread, not the worker's epoch.
+          Thread.new do
+            server.handle_user_message(card["session_id"], "Explain the conclusion", [], references: [{ "type" => "quote", "text" => "Conclusion" }])
+          end.value
+        end
+        calls = [{ id: "finish-#{turn}", name: "yield_work", arguments: JSON.generate(reason: "completed", summary: "Result #{turn}") }]
+        worker.history.append(role: "assistant", content: nil, tool_calls: calls)
+        { content: nil, tool_calls: calls }
+      end
+      server.work_service.tick
+      wait_thread(registry, card["session_id"])
+      ref = { "type" => "quote", "text" => "First draft", "label" => "Review" }
+      attachment_path = File.join(server.work_service.instance_variable_get(:@store).instance_variable_get(:@path) + ".notes.txt")
+      File.write(attachment_path, "Keep the conclusion")
+      files = [{ name: "notes.txt", path: attachment_path, type: "file" }]
+      server.handle_user_message(card["session_id"], "Make it shorter", files, references: [ref])
+      expect(server.work_service.list(owner_id).first["status"]).to eq("queued")
+      server.work_service.tick
+      wait_thread(registry, card["session_id"])
+      server.work_service.tick
+      wait_thread(registry, card["session_id"])
+      current = server.work_service.list(owner_id).first
+      expect(current).to include("id" => card["id"], "status" => "completed", "revision" => 3)
+      expect(current["updates"].map { |u| u["text"] }).to eq(["Make it shorter", "Explain the conclusion"])
+      expect(worker.history.to_a).to include(hash_including(content: "Make it shorter", display_references: [ref]))
+      expect(worker.history.to_a).to include(hash_including(content: "Explain the conclusion"))
+      expect(worker.history.to_a).to include(hash_including(system_injected: true, content: a_string_including("speaking directly")))
+      expect(worker.history.to_a).to include(hash_including(system_injected: true, content: a_string_including("First draft")))
+      feedback = worker.history.to_a.find { |m| m[:content] == "Make it shorter" }
+      expect(feedback[:display_files]).to include(hash_including(name: "notes.txt", path: attachment_path))
+      expect(turn).to eq(3)
+      expect(current["outbox"].map { |e| e["state"] }).to eq(%w[superseded superseded pending])
     end
   end
 
@@ -124,8 +172,8 @@ RSpec.describe "Secretary server integration" do
         expect(events).to include(hash_including(type: "task_finished", session_id: card["session_id"],
                                                 awaiting_feedback: status == :awaiting_feedback, notify_user: false))
         if status == :awaiting_feedback
-          server.work_service.manage(sid, action: "reply", work_id: card["id"], instruction: "Use the agreed option")
           reason = "completed"
+          server.handle_user_message(card["session_id"], "Use the agreed option")
           server.work_service.tick
           wait_thread(registry, card["session_id"])
           expect(registry.get(card["session_id"])[:status]).to eq(:idle)
