@@ -5,7 +5,7 @@ require "clacky/server/http_server"
 RSpec.describe Clacky::Server::HttpServer, "task_finished summary" do
   let(:config) { Clacky::AgentConfig.new }
   let(:registry) { Clacky::Server::SessionRegistry.new(agent_config: config) }
-  let(:agent) { double("agent", to_session_data: {}) }
+  let(:agent) { double("agent", to_session_data: {}, name: "修复登录页跳转") }
   let(:ui) { Clacky::Server::WebUIController.new("s", ->(_sid, _event) {}) }
   let(:finished) { [] }
   let(:server) do
@@ -40,6 +40,10 @@ RSpec.describe Clacky::Server::HttpServer, "task_finished summary" do
   it "omits a summary left over from an earlier turn" do
     ui.show_complete(iterations: 2, cost: 0.5, task_id: 7)
     expect(run(status: :success, task_id: 8)).not_to have_key(:complete)
+  end
+
+  it "carries the session name so the toast can label itself" do
+    expect(run(status: :success)[:session_name]).to eq("修复登录页跳转")
   end
 
   it "omits the summary when the turn printed none" do

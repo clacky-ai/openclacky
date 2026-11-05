@@ -8665,6 +8665,12 @@ module Clacky
           # Also fires when awaiting feedback — that is precisely when the user
           # most needs pulling back; the flag lets the client word it differently.
           finished = { type: "task_finished", session_id: session_id, awaiting_feedback: !!awaiting }
+          # Carried inline because the client may not have this session in its
+          # list yet (cron runs land in another project, and the sidebar is
+          # paged), so a client-side lookup by id would come back empty and the
+          # toast would lose the session name.
+          name = @registry.with_session(session_id) { |s| s[:agent]&.name }
+          finished[:session_name] = name unless name.to_s.strip.empty?
           finished[:notify_user] = false if run_result.is_a?(Hash) && run_result[:notify_user] == false
           # Lets clients not viewing this session keep the summary until it is first opened.
           complete = web_ui&.last_complete

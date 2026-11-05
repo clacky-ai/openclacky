@@ -209,7 +209,7 @@ RSpec.describe Clacky::Server::HttpServer, "queued input during task finalizatio
   let(:config) { Clacky::AgentConfig.new(input_behavior: "steer") }
   let(:registry) { Clacky::Server::SessionRegistry.new(agent_config: config) }
   let(:pending) { { id: "message-1", content: "late guidance", options: {} } }
-  let(:agent) { double("agent", to_session_data: {}) }
+  let(:agent) { double("agent", to_session_data: {}, name: "s") }
   let(:server) do
     described_class.allocate.tap do |s|
       s.instance_variable_set(:@registry, registry)
