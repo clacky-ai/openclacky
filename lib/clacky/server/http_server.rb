@@ -8082,6 +8082,8 @@ module Clacky
             zos.write(File.binread(chunk_path))
           end
 
+          write_work_debug_bundle(zos, bundle[:session][:session_id])
+
           log_path = Clacky::Logger.current_log_file
           if log_path && File.exist?(log_path)
             zos.put_next_entry("logs/#{File.basename(log_path)}")
@@ -8102,6 +8104,46 @@ module Clacky
       rescue => e
         Clacky::Logger.error("Session export failed: #{e.message}") if defined?(Clacky::Logger)
         json_response(res, 500, { error: "Export failed: #{e.message}" })
+      end
+
+      private def write_work_debug_bundle(zos, session_id)
+        snapshot = @work_service&.debug_snapshot(session_id)
+        return if !snapshot || snapshot["cards"].empty?
+
+        sessions = snapshot["cards"].map { |card| card["session_id"] }.uniq.map do |worker_id|
+          entry = { "session_id" => worker_id }
+          if worker_id == session_id
+            entry.merge("path" => "session.json", "status" => "included")
+          else
+            bundle = @session_manager.files_for(worker_id)
+            # files_for accepts prefixes; debug associations must be exact.
+            if bundle && bundle[:session][:session_id] == worker_id
+              prefix = "work/sessions/#{URI.encode_www_form_component(worker_id)}/"
+              begin
+                files = [["session.json", File.binread(bundle[:json_path])]]
+                bundle[:chunks].each { |path| files << [File.basename(path), File.binread(path)] }
+                files.each do |name, content|
+                  zos.put_next_entry(prefix + name)
+                  zos.write(content)
+                end
+                entry.merge("path" => prefix + "session.json", "status" => "included")
+              rescue Errno::ENOENT
+                entry.merge("status" => "missing")
+              end
+            else
+              entry.merge("status" => "missing")
+            end
+          end
+        end
+        manifest = {
+          "session_id" => session_id,
+          "work" => snapshot["cards"].map { |card| card.slice("id", "session_id", "owner_session_id", "revision") },
+          "sessions" => sessions
+        }
+        { "manifest" => manifest, "cards" => snapshot["cards"], "events" => snapshot["events"] }.each do |name, data|
+          zos.put_next_entry("work/#{name}.json")
+          zos.write(JSON.pretty_generate(data))
+        end
       end
 
       # ── WebSocket ─────────────────────────────────────────────────────────────

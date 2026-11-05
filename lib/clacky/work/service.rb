@@ -54,6 +54,16 @@ module Clacky
           .sort_by { |c| c["created_at"] }.reverse
       end
 
+      # Export only this conversation's work, never the shared store wholesale.
+      def debug_snapshot(session_id)
+        data = @store.read
+        cards = data["cards"].values.select do |card|
+          card["owner_session_id"] == session_id || card["session_id"] == session_id
+        end
+        ids = cards.map { |card| card["id"] }
+        { "cards" => cards, "events" => data["events"].select { |event| ids.include?(event["work_id"]) } }
+      end
+
       def delegate(agent, title:, task:, constraints: "")
         raise "Agent has no work_agent configured" if agent.agent_profile.work_agent.empty?
         raise "Title and task are required" if title.to_s.strip.empty? || task.to_s.strip.empty?

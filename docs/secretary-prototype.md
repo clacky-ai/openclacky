@@ -214,3 +214,14 @@ failed work in its existing worker session, retaining history and progress; no
 new delegation is created. It accepts optional additional instructions and the
 usual expected_revision check. Repeating resume on queued/running work is a no-op.
 Completed or cancelled work cannot be resumed.
+
+## Debug downloads
+
+Session downloads retain the existing top-level session, archive chunks and log.
+When the session owns work, the ZIP additionally contains `work/cards.json`,
+`work/events.json` (matched events only), `work/manifest.json`, and the associated
+worker session files under `work/sessions/<session-id>/`. The manifest preserves
+existing work/session identifiers and marks unavailable worker files as missing.
+Downloading a worker includes its own card but does not expand to its owner's
+conversation or sibling workers. Session files are the latest persisted versions;
+the work snapshot and session files are not an atomic snapshot of a running system.
