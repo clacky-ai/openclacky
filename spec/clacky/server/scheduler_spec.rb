@@ -236,6 +236,40 @@ RSpec.describe Clacky::Server::Scheduler do
       expect(captured[:block]).to      be_a(Proc)
     end
 
+    it "labels the cron session with the display title" do
+      built_name = nil
+      s = described_class.new(
+        session_registry: fake_registry,
+        session_builder:  ->(**kw) { built_name = kw[:name]; "session-title" },
+        task_runner:      task_runner
+      )
+      stub_const("Clacky::Server::Scheduler::SCHEDULES_FILE", File.join(tmpdir, "schedules.yml"))
+      stub_const("Clacky::Server::Scheduler::TASKS_DIR",      File.join(tmpdir, "tasks"))
+      s.write_task("my_task", "x")
+
+      allow(Time).to receive(:now).and_return(Time.parse("2026-11-05T09:00:00"))
+      s.send(:fire_task, { "name" => "daily_report", "title" => "每日报表", "task" => "my_task", "cron" => "0 9 * * *" })
+
+      expect(built_name).to eq("⏰ 每日报表 09:00")
+    end
+
+    it "falls back to the plan name when no title is set" do
+      built_name = nil
+      s = described_class.new(
+        session_registry: fake_registry,
+        session_builder:  ->(**kw) { built_name = kw[:name]; "session-title" },
+        task_runner:      task_runner
+      )
+      stub_const("Clacky::Server::Scheduler::SCHEDULES_FILE", File.join(tmpdir, "schedules.yml"))
+      stub_const("Clacky::Server::Scheduler::TASKS_DIR",      File.join(tmpdir, "tasks"))
+      s.write_task("my_task", "x")
+
+      allow(Time).to receive(:now).and_return(Time.parse("2026-11-05T09:00:00"))
+      s.send(:fire_task, { "name" => "daily_report", "task" => "my_task", "cron" => "0 9 * * *" })
+
+      expect(built_name).to eq("⏰ daily_report 09:00")
+    end
+
     it "does nothing when no agent is registered for the new session" do
       empty_registry = Object.new.tap do |r|
         r.define_singleton_method(:with_session) { |_sid, &blk| blk.call({ agent: nil }) }

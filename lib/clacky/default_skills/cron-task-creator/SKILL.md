@@ -63,9 +63,10 @@ Use the server's configured authentication if required; do not print credentials
 
 Prompts are stored in `~/.clacky/tasks/<name>.md`; plans are stored in
 `~/.clacky/schedules.yml`. Use the API for changes rather than editing these files.
-GET returns name, content, cron, enabled, next_run, last_run and optional target.
-Names are global, not per conversation. Always inspect the response and handle
-errors before reporting success.
+GET returns name, title, content, cron, enabled, next_run, last_run and optional target.
+`name` is a stable ASCII identifier; `title` is the human-readable label. Names are
+global, not per conversation. Always inspect the response and handle errors before
+reporting success.
 
 ## 1. List and select
 
@@ -80,11 +81,11 @@ If names/titles are ambiguous, clarify before mutating. Do not select another
 secretary's similarly named plan by accident; an explicit request to manage a
 particular existing plan may refer to a different conversation.
 
-Display a friendly title (target.title when present), time, enabled state, next
-run and result destination. Include ordinary last_run status when available; do
-not interpret a secretary plan's empty cron last_run as "never executed". Use its
-work history below. The existing WebUI Tasks panel remains the global management
-surface; the secretary Work panel shows that conversation's plans and work.
+Display the plan's `title` when present, falling back to `name`, together with time,
+enabled state, next run and result destination. Include ordinary last_run status when
+available; do not interpret a secretary plan's empty cron last_run as "never executed".
+Use its work history below. The existing WebUI Tasks panel remains the global
+management surface; the secretary Work panel shows that conversation's plans and work.
 
 ## 2. Create
 
@@ -94,14 +95,17 @@ scope, language and output requirements. Secretary workers receive recent work
 summaries, but do not automatically have mailbox/calendar access or the full
 conversation. Do not promise unavailable sources or actions.
 
-Choose a distinct lowercase name using `[a-z0-9_-]`. Check existing names first.
-Do not use POST to overwrite a plan; use PATCH when editing the intended plan.
+Choose a distinct lowercase `name` using `[a-z0-9_-]` — it becomes the task file
+name and API path. Also set a short `title` in the user's language; this is what the
+Tasks panel and cron sessions display. Check existing names first. Do not use POST
+to overwrite a plan; use PATCH when editing the intended plan.
 
 Ordinary task payload (the existing format remains valid):
 
 ```json
 {
   "name": "daily_file_summary",
+  "title": "Daily file summary",
   "content": "Read the specified project notes and write the requested daily summary to the agreed output path. Include the actual paths and acceptance criteria here.",
   "cron": "0 9 * * *",
   "enabled": true
@@ -123,7 +127,7 @@ For secretary work, use the same payload fields and add:
 
 Read the actual session ID from the terminal environment; never submit the
 placeholder or guess an ID. The API validates that the owner is a secretary.
-Omit owner_session_id and title for ordinary tasks. Do not send a raw target hash.
+Omit owner_session_id for ordinary tasks. Do not send a raw target hash.
 For secretary notifications, use the existing X-Lang header (zh/en) when the
 user's language is known.
 
@@ -153,11 +157,12 @@ Read the selected plan, retain its type and owner, and PATCH only requested fiel
 {"content": "Updated self-contained instructions"}
 ```
 
-The supported fields are content, cron and enabled. Omitted fields remain intact.
-Neither owner_session_id nor title is editable through this endpoint. Report the
-actual changed fields after success. Editing an ordinary task from a secretary
-conversation leaves it ordinary; editing secretary work from another conversation
-leaves its result destination unchanged.
+The supported fields are title, content, cron and enabled. Omitted fields remain
+intact; an empty title clears it and falls back to name. Neither owner_session_id
+nor target is editable through this endpoint. Report the actual changed fields
+after success. Editing an ordinary task from a secretary conversation leaves it
+ordinary; editing secretary work from another conversation leaves its result
+destination unchanged.
 
 ## 4. Enable or disable
 

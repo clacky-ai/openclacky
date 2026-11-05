@@ -78,6 +78,53 @@ RSpec.describe "Scheduler resume behavior" do
     expect(s.schedules.first).to include("next_run_at" => Time.parse("2026-11-04T20:00:00").utc.iso8601, "target" => { "type" => "test" })
   end
 
+  it "persists a display title separately from the ASCII plan name" do
+    s = scheduler
+    s.create_cron_task(name: "morning", content: "Report", cron: "0 9 * * *", title: "早间汇报")
+
+    plan = s.list_cron_tasks.find { |p| p["name"] == "morning" }
+    expect(plan["title"]).to eq("早间汇报")
+    expect(s.schedules.first["title"]).to eq("早间汇报")
+    expect(s.task_file_path("morning")).to end_with("morning.md")
+  end
+
+  it "exposes no title when the plan has none" do
+    s = scheduler
+    create(s)
+    expect(s.list_cron_tasks.first["title"]).to be_nil
+  end
+
+  it "updates and clears a title without touching the name" do
+    s = scheduler
+    create(s)
+    s.update_cron_task("morning", title: "上午汇报")
+    expect(s.list_cron_tasks.first["title"]).to eq("上午汇报")
+
+    s.update_cron_task("morning", title: "")
+    expect(s.list_cron_tasks.first["title"]).to be_nil
+    expect(s.list_tasks).to eq(["morning"])
+  end
+
+  it "keeps a secretary plan's target title in sync" do
+    s = scheduler
+    s.create_cron_task(name: "morning", content: "Report", cron: "0 9 * * *",
+                       target: { "type" => "secretary_work", "title" => "早间汇报" })
+    s.update_cron_task("morning", title: "每日早报")
+
+    expect(s.schedules.first["target"]["title"]).to eq("每日早报")
+  end
+
+  it "accepts a legacy secretary target title as the display label" do
+    s = scheduler
+    s.write_task("legacy", "Report")
+    File.write(Clacky::Server::Scheduler::SCHEDULES_FILE, YAML.dump([
+      { "name" => "legacy", "task" => "legacy", "cron" => "0 9 * * *", "enabled" => true,
+        "target" => { "type" => "secretary_work", "title" => "旧计划" } }
+    ]))
+
+    expect(s.list_cron_tasks.first["title"]).to eq("旧计划")
+  end
+
   it "rejects invalid times before changing files" do
     s = scheduler
     create(s)

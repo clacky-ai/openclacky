@@ -5284,10 +5284,11 @@ module Clacky
       end
 
       # POST /api/cron-tasks — create task file + schedule in one step
-      # Body: { name, content, cron, enabled? }
+      # Body: { name, title?, content, cron, enabled? }
       def api_create_cron_task(req, res)
         body    = parse_json_body(req)
         name    = body["name"].to_s.strip
+        title   = body["title"].to_s.strip
         content = body["content"].to_s
         cron    = body["cron"].to_s.strip
         enabled = body.key?("enabled") ? body["enabled"] : true
@@ -5305,29 +5306,29 @@ module Clacky
         if body.key?("owner_session_id")
           owner_id = body["owner_session_id"].to_s.strip
           return json_response(res, 422, { error: "owner_session_id is required for secretary plans" }) if owner_id.empty?
-          title = body["title"].to_s.strip
           target = @work_service.schedule_target(owner_id, title: title.empty? ? name : title)
         end
         @scheduler.create_cron_task(name: name, content: content, cron: cron, enabled: enabled,
-                                    target: target)
+                                    target: target, title: title.empty? ? nil : title)
         json_response(res, 201, { ok: true, name: name })
       rescue ArgumentError => e
         json_response(res, 422, { error: e.message })
       end
 
-      # PATCH /api/cron-tasks/:name — update content and/or cron/enabled
-      # Body: { content?, cron?, enabled? }
+      # PATCH /api/cron-tasks/:name — update content and/or cron/enabled/title
+      # Body: { content?, cron?, enabled?, title? }
       def api_update_cron_task(name, req, res)
         body    = parse_json_body(req)
         content = body["content"]
         cron    = body["cron"]&.to_s&.strip
         enabled = body["enabled"]
+        title   = body.key?("title") ? body["title"].to_s.strip : nil
 
         if cron && cron.split(/\s+/).size != 5
           return json_response(res, 422, { error: "cron must have 5 fields (min hour dom month dow)" })
         end
 
-        @scheduler.update_cron_task(name, content: content, cron: cron, enabled: enabled)
+        @scheduler.update_cron_task(name, content: content, cron: cron, enabled: enabled, title: title)
         json_response(res, 200, { ok: true, name: name })
       rescue ArgumentError => e
         json_response(res, 422, { error: e.message })
@@ -5373,7 +5374,8 @@ module Clacky
         end
 
         prompt       = @scheduler.read_task(name)
-        session_name = "▶ #{name} #{Time.now.strftime("%H:%M")}"
+        label        = schedule && !schedule["title"].to_s.empty? ? schedule["title"] : name
+        session_name = "▶ #{label} #{Time.now.strftime("%H:%M")}"
         working_dir  = File.expand_path("~/clacky_workspace")
         FileUtils.mkdir_p(working_dir)
 

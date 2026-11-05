@@ -78,17 +78,20 @@ module Clacky
       # ── Schedule CRUD ────────────────────────────────────────────────────────
 
       # Add or update a schedule entry in schedules.yml.
-      def add_schedule(name:, task:, cron:, enabled: true, target: nil)
+      # `title` is the human-readable label; `name` stays an ASCII identifier.
+      def add_schedule(name:, task:, cron:, enabled: true, target: nil, title: nil)
         due = cron_next_run(cron)
         raise ArgumentError, "Invalid or impossible cron schedule" unless due
         @schedule_mutex.synchronize do
           list = load_schedules
           list.reject! { |s| s["name"] == name }
-          list << {
+          entry = {
             "id" => SecureRandom.hex(12), "name" => name, "task" => task,
             "cron" => cron, "enabled" => enabled,
             "target" => target, "next_run_at" => due.utc.iso8601
           }
+          entry["title"] = title unless title.nil? || title.to_s.empty?
+          list << entry
           save_schedules(list)
         end
       end
@@ -105,8 +108,9 @@ module Clacky
       end
 
       # Update an existing schedule entry (cron and/or enabled).
+      # Pass title: nil to leave it unchanged, or title: "" to clear it.
       # Returns false if the schedule does not exist.
-      def update_schedule(name, cron: nil, enabled: nil)
+      def update_schedule(name, cron: nil, enabled: nil, title: nil)
         @schedule_mutex.synchronize do
           list = load_schedules
           entry = list.find { |s| s["name"] == name }
@@ -114,6 +118,15 @@ module Clacky
           reset = cron || (enabled == true && entry["enabled"] == false)
           entry["cron"] = cron unless cron.nil?
           entry["enabled"] = enabled unless enabled.nil?
+          unless title.nil?
+            if title.to_s.empty?
+              entry.delete("title")
+              entry["target"].delete("title") if entry["target"].is_a?(Hash)
+            else
+              entry["title"] = title
+              entry["target"]["title"] = title if entry["target"].is_a?(Hash)
+            end
+          end
           if reset
             due = cron_next_run(entry["cron"])
             raise ArgumentError, "Invalid or impossible cron schedule" unless due
@@ -127,7 +140,7 @@ module Clacky
       # ── Composite cron-task helpers ──────────────────────────────────────────
 
       # Create a task file and its schedule in one step.
-      def create_cron_task(name:, content:, cron:, enabled: true, target: nil)
+      def create_cron_task(name:, content:, cron:, enabled: true, target: nil, title: nil)
         @schedule_mutex.synchronize do
           existing = load_schedules.find { |plan| plan["name"] == name }
           if existing && (target || existing["target"])
@@ -135,16 +148,18 @@ module Clacky
           end
           raise ArgumentError, "Invalid or impossible cron schedule" unless cron_next_run(cron)
           write_task(name, content)
-          add_schedule(name: name, task: name, cron: cron, enabled: enabled, target: target)
+          add_schedule(name: name, task: name, cron: cron, enabled: enabled, target: target, title: title)
         end
       end
 
       # Update a cron-task: optionally update content and/or schedule fields.
-      def update_cron_task(name, content: nil, cron: nil, enabled: nil)
+      def update_cron_task(name, content: nil, cron: nil, enabled: nil, title: nil)
         raise "Cron task not found: #{name}" unless list_tasks.include?(name)
 
         @schedule_mutex.synchronize do
-          update_schedule(name, cron: cron, enabled: enabled) if cron || !enabled.nil?
+          if cron || !enabled.nil? || !title.nil?
+            update_schedule(name, cron: cron, enabled: enabled, title: title)
+          end
           write_task(name, content) unless content.nil?
         end
       end
@@ -168,14 +183,18 @@ module Clacky
           content  = begin; read_task(task_name); rescue StandardError; ""; end
           schedule = schedule_map[task_name] || {}
           cron     = schedule["cron"]
+          target   = schedule["target"]
+          title    = schedule["title"]
+          title    = target["title"] if title.to_s.empty? && target.is_a?(Hash)
           {
             "name"    => task_name,
+            "title"   => title,
             "content" => content,
             "cron"    => cron,
             "enabled" => schedule.fetch("enabled", true),
             "scheduled" => !schedule.empty?,
             "last_run" => last_runs[task_name],
-            "target" => schedule["target"],
+            "target" => target,
             "next_run" => schedule["enabled"] == false ? nil : (schedule["next_run_at"] || (cron && cron_next_run(cron)))
           }
         end
@@ -388,7 +407,8 @@ module Clacky
       private def fire_task(schedule)
         task_name = schedule["task"].to_s
         prompt    = read_task(task_name)
-        name      = "⏰ #{schedule["name"]} #{Time.now.strftime("%H:%M")}"
+        label     = schedule["title"].to_s.empty? ? schedule["name"] : schedule["title"]
+        name      = "⏰ #{label} #{Time.now.strftime("%H:%M")}"
 
         # Scheduled tasks run unattended — use auto_approve so ask_user doesn't block.
         session_id = @session_builder.call(name: name, permission_mode: :auto_approve, source: :cron)

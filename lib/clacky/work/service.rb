@@ -93,7 +93,10 @@ module Clacky
         owner = @registry.get(owner_id)[:agent]
         raise "Scheduled owner has no work_agent configured" if owner.agent_profile.work_agent.empty?
         occurrence = "#{schedule.fetch('id')}:#{due.utc.iso8601(6)}"
-        title = "#{target.fetch('title')} · #{due.getlocal.strftime('%Y-%m-%d %H:%M')}"
+        label = target["title"].to_s
+        label = schedule["title"].to_s if label.empty?
+        label = schedule["name"].to_s if label.empty?
+        title = "#{label} · #{due.getlocal.strftime('%Y-%m-%d %H:%M')}"
         @store.transaction do |data|
           existing = data["cards"].values.find { |card| card["occurrence_id"] == occurrence }
           next existing if existing

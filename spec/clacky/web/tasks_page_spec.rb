@@ -12,8 +12,16 @@ RSpec.describe "Scheduled tasks page UI" do
     expect(html).to include('data-tab="runs" data-i18n="tasks.tab.runs"')
     expect(html).to include('id="tasks-search-input"')
     expect(html).to include('<div id="task-runs-table" style="display:none"></div>')
-    expect(view).to include("_matches(t.name) || _matches(t.content)")
-    expect(view).to include("_matches(r.task) || _matches(r.error)")
+    expect(view).to include("_matches(t.title) || _matches(t.name) || _matches(t.content)")
+    expect(view).to include("_matches(r.task) || _matches(_labelForTaskName(r.task)) || _matches(r.error)")
+  end
+
+  it "shows the display title and falls back to the plan name" do
+    expect(view).to include("function _taskLabel(t) {")
+    expect(view).to include("return t.title || t.name;")
+    expect(view).to include("${escapeHtml(_taskLabel(t))}")
+    expect(view).to include("escapeHtml(_labelForTaskName(r.task))")
+    expect(view).to include('I18n.t("tasks.run.filtered", { name: _labelForTaskName(_runsTask) })')
   end
 
   it "renders a card grid filtered by enabled / paused" do
