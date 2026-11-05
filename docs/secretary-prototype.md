@@ -216,13 +216,23 @@ Completed work accepts `reply`/`update` to refine the result in the same session
 completion means there is no work pending, not that the user has accepted it.
 `resume` remains for interrupted work. Cancelled work cannot be restarted by feedback.
 
-Users can also speak directly in a worker conversation. Messages and their files,
-references and timestamps are saved in the work card's existing `pending_inputs`.
-The same coordinator dispatches them to the same worker session with revision
-protection; there is no separate user-turn execution wrapper. Feedback arriving
-during execution waits for the current turn. After completion (or a question),
-pending user messages continue through the coordinator. Paused/failed work does
-not automatically restart. Owner updates still invalidate outdated executions.
+Users can also speak directly in a worker conversation. These inputs use the
+ordinary session input queue, attachment/reference processing and queue/steer
+setting. Pending messages are shown by the existing queue UI and reconnect snapshot;
+Work does not keep a second chat queue in its cards. The existing on_start and
+on_complete hooks establish and clean up revision protection for direct turns.
+Direct conversation preserves the work's business status, result and wait condition.
+A normal successful reply creates no work report. New deliverables, blockers and
+external waits still use `yield_work`; background executions must yield.
+
+The worker profile defines how to answer user-initiated conversation and when to
+yield an outcome. Users may provide feedback directly; worker requests for missing
+information, decisions or authorization still go to the main agent via needs_input.
+The worker does not call ask_user or directly ask the user to unblock the work.
+Direct chat uses the existing conversation history; the core injects no extra
+worker conversation instructions or work-card snapshot. Ordinary answers render
+as assistant messages. Ending a tool turn does not pause explicit queued user messages; awaiting
+user input and interruptions still pause the queue.
 
 ## Debug downloads
 

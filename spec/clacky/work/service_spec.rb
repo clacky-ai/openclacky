@@ -15,7 +15,7 @@ RSpec.describe Clacky::Work::Service do
   let(:store) { Clacky::Work::Store.new(File.join(dir, "work.json")) }
   let(:registry) { double("registry") }
   let(:owner) { double("owner", session_id: "owner", ui: nil, agent_profile: double(name: "secretary", work_agent: "secretary-worker"), working_dir: dir, history: double(to_a: [{ role: "user", content: "最好周四，别订太贵的地方" }])) }
-  let(:worker) { double("worker", session_id: "worker", ui: nil, agent_profile: double(name: "secretary-worker")) }
+  let(:worker) { double("worker", session_id: "worker", ui: nil, agent_profile: double(name: "secretary-worker", work_agent: "")) }
   let(:runner) { double("runner") }
   let(:interrupt) { double("interrupt", call: nil) }
   let(:persist) { double("persist", call: nil) }
@@ -126,59 +126,53 @@ RSpec.describe Clacky::Work::Service do
     end
   end
 
-  it "queues direct feedback durably without interrupting the running execution" do
-    c = running
-    expect(runner).not_to receive(:call)
-    expect(service.receive_input("worker", "Why this option?", files: [{ path: "notes.txt" }])).to be(true)
-    expect { service.guard!(worker) }.not_to raise_error
-    expect(current).to include("status" => "running", "revision" => 1)
-    expect(current["pending_inputs"].last).to include("kind" => "user_message", "text" => "Why this option?", "options" => { "files" => [{ "path" => "notes.txt" }] })
-    service.manage("owner", action: "update", work_id: c["id"], instruction: "Changed requirements")
-    expect(current["revision"]).to eq(2)
-    expect { service.guard!(worker) }.to raise_error(Clacky::AgentInterrupted)
+  %w[completed needs_input waiting_event paused failed].each do |status|
+    it "keeps #{status} intact after a normal direct reply without notifying the owner" do
+      c = card
+      store.transaction do |data|
+        live = data["cards"][c["id"]]
+        live["status"] = status
+        live["progress"] = "Existing outcome"
+        live["display_summary"] = "Existing summary"
+        live["waiting"] = { "reply_to" => "mail-1", "channel" => "mail", "conversation_id" => "inbox" } if status == "waiting_event"
+      end
+      before = current
+      hooks = {}
+      allow(worker).to receive(:work_service=)
+      allow(worker).to receive(:add_hook) { |event, &callback| hooks[event] = callback }
+      service.attach(worker)
+      hooks[:on_start].call("Why this option?", worker)
+      expect(service.turn_context(worker)).to be_nil
+      hooks[:on_complete].call({ status: :success }, worker)
+      expect(Thread.current[:clacky_work]).to be_nil
+      expect(current.slice("status", "progress", "display_summary", "waiting")).to eq(before.slice("status", "progress", "display_summary", "waiting"))
+      expect(current["outbox"]).to be_empty
+      expect(current["pending_inputs"]).to be_empty
+    end
   end
 
-  it "dispatches feedback received during background execution on the next coordinator tick" do
+  it "still reports failure when background execution omits its outcome" do
     card
     idle_registry
-    turns = 0
-    allow(runner).to receive(:call) do |_sid, prompt, **_options, &block|
-      block.call(lambda {
-        turns += 1
-        if turns == 1
-          service.receive_input("worker", "Refine this")
-        else
-          expect(prompt).to eq("Refine this")
-          expect(service.turn_context(worker)).to include("speaking directly")
-        end
-        service.yield_work(worker, reason: "completed", summary: "Result")
-        { status: :success }
-      }, worker)
+    allow(runner).to receive(:call) do |_sid, _prompt, **_options, &block|
+      block.call(-> { { status: :success } }, worker)
       :thread
     end
     service.tick
-    expect(current["status"]).to eq("queued")
-    service.tick
-    expect(current["status"]).to eq("completed")
-    expect(current["pending_inputs"]).to be_empty
-    expect(turns).to eq(2)
-  end
-
-  it "retains feedback and attachments when execution admission is deferred" do
-    card
-    idle_registry
-    service.receive_input("worker", "Review", files: [{ path: "notes.txt" }])
-    allow(runner).to receive(:call).and_return(nil)
-    service.tick
-    expect(current["status"]).to eq("queued")
-    expect(current["pending_inputs"].last.dig("options", "files")).to eq([{ "path" => "notes.txt" }])
+    expect(current["status"]).to eq("failed")
+    expect(current["outbox"].last["kind"]).to eq("failed")
   end
 
   it "rejects direct messages to cancelled work without executing" do
     card
     idle_registry
     service.manage("owner", action: "cancel", work_id: card["id"])
-    expect { service.receive_input("worker", "Continue") }.to raise_error(/cancelled/)
+    hooks = {}
+    allow(worker).to receive(:work_service=)
+    allow(worker).to receive(:add_hook) { |event, &callback| hooks[event] = callback }
+    service.attach(worker)
+    expect(hooks[:on_start].call("Continue", worker)).to include(action: :deny)
+    expect(Thread.current[:clacky_work]).to be_nil
     expect(current["status"]).to eq("cancelled")
   end
 
@@ -202,6 +196,7 @@ RSpec.describe Clacky::Work::Service do
     store.transaction do |data|
       data["cards"][c["id"]]["status"] = "running"
     end
+    Thread.current[:clacky_work] = { id: c["id"], revision: c["revision"] }
     result = service.yield_work(worker, reason: "waiting_reply", summary: "Waiting")
     expect(result).to include(status: "waiting_event", awaiting_feedback: false)
     store.transaction { |data| data["cards"][c["id"]]["status"] = "waiting_reply" }

@@ -622,11 +622,9 @@ module Clacky
       # Inject chunk index card if archived chunks exist and index is stale
       inject_chunk_index_if_needed
 
-      work_context = @work_service&.turn_context(self)
       append_user_input(user_input, files: files, reference_contexts: reference_contexts,
                         display_text: display_text, created_at: created_at,
                         task_id: task_id)
-      @history.append(role: "user", content: work_context, system_injected: true, task_id: task_id) if work_context
       @total_tasks += 1
       run_turn_started = true
 
@@ -644,6 +642,9 @@ module Clacky
         run_context[:handled] = true
         return result = hook_result[:result]
       end
+
+      work_context = @work_service&.turn_context(self)
+      @history.append(role: "user", content: work_context, system_injected: true, task_id: task_id) if work_context
 
       # Track if ask_user was called
       awaiting_user_feedback = false
@@ -844,7 +845,7 @@ module Clacky
       notify_input_queue
       result = build_result(awaiting_user_feedback: awaiting_user_feedback)
       result[:notify_user] = false if !notify_user && !awaiting_user_feedback
-      result[:queue_paused] = true if yielded || awaiting_user_feedback || task_interrupted
+      result[:queue_paused] = true if awaiting_user_feedback || task_interrupted
       run_context[:reason] = "tool_denied" if task_interrupted
 
       # Run skill evolution hooks after main loop completes

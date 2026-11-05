@@ -8409,11 +8409,6 @@ module Clacky
         return unless @registry.exist?(session_id)
 
         session = @registry.get(session_id)
-        created_at = Time.now.to_f
-        if @work_service&.receive_input(session_id, content, files: files, reference_contexts: references, created_at: created_at)
-          session[:ui]&.show_user_message(content, created_at: created_at, source: :web, files: Array(files), references: Array(references))
-          return
-        end
         mode = @agent_config.input_behavior
         queued = false
         queued_created_at = nil
@@ -8584,7 +8579,7 @@ module Clacky
       # display_message supplies the same friendly input for live display and replay.
       # around_execution, when supplied by a host service, wraps the admitted
       # execution on its owning thread (e.g. generation fencing and receipts).
-      def run_session_task(session_id, prompt, display_message: nil, reference_contexts: nil, files: nil, created_at: nil, background: false, &around_execution)
+      def run_session_task(session_id, prompt, display_message: nil, reference_contexts: nil, background: false, &around_execution)
         return unless @registry.exist?(session_id)
 
         agent = nil
@@ -8602,8 +8597,6 @@ module Clacky
             display_options[:references] = visible_references unless visible_references.empty?
             web_ui&.show_user_message(display_message, **display_options) if display_message
             options = { display_text: display_message }
-            options[:files] = files if files
-            options[:created_at] = created_at if created_at
             options[:reference_contexts] = build_reference_contexts(reference_contexts) if reference_contexts
             agent.run(prompt, **options)
           end
