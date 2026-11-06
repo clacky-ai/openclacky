@@ -37,6 +37,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 - Tint destructive row menu items red only on hover
 
 ### Fixed
+- Show the pane scrollbar on hover in the split diff view
 - Keep the open-with submenu attached to its parent menu
 - Title attachment-only turns with file names in the time machine
 - Close the Git panel file menu on revert and refresh
