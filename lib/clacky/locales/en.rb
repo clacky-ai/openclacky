@@ -17,6 +17,8 @@ module Clacky
       "work.failed" => "Work needs attention: %<title>s",
       "work.reply_received" => "Reply received; waiting to resume",
 
+      "session.resumed_after_restart" => "Server restarted, continuing the interrupted task",
+
       "phase.skill_evolution"           => "Reflecting on this task",
       "phase.memory_update"             => "Updating long-term memory",
       "llm.error.insufficient_credit"   => "Insufficient credit, please top up your account to continue",

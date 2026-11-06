@@ -199,6 +199,12 @@ module Clacky
       # How long shutdown waits for each agent thread to unwind before falling
       # back to a manual session save.
       AGENT_INTERRUPT_JOIN_SECONDS = 2
+      # Consecutive restarts a task may be resumed across; a task that keeps
+      # restarting the server (e.g. it runs the upgrade itself) stops here.
+      MAX_RESTART_RESUMES = 2
+      RESTART_RESUME_PROMPT = "The server restarted while you were working on the previous request and interrupted it. " \
+                              "Continue that task from where it stopped. Actions cut off by the restart may or may not " \
+                              "have taken effect, so check the current state before repeating anything with side effects."
       EXCHANGE_RATE_PRIMARY_BASE_URL = "https://open.er-api.com/v6/latest"
       EXCHANGE_RATE_FALLBACK_URL = "https://api.frankfurter.app/latest"
       OSS_CDN_BASE = "https://oss.1024code.com/openclacky"
@@ -248,8 +254,9 @@ module Clacky
         - 将大目标拆解为可执行的小步骤
       MD
 
-      def initialize(host: "127.0.0.1", port: 7070, agent_config:, client_factory:, brand_test: false, sessions_dir: nil, projects_file: nil, socket: nil, master_pid: nil)
+      def initialize(host: "127.0.0.1", port: 7070, agent_config:, client_factory:, brand_test: false, sessions_dir: nil, projects_file: nil, socket: nil, master_pid: nil, resume_sessions: false)
         @host           = host
+        @resume_sessions = resume_sessions
         @port           = port
         @agent_config   = agent_config
         @client_factory = client_factory  # callable: -> { Clacky::Client.new(...) }
@@ -261,6 +268,7 @@ module Clacky
         @restart_script = File.expand_path($0)
         @restart_argv   = ARGV.dup
         @session_manager = Clacky::SessionManager.new(sessions_dir: sessions_dir)
+        @restart_resume_file = File.join(sessions_dir || Clacky::SessionManager::SESSIONS_DIR, "restart_resume.json")
         @project_manager = Clacky::Server::ProjectManager.new(projects_file: projects_file)
         @registry        = SessionRegistry.new(
           session_manager:  @session_manager,
@@ -573,6 +581,7 @@ module Clacky
         @scheduler.start
         @work_service.start
         puts "   Scheduler: #{@scheduler.schedules.size} task(s) loaded"
+        resume_interrupted_sessions
 
         # Reclaim orphaned Time Machine snapshots (sessions deleted earlier
         # without snapshot cleanup). Runs off-thread so startup stays fast.
@@ -8669,8 +8678,43 @@ module Clacky
           end
         end
         live.each { |_id, _agent, thread| thread.join(AGENT_INTERRUPT_JOIN_SECONDS) }
-        live.each do |id, agent, _thread|
+        resumes = {}
+        live.each do |id, agent, thread|
           @session_manager.save(agent.to_session_data(status: :interrupted, updated_at: Time.now))
+          # Host services own ext sessions (e.g. delegated work) and recover them their own way.
+          resumes[id] = thread[:restart_resumes].to_i + 1 unless agent.source.to_s == "ext"
+        end
+        File.write(@restart_resume_file, JSON.generate(resumes)) unless resumes.empty?
+      end
+
+      # The list is consumed on every boot so a later restart never replays a
+      # stale one; only a master-driven restart actually resumes the tasks.
+      private def resume_interrupted_sessions
+        return unless File.exist?(@restart_resume_file)
+
+        resumes = JSON.parse(File.read(@restart_resume_file)) rescue {}
+        File.delete(@restart_resume_file)
+        return unless @resume_sessions
+
+        resumes.each do |session_id, count|
+          if count.to_i > MAX_RESTART_RESUMES
+            Clacky::Logger.warn("[resume] session=#{session_id} skipped after #{count} consecutive restarts")
+            next
+          end
+          next unless @registry.ensure(session_id)
+
+          started = run_session_task(session_id, RESTART_RESUME_PROMPT,
+                                     display_message: Clacky::I18n.t("session.resumed_after_restart"),
+                                     background: true) do |execute, _agent|
+            Thread.current[:restart_resumes] = count.to_i
+            result = execute.call
+            # Later queued inputs on this thread are fresh work, not a resume.
+            Thread.current[:restart_resumes] = nil
+            result
+          end
+          Clacky::Logger.info("[resume] session=#{session_id} #{started ? 'resumed' : 'not started (busy or at capacity)'}")
+        rescue => e
+          Clacky::Logger.error("[resume] session=#{session_id} failed: #{e.class}: #{e.message}")
         end
       end
 

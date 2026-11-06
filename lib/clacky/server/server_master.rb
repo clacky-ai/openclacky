@@ -23,6 +23,7 @@ module Clacky
     #   CLACKY_WORKER=1          — "I am a worker, start HttpServer directly"
     #   CLACKY_INHERIT_FD=<n>   — file descriptor number of the inherited TCPServer socket
     #   CLACKY_MASTER_PID=<n>   — master PID so worker can send USR1 back on upgrade
+    #   CLACKY_RESUME_SESSIONS=1 — set on restarts so the worker resumes tasks the old one interrupted
     class Master
       # Worker exits with this code to request a hot restart (e.g. after gem upgrade).
       RESTART_EXIT_CODE        = 75
@@ -108,7 +109,7 @@ module Clacky
             exit_code = status.exitstatus
             if exit_code == RESTART_EXIT_CODE
               Clacky::Logger.info("[Master] Worker requested restart (exit #{RESTART_EXIT_CODE}).")
-              @worker_pid = spawn_worker
+              @worker_pid = spawn_worker(resume_sessions: true)
               @consecutive_failures = 0
             elsif @shutdown_requested
               break
@@ -135,12 +136,13 @@ module Clacky
 
       # Spawn a fresh Ruby process that loads the (possibly updated) gem from disk.
       # The listen socket is inherited via its file descriptor number.
-      def spawn_worker
+      def spawn_worker(resume_sessions: false)
         env = {
           "CLACKY_WORKER"      => "1",
           "CLACKY_INHERIT_FD"  => @socket.fileno.to_s,
           "CLACKY_MASTER_PID"  => Process.pid.to_s
         }
+        env["CLACKY_RESUME_SESSIONS"] = "1" if resume_sessions
         selected_source = Clacky::AgentConfig.load.clacky_license_server.to_s.strip
         unless selected_source.empty?
           env["CLACKY_LICENSE_SERVER"] =
@@ -207,7 +209,7 @@ module Clacky
         end
 
         # Old worker is gone; now spawn the replacement.
-        new_pid = spawn_worker
+        new_pid = spawn_worker(resume_sessions: true)
         @worker_pid = new_pid
         Clacky::Logger.info("[Master] Hot restart complete. New worker PID=#{new_pid}")
       end
