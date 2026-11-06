@@ -506,7 +506,7 @@
       <div id="input-queue" aria-live="polite" hidden></div>
       <!-- Session info bar — mirrors CLI bottom status bar -->
       <div id="session-info-bar" style="display:none">
-        <!-- Order: status | dir | model | reasoning | mode | todo | id | signal | cost -->
+        <!-- Order: status | dir | model | reasoning | mode | todo | signal | cost | id -->
         <!-- Pattern: element + separator-after-element (except last) -->
         <span id="sib-status"></span>
         <span class="sib-sep sib-sep-after-status">│</span>
@@ -563,11 +563,6 @@
           </div>
         </span>
         <span class="sib-sep sib-sep-after-todo">│</span>
-        <span id="sib-id-wrap">
-          <span id="sib-id" class="sib-id-clickable" data-i18n-tooltip="sessions.actions.tooltip"></span>
-          <div id="sib-actions-dropdown" class="clacky-popover sib-actions-dropdown" style="display:none" role="menu"></div>
-        </span>
-        <span class="sib-sep sib-sep-after-id">│</span>
         <!-- Latency signal: 4-bar signal + TTFT number. Hidden until the first LLM
              call completes (see updateInfoBar / Sessions.renderSignalBars). Click
              opens a mini benchmark panel (see Step 3/4 — not yet implemented). -->
@@ -579,6 +574,11 @@
         </span>
         <span class="sib-sep sib-sep-after-signal" style="display:none">│</span>
         <span id="sib-cost"></span>
+        <span class="sib-sep sib-sep-after-cost">│</span>
+        <span id="sib-id-wrap">
+          <span id="sib-id" class="sib-id-clickable" data-i18n-tooltip="sessions.actions.tooltip"></span>
+          <div id="sib-actions-dropdown" class="clacky-popover sib-actions-dropdown" style="display:none" role="menu"></div>
+        </span>
       </div>
 
       <!-- Composer slot: moved above the session info bar. -->

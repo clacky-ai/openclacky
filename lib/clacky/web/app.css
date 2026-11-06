@@ -17255,7 +17255,7 @@ body.setup-mode {
   }
   /* Hide less-important fields and their separators (element + sib-sep-after-element pattern) */
   #sib-id,
-  .sib-sep-after-id,
+  .sib-sep-after-cost,
   #sib-dir,
   .sib-sep-after-dir,
   #sib-reasoning-wrap,
