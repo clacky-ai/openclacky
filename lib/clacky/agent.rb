@@ -558,7 +558,11 @@ module Clacky
       @cancel_flag = CancelFlag.new
 
       # Start new task for Time Machine
-      task_id = start_new_task(title: display_text.to_s.empty? ? user_input.to_s : display_text.to_s)
+      task_title = display_text.to_s.empty? ? user_input.to_s : display_text.to_s
+      if task_title.strip.empty?
+        task_title = display_files_for(files).map { |f| f[:name] }.join(", ")
+      end
+      task_id = start_new_task(title: task_title)
       run_context = { session_id: @session_id, run_id: task_id.to_s,
                       source: @source.to_s, input_created_at: created_at,
                       observed_at: Time.now.utc.iso8601(6), status: "running" }

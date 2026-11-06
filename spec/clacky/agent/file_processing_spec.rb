@@ -69,6 +69,23 @@ RSpec.describe "Agent file processing" do
       end
     end
 
+    it "titles an attachment-only turn in the time machine with the file names" do
+      Dir.mktmpdir do |dir|
+        pdf = File.join(dir, "report.pdf")
+        txt = File.join(dir, "notes.txt")
+        File.binwrite(pdf, "%PDF-1.4")
+        File.write(txt, "hi")
+        allow(Clacky::Utils::FileProcessor).to receive(:process_path) do |path, **|
+          Clacky::Utils::FileProcessor::FileRef.new(name: File.basename(path), type: :file, original_path: path)
+        end
+        stub_llm_reply("Done")
+
+        agent.run("", files: [{ name: "report.pdf", path: pdf }, { name: "notes.txt", path: txt }])
+
+        expect(agent.get_task_history.last[:summary]).to eq("report.pdf, notes.txt")
+      end
+    end
+
     it "rolls back the staged turn when attachment processing raises" do
       Dir.mktmpdir do |dir|
         path = File.join(dir, "broken.pdf")
