@@ -8082,6 +8082,8 @@ module Clacky
             zos.write(File.binread(chunk_path))
           end
 
+          write_work_debug_bundle(zos, bundle[:session][:session_id])
+
           log_path = Clacky::Logger.current_log_file
           if log_path && File.exist?(log_path)
             zos.put_next_entry("logs/#{File.basename(log_path)}")
@@ -8102,6 +8104,46 @@ module Clacky
       rescue => e
         Clacky::Logger.error("Session export failed: #{e.message}") if defined?(Clacky::Logger)
         json_response(res, 500, { error: "Export failed: #{e.message}" })
+      end
+
+      private def write_work_debug_bundle(zos, session_id)
+        snapshot = @work_service&.debug_snapshot(session_id)
+        return if !snapshot || snapshot["cards"].empty?
+
+        sessions = snapshot["cards"].map { |card| card["session_id"] }.uniq.map do |worker_id|
+          entry = { "session_id" => worker_id }
+          if worker_id == session_id
+            entry.merge("path" => "session.json", "status" => "included")
+          else
+            bundle = @session_manager.files_for(worker_id)
+            # files_for accepts prefixes; debug associations must be exact.
+            if bundle && bundle[:session][:session_id] == worker_id
+              prefix = "work/sessions/#{URI.encode_www_form_component(worker_id)}/"
+              begin
+                files = [["session.json", File.binread(bundle[:json_path])]]
+                bundle[:chunks].each { |path| files << [File.basename(path), File.binread(path)] }
+                files.each do |name, content|
+                  zos.put_next_entry(prefix + name)
+                  zos.write(content)
+                end
+                entry.merge("path" => prefix + "session.json", "status" => "included")
+              rescue Errno::ENOENT
+                entry.merge("status" => "missing")
+              end
+            else
+              entry.merge("status" => "missing")
+            end
+          end
+        end
+        manifest = {
+          "session_id" => session_id,
+          "work" => snapshot["cards"].map { |card| card.slice("id", "session_id", "owner_session_id", "revision") },
+          "sessions" => sessions
+        }
+        { "manifest" => manifest, "cards" => snapshot["cards"], "events" => snapshot["events"] }.each do |name, data|
+          zos.put_next_entry("work/#{name}.json")
+          zos.write(JSON.pretty_generate(data))
+        end
       end
 
       # ── WebSocket ─────────────────────────────────────────────────────────────
@@ -8373,8 +8415,7 @@ module Clacky
         @registry.with_session(session_id) do |s|
           if s[:status] == :running && %w[queue steer].include?(mode)
             queued_created_at = Time.now.to_f
-            s[:agent].enqueue_input(content, delivery: mode.to_sym, files: files, references_display: references,
-                                    reference_contexts: build_reference_contexts(references), created_at: queued_created_at)
+            s[:agent].enqueue_input(content, delivery: mode.to_sym, files: files, reference_contexts: build_reference_contexts(references), created_at: queued_created_at)
             queued = true
           end
         end
@@ -8396,8 +8437,7 @@ module Clacky
           @registry.with_session(session_id) { |s| old_thread = s[:thread] }
           if old_thread && !old_thread.join(2)
             retained_created_at = Time.now.to_f
-            session[:agent].enqueue_input(content, files: files, references_display: references,
-                                          reference_contexts: build_reference_contexts(references), created_at: retained_created_at)
+            session[:agent].enqueue_input(content, files: files, reference_contexts: build_reference_contexts(references), created_at: retained_created_at)
             broadcast(session_id, { type: "input_enqueued", session_id: session_id, created_at: retained_created_at })
             broadcast(session_id, { type: "input_queue_notice", session_id: session_id, key: "chat.input.stoppingDelayed" })
             return
@@ -8448,14 +8488,13 @@ module Clacky
 
         # File references are now handled inside agent.run — injected as a system_injected
         # message after the user message, so replay_history skips them automatically.
-        reference_contexts = build_reference_contexts(references)
         run_agent_task(session_id, agent) do
           # Start the progress card inside the task: run_agent_task returns early when
           # the concurrency cap is hit, and posting beforehand would strand the card at
           # "Thinking..." forever. A web-originated turn bound to an IM channel gets a
           # card too, so tools/narration render like a native IM turn (#603).
           @channel_manager.channel_ui_for_session(session_id)&.start_task(reply_to: nil)
-          agent.run(content, files: files, reference_contexts: reference_contexts, created_at: msg_created_at, references_display: references)
+          agent.run(content, files: files, created_at: msg_created_at, reference_contexts: build_reference_contexts(references))
         end
       end
 
@@ -8464,21 +8503,24 @@ module Clacky
       # (e.g. branch diff, browser snapshot) only add a `when` branch here.
       private def build_reference_contexts(references)
         Array(references).filter_map do |ref|
+          next ref if ref.is_a?(String)
           next unless ref.is_a?(Hash)
-          case ref["type"].to_s
-          when "session" then build_session_reference_context(ref)
-          when "quote"   then build_quote_reference_context(ref)
-          end
+          context = case (ref[:type] || ref["type"]).to_s
+                    when "session" then build_session_reference_context(ref)
+                    when "quote" then build_quote_reference_context(ref)
+                    end
+          metadata = ref.reject { |key, _| key.to_s == "context" }
+          context ? metadata.merge(context: context) : metadata
         end
       end
 
       # Resolve a past-chat reference into a lightweight pointer for the LLM:
       # the session name + ID + on-disk file path, no transcript inlined.
       private def build_session_reference_context(ref)
-        session_id = ref["session_id"].to_s
+        session_id = (ref[:session_id] || ref["session_id"]).to_s
         return nil if session_id.empty?
 
-        name = ref["name"].to_s
+        name = (ref[:name] || ref["name"]).to_s
         name = session_id if name.empty?
 
         lines = ["[Referenced conversation: #{name}]", "Session ID: #{session_id}"]
@@ -8492,10 +8534,10 @@ module Clacky
       # message. The excerpt is the whole point of the reference, so inline it
       # verbatim — no file pointer, nothing for the model to go fetch.
       private def build_quote_reference_context(ref)
-        text = ref["text"].to_s.strip
+        text = (ref[:text] || ref["text"]).to_s.strip
         return nil if text.empty?
 
-        label = ref["label"].to_s.strip
+        label = (ref[:label] || ref["label"]).to_s.strip
         header = label.empty? ? "[Quoted excerpt from this conversation]" :
                                 "[Quoted excerpt from this conversation: #{label}]"
         [header, text].join("\n")
@@ -8537,8 +8579,7 @@ module Clacky
       # display_message supplies the same friendly input for live display and replay.
       # around_execution, when supplied by a host service, wraps the admitted
       # execution on its owning thread (e.g. generation fencing and receipts).
-      def run_session_task(session_id, prompt, display_message: nil, reference_contexts: nil,
-                           background: false, &around_execution)
+      def run_session_task(session_id, prompt, display_message: nil, reference_contexts: nil, background: false, &around_execution)
         return unless @registry.exist?(session_id)
 
         agent = nil
@@ -8551,9 +8592,12 @@ module Clacky
 
         run_agent_task(session_id, agent, background: background) do
           execute = lambda do
-            web_ui&.show_user_message(display_message, source: :web) if display_message
+            display_options = { source: :web }
+            visible_references = Array(reference_contexts).select { |ref| ref.is_a?(Hash) }.map { |ref| ref.reject { |key, _| key.to_s == "context" } }
+            display_options[:references] = visible_references unless visible_references.empty?
+            web_ui&.show_user_message(display_message, **display_options) if display_message
             options = { display_text: display_message }
-            options[:reference_contexts] = reference_contexts if reference_contexts
+            options[:reference_contexts] = build_reference_contexts(reference_contexts) if reference_contexts
             agent.run(prompt, **options)
           end
           around_execution ? around_execution.call(execute, agent) : execute.call

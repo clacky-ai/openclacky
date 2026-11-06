@@ -80,11 +80,10 @@ requiring extensions to access the HTTP server's private execution methods.
 WorkService submits both worker tasks and secretary wakeups through the shared
 `run_session_task` entry point. It does not call `Agent#run`, access agent UI,
 render messages, or rewrite old history for presentation. `display_message` names
-worker input/turns; `reference_contexts` holds model-only work data.
+worker input/turns; the prompt contains the full work data.
 
 Work reports are ordinary session inputs: `display_message` becomes `display_text`
-for friendly live display and history replay. Full work data uses the existing
-reference-context path. No new hidden-turn API or rollback semantics are needed.
+for friendly live display and history replay. Full work data stays in the actual message content. No new hidden-turn API or rollback semantics are needed.
 
 The panel owns English/Chinese strings and responds to the host language event.
 Server-generated messages use Ruby i18n and the locale captured at delegation;
@@ -213,4 +212,75 @@ User interruption pauses the work card. `manage_work resume` requeues paused or
 failed work in its existing worker session, retaining history and progress; no
 new delegation is created. It accepts optional additional instructions and the
 usual expected_revision check. Repeating resume on queued/running work is a no-op.
-Completed or cancelled work cannot be resumed.
+Completed work accepts `reply`/`update` to refine the result in the same session;
+completion means there is no work pending, not that the user has accepted it.
+`resume` remains for interrupted work. Cancelled work cannot be restarted by feedback.
+
+Users can also speak directly in a worker conversation. These inputs use the
+ordinary session input queue, attachment/reference processing and queue/steer
+setting. Pending messages are shown by the existing queue UI and reconnect snapshot;
+Work does not keep a second chat queue in its cards. The existing on_start and
+on_complete hooks establish and clean up revision protection for direct turns.
+Direct conversation preserves the work's business status, result and wait condition.
+A normal successful reply creates no work report. New deliverables, blockers and
+external waits still use `yield_work`; background executions must yield.
+
+The worker profile defines how to answer user-initiated conversation and when to
+yield an outcome. Users may provide feedback directly; worker requests for missing
+information, decisions or authorization still go to the main agent via needs_input.
+The worker does not call ask_user or directly ask the user to unblock the work.
+Direct chat uses the existing conversation history; the core injects no extra
+worker conversation instructions or work-card snapshot. Ordinary answers render
+as assistant messages. Ending a tool turn does not pause explicit queued user messages; awaiting
+user input and interruptions still pause the queue.
+
+## Debug downloads
+
+Session downloads retain the existing top-level session, archive chunks and log.
+When the session owns work, the ZIP additionally contains `work/cards.json`,
+`work/events.json` (matched events only), `work/manifest.json`, and the associated
+worker session files under `work/sessions/<session-id>/`. The manifest preserves
+existing work/session identifiers and marks unavailable worker files as missing.
+Downloading a worker includes its own card but does not expand to its owner's
+conversation or sibling workers. Session files are the latest persisted versions;
+the work snapshot and session files are not an atomic snapshot of a running system.
+
+## Work identity and report references
+
+A work card's `id` is its worker session ID; no separate work identifier is
+allocated. Updates and resume keep this identity. `owner_session_id` identifies
+the receiving conversation, and outbox event IDs still identify individual
+notifications for deduplication. No legacy work-ID migration is provided.
+
+Work reports reuse the existing session reference payload (`type`, `session_id`,
+`name`) on their visible input message. `reference_contexts` is passed through
+the server execution entry point and saved as `display_references`; the same
+reference renders live and on history replay. Session badges link through the
+existing `#session/<id>` route. `display_text` remains the friendly notification
+body; full results are the prompt, while referenced sessions/quotes produce their
+model context in the server before input delivery. Existing history fields are unchanged;
+old ordinary sessions retain their reference badges and hidden context on replay.
+
+The Ruby input parameter remains `reference_contexts`. Existing string entries
+are still injected as model-only text. Structured reference entries additionally
+render as badges using the existing `display_references` history field. The
+browser request/event field remains `references`; no separate Ruby display
+parameter is required.
+
+Reference lookup stays in the HTTP server, which already owns the session store.
+It adds a model-only `context` value to each resolved reference in the existing
+`reference_contexts` argument. Agent consumes that text and strips `context` from
+UI/history reference metadata; it does not look up sessions or require a server
+SessionManager injection. Legacy text-only contexts and saved queued inputs remain
+supported.
+
+Work reports contain the work title/ID, event time, revision and outcome.
+Manual stops are identified as user actions, distinct from worker reports and
+execution failures. Historical feedback, original instructions and generic
+next-step instructions are not replayed. Existing work tools and the worker session
+reference provide details on demand.
+Outbox event IDs remain in the work store, not in model-visible content or session
+message IDs. Delivery uses pending/delivered state without scanning session history.
+A crash after session persistence but before acknowledgement can repeat a report.
+When capturing verbatim user context, host submissions carrying `display_text`
+are excluded so generated reports are not treated as user authorization.

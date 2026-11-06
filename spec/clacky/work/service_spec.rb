@@ -15,7 +15,7 @@ RSpec.describe Clacky::Work::Service do
   let(:store) { Clacky::Work::Store.new(File.join(dir, "work.json")) }
   let(:registry) { double("registry") }
   let(:owner) { double("owner", session_id: "owner", ui: nil, agent_profile: double(name: "secretary", work_agent: "secretary-worker"), working_dir: dir, history: double(to_a: [{ role: "user", content: "最好周四，别订太贵的地方" }])) }
-  let(:worker) { double("worker", session_id: "worker", ui: nil, agent_profile: double(name: "secretary-worker")) }
+  let(:worker) { double("worker", session_id: "worker", ui: nil, agent_profile: double(name: "secretary-worker", work_agent: "")) }
   let(:runner) { double("runner") }
   let(:interrupt) { double("interrupt", call: nil) }
   let(:persist) { double("persist", call: nil) }
@@ -71,6 +71,14 @@ RSpec.describe Clacky::Work::Service do
     expect(service.protected_session_ids).to contain_exactly("owner", "worker")
   end
 
+  it "does not capture work reports as user authorization when delegating again" do
+    allow(owner.history).to receive(:to_a).and_return([
+      { role: "user", content: "Actual user request", message_id: "user-1" },
+      { role: "user", content: "Worker report", display_text: "Work completed", message_id: "report-1" }
+    ])
+    expect(card["source_messages"].map { |m| m["content"] }).to eq(["Actual user request"])
+  end
+
   it "isolates management by owner" do
     expect { service.manage("other", action: "cancel", work_id: card["id"]) }.to raise_error(/not found/)
     expect(service.list("other")).to eq([])
@@ -107,6 +115,83 @@ RSpec.describe Clacky::Work::Service do
     expect { service.guard!(worker) }.to raise_error(/yielded/)
   end
 
+  %w[reply update].each do |action|
+    it "continues completed work through #{action} without creating another session" do
+      c = running
+      service.yield_work(worker, reason: "completed", summary: "First draft")
+      result = service.manage("owner", action: action, work_id: c["id"], instruction: "Make it shorter")
+      expect(result).to include("id" => c["id"], "session_id" => "worker", "status" => "queued", "revision" => 2)
+      expect(result["outbox"].first["state"]).to eq("superseded")
+      expect { service.guard!(worker) }.to raise_error(Clacky::AgentInterrupted)
+    end
+  end
+
+  %w[completed needs_input waiting_event paused failed].each do |status|
+    it "keeps #{status} intact after a normal direct reply without notifying the owner" do
+      c = card
+      store.transaction do |data|
+        live = data["cards"][c["id"]]
+        live["status"] = status
+        live["progress"] = "Existing outcome"
+        live["display_summary"] = "Existing summary"
+        live["waiting"] = { "reply_to" => "mail-1", "channel" => "mail", "conversation_id" => "inbox" } if status == "waiting_event"
+      end
+      before = current
+      hooks = {}
+      allow(worker).to receive(:work_service=)
+      allow(worker).to receive(:add_hook) { |event, &callback| hooks[event] = callback }
+      service.attach(worker)
+      hooks[:on_start].call("Why this option?", worker)
+      expect(service.turn_context(worker)).to be_nil
+      hooks[:on_complete].call({ status: :success }, worker)
+      expect(Thread.current[:clacky_work]).to be_nil
+      expect(current.slice("status", "progress", "display_summary", "waiting")).to eq(before.slice("status", "progress", "display_summary", "waiting"))
+      expect(current["outbox"]).to be_empty
+      expect(current["pending_inputs"]).to be_empty
+    end
+  end
+
+  it "still reports failure when background execution omits its outcome" do
+    card
+    idle_registry
+    allow(runner).to receive(:call) do |_sid, _prompt, **_options, &block|
+      block.call(-> { { status: :success } }, worker)
+      :thread
+    end
+    service.tick
+    expect(current["status"]).to eq("failed")
+    expect(current["outbox"].last["kind"]).to eq("failed")
+  end
+
+  it "rejects direct messages to cancelled work without executing" do
+    card
+    idle_registry
+    service.manage("owner", action: "cancel", work_id: card["id"])
+    hooks = {}
+    allow(worker).to receive(:work_service=)
+    allow(worker).to receive(:add_hook) { |event, &callback| hooks[event] = callback }
+    service.attach(worker)
+    expect(hooks[:on_start].call("Continue", worker)).to include(action: :deny)
+    expect(Thread.current[:clacky_work]).to be_nil
+    expect(current["status"]).to eq("cancelled")
+  end
+
+  it "reports only this event, without replaying old instructions or prescribing actions" do
+    c = card.merge("updates" => [{ "source" => "user", "text" => "Shorter please" }])
+    prompt = service.send(:report_prompt, c, { "kind" => "needs_input", "text" => "Which date?", "at" => "2026-11-05T11:12:01Z", "revision" => 3 })
+    expect(prompt).to include("约饭", "Which date?", "2026-11-05T11:12:01Z", "revision at event: 3")
+    expect(prompt).not_to include("询问时间", "Shorter please", "Next step", "Latest feedback")
+    expect(prompt).not_to include("work-event:")
+  end
+
+  it "reports a user stop without replaying an earlier continue instruction" do
+    c = card.merge("updates" => [{ "source" => "user", "text" => "继续", "at" => "2026-11-05T11:09:29Z" }])
+    event = { "kind" => "paused", "at" => "2026-11-05T11:12:01Z", "revision" => 3, "text" => "用户已暂停，补充要求后可继续" }
+    prompt = service.send(:report_prompt, c, event)
+    expect(prompt).to include("manually stopped", "paused", "2026-11-05T11:12:01Z")
+    expect(prompt).not_to include("继续", "Latest feedback", "Next step", "Resume", "Original request", "Worker feedback")
+  end
+
   it "accepts legacy yield reasons and normalizes stored cards and pending reports" do
     c = running
     result = service.yield_work(worker, reason: "needs_user", summary: "Question")
@@ -120,6 +205,7 @@ RSpec.describe Clacky::Work::Service do
     store.transaction do |data|
       data["cards"][c["id"]]["status"] = "running"
     end
+    Thread.current[:clacky_work] = { id: c["id"], revision: c["revision"] }
     result = service.yield_work(worker, reason: "waiting_reply", summary: "Waiting")
     expect(result).to include(status: "waiting_event", awaiting_feedback: false)
     store.transaction { |data| data["cards"][c["id"]]["status"] = "waiting_reply" }
@@ -231,17 +317,17 @@ RSpec.describe Clacky::Work::Service do
     service.tick
     expect(current["status"]).to eq("completed")
     service.tick
-    expect(owner).to have_received(:run).with(a_string_including("Work completed"), hash_including(reference_contexts: [a_string_including("研究结果")]))
+    expect(owner).to have_received(:run).with(a_string_including("研究结果"), hash_including(reference_contexts: [hash_including(type: "session", session_id: current["id"])]))
     expect(persist).to have_received(:call).with(owner)
     expect(current["outbox"].first["state"]).to eq("delivered")
   end
 
-  it "deduplicates delivery after persisted history but before outbox acknowledgement" do
+  it "does not redeliver an acknowledged report" do
     running
-    service.yield_work(worker, reason: "needs_input", summary: "周五可以吗？")
+    service.yield_work(worker, reason: "needs_input", summary: "Which date?")
     event = current["outbox"].first
+    service.send(:ack, current["id"], event["id"])
     idle_registry
-    allow(owner.history).to receive(:to_a).and_return([{ role: "user", content: "[work-event:#{event['id']}]\n问题" }])
     expect(runner).not_to receive(:call)
     service.tick
     expect(current["outbox"].first["state"]).to eq("delivered")

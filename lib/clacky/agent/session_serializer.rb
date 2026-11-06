@@ -20,7 +20,13 @@ module Clacky
         @archived_at = session_data[:archived_at]
         @history = MessageHistory.new(session_data[:messages] || [])
         @input_queue = (session_data[:pending_inputs] || []).map do |entry|
-          entry.reject { |key, _| key == :steer_target }.merge(delivery: "queue")
+          options = (entry[:options] || {}).dup
+          # Old queued inputs stored both the references and their generated text.
+          legacy_references = options.delete(:references_display)
+          unless Array(legacy_references).empty?
+            options[:reference_contexts] = Array(legacy_references) + Array(options[:reference_contexts])
+          end
+          entry.reject { |key, _| key == :steer_target }.merge(delivery: "queue", options: options)
         end
         @accepting_steering = false
         @todos = session_data[:todos] || []  # Restore todos from session

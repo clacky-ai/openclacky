@@ -8026,6 +8026,8 @@ body {
   font-size: 0.75rem;
   margin: 0 0.25rem 0.25rem 0;
 }
+a.msg-mention-badge { color: inherit; text-decoration: none; }
+a.msg-mention-badge:hover { text-decoration: underline; }
 .msg-mention-badge-icon {
   display: inline-flex;
   align-items: center;

@@ -333,7 +333,8 @@ module Clacky
     end
 
     # Submit a prompt to an existing session for execution.
-    # reference_contexts are model-only context; display_message is the visible input.
+    # prompt is model input; display_message overrides its visible text; reference_contexts
+    # supply both UI badges and model reference context.
     # Returns the session_id on success.
     # Raises Halt (409) if the session is already running and `interrupt: false`.
     # When `interrupt: true`, supersedes the current turn (raises AgentInterrupted

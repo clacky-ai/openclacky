@@ -358,3 +358,20 @@ function loadChatNotice() {
 }
 
 console.log("deep link tests passed");
+
+// Session references use the same route, including after history replay.
+const sessionsSource = fs.readFileSync(sourcePath("sessions.js"), "utf8");
+const badgeStart = sessionsSource.indexOf("function _renderMentionBadge(");
+const badgeSource = sessionsSource.slice(badgeStart, sessionsSource.indexOf("\n  }\n", badgeStart) + 4);
+const badgeContext = vm.createContext({
+  escapeHtml: value => String(value).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;"),
+  MentionAC: { icons: { message: "", folder: "", file: "" }, svgHtml: () => "" },
+});
+vm.runInContext(badgeSource, badgeContext);
+const badge = badgeContext._renderMentionBadge({ type: "session", session_id: 'worker/id"', name: "<Report>" });
+assert.ok(badge.includes('href="#session/worker%2Fid%22"'));
+assert.ok(badge.includes("&lt;Report>"));
+const sessionId = "550e8400-e29b-41d4-a716-446655440000";
+const sessionBadge = badgeContext._renderMentionBadge({ type: "session", session_id: sessionId, name: "Report" });
+assert.equal(parseHash(sessionBadge.match(/href="([^"]+)"/)[1]).params.id, sessionId);
+assert.ok(!badgeContext._renderMentionBadge({ type: "file", name: "report.md" }).includes("href="));

@@ -522,7 +522,7 @@ module Clacky
       @name = new_name.to_s.strip
     end
 
-    def run(user_input, files: nil, reference_contexts: nil, display_text: nil, created_at: nil, references_display: nil)
+    def run(user_input, files: nil, reference_contexts: nil, display_text: nil, created_at: nil)
       # Initialized here (not mid-body) because run's rescue/ensure are
       # method-level and must be able to reference them on any exit path.
       result = nil
@@ -622,11 +622,9 @@ module Clacky
       # Inject chunk index card if archived chunks exist and index is stale
       inject_chunk_index_if_needed
 
-      work_context = @work_service&.turn_context(self)
-      reference_contexts = Array(reference_contexts) + [work_context] if work_context
       append_user_input(user_input, files: files, reference_contexts: reference_contexts,
                         display_text: display_text, created_at: created_at,
-                        references_display: references_display, task_id: task_id)
+                        task_id: task_id)
       @total_tasks += 1
       run_turn_started = true
 
@@ -644,6 +642,9 @@ module Clacky
         run_context[:handled] = true
         return result = hook_result[:result]
       end
+
+      work_context = @work_service&.turn_context(self)
+      @history.append(role: "user", content: work_context, system_injected: true, task_id: task_id) if work_context
 
       # Track if ask_user was called
       awaiting_user_feedback = false
@@ -844,7 +845,7 @@ module Clacky
       notify_input_queue
       result = build_result(awaiting_user_feedback: awaiting_user_feedback)
       result[:notify_user] = false if !notify_user && !awaiting_user_feedback
-      result[:queue_paused] = true if yielded || awaiting_user_feedback || task_interrupted
+      result[:queue_paused] = true if awaiting_user_feedback || task_interrupted
       run_context[:reason] = "tool_denied" if task_interrupted
 
       # Run skill evolution hooks after main loop completes
@@ -969,9 +970,16 @@ module Clacky
                      context.merge(status: status, observed_at: Time.now.utc.iso8601(6)))
     end
 
+    # Resolved context is model-only; retain only reference metadata for UI/replay.
+    private def display_references(contexts)
+      Array(contexts).select { |ref| ref.is_a?(Hash) }.map do |ref|
+        ref.reject { |key, _| key.to_s == "context" }
+      end
+    end
+
     # Shared by initial input and steering; only the execution thread writes history.
     private def append_user_input(user_input, files: nil, reference_contexts: nil,
-                                  display_text: nil, created_at: nil, references_display: nil,
+                                  display_text: nil, created_at: nil,
                                   task_id: @current_task_id)
       # Resolve lightweight metadata first, then commit the accepted user turn
       # before any attachment parser/OCR/sidecar work can block or fail. Session
@@ -990,7 +998,7 @@ module Clacky
         display_text: display_text,
         skill_command: skill_command[:found] ? skill_command[:skill_name] : nil,
         skill_command_display: skill_command_display,
-        display_references: Array(references_display).empty? ? nil : references_display
+        display_references: display_references(reference_contexts)
       }
       if staged
         @history.append(message_metadata.merge(
@@ -1188,7 +1196,8 @@ module Clacky
       # Inject referenced past chats (the @mention "send as reference" behavior)
       # as a system_injected message — same mechanism as file references: the LLM
       # sees the context, but replay_history skips it and no user bubble renders.
-      Array(reference_contexts).each do |ctx|
+      Array(reference_contexts).each do |reference|
+        ctx = reference.is_a?(Hash) ? (reference[:context] || reference["context"]) : reference
         next if ctx.to_s.strip.empty?
         @history.append({ role: "user", content: ctx, system_injected: true, task_id: task_id })
       end
@@ -1330,7 +1339,8 @@ module Clacky
       source = options.delete(:source) || :web
       notify_input_queue
       @ui.show_user_message(options[:display_text] || entry[:content], created_at: options[:created_at],
-                            files: options[:files] || [], source: source, steering: true) if @ui&.respond_to?(:show_user_message)
+                            files: options[:files] || [], source: source, steering: true,
+                            **(!Array(options[:reference_contexts]).any? { |ref| ref.is_a?(Hash) } ? {} : { references: display_references(options[:reference_contexts]) })) if @ui&.respond_to?(:show_user_message)
       run(entry[:content], **options)
     end
 
@@ -1372,7 +1382,8 @@ module Clacky
         end
         committed += 1
         @ui&.show_user_message(options[:display_text] || entry[:content],
-                               created_at: options[:created_at], files: options[:files] || [], source: source, steering: true) if @ui&.respond_to?(:show_user_message)
+                               created_at: options[:created_at], files: options[:files] || [], source: source, steering: true,
+                            **(!Array(options[:reference_contexts]).any? { |ref| ref.is_a?(Hash) } ? {} : { references: display_references(options[:reference_contexts]) })) if @ui&.respond_to?(:show_user_message)
       end
       notify_input_queue unless entries.empty?
       !entries.empty?

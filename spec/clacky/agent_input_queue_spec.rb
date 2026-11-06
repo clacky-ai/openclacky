@@ -23,7 +23,7 @@ RSpec.describe Clacky::Agent, "queued guidance" do
     ]
     allow(agent).to receive(:think) { responses.shift }
     allow(agent).to receive(:act) do
-      agent.enqueue_input("Only change the backend", delivery: :steer, reference_contexts: ["Reference context"])
+      agent.enqueue_input("Only change the backend", delivery: :steer, reference_contexts: [{ type: "quote", text: "Reference context", context: "[Quoted excerpt from this conversation]\nReference context" }])
       { tool_results: [{ id: "call-1", content: "file content" }] }
     end
     allow(agent).to receive(:observe) do
@@ -34,7 +34,7 @@ RSpec.describe Clacky::Agent, "queued guidance" do
     tool_index = messages.index { |m| m[:tool_call_id] == "call-1" }
     guidance_index = messages.index { |m| m[:content] == "Only change the backend" }
     expect(guidance_index).to be > tool_index
-    expect(messages[guidance_index + 1][:content]).to eq("Reference context")
+    expect(messages[guidance_index + 1][:content]).to eq("[Quoted excerpt from this conversation]\nReference context")
     expect(agent.total_tasks).to eq(1)
     expect(agent.pending_inputs).to be_empty
   end
@@ -100,7 +100,7 @@ RSpec.describe Clacky::Agent, "queued guidance" do
 
   it "promotes only the selected message while preserving files and the remaining order" do
     first = agent.enqueue_input("later one")
-    selected = agent.enqueue_input("use phone login", reference_contexts: ["reference"])
+    selected = agent.enqueue_input("use phone login", reference_contexts: [{ type: "quote", text: "reference", context: "[Quoted excerpt from this conversation]\nreference" }])
     last = agent.enqueue_input("later two")
     calls = 0
     allow(agent).to receive(:think) do
@@ -115,7 +115,7 @@ RSpec.describe Clacky::Agent, "queued guidance" do
     expect(calls).to eq(2)
     expect(agent.total_tasks).to eq(1)
     expect(agent.pending_inputs.map { |entry| entry[:id] }).to eq([first, last])
-    expect(agent.history.to_a.map { |message| message[:content] }).to include("use phone login", "reference")
+    expect(agent.history.to_a.map { |message| message[:content] }).to include("use phone login", "[Quoted excerpt from this conversation]\nreference")
   end
 
   it "demotes the earlier steered entry when a second queued message is steered" do
@@ -256,6 +256,20 @@ RSpec.describe Clacky::Agent, "queued guidance" do
     result = agent.run("needs an answer")
     expect(result).to include(awaiting_user_feedback: true, queue_paused: true)
     expect(agent.pending_inputs.size).to eq(1)
+  end
+
+  it "runs references from a legacy persisted queue without old keyword arguments" do
+    refs = [{ type: "quote", text: "Original selected text" }]
+    snapshot = agent.to_session_data
+    snapshot[:pending_inputs] = [{ id: "legacy-input", content: "Continue this", delivery: "queue",
+      options: { references_display: refs, reference_contexts: ["[Quoted excerpt from this conversation]\nOriginal selected text"] } }]
+    agent.restore_session(snapshot)
+    entry = agent.take_pending_input
+    expect(entry[:options]).to eq(reference_contexts: refs + ["[Quoted excerpt from this conversation]\nOriginal selected text"])
+    allow(agent).to receive(:think).and_return(content: "Done", tool_calls: [])
+    expect { agent.run_pending_input(entry) }.not_to raise_error
+    expect(agent.history.to_a).to include(hash_including(content: "Continue this", display_references: refs))
+    expect(agent.history.to_a.count { |m| m[:content] == "[Quoted excerpt from this conversation]\nOriginal selected text" }).to eq(1)
   end
 
   it "restores pending guidance as a queued task after a session restart" do
