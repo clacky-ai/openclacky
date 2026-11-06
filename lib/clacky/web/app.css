@@ -16566,6 +16566,74 @@ body.setup-mode {
   font-weight: 500;
   color: var(--color-text-primary);
   min-width: 3rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  white-space: nowrap;
+}
+/* Capability glyph before each sidecar row title. Each kind gets its own
+   tint so the six rows read as distinct at a glance. */
+.media-kind-icon {
+  --kind-color: var(--color-accent-primary);
+  flex: 0 0 auto;
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--kind-color);
+  background: color-mix(in srgb, var(--kind-color) 12%, transparent);
+}
+.media-kind-icon svg {
+  width: 0.9375rem;
+  height: 0.9375rem;
+  display: block;
+}
+.media-kind-icon[data-kind="image"]               { --kind-color: #db2777; }
+.media-kind-icon[data-kind="video"]               { --kind-color: #7c3aed; }
+.media-kind-icon[data-kind="audio"]               { --kind-color: #ea580c; }
+.media-kind-icon[data-kind="stt"]                 { --kind-color: #0891b2; }
+.media-kind-icon[data-kind="video_understanding"] { --kind-color: #2563eb; }
+.media-kind-icon[data-kind="ocr"]                 { --kind-color: #059669; }
+
+/* "[vendor badge] Model name" — shared by row status, dropdown and read-only. */
+.media-model-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4375rem;
+  min-width: 0;
+  max-width: 100%;
+  vertical-align: middle;
+}
+.media-model-chip-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.media-row-status .media-model-chip {
+  justify-content: flex-end;
+}
+.media-model-select .custom-select-trigger {
+  padding-top: 0.5rem;
+  padding-bottom: 0.5rem;
+}
+.media-model-select .custom-select-value {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.media-model-select.is-disabled {
+  opacity: 0.6;
+  pointer-events: none;
+}
+.media-model-dropdown {
+  max-width: 40rem;
+}
+.media-model-dropdown .custom-select-option {
+  display: flex;
+  align-items: center;
 }
 .media-row-segmented {
   display: inline-flex;
