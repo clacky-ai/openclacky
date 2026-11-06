@@ -1955,8 +1955,8 @@ RSpec.describe Clacky::Server::HttpServer do
 
     # Stand-in for Clacky::Agent. We only need the surface that
     # interrupt_all_agents touches: cancel! and to_session_data.
-    def fake_agent(session_id)
-      a = double("Agent[#{session_id}]", session_id: session_id)
+    def fake_agent(session_id, source: :manual)
+      a = double("Agent[#{session_id}]", session_id: session_id, source: source)
       allow(a).to receive(:to_session_data) do |status: nil, error_message: nil, **|
         { session_id: session_id, created_at: Time.now.iso8601, name: "T", last_status: status&.to_s }
       end
@@ -2062,6 +2062,89 @@ RSpec.describe Clacky::Server::HttpServer do
 
       stuck_threads.each(&:kill)
       stuck_threads.each(&:join)
+    end
+
+    describe "restart resume list" do
+      let(:resume_file) { File.join(sessions_dir, "restart_resume.json") }
+
+      def register(server, sid, agent, thread)
+        registry = server.instance_variable_get(:@registry)
+        registry.create(session_id: sid)
+        registry.with_session(sid) { |s| s[:agent] = agent; s[:thread] = thread }
+      end
+
+      it "records running non-ext sessions and carries the resume count forward" do
+        server = build_server
+        fresh = spawn_interruptible_agent_thread
+        resumed = spawn_interruptible_agent_thread
+        resumed[:restart_resumes] = 1
+        register(server, "fresh", fake_agent("fresh"), fresh)
+        register(server, "resumed", fake_agent("resumed"), resumed)
+        register(server, "work", fake_agent("work", source: :ext), spawn_interruptible_agent_thread)
+
+        server.send(:interrupt_all_agents)
+
+        expect(JSON.parse(File.read(resume_file))).to eq("fresh" => 1, "resumed" => 2)
+      end
+
+      it "writes nothing when no session was running" do
+        build_server.send(:interrupt_all_agents)
+
+        expect(File.exist?(resume_file)).to be(false)
+      end
+    end
+  end
+
+  describe "#resume_interrupted_sessions (private)" do
+    let(:sessions_dir) { Dir.mktmpdir("clacky_resume_spec_sessions") }
+    let(:resume_file) { File.join(sessions_dir, "restart_resume.json") }
+
+    after { FileUtils.rm_rf(sessions_dir) }
+
+    def build_server(resume_sessions:)
+      server = described_class.new(
+        agent_config: agent_config, client_factory: -> { double("client") },
+        sessions_dir: sessions_dir, resume_sessions: resume_sessions
+      )
+      allow(server.instance_variable_get(:@registry)).to receive(:ensure).and_return(true)
+      server
+    end
+
+    it "resumes listed sessions under the restart cap and consumes the list" do
+      File.write(resume_file, JSON.generate("a" => 1, "b" => 2, "loop" => 3))
+      server = build_server(resume_sessions: true)
+      resumed = []
+      allow(server).to receive(:run_session_task) do |sid, prompt, display_message:, background:, &around|
+        expect(prompt).to eq(described_class::RESTART_RESUME_PROMPT)
+        expect(background).to be(true)
+        expect(display_message).not_to be_empty
+        resumed << [sid, around.call(-> { Thread.current[:restart_resumes] }, nil)]
+      end
+
+      server.send(:resume_interrupted_sessions)
+
+      expect(resumed).to eq([["a", 1], ["b", 2]])
+      expect(Thread.current[:restart_resumes]).to be_nil
+      expect(File.exist?(resume_file)).to be(false)
+    end
+
+    it "only consumes the list when the worker was not started by a restart" do
+      File.write(resume_file, JSON.generate("a" => 1))
+      server = build_server(resume_sessions: false)
+      expect(server).not_to receive(:run_session_task)
+
+      server.send(:resume_interrupted_sessions)
+
+      expect(File.exist?(resume_file)).to be(false)
+    end
+
+    it "skips sessions that no longer exist" do
+      File.write(resume_file, JSON.generate("gone" => 1))
+      server = build_server(resume_sessions: true)
+      allow(server.instance_variable_get(:@registry)).to receive(:ensure).with("gone").and_return(false)
+      expect(server).not_to receive(:run_session_task)
+
+      server.send(:resume_interrupted_sessions)
     end
   end
 

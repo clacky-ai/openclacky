@@ -17,6 +17,8 @@ module Clacky
       "work.failed" => "工作需要处理：%<title>s",
       "work.reply_received" => "收到回复，等待继续执行",
 
+      "session.resumed_after_restart" => "服务已重启，自动继续刚才的任务",
+
       "phase.skill_evolution"           => "正在复盘本次任务",
       "phase.memory_update"             => "正在更新长期记忆",
       "llm.error.insufficient_credit"   => "API Key 账户余额不足，请前往控制台充值后继续使用",

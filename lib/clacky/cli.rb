@@ -1527,7 +1527,8 @@ module Clacky
           client_factory: client_factory,
           brand_test:     options[:brand_test],
           socket:         socket,
-          master_pid:     master_pid
+          master_pid:     master_pid,
+          resume_sessions: ENV["CLACKY_RESUME_SESSIONS"] == "1"
         ).start
       else
         # ── Master mode ───────────────────────────────────────────────────────
