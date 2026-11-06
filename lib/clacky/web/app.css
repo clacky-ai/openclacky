@@ -5232,7 +5232,7 @@ body {
   border-top: 1px solid var(--color-border-primary);
   margin: 0.8em 0;
 }
-.msg-assistant img { max-width: 100%; height: auto; border-radius: 0.25rem; }
+.msg-assistant img { max-width: 100%; height: auto; border-radius: 0.25rem; cursor: zoom-in; }
 .msg-assistant strong { font-weight: 500; color: var(--color-text-primary); }
 .msg-assistant em { font-style: italic; color: var(--color-text-secondary); }
 .msg-tool      { background: var(--color-bg-primary); border: 1px solid var(--color-border-primary); font-family: monospace; font-size: 0.75rem; color: var(--color-text-secondary); align-self: flex-start; }
