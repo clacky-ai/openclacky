@@ -8909,39 +8909,72 @@ a.msg-mention-badge:hover { text-decoration: underline; }
   line-height: 1.6;
 }
 
-/* Provider promo hint (shown when openclacky is selected) */
+/* Provider promo hint (shown when openclacky is selected).
+   Visual language matches .media-promo in the Secondary Models section. */
 .provider-promo-hint {
   display: none;
-  margin-top: 2px;
-  padding: 0.5rem 0.625rem;
-  border-radius: 6px;
-  background: var(--color-bg-hover, #fafafa);
+  margin-top: 0.375rem;
+  padding: 0.75rem 0.875rem;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--color-accent-primary) 28%, transparent);
+  background: linear-gradient(135deg,
+    color-mix(in srgb, var(--color-accent-primary) 10%, transparent),
+    color-mix(in srgb, #db2777 7%, transparent));
 }
 .provider-promo-hint.visible {
   display: block;
 }
-.provider-promo-hint .promo-inner {
-  padding: 0;
+.provider-promo-hint .promo-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.25rem;
+}
+.provider-promo-hint .promo-link {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--color-accent-primary);
+  text-decoration: none;
+  padding: 0.125rem 0.5rem;
+  border-radius: 999px;
+  transition: background 0.15s, color 0.15s;
+}
+.provider-promo-hint .promo-link svg { transition: transform 0.15s; }
+.provider-promo-hint .promo-link:hover {
+  background: color-mix(in srgb, var(--color-accent-primary) 12%, transparent);
+}
+.provider-promo-hint .promo-link:hover svg { transform: translateX(2px); }
+.provider-promo-hint .promo-link:focus-visible {
+  outline: 2px solid var(--color-accent-primary);
+  outline-offset: 2px;
 }
 .provider-promo-hint .promo-title {
-  font-size: 0.6875rem;
-  font-weight: 500;
-  color: var(--color-text-secondary);
-  margin-bottom: 0.1875rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--color-text-primary);
+  line-height: 1.5;
 }
 .provider-promo-hint .promo-item {
   display: flex;
   align-items: baseline;
-  gap: 0.25rem;
-  font-size: 0.6875rem;
-  line-height: 1.6;
-  color: var(--color-text-tertiary, #9ca3af);
+  gap: 0.5rem;
+  font-size: 0.75rem;
+  line-height: 1.7;
+  color: var(--color-text-secondary);
 }
-.provider-promo-hint .promo-icon {
+.provider-promo-hint .promo-dot {
   flex-shrink: 0;
-  font-size: 0.375rem;
-  opacity: 0.3;
-  line-height: 2;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--color-accent-primary);
+  opacity: 0.6;
+  transform: translateY(-0.15em);
 }
 
 /* ── Model Cards Grid Container ─────────────────────────────────────────────── */
