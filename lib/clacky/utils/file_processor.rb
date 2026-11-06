@@ -691,10 +691,12 @@ module Clacky
         real = Clacky::Utils::EnvironmentDetector.resolve_local_path(href)
 
         ext = File.extname(real).downcase
-        if LOCAL_MEDIA_EXTENSIONS.include?(ext) && File.exist?(real)
-          "![#{alt}](#{local_image_proxy_url(href, real)})"
-        else
+        if !LOCAL_MEDIA_EXTENSIONS.include?(ext) || !File.exist?(real)
           _match
+        elsif LOCAL_VIDEO_EXTENSIONS.include?(ext) || LOCAL_AUDIO_EXTENSIONS.include?(ext)
+          local_media_player(alt, href, real)
+        else
+          "![#{alt}](#{local_image_proxy_url(href, real)})"
         end
       end
 
@@ -730,9 +732,9 @@ module Clacky
         end
       end
 
-      # Rewrite media markdown links [text](file:///path) → proxy URL. Image
-      # links become inline images so the result shows up in the chat whether
-      # the model wrote ![...] or [...].
+      # Rewrite media markdown links [text](file:///path) into inline images or
+      # players so the result shows up in the chat whether the model wrote
+      # ![...] or [...].
       content = content.gsub(/(?<!!)\[([^\]]*)\]\(((?:file:\/\/)?(?:~\/|\/)[^)]+)\)/) do |_match|
         text = Regexp.last_match(1)
         href = Regexp.last_match(2)
@@ -745,13 +747,19 @@ module Clacky
         elsif LOCAL_IMAGE_EXTENSIONS.include?(ext)
           "![#{text}](#{local_image_proxy_url(href, real)})"
         elsif LOCAL_VIDEO_EXTENSIONS.include?(ext) || LOCAL_AUDIO_EXTENSIONS.include?(ext)
-          "[#{text}](#{local_image_proxy_url(href, real)})"
+          local_media_player(text, href, real)
         else
           _match
         end
       end
 
       content
+    end
+
+    def self.local_media_player(label, href, path)
+      tag = LOCAL_VIDEO_EXTENSIONS.include?(File.extname(path).downcase) ? "video" : "audio"
+      label = CGI.escapeHTML(label.to_s)
+      %(<#{tag} controls preload="metadata" src="#{local_image_proxy_url(href, path)}" title="#{label}" aria-label="#{label}"></#{tag}>)
     end
 
     # Build a proxy URL for a local media file, appending a version param

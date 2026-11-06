@@ -615,6 +615,37 @@ RSpec.describe Clacky::Utils::FileProcessor do
       end
     end
 
+    it "turns plain links to local video and audio into inline players" do
+      Dir.mktmpdir do |dir|
+        video = File.join(dir, "clip.mp4")
+        audio = File.join(dir, "voice.wav")
+        File.binwrite(video, "mp4")
+        File.binwrite(audio, "wav")
+
+        result = described_class.rewrite_local_image_urls("[clip](file://#{video})\n[🔊 <listen>](file://#{audio})")
+
+        expect(result).to include(%(<video controls preload="metadata" src="/api/local-image?path=#{CGI.escape("file://#{video}")}&v=))
+        expect(result).to include(%(<audio controls preload="metadata" src="/api/local-image?path=#{CGI.escape("file://#{audio}")}&v=))
+        expect(result).to include(%(title="🔊 &lt;listen&gt;"))
+      end
+    end
+
+    it "turns image syntax pointing at local video into an inline player" do
+      Dir.mktmpdir do |dir|
+        video = File.join(dir, "clip.mov")
+        File.binwrite(video, "mov")
+
+        result = described_class.rewrite_local_image_urls("![clip](file://#{video})")
+
+        expect(result).to start_with(%(<video controls preload="metadata" src="/api/local-image?path=))
+      end
+    end
+
+    it "keeps links to missing local media as links" do
+      content = "[clip](file:///nonexistent/clip.mp4) ![voice](file:///nonexistent/voice.mp3)"
+      expect(described_class.rewrite_local_image_urls(content)).to eq(content)
+    end
+
     it "leaves non-existent file paths untouched" do
       content = "![img](/nonexistent/image.png)"
       result = described_class.rewrite_local_image_urls(content)
