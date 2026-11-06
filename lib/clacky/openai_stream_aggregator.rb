@@ -18,8 +18,9 @@ module Clacky
   #   {"id":"...","choices":[],"usage":{"prompt_tokens":12,"completion_tokens":3,"prompt_tokens_details":{"cached_tokens":2}}}
   #   data: [DONE]
   class OpenAIStreamAggregator
-    def initialize(on_chunk: nil)
+    def initialize(on_chunk: nil, on_delta: nil)
       @on_chunk = on_chunk
+      @on_delta = on_delta
       @content = +""
       @reasoning_content = +""
       @role = "assistant"
@@ -53,8 +54,14 @@ module Clacky
       if (choice = (data["choices"] || []).first)
         delta = choice["delta"] || {}
         @role = delta["role"] if delta["role"]
-        @content << delta["content"] if delta["content"].is_a?(String)
-        @reasoning_content << delta["reasoning_content"] if delta["reasoning_content"].is_a?(String)
+        if delta["content"].is_a?(String)
+          @content << delta["content"]
+          emit_delta(:text, delta["content"])
+        end
+        if delta["reasoning_content"].is_a?(String)
+          @reasoning_content << delta["reasoning_content"]
+          emit_delta(:reasoning, delta["reasoning_content"])
+        end
         if (tcs = delta["tool_calls"])
           tcs.each { |tc| merge_tool_call(tc) }
         end
@@ -122,6 +129,13 @@ module Clacky
         )
       end
       nil
+    end
+
+    private def emit_delta(kind, text)
+      return if @on_delta.nil? || text.empty?
+      @on_delta.call(kind, text)
+    rescue => e
+      Clacky::Logger.warn("[OpenAIStreamAggregator] on_delta: #{e.class}: #{e.message}")
     end
 
     private def emit_estimate_progress

@@ -793,6 +793,8 @@ module Clacky
         # Show assistant message if there's content before tool calls
         if response[:content] && !response[:content].empty?
           emit_assistant_message(response[:content], reasoning_content: response[:reasoning_content], interim: true, created_at: response[:created_at])
+        else
+          @ui&.discard_assistant_stream
         end
 
         # Show token usage after assistant message (or immediately if no message).
@@ -1385,6 +1387,11 @@ module Clacky
     end
 
     private def think
+      # A previous attempt can die after streaming and before the committed
+      # message takes the buffer. Drop it before progress goes active, or a
+      # resubscribe during compression replays the abandoned text.
+      @ui.discard_assistant_stream if @ui&.respond_to?(:discard_assistant_stream)
+
       # Check API key before starting progress indicator
       if @client.instance_variable_get(:@api_key).nil? || @client.instance_variable_get(:@api_key).empty?
         @ui&.show_error("API key is not configured! Please run /config to set up your API key.")
@@ -1456,7 +1463,10 @@ module Clacky
       begin
         response = call_llm(
           agent_upstream_fails: @task_upstream_fails,
-          agent_upgrade_fails: @task_upgrade_fails
+          agent_upgrade_fails: @task_upgrade_fails,
+          # Each phase owns its own stream, so a subagent can stream without
+          # writing into the parent turn or a sibling phase.
+          stream_reply: true
         )
       rescue
         # Ensure the spinner is stopped on any error path before it bubbles up.

@@ -21,8 +21,9 @@ module Clacky
   # concatenate and let the response parser leave it as a string for downstream
   # tool dispatch (which calls JSON.parse with a {} fallback).
   class BedrockStreamAggregator
-    def initialize(on_chunk: nil)
+    def initialize(on_chunk: nil, on_delta: nil)
       @on_chunk = on_chunk
+      @on_delta = on_delta
       @role = "assistant"
       @blocks = {}
       @stop_reason = nil
@@ -61,6 +62,7 @@ module Clacky
           block[:kind] ||= :text
           block[:text] ||= +""
           block[:text] << delta["text"]
+          emit_delta(:text, delta["text"].to_s)
         elsif (tu = delta["toolUse"])
           block[:kind] = :tool_use
           block[:input_str] ||= +""
@@ -71,6 +73,7 @@ module Clacky
           block[:kind] = :reasoning
           block[:reasoning] ||= +""
           block[:reasoning] << rc["text"].to_s
+          emit_delta(:reasoning, rc["text"].to_s)
         end
         emit_estimate_progress
       when "contentBlockStop"
@@ -119,6 +122,13 @@ module Clacky
         )
       end
       nil
+    end
+
+    private def emit_delta(kind, text)
+      return if @on_delta.nil? || text.empty?
+      @on_delta.call(kind, text)
+    rescue => e
+      Clacky::Logger.warn("[BedrockStreamAggregator] on_delta: #{e.class}: #{e.message}")
     end
 
     private def emit_usage_progress(u)

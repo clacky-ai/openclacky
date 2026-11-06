@@ -167,7 +167,10 @@ module Clacky
     #   path. When given but streaming is not yet wired for the active provider,
     #   a single synthetic invocation is fired after the response is received,
     #   so UI plumbing can be exercised end-to-end without the proxy work.
-    def send_messages_with_tools(messages, model:, tools:, max_tokens:, enable_caching: false, reasoning_effort: nil, on_chunk: nil, agent_upstream_fails: nil, agent_upgrade_fails: nil)
+    # @param on_delta [Proc, nil] optional callback receiving (kind, text) for
+    #   each streamed text (:text) or reasoning (:reasoning) fragment. Only
+    #   fires on the streaming path, i.e. when on_chunk is also given.
+    def send_messages_with_tools(messages, model:, tools:, max_tokens:, enable_caching: false, reasoning_effort: nil, on_chunk: nil, on_delta: nil, agent_upstream_fails: nil, agent_upgrade_fails: nil)
       api_model = Providers.resolve_api_model(base_url: @base_url, api_key: @api_key, model: model)
       caching_enabled = enable_caching && supports_prompt_caching?(model)
       cloned = deep_clone(messages)
@@ -183,16 +186,16 @@ module Clacky
       response =
         if bedrock?
           streaming_used = !on_chunk.nil?
-          send_bedrock_request(cloned, api_model, tools, max_tokens, caching_enabled, reasoning_effort: reasoning_effort, on_chunk: wrapped_on_chunk)
+          send_bedrock_request(cloned, api_model, tools, max_tokens, caching_enabled, reasoning_effort: reasoning_effort, on_chunk: wrapped_on_chunk, on_delta: on_delta)
         elsif anthropic_format?
           streaming_used = !on_chunk.nil?
-          send_anthropic_request(cloned, api_model, tools, max_tokens, caching_enabled, reasoning_effort: reasoning_effort, on_chunk: wrapped_on_chunk)
+          send_anthropic_request(cloned, api_model, tools, max_tokens, caching_enabled, reasoning_effort: reasoning_effort, on_chunk: wrapped_on_chunk, on_delta: on_delta)
         elsif responses_format?
           streaming_used = !on_chunk.nil?
-          send_openai_responses_request(cloned, api_model, tools, max_tokens, caching_enabled, reasoning_effort: reasoning_effort, on_chunk: wrapped_on_chunk, capability_model: model)
+          send_openai_responses_request(cloned, api_model, tools, max_tokens, caching_enabled, reasoning_effort: reasoning_effort, on_chunk: wrapped_on_chunk, on_delta: on_delta, capability_model: model)
         else
           streaming_used = !on_chunk.nil?
-          send_openai_request(cloned, api_model, tools, max_tokens, caching_enabled, reasoning_effort: reasoning_effort, on_chunk: wrapped_on_chunk, capability_model: model, agent_upstream_fails: agent_upstream_fails, agent_upgrade_fails: agent_upgrade_fails)
+          send_openai_request(cloned, api_model, tools, max_tokens, caching_enabled, reasoning_effort: reasoning_effort, on_chunk: wrapped_on_chunk, on_delta: on_delta, capability_model: model, agent_upstream_fails: agent_upstream_fails, agent_upgrade_fails: agent_upgrade_fails)
         end
       t1 = Process.clock_gettime(Process::CLOCK_MONOTONIC)
 
@@ -265,9 +268,9 @@ module Clacky
 
     # ── Bedrock Converse request / response ───────────────────────────────────
 
-    def send_bedrock_request(messages, model, tools, max_tokens, caching_enabled, reasoning_effort: nil, on_chunk: nil)
+    def send_bedrock_request(messages, model, tools, max_tokens, caching_enabled, reasoning_effort: nil, on_chunk: nil, on_delta: nil)
       body = MessageFormat::Bedrock.build_request_body(messages, model, tools, max_tokens, caching_enabled, reasoning_effort: reasoning_effort)
-      return send_bedrock_stream_request(body, model, on_chunk) if on_chunk
+      return send_bedrock_stream_request(body, model, on_chunk, on_delta: on_delta) if on_chunk
 
       response = bedrock_connection.post(bedrock_endpoint(model)) { |r| r.body = body.to_json }
 
@@ -283,9 +286,10 @@ module Clacky
     # the raw Bedrock event JSON. We accumulate frames into a synthetic
     # non-streaming response and feed it back through the existing parser so
     # downstream code is identical.
-    private def send_bedrock_stream_request(body, model, on_chunk)
+    private def send_bedrock_stream_request(body, model, on_chunk, on_delta: nil)
       stream_body = body.merge(stream: true)
-      aggregator = BedrockStreamAggregator.new(on_chunk: on_chunk)
+      collect_delta, flush_deltas = delta_batcher(on_delta)
+      aggregator = BedrockStreamAggregator.new(on_chunk: on_chunk, on_delta: collect_delta)
       sse_buf = +""
 
       response = bedrock_connection.post(bedrock_stream_endpoint(model)) do |req|
@@ -294,6 +298,7 @@ module Clacky
           Clacky::Shutdown.checkpoint!
           sse_buf << chunk
           drain_sse_frames(sse_buf) { |event, data| aggregator.handle(event, data) }
+          flush_deltas.call
         end
       end
 
@@ -325,12 +330,12 @@ module Clacky
 
     # ── Anthropic request / response ──────────────────────────────────────────
 
-    def send_anthropic_request(messages, model, tools, max_tokens, caching_enabled, reasoning_effort: nil, on_chunk: nil)
+    def send_anthropic_request(messages, model, tools, max_tokens, caching_enabled, reasoning_effort: nil, on_chunk: nil, on_delta: nil)
       # Apply cache_control to the message that marks the cache breakpoint
       messages = apply_message_caching(messages) if caching_enabled
 
       body = MessageFormat::Anthropic.build_request_body(messages, model, tools, max_tokens, caching_enabled, reasoning_effort: reasoning_effort)
-      return send_anthropic_stream_request(body, on_chunk) if on_chunk
+      return send_anthropic_stream_request(body, on_chunk, on_delta: on_delta) if on_chunk
 
       response = anthropic_connection.post(anthropic_messages_path) { |r| r.body = body.to_json }
 
@@ -340,9 +345,10 @@ module Clacky
       MessageFormat::Anthropic.parse_response(parsed_body)
     end
 
-    private def send_anthropic_stream_request(body, on_chunk)
+    private def send_anthropic_stream_request(body, on_chunk, on_delta: nil)
       stream_body = body.merge(stream: true)
-      aggregator = AnthropicStreamAggregator.new(on_chunk: on_chunk)
+      collect_delta, flush_deltas = delta_batcher(on_delta)
+      aggregator = AnthropicStreamAggregator.new(on_chunk: on_chunk, on_delta: collect_delta)
       sse_buf = +""
 
       response = anthropic_connection.post(anthropic_messages_path) do |req|
@@ -352,6 +358,7 @@ module Clacky
           Clacky::Shutdown.checkpoint!
           sse_buf << chunk
           drain_sse_frames(sse_buf) { |event, data| aggregator.handle(event, data) }
+          flush_deltas.call
         end
       end
 
@@ -382,7 +389,7 @@ module Clacky
 
     # ── OpenAI request / response ─────────────────────────────────────────────
 
-    def send_openai_request(messages, model, tools, max_tokens, caching_enabled, reasoning_effort: nil, on_chunk: nil, capability_model: nil, agent_upstream_fails: nil, agent_upgrade_fails: nil)
+    def send_openai_request(messages, model, tools, max_tokens, caching_enabled, reasoning_effort: nil, on_chunk: nil, on_delta: nil, capability_model: nil, agent_upstream_fails: nil, agent_upgrade_fails: nil)
       # Override max_tokens when the model declares a higher output ceiling
       # in Providers::MODEL_MAX_OUTPUT. Without this, strong models (GLM-5.2,
       # Kimi-K3, MiMo-V2.5) are throttled to the 16K global default.
@@ -406,7 +413,7 @@ module Clacky
         vision_supported: vision_supported,
         reasoning_effort: reasoning_effort
       )
-      return send_openai_stream_request(body, on_chunk, agent_upstream_fails: agent_upstream_fails, agent_upgrade_fails: agent_upgrade_fails) if on_chunk
+      return send_openai_stream_request(body, on_chunk, on_delta: on_delta, agent_upstream_fails: agent_upstream_fails, agent_upgrade_fails: agent_upgrade_fails) if on_chunk
 
       response = openai_connection.post("chat/completions") do |r|
         r.body = body.to_json
@@ -453,9 +460,10 @@ module Clacky
     # via platform/llm_proxy). Uses Faraday's on_data hook to consume SSE frames,
     # accumulates them, and reconstructs the non-streaming JSON response shape so
     # MessageFormat::OpenAI.parse_response works unchanged.
-    private def send_openai_stream_request(body, on_chunk, agent_upstream_fails: nil, agent_upgrade_fails: nil)
+    private def send_openai_stream_request(body, on_chunk, on_delta: nil, agent_upstream_fails: nil, agent_upgrade_fails: nil)
       stream_body = body.merge(stream: true, stream_options: { include_usage: true })
-      aggregator = OpenAIStreamAggregator.new(on_chunk: on_chunk)
+      collect_delta, flush_deltas = delta_batcher(on_delta)
+      aggregator = OpenAIStreamAggregator.new(on_chunk: on_chunk, on_delta: collect_delta)
       sse_buf = +""
 
       response = openai_connection.post("chat/completions") do |req|
@@ -465,6 +473,7 @@ module Clacky
           Clacky::Shutdown.checkpoint!
           sse_buf << chunk
           drain_sse_frames(sse_buf) { |_event, data| aggregator.handle(data) }
+          flush_deltas.call
         end
       end
 
@@ -512,7 +521,7 @@ module Clacky
     # ── OpenAI Responses API request / response ───────────────────────────────
 
     def send_openai_responses_request(messages, model, tools, max_tokens, caching_enabled,
-                                      reasoning_effort: nil, on_chunk: nil, capability_model: nil)
+                                      reasoning_effort: nil, on_chunk: nil, on_delta: nil, capability_model: nil)
       # Override max_tokens when the model declares a higher output ceiling
       model_for_limit = capability_model || model
       model_limit = Providers.max_output_for(model_for_limit)
@@ -530,7 +539,7 @@ module Clacky
         vision_supported: Providers.supports?(@provider_id, :vision, model_name: cap_model),
         reasoning_effort: reasoning_effort
       )
-      return send_openai_responses_stream_request(body, on_chunk) if on_chunk
+      return send_openai_responses_stream_request(body, on_chunk, on_delta: on_delta) if on_chunk
 
       response = openai_connection.post("responses") { |r| r.body = body.to_json }
 
@@ -546,9 +555,10 @@ module Clacky
     # typed SSE events (response.output_text.delta,
     # response.function_call_arguments.delta, response.completed, etc.) that
     # the aggregator reassembles into the non-streaming response shape.
-    private def send_openai_responses_stream_request(body, on_chunk)
+    private def send_openai_responses_stream_request(body, on_chunk, on_delta: nil)
       stream_body = body.merge(stream: true)
-      aggregator = OpenAIResponsesStreamAggregator.new(on_chunk: on_chunk)
+      collect_delta, flush_deltas = delta_batcher(on_delta)
+      aggregator = OpenAIResponsesStreamAggregator.new(on_chunk: on_chunk, on_delta: collect_delta)
       sse_buf = +""
 
       response = openai_connection.post("responses") do |req|
@@ -557,6 +567,7 @@ module Clacky
         req.options.on_data = proc do |chunk, _bytes_received, _env|
           sse_buf << chunk
           drain_sse_frames(sse_buf) { |_event, data| aggregator.handle(data) }
+          flush_deltas.call
         end
       end
 
@@ -948,6 +959,30 @@ module Clacky
     end
 
     # ── Streaming helpers ─────────────────────────────────────────────────────
+
+    # Returns [collect, flush]. Aggregators call collect per SSE frame; the
+    # on_data handler calls flush once per network read. Upstreams often pack
+    # dozens of frames into one read, and the UI only needs one update each.
+    private def delta_batcher(on_delta)
+      return [nil, -> {}] unless on_delta
+      pending = []
+      collect = lambda do |kind, text|
+        last = pending.last
+        if last && last[0] == kind
+          last[1] << text
+        else
+          pending << [kind, text.dup]
+        end
+      end
+      flush = lambda do
+        batch = pending.dup
+        pending.clear
+        batch.each { |kind, text| on_delta.call(kind, text) }
+      rescue => e
+        Clacky::Logger.warn("[on_delta] callback raised #{e.class}: #{e.message}")
+      end
+      [collect, flush]
+    end
 
     # Invoke the user's on_chunk callback in a way that never lets a callback
     # error tear down the LLM request. Streaming chunks are best-effort UI

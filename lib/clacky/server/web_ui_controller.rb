@@ -34,6 +34,13 @@ module Clacky
         # All emitted events are forwarded to each subscriber after WebSocket broadcast.
         @channel_subscribers = []
         @subscribers_mutex   = Mutex.new
+
+        # In-flight streamed replies, one per phase (see stream_assistant_delta).
+        # The parent turn uses a nil key; each concurrent subagent phase keeps
+        # its own buffer so their fragments never share a bubble. Written by
+        # agent threads, read by WebSocket threads on replay.
+        @live_streams = {}
+        @stream_mutex = Mutex.new
       end
 
       # Register a channel subscriber (e.g. ChannelUIController).
@@ -183,8 +190,49 @@ module Clacky
         # Channel subscribers receive the original content so they can deliver
         # local images as native attachments via send_file().
         web_content = Clacky::Utils::FileProcessor.rewrite_local_image_urls(content.to_s)
-        emit("assistant_message", content: web_content, files: files, created_at: created_at, interim: interim)
+        # The final message supersedes only this phase's fragments. A sibling
+        # phase keeps streaming into its own bubble.
+        stream = take_assistant_stream
+        data = { content: web_content, files: files, created_at: created_at, interim: interim }
+        data[:stream_id] = stream[:id] if stream
+        emit("assistant_message", **data)
         forward_to_subscribers { |sub| sub.show_assistant_message(content, files: files, interim: interim) }
+      end
+
+      # Each assistant_delta carries the UTF-8 byte offset it starts at, so a
+      # browser that also received a replay snapshot can drop the overlap.
+      # Byte offsets, not characters: JS string length is UTF-16 code units,
+      # and a character offset drops or duplicates text after an emoji.
+      # The client already merges fragments per network read. Not forwarded to
+      # channel subscribers: IM platforms deliver whole messages only.
+      def stream_assistant_delta(kind, text)
+        kind = kind.to_sym == :reasoning ? :reasoning : :text
+        id, offset = @stream_mutex.synchronize do
+          stream = (@live_streams[assistant_stream_key] ||= new_assistant_stream)
+          offset = stream[kind].bytesize
+          stream[kind] << text
+          [stream[:id], offset]
+        end
+        emit("assistant_delta", stream_id: id, kind: kind.to_s, delta: text, offset: offset)
+      end
+
+      def discard_assistant_stream
+        stream = take_assistant_stream
+        emit("assistant_stream_discard", stream_id: stream[:id]) if stream
+      end
+
+      # The phase the calling thread is inside, or nil for the parent turn.
+      # Concurrent fan-out workers each hold a different thread-local phase.
+      private def assistant_stream_key
+        Thread.current[:clacky_phase_id]
+      end
+
+      private def new_assistant_stream
+        { id: "stream_#{SecureRandom.hex(6)}", text: +"", reasoning: +"", phase_id: assistant_stream_key }
+      end
+
+      private def take_assistant_stream
+        @stream_mutex.synchronize { @live_streams.delete(assistant_stream_key) }
       end
 
       def show_feedback_request(question, context, options, questions: nil)
@@ -316,6 +364,11 @@ module Clacky
       end
 
       def phase_end(phase_id, summary: nil)
+        # A cancel or error can close the phase with a reply still streaming.
+        # The committed message already took its buffer, so the normal path
+        # deletes nothing. Do this before clearing the thread-local: the
+        # buffer is keyed by that phase.
+        discard_assistant_stream if Thread.current[:clacky_phase_id] == phase_id
         # Clear thread-local before emitting end so the end event itself
         # doesn't get tagged with the phase_id it's closing.
         Thread.current[:clacky_phase_id] = nil if Thread.current[:clacky_phase_id] == phase_id
@@ -435,6 +488,22 @@ module Clacky
 
         buf = @live_stdout_buffer
         emit("tool_stdout", lines: buf) if buf && !buf.empty?
+
+        # Replies streaming right now, one snapshot per phase. offset 0 replaces
+        # whatever the browser already has for that stream.
+        snapshots = @stream_mutex.synchronize do
+          @live_streams.values.map do |stream|
+            { id: stream[:id], phase_id: stream[:phase_id], reasoning: stream[:reasoning].dup, text: stream[:text].dup }
+          end
+        end
+        snapshots.each do |snapshot|
+          %i[reasoning text].each do |kind|
+            next if snapshot[kind].empty?
+            data = { stream_id: snapshot[:id], kind: kind.to_s, delta: snapshot[kind], offset: 0, snapshot: true }
+            data[:phase_id] = snapshot[:phase_id] if snapshot[:phase_id]
+            emit("assistant_delta", **data)
+          end
+        end
       end
 
       # === State updates ===
