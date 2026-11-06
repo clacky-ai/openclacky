@@ -730,7 +730,9 @@ module Clacky
         end
       end
 
-      # Rewrite video/audio markdown links [text](file:///path) → proxy URL
+      # Rewrite media markdown links [text](file:///path) → proxy URL. Image
+      # links become inline images so the result shows up in the chat whether
+      # the model wrote ![...] or [...].
       content = content.gsub(/(?<!!)\[([^\]]*)\]\(((?:file:\/\/)?(?:~\/|\/)[^)]+)\)/) do |_match|
         text = Regexp.last_match(1)
         href = Regexp.last_match(2)
@@ -738,12 +740,12 @@ module Clacky
         real = Clacky::Utils::EnvironmentDetector.resolve_local_path(href)
 
         ext = File.extname(real).downcase
-        if LOCAL_VIDEO_EXTENSIONS.include?(ext) || LOCAL_AUDIO_EXTENSIONS.include?(ext)
-          if File.exist?(real)
-            "[#{text}](#{local_image_proxy_url(href, real)})"
-          else
-            _match
-          end
+        if !File.exist?(real)
+          _match
+        elsif LOCAL_IMAGE_EXTENSIONS.include?(ext)
+          "![#{text}](#{local_image_proxy_url(href, real)})"
+        elsif LOCAL_VIDEO_EXTENSIONS.include?(ext) || LOCAL_AUDIO_EXTENSIONS.include?(ext)
+          "[#{text}](#{local_image_proxy_url(href, real)})"
         else
           _match
         end

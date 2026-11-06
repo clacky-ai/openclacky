@@ -588,6 +588,33 @@ RSpec.describe Clacky::Utils::FileProcessor do
       end
     end
 
+    it "turns a plain link to a local image into an inline image" do
+      Dir.mktmpdir do |dir|
+        img = File.join(dir, "chart.png")
+        File.binwrite(img, "PNG")
+
+        content = "Done: [chart.png](file://#{img})"
+        result = described_class.rewrite_local_image_urls(content)
+
+        expect(result).to include("Done: ![chart.png](/api/local-image?path=#{CGI.escape("file://#{img}")}&v=")
+      end
+    end
+
+    it "keeps a plain link to a missing local image as a link" do
+      content = "[chart.png](file:///nonexistent/chart.png)"
+      expect(described_class.rewrite_local_image_urls(content)).to eq(content)
+    end
+
+    it "keeps plain links to local non-media files as links" do
+      Dir.mktmpdir do |dir|
+        doc = File.join(dir, "report.docx")
+        File.binwrite(doc, "PK")
+
+        content = "[report.docx](file://#{doc})"
+        expect(described_class.rewrite_local_image_urls(content)).to eq(content)
+      end
+    end
+
     it "leaves non-existent file paths untouched" do
       content = "![img](/nonexistent/image.png)"
       result = described_class.rewrite_local_image_urls(content)
