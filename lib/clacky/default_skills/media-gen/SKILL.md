@@ -190,10 +190,19 @@ When the user gives a vague request like "给我配张图", ask one clarifying q
 - The user wants a **diagram / chart** with specific data — use a charting library (matplotlib, mermaid, etc.) instead; image gen is for illustrations, not data viz
 - The user asks for **screenshots** of real software — use the browser tool
 
-## Generating video (Veo)
+## Generating video (Gemini Omni / Veo)
 
 The same `/api/media/` namespace serves video generation. The user must
-configure a `type=video` model in settings (recommended: `or-veo-3-1`).
+configure a `type=video` model in settings (recommended: `or-gemini-omni-flash`).
+
+| Model                  | Duration | Notes |
+|------------------------|----------|-------|
+| `or-gemini-omni-flash` | 3–15 s   | Default. Newest, ~$0.07/s at 720p. |
+| `or-veo-3-1`           | 4–8 s    | Best cinematic quality, ~$0.40/s. |
+| `or-veo-3-1-fast`      | 4–8 s    | ~$0.10/s. |
+| `or-veo-3-1-lite`      | 4–8 s    | Cheapest, ~$0.05/s. |
+
+Out-of-range durations are clamped by the gateway, not rejected.
 
 ### Endpoint
 
@@ -231,7 +240,7 @@ curl -s -X POST http://${CLACKY_SERVER_HOST}:${CLACKY_SERVER_PORT}/api/media/vid
 |--------------------|----------|---------------------------------|-------|
 | `prompt`           | yes      | string                          | Same prompt-craft tips as images apply. |
 | `aspect_ratio`     | no       | `landscape` / `portrait`        | Defaults to `landscape` (16:9). |
-| `duration_seconds` | no       | 4–8                             | Defaults to 8. |
+| `duration_seconds` | no       | 3–15 (Omni) / 4–8 (Veo)         | Defaults to 8. |
 | `image`            | no       | `{ "b64_json": "...", "mime_type": "image/png" }` | Optional first frame for image-to-video. |
 | `output_dir`       | no       | absolute path                   | The exact directory the file is written to — nothing is appended. Use the directory the user asked for; otherwise `$(pwd)/assets/generated` as shown in the example. |
 | `session_id`       | yes      | string                          | Current Clacky session ID. Always pass the rendered value shown in the request example. |
@@ -262,10 +271,10 @@ Same shape and `error_type` values as image generation, but with `"video": null`
 
 ### Continuous / long video (last-frame chaining)
 
-A single Veo call maxes out at 8 seconds, and separate calls are visually
+A single call maxes out at 15 seconds (Omni) or 8 seconds (Veo), and separate calls are visually
 **unrelated** (the character, lighting and framing jump between clips). To make
 several clips flow as one continuous shot, chain them: take the **last frame**
-of clip N and feed it as the `image` (first frame) of clip N+1. Veo's
+of clip N and feed it as the `image` (first frame) of clip N+1. The model's
 image-to-video then continues from exactly where the previous clip ended, so
 the seam is smooth.
 
@@ -320,9 +329,9 @@ Rules & caveats:
   slower re-encode (and may letterbox). Use the same `aspect_ratio` everywhere.
 - **Cost adds up linearly** — N segments ≈ N × single-clip price. Confirm the
   number of segments and total length with the user before starting.
-- For >30s or a true single-take >8s with no seam at all, this client-side
-  chaining is the practical option today; Veo's native server-side `extend`
-  (148s) is not wired into this endpoint yet.
+- For >30s or a true single-take longer than one clip with no seam at all,
+  this client-side chaining is the practical option today; the native
+  server-side `extend` (Veo / Omni) is not wired into this endpoint yet.
 
 ### Seedance — multimodal video
 

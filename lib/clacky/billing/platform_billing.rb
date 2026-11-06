@@ -65,14 +65,20 @@ module Clacky
         "or-gemini-3-6-flash" => "gemini-3.6-flash",
         "or-gemini-3-5-flash" => "gemini-3.5-flash",
         # image generation (or-)
+        "or-gemini-nano-banana-2-1" => "gemini-nano-banana-2.1",
         "or-gemini-3-pro-image"     => "gemini-3-pro-image",
         "or-gemini-3-1-flash-image" => "gemini-3.1-flash-image",
+        "or-gemini-3-1-flash-lite-image" => "gemini-3.1-flash-lite-image",
+        "or-gpt-image-2-5"          => "openai/gpt-image-2.5-sunburst",
+        "or-gpt-image-2-5-flare"    => "openai/gpt-image-2.5-flare",
         "or-gpt-image-2"            => "openai/gpt-5.4-image-2",
         # video generation (or-)
         "or-veo-3"       => "veo-3.0-generate-001",
         "or-veo-3-fast"  => "veo-3.0-fast-generate-001",
         "or-veo-3-1"     => "veo-3.1-generate-001",
         "or-veo-3-1-fast" => "veo-3.1-fast-generate-001",
+        "or-veo-3-1-lite" => "veo-3.1-lite-generate-001",
+        "or-gemini-omni-flash" => "gemini-omni-1.2-flash",
         # text-to-speech (or-)
         "or-tts-gemini-2-5-flash" => "gemini-2.5-flash-tts",
         "or-tts-gemini-2-5-pro"   => "gemini-2.5-pro-tts",
