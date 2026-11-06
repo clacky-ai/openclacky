@@ -274,9 +274,11 @@ UI/history reference metadata; it does not look up sessions or require a server
 SessionManager injection. Legacy text-only contexts and saved queued inputs remain
 supported.
 
-Work reports include the original request, latest feedback, worker outcome and a
-status-specific next step. `needs_input` asks the owner to answer from existing
-information before consulting the user; refinements continue the same work.
+Work reports contain the work title/ID, event time, revision and outcome.
+Manual stops are identified as user actions, distinct from worker reports and
+execution failures. Historical feedback, original instructions and generic
+next-step instructions are not replayed. Existing work tools and the worker session
+reference provide details on demand.
 Outbox event IDs remain in the work store, not in model-visible content or session
 message IDs. Delivery uses pending/delivered state without scanning session history.
 A crash after session persistence but before acknowledgement can repeat a report.

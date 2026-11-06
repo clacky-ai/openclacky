@@ -176,11 +176,20 @@ RSpec.describe Clacky::Work::Service do
     expect(current["status"]).to eq("cancelled")
   end
 
-  it "gives the owner the request, latest feedback and an explicit next step" do
+  it "reports only this event, without replaying old instructions or prescribing actions" do
     c = card.merge("updates" => [{ "source" => "user", "text" => "Shorter please" }])
-    prompt = service.send(:report_prompt, c, { "kind" => "needs_input", "text" => "Which date?" })
-    expect(prompt).to include("询问时间", "Shorter please", "Which date?", "First answer", "manage_work reply")
+    prompt = service.send(:report_prompt, c, { "kind" => "needs_input", "text" => "Which date?", "at" => "2026-11-05T11:12:01Z", "revision" => 3 })
+    expect(prompt).to include("约饭", "Which date?", "2026-11-05T11:12:01Z", "revision at event: 3")
+    expect(prompt).not_to include("询问时间", "Shorter please", "Next step", "Latest feedback")
     expect(prompt).not_to include("work-event:")
+  end
+
+  it "reports a user stop without replaying an earlier continue instruction" do
+    c = card.merge("updates" => [{ "source" => "user", "text" => "继续", "at" => "2026-11-05T11:09:29Z" }])
+    event = { "kind" => "paused", "at" => "2026-11-05T11:12:01Z", "revision" => 3, "text" => "用户已暂停，补充要求后可继续" }
+    prompt = service.send(:report_prompt, c, event)
+    expect(prompt).to include("manually stopped", "paused", "2026-11-05T11:12:01Z")
+    expect(prompt).not_to include("继续", "Latest feedback", "Next step", "Resume", "Original request", "Worker feedback")
   end
 
   it "accepts legacy yield reasons and normalizes stored cards and pending reports" do

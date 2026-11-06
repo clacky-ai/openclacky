@@ -85,7 +85,8 @@ RSpec.describe "Secretary server integration" do
       reference = { type: "session", session_id: card["id"], name: card["title"] }
       expect(event_message).to include(display_text: "Work completed: 旅行建议", display_references: [reference])
       expect(live_events).to include([owner_id, hash_including(type: "history_user_message", references: [reference])])
-      expect(event_message[:content]).to include("建议先确定日期", "Original request: 整理建议", "Next step:")
+      expect(event_message[:content]).to include("建议先确定日期", "Work event:", "Occurred at:")
+      expect(event_message[:content]).not_to include("Original request", "Latest feedback", "Next step")
       expect(event_message[:content]).not_to include("work-event:")
       expect(owner.history.to_api.to_json).not_to include("work-event:")
       expect(owner.history.to_a).to include(hash_including(system_injected: true, content: a_string_including("Referenced conversation")))
