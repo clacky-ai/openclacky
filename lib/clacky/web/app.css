@@ -369,6 +369,7 @@ input[type="checkbox"] { accent-color: var(--color-accent-primary); }
   transition: opacity 0.12s ease;
 }
 #tooltip.visible { opacity: 1; }
+#tooltip[data-wide] { max-width: 24rem; }
 #tooltip::after {
   content: "";
   position: absolute;

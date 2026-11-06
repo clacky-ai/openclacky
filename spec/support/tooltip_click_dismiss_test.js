@@ -37,7 +37,13 @@ const tip = {
   offsetWidth: 80,
   offsetHeight: 20,
   classes: new Set(),
-  setAttribute() {},
+  attributes: {},
+  setAttribute(name, value) { this.attributes[name] = String(value); },
+  toggleAttribute(name, force) {
+    if (force) this.attributes[name] = "";
+    else delete this.attributes[name];
+    return force;
+  },
 };
 tip.classList = { add: c => tip.classes.add(c), remove: c => tip.classes.delete(c) };
 // Records the `left` the box is measured at: a stale value from the previous
