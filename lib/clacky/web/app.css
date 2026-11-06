@@ -6238,6 +6238,39 @@ body {
   font-size: 0.75rem;
   font-variant-numeric: tabular-nums;
 }
+.img-lightbox-sep {
+  width: 1px;
+  height: 1rem;
+  margin: 0 0.25rem;
+  background: rgba(255,255,255,0.22);
+}
+.img-lightbox-text-btn {
+  height: 1.75rem;
+  padding: 0 0.5rem;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font-size: 0.75rem;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.img-lightbox-text-btn:hover { background: rgba(255,255,255,0.14); }
+.img-lightbox-text-btn.is-copied { color: var(--color-success); }
+.img-lightbox-path-btn {
+  flex: none;
+  padding: 0.25rem 0.5rem;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font-size: 0.75rem;
+  line-height: 1.4;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.img-lightbox-path-btn:hover { background: rgba(255,255,255,0.14); }
 
 .msg-pdf-badge {
   display: inline-flex;
