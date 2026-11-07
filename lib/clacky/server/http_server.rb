@@ -4961,6 +4961,16 @@ module Clacky
         fields = body.transform_keys(&:to_sym).reject { |k, _| %i[platform instance_id name id].include?(k) }
         fields = fields.transform_values { |v| v.is_a?(String) ? v.strip : v }
 
+        # Setup may originate in an existing conversation. Persist its target
+        # before starting the adapter, so the first inbound message reuses it.
+        if fields.key?(:bind_session_id)
+          target_id = fields[:bind_session_id].to_s.strip
+          if target_id.empty? || !@registry.ensure(target_id)
+            return json_response(res, 422, { ok: false, error: "Binding session not found" })
+          end
+          fields[:bind_session_id] = target_id
+        end
+
         # Record when the token was last updated so clients can detect re-login
         fields[:token_updated_at] = Time.now.to_i if platform == :weixin && fields.key?(:token)
         fields[:token_updated_at] = Time.now.to_i if platform == :discord && fields.key?(:bot_token)

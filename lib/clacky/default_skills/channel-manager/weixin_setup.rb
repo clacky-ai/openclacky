@@ -150,6 +150,8 @@ end
 def save_to_server(token:, base_url:)
   uri  = URI("#{CLACKY_SERVER_URL}/api/channels/weixin")
   body = { token: token, base_url: base_url }
+  session_id = ENV["CLACKY_SESSION_ID"].to_s.strip
+  body[:bind_session_id] = session_id unless session_id.empty?
   body[:instance_id] = GIVEN_INSTANCE_ID unless GIVEN_INSTANCE_ID.empty?
   body[:name]        = GIVEN_NAME        unless GIVEN_NAME.empty?
   body = JSON.generate(body)
