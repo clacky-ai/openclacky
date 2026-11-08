@@ -47,8 +47,26 @@ module Clacky
           # (which is what would actually be visible).
           s = s.split("\n", -1).map { |line| line.split("\r").last || "" }.join("\n")
 
-          # Erase "X\b" pairs repeatedly (readline rubout).
-          s = s.gsub(BACKSPACE_REGEX, "") while s =~ BACKSPACE_REGEX
+          # Erase "X\b" pairs (readline rubout) in a single O(n) pass.
+          # A stack scan replaces the old `while + gsub` loop, which was
+          # O(n^2) for inputs with long runs of chars followed by long
+          # runs of backspaces: each gsub pass removed only the boundary
+          # pair, forcing n passes over n bytes. On BS, chop the previous
+          # non-BS char (equivalent to the `[^\x08]\x08` match); keep
+          # isolated/leading/consecutive backspaces untouched.
+          buf = +""
+          s.each_char do |ch|
+            if ch == "\x08"
+              if !buf.empty? && !buf.end_with?("\x08")
+                buf.chop!
+              else
+                buf << ch
+              end
+            else
+              buf << ch
+            end
+          end
+          s = buf
 
           # Normalize any leftover isolated \r.
           s = s.gsub(/\r/, "")
