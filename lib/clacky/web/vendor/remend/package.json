@@ -1,0 +1,10 @@
+{
+  "name": "remend-build",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "esbuild": "^0.25.0",
+    "remend": "1.4.0"
+  }
+}
