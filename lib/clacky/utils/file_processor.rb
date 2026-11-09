@@ -676,7 +676,8 @@ module Clacky
     #   1. file:// URLs  →  ![alt](/api/local-image?path=file:///abs/path.png)
     #   2. bare absolute paths  →  ![alt](/api/local-image?path=/abs/path.png)
     #
-    # https:// URLs and non-image files are left untouched.
+    # https:// URLs are left untouched. `![alt](url)` pointing at a non-media
+    # file is downgraded to a plain link — an <img> would just render broken.
     #
     # @param content [String, nil] markdown text
     # @return [String, nil] rewritten content (or original if nothing matched)
@@ -692,7 +693,8 @@ module Clacky
 
         ext = File.extname(real).downcase
         if !LOCAL_MEDIA_EXTENSIONS.include?(ext) || !File.exist?(real)
-          _match
+          label = alt.to_s.strip.empty? ? File.basename(real).to_s : alt
+          "[#{label}](#{href})"
         elsif LOCAL_VIDEO_EXTENSIONS.include?(ext) || LOCAL_AUDIO_EXTENSIONS.include?(ext)
           local_media_player(alt, href, real)
         else

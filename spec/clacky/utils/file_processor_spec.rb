@@ -566,15 +566,41 @@ RSpec.describe Clacky::Utils::FileProcessor do
       expect(result).to eq(content)
     end
 
-    it "leaves non-image local paths untouched" do
+    it "downgrades image syntax for a local non-media file to a plain link" do
       Dir.mktmpdir do |dir|
         doc = File.join(dir, "doc.docx")
         File.binwrite(doc, "PK")
 
         content = "![doc](file://#{doc})"
         result = described_class.rewrite_local_image_urls(content)
-        expect(result).to eq(content)
+        expect(result).to eq("[doc](file://#{doc})")
       end
+    end
+
+    it "downgrades image syntax for a source file instead of rendering a broken image" do
+      Dir.mktmpdir do |dir|
+        js = File.join(dir, "slugify.js")
+        File.binwrite(js, "export {}")
+
+        content = "Done.\n\n![slugify.js](file://#{js})"
+        result = described_class.rewrite_local_image_urls(content)
+        expect(result).to eq("Done.\n\n[slugify.js](file://#{js})")
+      end
+    end
+
+    it "falls back to the file name when the downgraded link has no alt text" do
+      Dir.mktmpdir do |dir|
+        js = File.join(dir, "slugify.js")
+        File.binwrite(js, "export {}")
+
+        result = described_class.rewrite_local_image_urls("![](file://#{js})")
+        expect(result).to eq("[slugify.js](file://#{js})")
+      end
+    end
+
+    it "downgrades image syntax for a missing local media file to a plain link" do
+      content = "![chart](file:///nonexistent/chart.png)"
+      expect(described_class.rewrite_local_image_urls(content)).to eq("[chart](file:///nonexistent/chart.png)")
     end
 
     it "rewrites a local PDF to the media proxy URL" do
@@ -642,14 +668,20 @@ RSpec.describe Clacky::Utils::FileProcessor do
     end
 
     it "keeps links to missing local media as links" do
-      content = "[clip](file:///nonexistent/clip.mp4) ![voice](file:///nonexistent/voice.mp3)"
+      content = "[clip](file:///nonexistent/clip.mp4) [voice](file:///nonexistent/voice.mp3)"
       expect(described_class.rewrite_local_image_urls(content)).to eq(content)
     end
 
-    it "leaves non-existent file paths untouched" do
+    it "downgrades image syntax for missing local media to plain links" do
+      content = "[clip](file:///nonexistent/clip.mp4) ![voice](file:///nonexistent/voice.mp3)"
+      expect(described_class.rewrite_local_image_urls(content))
+        .to eq("[clip](file:///nonexistent/clip.mp4) [voice](file:///nonexistent/voice.mp3)")
+    end
+
+    it "downgrades image syntax for a nonexistent path instead of rendering a broken image" do
       content = "![img](/nonexistent/image.png)"
       result = described_class.rewrite_local_image_urls(content)
-      expect(result).to eq(content)
+      expect(result).to eq("[img](/nonexistent/image.png)")
     end
 
     it "rewrites a file://~/ tilde path, expanding ~ to the real home" do
@@ -728,13 +760,13 @@ RSpec.describe Clacky::Utils::FileProcessor do
       end
     end
 
-    it "leaves a Windows drive-letter path untouched when the resolved file is missing" do
+    it "downgrades a Windows drive-letter image path when the resolved file is missing" do
       drive_href = "file:///C:/Users/foo/missing.png"
       allow(Clacky::Utils::EnvironmentDetector)
         .to receive(:resolve_local_path).with(drive_href).and_return("/mnt/c/Users/foo/missing.png")
 
       content = "![pic](#{drive_href})"
-      expect(described_class.rewrite_local_image_urls(content)).to eq(content)
+      expect(described_class.rewrite_local_image_urls(content)).to eq("[pic](#{drive_href})")
     end
   end
 end
