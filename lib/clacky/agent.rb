@@ -798,9 +798,10 @@ module Clacky
         # Show assistant message if there's content before tool calls
         if response[:content] && !response[:content].empty?
           emit_assistant_message(response[:content], reasoning_content: response[:reasoning_content], interim: true, created_at: response[:created_at])
-        else
-          @ui&.discard_assistant_stream
         end
+        # emit_assistant_message skips whitespace-only content without taking
+        # the stream, and pending tool rows must not outlive it into act.
+        @ui&.discard_assistant_stream
 
         # Show token usage after assistant message (or immediately if no message).
         # This ensures WebUI renders the token line below the assistant bubble.
