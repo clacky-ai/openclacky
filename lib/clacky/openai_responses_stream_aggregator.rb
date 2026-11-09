@@ -24,8 +24,9 @@ module Clacky
   # Unlike Chat Completions, there is no "[DONE]" sentinel; the stream ends
   # with a "response.completed" / "response.done" (or "response.incomplete") event.
   class OpenAIResponsesStreamAggregator
-    def initialize(on_chunk: nil)
+    def initialize(on_chunk: nil, on_text_delta: nil)
       @on_chunk = on_chunk
+      @on_text_delta = on_text_delta
       @text = +""
       @reasoning_text = +""
       @function_calls = {}   # call_id -> { name:, arguments: }
@@ -57,6 +58,7 @@ module Clacky
       case event_type
       when "response.output_text.delta"
         @text << data["delta"].to_s
+        emit_text_delta(data["delta"])
         emit_estimate_progress
       # OpenAI's official API emits response.reasoning_text.delta; keep
       # response.reasoning.delta as a tolerant alias for providers that
@@ -239,6 +241,14 @@ module Clacky
         found = true
       end
       found
+    end
+
+    # Text previews must not change aggregation or abort a model response.
+    private def emit_text_delta(text)
+      return unless @on_text_delta && text.is_a?(String) && !text.empty?
+      @on_text_delta.call(text)
+    rescue StandardError => e
+      Clacky::Logger.warn("[stream] on_text_delta: #{e.class}: #{e.message}")
     end
 
     private def parse_or_nil(s)

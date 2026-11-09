@@ -10,6 +10,11 @@ module Clacky
     # @param content [String] text portion of the assistant reply (file:// links stripped)
     # @param files   [Array<Hash>] extracted file refs: [{ name:, path:, inline: }]
     def show_assistant_message(content, files:, interim: false, created_at: nil); end
+    # Optional, transient text preview. Final assistant_message remains authoritative.
+    def stream_assistant_text?; false; end
+    def show_assistant_delta(message_id:, seq:, delta:); end
+    # Discard this preview on success or failure; this is not task completion.
+    def end_assistant_stream(message_id:); end
     def show_feedback_request(question, context, options, questions: nil); end
     def show_subagent_start(skill: nil, iterations: nil, cost_usd: nil); end
     def show_subagent_end; end

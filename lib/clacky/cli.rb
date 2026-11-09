@@ -55,6 +55,7 @@ module Clacky
     option :list, type: :boolean, aliases: "-l", desc: "List recent sessions"
     option :attach, type: :string, aliases: "-a", desc: "Attach to session by number or keyword"
     option :json, type: :boolean, default: false, desc: "Output NDJSON to stdout (for scripting/piping)"
+    option :stream, type: :boolean, default: false, desc: "Include transient text deltas in --json output"
     option :ui, type: :string, default: nil, desc: "Interactive UI implementation: ui2, rich (default: ui2)"
     option :message, type: :string, aliases: "-m", desc: "Run non-interactively with this message and exit"
     option :file,  type: :array, aliases: "-f", desc: "File path(s) to attach (use with -m; supports images and documents)"
@@ -714,7 +715,7 @@ module Clacky
           session_manager&.save(agent.to_session_data(status: :error, error_message: format_error(e), updated_at: Time.now))
 
           if is_json
-            ui = Clacky::JsonUIController.new
+            ui = Clacky::JsonUIController.new(stream: !!options[:stream])
             ui.emit("error", message: e.message)
             ui.set_idle_status
           else
@@ -726,7 +727,7 @@ module Clacky
 
         # Wire up the appropriate UI controller and execute
         if is_json
-          ui = Clacky::JsonUIController.new
+          ui = Clacky::JsonUIController.new(stream: !!options[:stream])
           agent.instance_variable_set(:@ui, ui)
           ui.emit("system", message: "Agent started", model: agent_config.model_name, working_dir: agent.working_dir)
 
@@ -774,7 +775,7 @@ module Clacky
       #
       # If a bare string line is received it is treated as a message content.
       def run_agent_with_json(agent, working_dir, agent_config, session_manager, client_factory, profile:)
-        json_ui = Clacky::JsonUIController.new
+        json_ui = Clacky::JsonUIController.new(stream: !!options[:stream])
         agent.instance_variable_set(:@ui, json_ui)
 
         json_ui.emit("system", message: "Agent started", model: agent_config.model_name, working_dir: working_dir)

@@ -11,7 +11,8 @@ module Clacky
   class JsonUIController
     include Clacky::UIInterface
 
-    def initialize(output: $stdout, input: $stdin)
+    def initialize(output: $stdout, input: $stdin, stream: false)
+      @stream = stream
       @output = output
       @input = input
       @mutex = Mutex.new
@@ -27,6 +28,18 @@ module Clacky
     end
 
     # === Output display ===
+
+    def stream_assistant_text?; @stream; end
+
+    def show_assistant_delta(message_id:, seq:, delta:)
+      return unless stream_assistant_text?
+      emit("assistant_message_delta", message_id: message_id, seq: seq, delta: delta)
+    end
+
+    def end_assistant_stream(message_id:)
+      return unless stream_assistant_text?
+      emit("assistant_message_stream_end", message_id: message_id)
+    end
 
     def show_assistant_message(content, files:, interim: false, created_at: nil)
       return if (content.nil? || content.strip.empty?) && files.empty?
