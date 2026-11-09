@@ -4,6 +4,64 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
+## [1.5.23] - 2026-11-06
+
+### Added
+- Add durable delegated work and a secretary extension
+- Run multiple instances of the same IM channel platform
+- Show linked local media inline in the Web UI
+- Open Markdown images in the lightbox
+- Add file actions to the image lightbox toolbar
+- Add an open-with submenu to file context menus
+- Sync scrolling between the Markdown editor and preview
+- Persist composer text drafts across reloads, stored per session
+- Offer starter examples when no scheduled task exists
+- Show a readable title for scheduled tasks instead of the ASCII name
+- Name the session in desktop notifications
+- Give builtin extensions icons and full detail pages
+- Refresh the OpenClacky image and video model lineup
+- Advertise OpenClacky AI Keys above the secondary models
+- Explain the Recommended provider badge on hover
+- Mention media capabilities on the onboarding key card
+- Infer no-vision for custom models from known model names
+- Explain the last-turn scope in the Git panel on hover
+
+### Improved
+- Improve worker conversations, report context and debug exports
+- Order scheduled tasks by enabled state, then newest first
+- Make the secondary-model rows readable at a glance
+- Restyle the provider promo and sharpen its copy
+- Explain broken images in the workspace preview
+- Tighten the Git changes toolbar and left-align the tool row when it wraps
+- Unify session info bar tooltips and move the session file id to the end of the bar
+- Tint destructive row menu items red only on hover
+
+### Fixed
+- Show the pane scrollbar on hover in the split diff view
+- Keep the open-with submenu attached to its parent menu
+- Title attachment-only turns with file names in the time machine
+- Close the Git panel file menu on revert and refresh
+- Show the untracked-files hint when checkout is blocked by untracked files
+- Force English git output so checkout errors are recognised
+- Drop a pushed commit pick on Git panel refresh
+- Refetch the commit list on Git panel refresh, and stop the empty list from saying it twice
+- Raise the scope menu and finder above the mobile aside overlay
+- Drop the sub-model when the session's model card is gone
+- Refresh the new-session model list every time the panel opens
+- Resync the modal API-key link with the selected provider
+- Exit address mode in the directory picker after entering the current path
+- Skip sidebar transitions while restoring layout on load
+- Keep the real path when opening file:// links in preview
+- Refresh open file tabs after edits
+- Reveal the file tree when the last file tab closes
+- Start housekeeping phase cards collapsed
+- Keep token usage detail fields always visible
+- Show the collapse tooltip to the left of the button
+- Drop tooltips from the open-with split button
+
+### More
+- Rename the MCP panel to connectors in Chinese
+
 ## [1.5.22] - 2026-10-30
 
 ### Added

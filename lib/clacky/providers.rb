@@ -69,32 +69,43 @@ module Clacky
         # only — the platform may dispatch to OpenRouter or Vertex AI
         # (Gemini Nano Banana family) depending on the model.
         "image_models" => [
+          "or-gemini-nano-banana-2-1",
           "or-gemini-3-pro-image",
           "or-gemini-3-1-flash-image",
+          "or-gemini-3-1-flash-lite-image",
+          "or-gpt-image-2-5",
+          "or-gpt-image-2-5-flare",
           "or-gpt-image-2"
         ],
         "image_model_aliases" => {
-          "or-gemini-3-pro-image"      => "Nano Banana Pro",
-          "or-gemini-3-1-flash-image"  => "Nano Banana 2",
-          "or-gpt-image-2"             => "GPT Image 2"
+          "or-gemini-nano-banana-2-1" => "Nano Banana 2.1",
+          "or-gemini-3-pro-image"     => "Nano Banana Pro",
+          "or-gemini-3-1-flash-image" => "Nano Banana 2",
+          "or-gemini-3-1-flash-lite-image" => "Nano Banana 2 Lite",
+          "or-gpt-image-2-5"          => "GPT Image 2.5",
+          "or-gpt-image-2-5-flare"    => "GPT Image 2.5 Flare",
+          "or-gpt-image-2"            => "GPT Image 2"
         },
-        "default_image_model" => "or-gemini-3-1-flash-image",
-        # Video generation models served by the openclacky gateway, which
-        # routes them to Vertex AI Veo (async predictLongRunning under the
-        # hood; the gateway hides the polling and returns the MP4 inline).
+        "default_image_model" => "or-gemini-nano-banana-2-1",
+        # Video generation models served by the openclacky gateway. Gemini
+        # Omni Flash rides Vertex's Interactions API (token-billed, 3–15s);
+        # the Veo 3.1 family uses async predictLongRunning (per-second, 4–8s).
+        # The gateway hides the polling and returns the MP4 inline for both.
+        # Veo 3 / Veo 3 Fast are still routable server-side for old configs
+        # but no longer offered: same price as 3.1 with older quality.
         "video_models" => [
+          "or-gemini-omni-flash",
           "or-veo-3-1",
           "or-veo-3-1-fast",
-          "or-veo-3",
-          "or-veo-3-fast"
+          "or-veo-3-1-lite"
         ],
         "video_model_aliases" => {
-          "or-veo-3-1"      => "Veo 3.1",
-          "or-veo-3-1-fast" => "Veo 3.1 Fast",
-          "or-veo-3"        => "Veo 3",
-          "or-veo-3-fast"   => "Veo 3 Fast"
+          "or-gemini-omni-flash" => "Gemini Omni Flash",
+          "or-veo-3-1"           => "Veo 3.1",
+          "or-veo-3-1-fast"      => "Veo 3.1 Fast",
+          "or-veo-3-1-lite"      => "Veo 3.1 Lite"
         },
-        "default_video_model" => "or-veo-3-1",
+        "default_video_model" => "or-gemini-omni-flash",
         # Text-to-speech models served by the openclacky gateway, which
         # routes them to Vertex AI Gemini 2.5 (responseModalities=["AUDIO"]).
         # The gateway returns WAV inline as base64.

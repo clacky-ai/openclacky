@@ -13,10 +13,11 @@ RSpec.describe "Composer image attachment preview" do
     expect(new_session).to include('thumbnail.className = "img-preview-thumb"')
   end
 
-  it "routes sent and pending images through the shared lightbox" do
-    expect(app).to include('const IMAGE_SELECTOR = ".msg-image-thumb, .img-preview-thumb"')
+  it "routes sent, pending and Markdown-rendered images through the shared lightbox" do
+    expect(app).to include('const IMAGE_SELECTOR = ".msg-image-thumb, .img-preview-thumb, .msg-assistant img"')
     expect(app).to include("e.target.matches(IMAGE_SELECTOR)")
     expect(styles).to include(".img-preview-thumb { cursor: zoom-in; }")
+    expect(styles).to include("border-radius: 0.25rem; cursor: zoom-in;")
   end
 
   it "constructs the enlarged image without interpolating attachment data into HTML" do

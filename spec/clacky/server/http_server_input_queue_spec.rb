@@ -90,14 +90,13 @@ RSpec.describe Clacky::Server::HttpServer, "input behavior routing" do
     ))
     files = [{ "name" => "answer.txt", "path" => "/tmp/answer.txt" }]
     references = [{ "type" => "file", "path" => "/tmp/context.txt" }]
-    allow(server).to receive(:build_reference_contexts).with(references).and_return(["context"])
     allow(agent).to receive(:history).and_return([{}])
     allow(agent).to receive(:parse_skill_command).and_return(found: false)
     allow(ui).to receive(:show_user_message)
     server.instance_variable_set(:@channel_manager, double(channel_ui_for_session: nil))
     expect(agent).not_to receive(:enqueue_input)
     expect(agent).to receive(:run).with("my answer", hash_including(
-      files: files, references_display: references, reference_contexts: ["context"]))
+      files: files, reference_contexts: references))
     expect(server).not_to receive(:interrupt_session)
     allow(server).to receive(:run_agent_task).and_yield
     server.send(:handle_user_message, "s", "my answer", files, references: references)
@@ -108,7 +107,7 @@ RSpec.describe Clacky::Server::HttpServer, "input behavior routing" do
   end
 
   it "queues an opted-in message without interrupting or spawning another run" do
-    expect(agent).to receive(:enqueue_input).with("extra", hash_including(files: [], references_display: []))
+    expect(agent).to receive(:enqueue_input).with("extra", hash_including(files: [], reference_contexts: []))
     expect(server).not_to receive(:interrupt_session)
     expect(server).not_to receive(:run_agent_task)
     config.input_behavior = "steer"
@@ -156,7 +155,7 @@ RSpec.describe Clacky::Server::HttpServer, "input behavior routing" do
   end
 
   describe "sending pending input immediately" do
-    let(:entry) { { id: "p1", content: "extra", options: { files: [{ name: "a.pdf" }], reference_contexts: ["context"] } } }
+    let(:entry) { { id: "p1", content: "extra", options: { files: [{ name: "a.pdf" }], reference_contexts: [{ type: "quote", text: "context" }] } } }
 
     it "interrupts and runs the original entry without changing the configured mode" do
       config.input_behavior = "steer"
@@ -209,7 +208,7 @@ RSpec.describe Clacky::Server::HttpServer, "queued input during task finalizatio
   let(:config) { Clacky::AgentConfig.new(input_behavior: "steer") }
   let(:registry) { Clacky::Server::SessionRegistry.new(agent_config: config) }
   let(:pending) { { id: "message-1", content: "late guidance", options: {} } }
-  let(:agent) { double("agent", to_session_data: {}) }
+  let(:agent) { double("agent", to_session_data: {}, name: "s") }
   let(:server) do
     described_class.allocate.tap do |s|
       s.instance_variable_set(:@registry, registry)

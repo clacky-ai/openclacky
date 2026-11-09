@@ -6,7 +6,7 @@ description: |
   Configure IM platform channels (Feishu, WeCom, Weixin, Discord, Telegram, DingTalk, QQ) for openclacky.
   Uses browser automation for navigation; guides the user to paste credentials and perform UI steps.
   Trigger on: "channel setup", "setup feishu", "setup wecom", "setup weixin", "setup wechat", "setup discord", "setup telegram", "setup dingtalk", "setup qq",
-  "channel config", "channel status", "channel enable", "channel disable", "channel reconfigure", "channel doctor",
+  "bind this session to a channel", "channel config", "channel status", "channel enable", "channel disable", "channel reconfigure", "channel doctor",
   "send message to weixin", "send message to feishu", "send message to wecom", "send message to discord", "send message to telegram", "send message to dingtalk", "send message to qq".
   Subcommands: setup, status, enable <platform>, disable <platform>, reconfigure, doctor, send.
 argument-hint: "setup | status | enable <platform> | disable <platform> | reconfigure | doctor | send <platform> <message>"
@@ -34,9 +34,57 @@ Configure IM platform channels for openclacky.
 | `channel status` | status |
 | `channel enable feishu/wecom/weixin/discord/telegram/dingtalk/qq` | enable |
 | `channel disable feishu/wecom/weixin/discord/telegram/dingtalk/qq` | disable |
+| `channel remove`, `channel delete` | remove |
 | `channel reconfigure` | reconfigure |
 | `channel doctor` | doctor |
 | `send <message> to weixin/feishu/wecom/discord/telegram/dingtalk/qq` | send |
+
+---
+
+## Keep the current conversation when connecting a channel
+
+When the user asks to connect a channel from this conversation, include
+`"bind_session_id": "<actual CLACKY_SESSION_ID>"` in the same
+`POST /api/channels/<platform>` request that saves the credentials. Read the
+actual ID from the terminal environment; never invent it. For an already
+configured channel, POST just `bind_session_id` and the selected `instance_id`.
+The first message received by that instance binds its chat to this conversation
+and runs here, retaining the role and history. No `/bind` command or new session
+is needed. Other chats keep their existing routing.
+
+The Weixin, Discord and DingTalk scripts below pass `CLACKY_SESSION_ID` when
+saving credentials. This only applies to setup/binding, not status, enable,
+disable or credential-only maintenance. When explicitly configuring an account
+without binding this conversation, omit `bind_session_id` and run scripts with
+`CLACKY_SESSION_ID` unset. Outside a session, omit the field.
+
+---
+
+## Multiple instances per platform
+
+Every platform can be connected more than once (for example a personal and a work
+Feishu app, or two WeChat accounts). Each instance carries:
+
+- `id` — stable routing identifier. The first instance is always `default`.
+- `name` — display name shown in the Web UI (e.g. "Company Feishu").
+
+Rules:
+
+1. Before adding an instance, ask the user for a display name (`ask_user`).
+2. Derive `instance_id` from that name as a short ASCII slug (`work`, `personal`,
+   `team-2`). It must match `[A-Za-z0-9][A-Za-z0-9_-]{0,39}` and must not collide
+   with an existing id from `GET /api/channels` → `channels[].instances[].id`.
+3. Pass BOTH fields in the same `POST /api/channels/<platform>` body that saves
+   the credentials:
+   ```json
+   {"instance_id":"work","name":"Company Feishu","app_id":"...","app_secret":"..."}
+   ```
+4. Never omit `instance_id` when adding: without it the server updates the
+   **default** instance and overwrites its credentials.
+5. When reconfiguring an existing instance, keep its `instance_id`; never create
+   a new one for the same bot.
+6. All setup flows below work unchanged for the first instance; add the two
+   fields above only when the user asked for an additional instance.
 
 ---
 
@@ -60,6 +108,10 @@ Response shape (example):
 ```
 
 Display the result:
+
+When a platform has multiple instances, `channels[].instances` lists each one
+with `id`, `name`, `enabled`, `running` and `has_config`. Report one row per
+instance, e.g. `feishu (default)` and `feishu (work)`.
 
 ```
 Channel Status
@@ -131,7 +183,7 @@ Parse both values.
 ```bash
 curl -X POST http://${CLACKY_SERVER_HOST}:${CLACKY_SERVER_PORT}/api/channels/feishu \
   -H "Content-Type: application/json" \
-  -d '{"app_id":"<APP_ID>","app_secret":"<APP_SECRET>","domain":"https://open.feishu.cn"}'
+  -d '{"app_id":"<APP_ID>","app_secret":"<APP_SECRET>","domain":"https://open.feishu.cn","bind_session_id":"<actual CLACKY_SESSION_ID>"}'
 ```
 
 **CRITICAL: This curl call is the ONLY way to save credentials. NEVER write `~/.clacky/channels.yml`
@@ -147,7 +199,7 @@ en: "✅ Feishu channel configured! You can now chat with the assistant via Feis
 
 #### Step 3 — Optional: install Feishu CLI
 
-Reach here after the channel is configured (Step 2 succeeded). Read `app_id` and `app_secret` from `~/.clacky/channels.yml` (under `channels.feishu`) for the install commands below.
+Reach here after the channel is configured (Step 2 succeeded). Read `app_id` and `app_secret` from `~/.clacky/channels.yml` (under `channels.feishu`; it is now a **list** of instances — use the entry whose `id` matches the instance you just configured, otherwise the first entry) for the install commands below.
 
 Call `ask_user`:
 
@@ -211,7 +263,7 @@ When the session ends with `exit_code: 0`, tell the user:
    ```bash
    curl -X POST http://${CLACKY_SERVER_HOST}:${CLACKY_SERVER_PORT}/api/channels/wecom \
      -H "Content-Type: application/json" \
-     -d '{"bot_id":"<BOT_ID>","secret":"<SECRET>"}'
+     -d '{"bot_id":"<BOT_ID>","secret":"<SECRET>","bind_session_id":"<actual CLACKY_SESSION_ID>"}'
    ```
 
 On success: "✅ WeCom channel configured. WeCom client → Contacts → Smart Bot to find it."
@@ -221,6 +273,8 @@ On success: "✅ WeCom channel configured. WeCom client → Contacts → Smart B
 ### Weixin setup (Personal WeChat via iLink QR login)
 
 Weixin uses a QR code login — no app_id/app_secret needed. The token from the QR scan is saved directly in `channels.yml`.
+
+For a second or later WeChat account, ask the user for a display name first, derive an `instance_id`, and pass both to the save step: `weixin_setup.rb --qrcode-id "$QRCODE_ID" --instance-id "personal" --name "Personal WeChat"`. Without `--instance-id` the token overwrites the `default` instance.
 
 #### Step 1 — Fetch QR code
 
@@ -270,6 +324,8 @@ As soon as the QR page has been presented to the user — whether you opened it 
 ```bash
 ruby "SKILL_DIR/weixin_setup.rb" --qrcode-id "$QRCODE_ID"
 ```
+
+For an additional account, append `--instance-id "<id>" --name "<display name>"` so the new token does not overwrite the existing WeChat instance.
 
 Where `$QRCODE_ID` is the `qrcode_id` from Step 2's JSON output.
 
@@ -370,7 +426,7 @@ Call the server API. It calls `getMe` against the Bot API to validate the token 
 ```bash
 curl -s -X POST http://${CLACKY_SERVER_HOST}:${CLACKY_SERVER_PORT}/api/channels/telegram \
   -H "Content-Type: application/json" \
-  -d '{"bot_token":"<TOKEN>","base_url":"<BASE_URL_OR_OMIT>"}'
+  -d '{"bot_token":"<TOKEN>","base_url":"<BASE_URL_OR_OMIT>","bind_session_id":"<actual CLACKY_SESSION_ID>"}'
 ```
 
 - `200 { "ok": true }` — token validated and saved. The adapter starts long-polling immediately.
@@ -423,7 +479,7 @@ The server persists the credentials and immediately opens the gateway WebSocket:
 ```bash
 curl -s -X POST http://${CLACKY_SERVER_HOST}:${CLACKY_SERVER_PORT}/api/channels/qq \
   -H "Content-Type: application/json" \
-  -d '{"app_id":"<APP_ID>","app_secret":"<APP_SECRET>","sandbox":<TRUE_OR_FALSE>}'
+  -d '{"app_id":"<APP_ID>","app_secret":"<APP_SECRET>","sandbox":<TRUE_OR_FALSE>,"bind_session_id":"<actual CLACKY_SESSION_ID>"}'
 ```
 
 - `200` — credentials saved; the QQ gateway session starts.
@@ -455,19 +511,52 @@ curl -s -X POST http://${CLACKY_SERVER_HOST}:${CLACKY_SERVER_PORT}/api/channels/
 
 If the platform has no credentials (404 or error), redirect to `setup`.
 
+When the platform has multiple instances, add `"instance_id":"<id>"` to the body
+to enable just that instance.
+
 Say: "✅ `<platform>` channel enabled."
 
 ---
 
 ## `disable`
 
-Call the server API to disable the platform:
+Call the server API to turn the platform off without touching its credentials:
 
 ```bash
-curl -s -X DELETE http://${CLACKY_SERVER_HOST}:${CLACKY_SERVER_PORT}/api/channels/<platform>
+curl -s -X PATCH http://${CLACKY_SERVER_HOST}:${CLACKY_SERVER_PORT}/api/channels/<platform>/enabled \
+  -H "Content-Type: application/json" \
+  -d '{"enabled": false}'
 ```
 
+This disables the first instance. To disable one specific instance, add its id:
+
+```bash
+curl -s -X PATCH http://${CLACKY_SERVER_HOST}:${CLACKY_SERVER_PORT}/api/channels/<platform>/enabled \
+  -H "Content-Type: application/json" \
+  -d '{"enabled": false, "instance_id": "<instance_id>"}'
+```
+
+To disable every instance, read `GET /api/channels` and send the PATCH above for
+each instance id. Never use `DELETE` to turn a bot off — it removes the credentials.
+
 Say: "❌ `<platform>` channel disabled."
+
+---
+
+## `remove`
+
+Delete one instance and its credentials for good. Always confirm the target with
+the user first, then call:
+
+```bash
+curl -s -X DELETE http://${CLACKY_SERVER_HOST}:${CLACKY_SERVER_PORT}/api/channels/<platform>/instances/<instance_id>
+```
+
+The bot stops immediately and the entry is removed from `channels.yml`. Deleting the
+last instance removes the platform entirely. If the user only wants to pause it,
+use `disable` instead.
+
+Say: "🗑️ `<platform>` instance `<name>` removed."
 
 ---
 
@@ -512,7 +601,7 @@ ruby "SKILL_DIR/dingtalk_setup.rb" --poll "<device_code>"
 Check each item, report ✅ / ❌ with remediation:
 
 1. **Config file** — does `~/.clacky/channels.yml` exist and is it readable?
-2. **Required keys** — for each enabled platform:
+2. **Required keys** — for each enabled platform instance (every `channels.<platform>` entry is a list of instances):
    - Feishu: `app_id`, `app_secret` present and non-empty
    - WeCom: `bot_id`, `secret` present and non-empty
    - Weixin: `token` present and non-empty in `channels.yml`
@@ -523,8 +612,8 @@ Check each item, report ✅ / ❌ with remediation:
 4. **Weixin token** (if enabled) — call `GET /api/channels` and check `has_token: true` for the weixin entry.
 5. **Telegram credentials** (if enabled) — call `getMe` against the Bot API:
    ```bash
-   BOT_TOKEN=$(ruby -ryaml -e 'puts (YAML.load_file(File.expand_path("~/.clacky/channels.yml"))["channels"]["telegram"]["bot_token"] rescue "")')
-   BASE_URL=$(ruby -ryaml -e 'puts (YAML.load_file(File.expand_path("~/.clacky/channels.yml"))["channels"]["telegram"]["base_url"] || "https://api.telegram.org" rescue "https://api.telegram.org")')
+   BOT_TOKEN=$(ruby -ryaml -e 'c=YAML.load_file(File.expand_path("~/.clacky/channels.yml"))["channels"]["telegram"] rescue nil; c=[c] if c.is_a?(Hash); i=(c||[]).first; puts(i ? i["bot_token"].to_s : "")')
+   BASE_URL=$(ruby -ryaml -e 'c=YAML.load_file(File.expand_path("~/.clacky/channels.yml"))["channels"]["telegram"] rescue nil; c=[c] if c.is_a?(Hash); i=(c||[]).first; puts(i && i["base_url"] ? i["base_url"] : "https://api.telegram.org")')
    curl -s "$BASE_URL/bot$BOT_TOKEN/getMe" | grep -q '"ok":true' && echo "✅ Telegram OK" || echo "❌ Telegram credentials rejected by getMe"
    ```
 6. **WeCom credentials** (if enabled) — search today's log:
@@ -567,6 +656,7 @@ Proactively send a message to a user via an IM channel adapter.
 Extract two things from the user's instruction:
 - **platform** — one of `weixin`, `feishu`, `wecom`, `discord`, `telegram`, `dingtalk`, `qq`
 - **message** — the text content to send
+- **instance** (optional) — when the platform has multiple instances, ask which `name`/`id` to use and pass `instance_id` in both API calls below
 
 If the platform cannot be inferred, ask the user to clarify.
 
@@ -577,7 +667,7 @@ If the user specified a `user_id`, use it directly.
 Otherwise, list known users first:
 
 ```bash
-curl -s http://${CLACKY_SERVER_HOST}:${CLACKY_SERVER_PORT}/api/channels/<platform>/users
+curl -s "http://${CLACKY_SERVER_HOST}:${CLACKY_SERVER_PORT}/api/channels/<platform>/users?instance_id=<instance_id>"
 ```
 
 - If the list is **empty**: tell the user "No known users for `<platform>`. The target user must send at least one message to the bot before proactive messaging is possible." Stop here.
@@ -589,7 +679,7 @@ curl -s http://${CLACKY_SERVER_HOST}:${CLACKY_SERVER_PORT}/api/channels/<platfor
 ```bash
 curl -s -X POST http://${CLACKY_SERVER_HOST}:${CLACKY_SERVER_PORT}/api/channels/<platform>/send \
   -H "Content-Type: application/json" \
-  -d '{"message": "<message>", "user_id": "<user_id>"}'
+  -d '{"message": "<message>", "user_id": "<user_id>", "instance_id": "<instance_id>"}'
 ```
 
 **Response handling:**

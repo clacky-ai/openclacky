@@ -3,7 +3,7 @@ module Clacky
   module Tools
     class ManageWork < Base
       self.tool_name = "manage_work"
-      self.tool_description = "List/get your work; update requirements, relay a reply/decision, pause, cancel, or resume paused/failed work in its existing session. For continuing interrupted work, use resume with its work_id rather than creating a new delegation. Use expected_revision when editing a previously read card."
+      self.tool_description = "List/get your work; update requirements, relay a reply/decision, pause, cancel, or resume paused/failed work in its existing session. For continuing interrupted work, use resume with its work_id rather than creating a new delegation. Completed work accepts reply/update for further feedback in the same session; cancelled work stays stopped. Use expected_revision when editing a previously read card."
       self.tool_parameters = {
         type: "object", properties: {
           action: { type: "string", enum: %w[list get update reply pause cancel resume] },

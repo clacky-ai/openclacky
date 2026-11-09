@@ -134,8 +134,10 @@ def mode_poll(device_code, expires_in: POLL_TIMEOUT, interval: POLL_INTERVAL)
   step "Phase 4 — Saving credentials to clacky server..."
 
   begin
-    res = server_post("/api/channels/dingtalk",
-                      { client_id: client_id, client_secret: client_secret, enabled: true })
+    fields = { client_id: client_id, client_secret: client_secret, enabled: true }
+    session_id = ENV["CLACKY_SESSION_ID"].to_s.strip
+    fields[:bind_session_id] = session_id unless session_id.empty?
+    res = server_post("/api/channels/dingtalk", fields)
     if res.code.to_i == 200
       ok "Credentials saved, DingTalk Stream adapter starting..."
     else

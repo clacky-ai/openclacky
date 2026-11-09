@@ -1255,8 +1255,10 @@ module Clacky
         m = @models.find { |mm| mm["id"] == @current_model_id }
         return m if m
         # id no longer exists (model was deleted). Fall through to other
-        # resolution strategies below, and clear the stale id.
+        # resolution strategies below, and clear the stale id. The sub-model
+        # pin belonged to the deleted card's provider, so it goes too.
         @current_model_id = nil
+        @session_model_overlay = nil
       end
 
       default_model = find_model_by_type("default")

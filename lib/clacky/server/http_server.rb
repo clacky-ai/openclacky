@@ -814,14 +814,19 @@ module Clacky
             api_group_history(chat_id, res)
           elsif method == "GET" && path.match?(%r{^/api/channels/[^/]+/users$})
             platform = path.sub("/api/channels/", "").sub("/users", "")
-            api_list_channel_users(platform, res)
+            api_list_channel_users(platform, req, res)
           elsif method == "POST" && path.match?(%r{^/api/channels/qq/qr/start$})
-            api_qq_qr_start(res)
+            api_qq_qr_start(req, res)
           elsif method == "POST" && path.match?(%r{^/api/channels/qq/qr/poll$})
             api_qq_qr_poll(req, res)
           elsif method == "POST" && path.match?(%r{^/api/channels/[^/]+/test$})
             platform = path.sub("/api/channels/", "").sub("/test", "")
             api_test_channel(platform, req, res)
+          elsif method == "DELETE" && path.match?(%r{^/api/channels/[^/]+/instances/[^/]+$})
+            rest        = path.sub("/api/channels/", "")
+            platform    = rest.split("/").first
+            instance_id = URI.decode_www_form_component(rest.split("/").last)
+            api_delete_channel(platform, res, instance_id)
           elsif method == "PATCH" && path == "/api/channels/status_messages"
             api_channel_status_messages(req, res)
           elsif method == "PATCH" && path == "/api/channels/process_messages"
@@ -4300,18 +4305,31 @@ module Clacky
       end
 
       def api_list_channels(res)
-        config   = Clacky::ChannelConfig.load
-        running  = @channel_manager.running_platforms
+        config  = Clacky::ChannelConfig.load
+        running = @channel_manager.running_instances
 
         platforms = Clacky::Channel::Adapters.all.map do |klass|
-          platform = klass.platform_id
-          raw      = config.instance_variable_get(:@channels)[platform.to_s] || {}
+          platform  = klass.platform_id
+          instances = config.instances(platform).map do |inst|
+            {
+              id:         inst["id"],
+              name:       inst["name"].to_s,
+              enabled:    !!inst["enabled"],
+              running:    running.any? { |r| r[:platform] == platform && r[:instance_id] == inst["id"] },
+              has_config: !config.platform_config(platform, inst["id"]).nil?
+            }.merge(platform_safe_fields(platform, config, inst["id"]))
+          end
+
+          primary = instances.first || { id: Clacky::ChannelConfig::DEFAULT_INSTANCE_ID, name: "", enabled: false, running: false, has_config: false }
           {
-            platform:  platform,
-            enabled:   !!raw["enabled"],
-            running:   running.include?(platform),
-            has_config: !config.platform_config(platform).nil?
-          }.merge(platform_safe_fields(platform, config))
+            platform:   platform,
+            id:         primary[:id],
+            name:       primary[:name],
+            enabled:    instances.any? { |inst| inst[:enabled] },
+            running:    running.any? { |r| r[:platform] == platform },
+            has_config: !instances.empty?,
+            instances:  instances
+          }.merge(platform_safe_fields(platform, config, primary[:id]))
         end
 
         json_response(res, 200, { channels: platforms, status_messages: config.status_messages_enabled?, process_messages: config.process_messages_enabled?, progress_cards: config.progress_cards_enabled? })
@@ -4606,6 +4624,7 @@ module Clacky
         platform = platform.to_sym
         body     = parse_json_body(req)
         message  = body["message"].to_s.strip
+        instance_id = body["instance_id"].to_s.strip
 
         if message.empty?
           json_response(res, 400, { ok: false, error: "message is required" })
@@ -4616,7 +4635,7 @@ module Clacky
         user_id = body["user_id"].to_s.strip
         if user_id.empty?
           # Default to the most-recently active user for this platform
-          known = @channel_manager.known_users(platform)
+          known = @channel_manager.known_users(platform, instance_id)
           if known.empty?
             json_response(res, 503, {
               ok:    false,
@@ -4627,21 +4646,21 @@ module Clacky
           user_id = known.last
         end
 
-        result = @channel_manager.send_to_user(platform, user_id, message)
+        result = @channel_manager.send_to_user(platform, user_id, message, instance_id)
         if result.nil?
           json_response(res, 400, {
             ok:    false,
             error: "Failed to send message. The :#{platform} adapter may not be running, or no context_token is available for user #{user_id}."
           })
         else
-          json_response(res, 200, { ok: true, platform: platform, user_id: user_id })
+          json_response(res, 200, { ok: true, platform: platform, instance_id: instance_id, user_id: user_id })
         end
       rescue StandardError => e
         json_response(res, 500, { ok: false, error: e.message })
       end
 
-      # GET /api/channels/:platform/users
-      # Returns the list of known user IDs for the given platform.
+      # GET /api/channels/:platform/users?instance_id=...
+      # Returns the list of known user IDs for the given platform (or instance).
       # These are users who have sent at least one message to the bot in this server session.
       #
       # For Weixin: returns users with a cached context_token (required for proactive messaging).
@@ -4649,10 +4668,11 @@ module Clacky
       #
       # Response:
       #   200 { users: ["uid1", "uid2", ...] }
-      def api_list_channel_users(platform, res)
-        platform = platform.to_sym
-        users    = @channel_manager.known_users(platform)
-        json_response(res, 200, { platform: platform, users: users })
+      def api_list_channel_users(platform, req, res)
+        platform    = platform.to_sym
+        instance_id = req.query["instance_id"].to_s.strip
+        users       = @channel_manager.known_users(platform, instance_id)
+        json_response(res, 200, { platform: platform, instance_id: instance_id, users: users })
       rescue StandardError => e
         json_response(res, 500, { ok: false, error: e.message })
       end
@@ -4921,24 +4941,47 @@ module Clacky
 
       # POST /api/channels/:platform
       # Body: { fields... }  (platform-specific credential fields)
+      # Optional: { instance_id, name } to target an additional instance of the
+      # same platform. Without instance_id the default (first) instance is
+      # updated, which keeps older clients and skill curls working unchanged.
       # Saves credentials and optionally (re)starts the adapter.
       def api_save_channel(platform, req, res)
         platform = platform.to_sym
         body     = parse_json_body(req)
         config   = Clacky::ChannelConfig.load
 
-        fields = body.transform_keys(&:to_sym).reject { |k, _| k == :platform }
+        instance_id = body["instance_id"].to_s.strip
+        name        = body["name"].is_a?(String) ? body["name"].strip : nil
+        if !instance_id.empty? && !valid_instance_id?(instance_id)
+          json_response(res, 422, { ok: false, error: "instance_id may only contain letters, digits, '-' and '_'" })
+          return
+        end
+        return json_response(res, 422, { ok: false, error: "name is too long" }) if name && name.length > 60
+
+        fields = body.transform_keys(&:to_sym).reject { |k, _| %i[platform instance_id name id].include?(k) }
         fields = fields.transform_values { |v| v.is_a?(String) ? v.strip : v }
+
+        # Setup may originate in an existing conversation. Persist its target
+        # before starting the adapter, so the first inbound message reuses it.
+        if fields.key?(:bind_session_id)
+          target_id = fields[:bind_session_id].to_s.strip
+          if target_id.empty? || !@registry.ensure(target_id)
+            return json_response(res, 422, { ok: false, error: "Binding session not found" })
+          end
+          fields[:bind_session_id] = target_id
+        end
 
         # Record when the token was last updated so clients can detect re-login
         fields[:token_updated_at] = Time.now.to_i if platform == :weixin && fields.key?(:token)
         fields[:token_updated_at] = Time.now.to_i if platform == :discord && fields.key?(:bot_token)
 
         # Validate credentials against live API before persisting.
-        # Merge with existing config so partial updates (e.g. allowed_users only) still validate correctly.
+        # Merge with the target instance's existing config so partial updates
+        # (e.g. allowed_users only) still validate correctly. A new instance
+        # does not inherit the default instance's credentials.
         klass = Clacky::Channel::Adapters.find(platform)
         if klass && klass.respond_to?(:test_connection)
-          existing = config.platform_config(platform) || {}
+          existing = config.platform_config(platform, instance_id) || {}
           merged   = existing.merge(fields)
           result   = klass.test_connection(merged)
           unless result[:ok]
@@ -4947,13 +4990,19 @@ module Clacky
           end
         end
 
-        config.set_platform(platform, **fields)
+        resolved_id = config.set_platform(
+          platform,
+          instance_id: instance_id,
+          name: name,
+          enabled: body.key?("enabled") ? body["enabled"] == true : nil,
+          **fields
+        )
         config.save
 
-        # Hot-reload: stop existing adapter for this platform (if running) and restart
-        @channel_manager.reload_platform(platform, config)
+        # Hot-reload only the affected instance.
+        @channel_manager.reload_platform(platform, config, resolved_id)
 
-        json_response(res, 200, { ok: true })
+        json_response(res, 200, { ok: true, instance_id: resolved_id })
       rescue StandardError => e
         json_response(res, 422, { ok: false, error: e.message })
       end
@@ -4962,13 +5011,14 @@ module Clacky
       # Creates a QQ "lite bind" task and returns the official connect URL
       # (Tencent renders the QR). The AES key is held server-side, keyed by
       # task_id, so the poll step can decrypt the returned AppSecret.
-      def api_qq_qr_start(res)
+      def api_qq_qr_start(req, res)
+        instance_id = parse_json_body(req)["instance_id"].to_s.strip
         binder = Clacky::Channel::Adapters::Qq::QrBinder.new
         task   = binder.create_task
-        qr_bind_store[task[:task_id]] = { "key" => task[:key], "created_at" => Time.now.to_i }
+        qr_bind_store[task[:task_id]] = { "key" => task[:key], "instance_id" => instance_id, "created_at" => Time.now.to_i }
         prune_qr_bind_store
 
-        json_response(res, 200, { ok: true, task_id: task[:task_id], connect_url: task[:connect_url] })
+        json_response(res, 200, { ok: true, task_id: task[:task_id], connect_url: task[:connect_url], instance_id: instance_id })
       rescue StandardError => e
         json_response(res, 422, { ok: false, error: e.message })
       end
@@ -4997,9 +5047,9 @@ module Clacky
             user_openid: result[:user_openid],
             key: stored["key"]
           )
-          persist_qq_qr_credentials(creds)
+          persist_qq_qr_credentials(creds, stored["instance_id"])
           qr_bind_store.delete(task_id)
-          json_response(res, 200, { ok: true, status: "completed", app_id: creds[:app_id] })
+          json_response(res, 200, { ok: true, status: "completed", app_id: creds[:app_id], instance_id: stored["instance_id"].to_s })
         else
           json_response(res, 200, { ok: true, status: "pending" })
         end
@@ -5008,21 +5058,22 @@ module Clacky
       end
 
       # Persist scanned QQ credentials and ensure the scanning user can talk
-      # to the bot (merged with any existing whitelist).
-      def persist_qq_qr_credentials(creds)
+      # to the bot (merged with that instance's existing whitelist).
+      def persist_qq_qr_credentials(creds, instance_id = nil)
         config = Clacky::ChannelConfig.load
-        existing = config.platform_config(:qq) || {}
+        existing = config.platform_config(:qq, instance_id) || {}
         whitelist = Array(existing[:allowed_users]).map(&:to_s)
         whitelist << creds[:user_openid] unless creds[:user_openid].to_s.empty?
 
-        config.set_platform(
+        resolved_id = config.set_platform(
           :qq,
+          instance_id: instance_id,
           app_id: creds[:app_id],
           app_secret: creds[:app_secret],
           allowed_users: whitelist.uniq
         )
         config.save
-        @channel_manager.reload_platform(:qq, config)
+        @channel_manager.reload_platform(:qq, config, resolved_id)
       end
 
       def qr_bind_store
@@ -5038,16 +5089,20 @@ module Clacky
       end
 
       # DELETE /api/channels/:platform
-      # Disables the platform (keeps credentials, sets enabled: false).
-      def api_delete_channel(platform, res)
+      # DELETE /api/channels/:platform/instances/:id
+      # Removes the instance from channels.yml and stops its adapter.
+      # Without an instance id the whole platform entry is removed.
+      def api_delete_channel(platform, res, instance_id = nil)
         platform = platform.to_sym
         config   = Clacky::ChannelConfig.load
-        config.disable_platform(platform)
+        removed  = config.remove_platform(platform, instance_id)
+        return json_response(res, 404, { ok: false, error: "instance not found" }) unless removed
+
         config.save
 
-        @channel_manager.reload_platform(platform, config)
+        @channel_manager.reload_platform(platform, config, instance_id)
 
-        json_response(res, 200, { ok: true })
+        json_response(res, 200, { ok: true, instance_id: instance_id })
       rescue StandardError => e
         json_response(res, 422, { ok: false, error: e.message })
       end
@@ -5106,29 +5161,34 @@ module Clacky
       end
 
       # PATCH /api/channels/:platform/enabled
-      # Body: { enabled: true|false }
-      # Toggles the platform on/off without touching credentials.
-      # Enabling requires the platform to already be configured.
+      # Body: { enabled: true|false, instance_id?: "..." }
+      # Toggles an instance on/off without touching credentials. Without an
+      # instance_id the default (first) instance is toggled.
+      # Enabling requires the instance to already be configured.
       def api_toggle_channel(platform, req, res)
         platform = platform.to_sym
-        enabled  = parse_json_body(req)["enabled"] == true
+        body     = parse_json_body(req)
+        enabled  = body["enabled"] == true
 
         config = Clacky::ChannelConfig.load
+        instance_id = body["instance_id"].to_s.strip
+        instance_id = config.instances(platform).first&.fetch("id", nil) if instance_id.empty?
+
+        unless instance_id && config.instance(platform, instance_id)
+          json_response(res, 422, { ok: false, error: "Platform is not configured yet" })
+          return
+        end
 
         if enabled
-          unless config.platform_config(platform)
-            json_response(res, 422, { ok: false, error: "Platform is not configured yet" })
-            return
-          end
-          config.enable_platform(platform)
+          config.enable_platform(platform, instance_id)
         else
-          config.disable_platform(platform)
+          config.disable_platform(platform, instance_id)
         end
 
         config.save
-        @channel_manager.reload_platform(platform, config)
+        @channel_manager.reload_platform(platform, config, instance_id)
 
-        json_response(res, 200, { ok: true, enabled: config.enabled?(platform) })
+        json_response(res, 200, { ok: true, instance_id: instance_id, enabled: config.enabled?(platform, instance_id) })
       rescue StandardError => e
         json_response(res, 422, { ok: false, error: e.message })
       end
@@ -5153,9 +5213,15 @@ module Clacky
         json_response(res, 200, { ok: false, error: e.message })
       end
 
-      # Returns non-secret fields for a platform (masked secrets).
-      private def platform_safe_fields(platform, config)
-        raw = config.instance_variable_get(:@channels)[platform.to_s] || {}
+      # Instance ids are used in channel binding keys and thread names, so keep
+      # them to a small, predictable character set.
+      private def valid_instance_id?(id)
+        id.to_s.match?(/\A[A-Za-z0-9][A-Za-z0-9_-]{0,39}\z/)
+      end
+
+      # Returns non-secret fields for a platform instance (masked secrets).
+      private def platform_safe_fields(platform, config, instance_id = nil)
+        raw = config.instance(platform, instance_id) || {}
         case platform.to_sym
         when :feishu
           {
@@ -5284,10 +5350,11 @@ module Clacky
       end
 
       # POST /api/cron-tasks — create task file + schedule in one step
-      # Body: { name, content, cron, enabled? }
+      # Body: { name, title?, content, cron, enabled? }
       def api_create_cron_task(req, res)
         body    = parse_json_body(req)
         name    = body["name"].to_s.strip
+        title   = body["title"].to_s.strip
         content = body["content"].to_s
         cron    = body["cron"].to_s.strip
         enabled = body.key?("enabled") ? body["enabled"] : true
@@ -5305,29 +5372,29 @@ module Clacky
         if body.key?("owner_session_id")
           owner_id = body["owner_session_id"].to_s.strip
           return json_response(res, 422, { error: "owner_session_id is required for secretary plans" }) if owner_id.empty?
-          title = body["title"].to_s.strip
           target = @work_service.schedule_target(owner_id, title: title.empty? ? name : title)
         end
         @scheduler.create_cron_task(name: name, content: content, cron: cron, enabled: enabled,
-                                    target: target)
+                                    target: target, title: title.empty? ? nil : title)
         json_response(res, 201, { ok: true, name: name })
       rescue ArgumentError => e
         json_response(res, 422, { error: e.message })
       end
 
-      # PATCH /api/cron-tasks/:name — update content and/or cron/enabled
-      # Body: { content?, cron?, enabled? }
+      # PATCH /api/cron-tasks/:name — update content and/or cron/enabled/title
+      # Body: { content?, cron?, enabled?, title? }
       def api_update_cron_task(name, req, res)
         body    = parse_json_body(req)
         content = body["content"]
         cron    = body["cron"]&.to_s&.strip
         enabled = body["enabled"]
+        title   = body.key?("title") ? body["title"].to_s.strip : nil
 
         if cron && cron.split(/\s+/).size != 5
           return json_response(res, 422, { error: "cron must have 5 fields (min hour dom month dow)" })
         end
 
-        @scheduler.update_cron_task(name, content: content, cron: cron, enabled: enabled)
+        @scheduler.update_cron_task(name, content: content, cron: cron, enabled: enabled, title: title)
         json_response(res, 200, { ok: true, name: name })
       rescue ArgumentError => e
         json_response(res, 422, { error: e.message })
@@ -5373,7 +5440,8 @@ module Clacky
         end
 
         prompt       = @scheduler.read_task(name)
-        session_name = "▶ #{name} #{Time.now.strftime("%H:%M")}"
+        label        = schedule && !schedule["title"].to_s.empty? ? schedule["title"] : name
+        session_name = "▶ #{label} #{Time.now.strftime("%H:%M")}"
         working_dir  = File.expand_path("~/clacky_workspace")
         FileUtils.mkdir_p(working_dir)
 
@@ -8024,6 +8092,8 @@ module Clacky
             zos.write(File.binread(chunk_path))
           end
 
+          write_work_debug_bundle(zos, bundle[:session][:session_id])
+
           log_path = Clacky::Logger.current_log_file
           if log_path && File.exist?(log_path)
             zos.put_next_entry("logs/#{File.basename(log_path)}")
@@ -8044,6 +8114,46 @@ module Clacky
       rescue => e
         Clacky::Logger.error("Session export failed: #{e.message}") if defined?(Clacky::Logger)
         json_response(res, 500, { error: "Export failed: #{e.message}" })
+      end
+
+      private def write_work_debug_bundle(zos, session_id)
+        snapshot = @work_service&.debug_snapshot(session_id)
+        return if !snapshot || snapshot["cards"].empty?
+
+        sessions = snapshot["cards"].map { |card| card["session_id"] }.uniq.map do |worker_id|
+          entry = { "session_id" => worker_id }
+          if worker_id == session_id
+            entry.merge("path" => "session.json", "status" => "included")
+          else
+            bundle = @session_manager.files_for(worker_id)
+            # files_for accepts prefixes; debug associations must be exact.
+            if bundle && bundle[:session][:session_id] == worker_id
+              prefix = "work/sessions/#{URI.encode_www_form_component(worker_id)}/"
+              begin
+                files = [["session.json", File.binread(bundle[:json_path])]]
+                bundle[:chunks].each { |path| files << [File.basename(path), File.binread(path)] }
+                files.each do |name, content|
+                  zos.put_next_entry(prefix + name)
+                  zos.write(content)
+                end
+                entry.merge("path" => prefix + "session.json", "status" => "included")
+              rescue Errno::ENOENT
+                entry.merge("status" => "missing")
+              end
+            else
+              entry.merge("status" => "missing")
+            end
+          end
+        end
+        manifest = {
+          "session_id" => session_id,
+          "work" => snapshot["cards"].map { |card| card.slice("id", "session_id", "owner_session_id", "revision") },
+          "sessions" => sessions
+        }
+        { "manifest" => manifest, "cards" => snapshot["cards"], "events" => snapshot["events"] }.each do |name, data|
+          zos.put_next_entry("work/#{name}.json")
+          zos.write(JSON.pretty_generate(data))
+        end
       end
 
       # ── WebSocket ─────────────────────────────────────────────────────────────
@@ -8315,8 +8425,7 @@ module Clacky
         @registry.with_session(session_id) do |s|
           if s[:status] == :running && %w[queue steer].include?(mode)
             queued_created_at = Time.now.to_f
-            s[:agent].enqueue_input(content, delivery: mode.to_sym, files: files, references_display: references,
-                                    reference_contexts: build_reference_contexts(references), created_at: queued_created_at)
+            s[:agent].enqueue_input(content, delivery: mode.to_sym, files: files, reference_contexts: build_reference_contexts(references), created_at: queued_created_at)
             queued = true
           end
         end
@@ -8338,8 +8447,7 @@ module Clacky
           @registry.with_session(session_id) { |s| old_thread = s[:thread] }
           if old_thread && !old_thread.join(2)
             retained_created_at = Time.now.to_f
-            session[:agent].enqueue_input(content, files: files, references_display: references,
-                                          reference_contexts: build_reference_contexts(references), created_at: retained_created_at)
+            session[:agent].enqueue_input(content, files: files, reference_contexts: build_reference_contexts(references), created_at: retained_created_at)
             broadcast(session_id, { type: "input_enqueued", session_id: session_id, created_at: retained_created_at })
             broadcast(session_id, { type: "input_queue_notice", session_id: session_id, key: "chat.input.stoppingDelayed" })
             return
@@ -8390,14 +8498,13 @@ module Clacky
 
         # File references are now handled inside agent.run — injected as a system_injected
         # message after the user message, so replay_history skips them automatically.
-        reference_contexts = build_reference_contexts(references)
         run_agent_task(session_id, agent) do
           # Start the progress card inside the task: run_agent_task returns early when
           # the concurrency cap is hit, and posting beforehand would strand the card at
           # "Thinking..." forever. A web-originated turn bound to an IM channel gets a
           # card too, so tools/narration render like a native IM turn (#603).
           @channel_manager.channel_ui_for_session(session_id)&.start_task(reply_to: nil)
-          agent.run(content, files: files, reference_contexts: reference_contexts, created_at: msg_created_at, references_display: references)
+          agent.run(content, files: files, created_at: msg_created_at, reference_contexts: build_reference_contexts(references))
         end
       end
 
@@ -8406,21 +8513,24 @@ module Clacky
       # (e.g. branch diff, browser snapshot) only add a `when` branch here.
       private def build_reference_contexts(references)
         Array(references).filter_map do |ref|
+          next ref if ref.is_a?(String)
           next unless ref.is_a?(Hash)
-          case ref["type"].to_s
-          when "session" then build_session_reference_context(ref)
-          when "quote"   then build_quote_reference_context(ref)
-          end
+          context = case (ref[:type] || ref["type"]).to_s
+                    when "session" then build_session_reference_context(ref)
+                    when "quote" then build_quote_reference_context(ref)
+                    end
+          metadata = ref.reject { |key, _| key.to_s == "context" }
+          context ? metadata.merge(context: context) : metadata
         end
       end
 
       # Resolve a past-chat reference into a lightweight pointer for the LLM:
       # the session name + ID + on-disk file path, no transcript inlined.
       private def build_session_reference_context(ref)
-        session_id = ref["session_id"].to_s
+        session_id = (ref[:session_id] || ref["session_id"]).to_s
         return nil if session_id.empty?
 
-        name = ref["name"].to_s
+        name = (ref[:name] || ref["name"]).to_s
         name = session_id if name.empty?
 
         lines = ["[Referenced conversation: #{name}]", "Session ID: #{session_id}"]
@@ -8434,10 +8544,10 @@ module Clacky
       # message. The excerpt is the whole point of the reference, so inline it
       # verbatim — no file pointer, nothing for the model to go fetch.
       private def build_quote_reference_context(ref)
-        text = ref["text"].to_s.strip
+        text = (ref[:text] || ref["text"]).to_s.strip
         return nil if text.empty?
 
-        label = ref["label"].to_s.strip
+        label = (ref[:label] || ref["label"]).to_s.strip
         header = label.empty? ? "[Quoted excerpt from this conversation]" :
                                 "[Quoted excerpt from this conversation: #{label}]"
         [header, text].join("\n")
@@ -8479,8 +8589,7 @@ module Clacky
       # display_message supplies the same friendly input for live display and replay.
       # around_execution, when supplied by a host service, wraps the admitted
       # execution on its owning thread (e.g. generation fencing and receipts).
-      def run_session_task(session_id, prompt, display_message: nil, reference_contexts: nil,
-                           background: false, &around_execution)
+      def run_session_task(session_id, prompt, display_message: nil, reference_contexts: nil, background: false, &around_execution)
         return unless @registry.exist?(session_id)
 
         agent = nil
@@ -8493,9 +8602,12 @@ module Clacky
 
         run_agent_task(session_id, agent, background: background) do
           execute = lambda do
-            web_ui&.show_user_message(display_message, source: :web) if display_message
+            display_options = { source: :web }
+            visible_references = Array(reference_contexts).select { |ref| ref.is_a?(Hash) }.map { |ref| ref.reject { |key, _| key.to_s == "context" } }
+            display_options[:references] = visible_references unless visible_references.empty?
+            web_ui&.show_user_message(display_message, **display_options) if display_message
             options = { display_text: display_message }
-            options[:reference_contexts] = reference_contexts if reference_contexts
+            options[:reference_contexts] = build_reference_contexts(reference_contexts) if reference_contexts
             agent.run(prompt, **options)
           end
           around_execution ? around_execution.call(execute, agent) : execute.call
@@ -8665,6 +8777,12 @@ module Clacky
           # Also fires when awaiting feedback — that is precisely when the user
           # most needs pulling back; the flag lets the client word it differently.
           finished = { type: "task_finished", session_id: session_id, awaiting_feedback: !!awaiting }
+          # Carried inline because the client may not have this session in its
+          # list yet (cron runs land in another project, and the sidebar is
+          # paged), so a client-side lookup by id would come back empty and the
+          # toast would lose the session name.
+          name = @registry.with_session(session_id) { |s| s[:agent]&.name }
+          finished[:session_name] = name unless name.to_s.strip.empty?
           finished[:notify_user] = false if run_result.is_a?(Hash) && run_result[:notify_user] == false
           # Lets clients not viewing this session keep the summary until it is first opened.
           complete = web_ui&.last_complete

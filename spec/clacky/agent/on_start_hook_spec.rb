@@ -34,14 +34,14 @@ RSpec.describe Clacky::Agent, "on_start hook control" do
         expect(owner).to equal(agent)
         expect(owner.total_tasks).to eq(1)
         expect(user_messages).to contain_exactly(hash_including(content: "request", created_at: 123))
-        expect(owner.history.to_api.map { |message| message[:content] }).to include("reference")
+        expect(owner.history.to_api.map { |message| message[:content] }).to include("[Quoted excerpt from this conversation]\nreference")
         seen << :first
         verdict
       end
       agent.add_hook(:on_start) { seen << :second; nil }
       agent.add_hook(:on_complete) { seen << :complete }
 
-      expect(agent.run("request", reference_contexts: ["reference"], created_at: 123)[:status]).to eq(:success)
+      expect(agent.run("request", reference_contexts: [{ type: "quote", text: "reference", context: "[Quoted excerpt from this conversation]\nreference" }], created_at: 123)[:status]).to eq(:success)
       expect(seen).to eq(%i[first second complete])
       expect(agent).to have_received(:think).once
     end

@@ -89,6 +89,25 @@ RSpec.describe Clacky::Server::Scheduler do
     it "returns an empty array when schedules file does not exist" do
       expect(scheduler.schedules).to eq([])
     end
+
+    it "stamps created_at once and keeps it when the schedule is replaced" do
+      scheduler.add_schedule(name: "Morning", task: "daily_report", cron: "0 9 * * 1-5")
+      stamp = scheduler.schedules.first["created_at"]
+      expect(stamp).to match(/\A\d{4}-\d{2}-\d{2}T/)
+
+      scheduler.add_schedule(name: "Morning", task: "daily_report", cron: "0 8 * * *")
+      expect(scheduler.schedules.first["created_at"]).to eq(stamp)
+    end
+
+    it "exposes created_at on merged cron tasks, falling back to the task file mtime" do
+      scheduler.write_task("legacy", "prompt")
+      scheduler.add_schedule(name: "Morning", task: "daily_report", cron: "0 9 * * 1-5")
+
+      tasks = scheduler.list_cron_tasks.each_with_object({}) { |t, h| h[t["name"]] = t }
+      expect(tasks["Morning"]).to be_nil
+      expect(tasks["daily_report"]["created_at"]).to match(/\A\d{4}-\d{2}-\d{2}T/)
+      expect(tasks["legacy"]["created_at"]).to match(/\A\d{4}-\d{2}-\d{2}T/)
+    end
   end
 
   # ── Cron matching ────────────────────────────────────────────────────────────
@@ -234,6 +253,40 @@ RSpec.describe Clacky::Server::Scheduler do
       expect(captured[:session_id]).to eq("session-abc")
       expect(captured[:agent]).to      eq(fake_agent)
       expect(captured[:block]).to      be_a(Proc)
+    end
+
+    it "labels the cron session with the display title" do
+      built_name = nil
+      s = described_class.new(
+        session_registry: fake_registry,
+        session_builder:  ->(**kw) { built_name = kw[:name]; "session-title" },
+        task_runner:      task_runner
+      )
+      stub_const("Clacky::Server::Scheduler::SCHEDULES_FILE", File.join(tmpdir, "schedules.yml"))
+      stub_const("Clacky::Server::Scheduler::TASKS_DIR",      File.join(tmpdir, "tasks"))
+      s.write_task("my_task", "x")
+
+      allow(Time).to receive(:now).and_return(Time.parse("2026-11-05T09:00:00"))
+      s.send(:fire_task, { "name" => "daily_report", "title" => "每日报表", "task" => "my_task", "cron" => "0 9 * * *" })
+
+      expect(built_name).to eq("⏰ 每日报表 09:00")
+    end
+
+    it "falls back to the plan name when no title is set" do
+      built_name = nil
+      s = described_class.new(
+        session_registry: fake_registry,
+        session_builder:  ->(**kw) { built_name = kw[:name]; "session-title" },
+        task_runner:      task_runner
+      )
+      stub_const("Clacky::Server::Scheduler::SCHEDULES_FILE", File.join(tmpdir, "schedules.yml"))
+      stub_const("Clacky::Server::Scheduler::TASKS_DIR",      File.join(tmpdir, "tasks"))
+      s.write_task("my_task", "x")
+
+      allow(Time).to receive(:now).and_return(Time.parse("2026-11-05T09:00:00"))
+      s.send(:fire_task, { "name" => "daily_report", "task" => "my_task", "cron" => "0 9 * * *" })
+
+      expect(built_name).to eq("⏰ daily_report 09:00")
     end
 
     it "does nothing when no agent is registered for the new session" do

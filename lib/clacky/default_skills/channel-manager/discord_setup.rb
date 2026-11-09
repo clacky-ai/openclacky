@@ -86,12 +86,19 @@ def saved_bot_token
   yml_path = File.expand_path("~/.clacky/channels.yml")
   return nil unless File.exist?(yml_path)
   data = YAML.safe_load(File.read(yml_path), permitted_classes: [Symbol], aliases: true) rescue nil
-  data&.dig("channels", "discord", "bot_token") || data&.dig(:channels, :discord, :bot_token)
+  channels = data.is_a?(Hash) ? (data["channels"] || data[:channels]) : nil
+  entries  = channels.is_a?(Hash) ? (channels["discord"] || channels[:discord]) : nil
+  entries  = [entries] if entries.is_a?(Hash)
+  first    = Array(entries).find { |inst| inst.is_a?(Hash) }
+  first && (first["bot_token"] || first[:bot_token])
 end
 
 def save_to_server(bot_token:)
   uri  = URI("#{CLACKY_SERVER_URL}/api/channels/discord")
-  body = JSON.generate({ bot_token: bot_token })
+  fields = { bot_token: bot_token }
+  session_id = ENV["CLACKY_SESSION_ID"].to_s.strip
+  fields[:bind_session_id] = session_id unless session_id.empty?
+  body = JSON.generate(fields)
 
   http = Net::HTTP.new(uri.host, uri.port)
   http.read_timeout = 30

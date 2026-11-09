@@ -173,6 +173,7 @@ function boot() {
     requestAnimationFrame: fn => setTimeout(fn, 0),
     innerWidth: 1280,
     innerHeight: 800,
+    getComputedStyle: () => ({ transform: "none" }),
     CSS: { escape: s => String(s) },
     navigator: { platform: "MacIntel", clipboard: { writeText: async () => {} } },
     document,

@@ -38,6 +38,7 @@ RSpec.describe "Secretary server integration" do
       owner = registry.get(owner_id)[:agent]
       owner.history.append(role: "user", content: "帮我整理旅行建议", message_id: "original")
       card = owner.tool_registry.get("delegate_work").execute(title: "旅行建议", task: "整理建议")
+      expect(card["id"]).to eq(card["session_id"])
       worker = registry.get(card["session_id"])[:agent]
       expect(worker.tool_registry.tool_names).to include("yield_work", "web_search")
       expect(worker.tool_registry.tool_names).to include("terminal", "write", "invoke_skill", "ask_user")
@@ -79,11 +80,16 @@ RSpec.describe "Secretary server integration" do
       saved = server.instance_variable_get(:@session_manager).load(owner_id)
       expect(finished_events).to include(hash_including(type: "task_finished", session_id: owner_id, awaiting_feedback: false))
       expect(finished_events.find { |event| event[:type] == "task_finished" && event[:session_id] == owner_id }[:notify_user]).not_to be(false)
-      expect(saved.to_json).to include("work-event:")
-      event_message = owner.history.to_a.find { |m| m[:content].is_a?(String) && m[:content].start_with?("[work-event:") }
-      expect(event_message).to include(display_text: "Work completed: 旅行建议")
-      expect(event_message[:content]).not_to include("建议先确定日期")
-      expect(owner.history.to_a).to include(hash_including(system_injected: true, content: a_string_including("建议先确定日期")))
+      expect(saved.to_json).not_to include("work-event:")
+      event_message = owner.history.to_a.find { |m| m[:display_text] == "Work completed: 旅行建议" }
+      reference = { type: "session", session_id: card["id"], name: card["title"] }
+      expect(event_message).to include(display_text: "Work completed: 旅行建议", display_references: [reference])
+      expect(live_events).to include([owner_id, hash_including(type: "history_user_message", references: [reference])])
+      expect(event_message[:content]).to include("建议先确定日期", "Work event:", "Occurred at:")
+      expect(event_message[:content]).not_to include("Original request", "Latest feedback", "Next step")
+      expect(event_message[:content]).not_to include("work-event:")
+      expect(owner.history.to_api.to_json).not_to include("work-event:")
+      expect(owner.history.to_a).to include(hash_including(system_injected: true, content: a_string_including("Referenced conversation")))
       expect(event_message[:system_injected]).not_to be(true)
       expect(live_events).to include([owner_id, hash_including(type: "history_user_message", content: "Work completed: 旅行建议")])
       expect(live_events).to include([owner_id, hash_including(type: "assistant_message", content: "工作完成，以下是建议。")])
@@ -92,9 +98,141 @@ RSpec.describe "Secretary server integration" do
       owner.replay_history(replay)
       rendered = replay.instance_variable_get(:@events).select { |e| e[:type] == "history_user_message" }
       expect(rendered.map { |e| e[:content] }).to eq(["帮我整理旅行建议", "Work completed: 旅行建议"])
+      expect(rendered.last[:references]).to eq([reference])
+      expect(saved[:messages]).to include(hash_including(display_references: [reference]))
       expect(replay.instance_variable_get(:@events)).to include(hash_including(type: "assistant_message", content: "工作完成，以下是建议。"))
       expect(rendered.to_json).not_to include("work-event:", "这是工作结果", "返回 completed")
 
+    end
+  end
+
+  it "accepts direct feedback and queued follow-ups in the same completed worker with references" do
+    with_server(agent_config: config) do |server|
+      registry = server.instance_variable_get(:@registry)
+      owner_id = server.send(:build_session, name: "Owner", profile: "secretary")
+      owner = registry.get(owner_id)[:agent]
+      card = server.work_service.delegate(owner, title: "Report", task: "Prepare report")
+      worker = registry.get(card["session_id"])[:agent]
+      turn = 0
+      allow(worker).to receive(:think) do
+        turn += 1
+        if turn == 2
+          # WebSocket input arrives on a request thread, not the worker's epoch.
+          Thread.new do
+            server.handle_user_message(card["session_id"], "Explain the conclusion", [], references: [{ "type" => "quote", "text" => "Conclusion" }])
+          end.value
+        end
+        calls = [{ id: "finish-#{turn}", name: "yield_work", arguments: JSON.generate(reason: "completed", summary: "Result #{turn}") }]
+        worker.history.append(role: "assistant", content: nil, tool_calls: calls)
+        { content: nil, tool_calls: calls }
+      end
+      server.work_service.tick
+      wait_thread(registry, card["session_id"])
+      ref = { "type" => "quote", "text" => "First draft", "label" => "Review" }
+      attachment_path = File.join(server.work_service.instance_variable_get(:@store).instance_variable_get(:@path) + ".notes.txt")
+      File.write(attachment_path, "Keep the conclusion")
+      files = [{ name: "notes.txt", path: attachment_path, type: "file" }]
+      server.handle_user_message(card["session_id"], "Make it shorter", files, references: [ref])
+      wait_thread(registry, card["session_id"])
+      current = server.work_service.list(owner_id).first
+      expect(current).to include("id" => card["id"], "status" => "completed", "revision" => 3)
+      expect(current["updates"].map { |u| u["text"] }).to eq(["Make it shorter", "Explain the conclusion"])
+      expect(worker.history.to_a).to include(hash_including(content: "Make it shorter", display_references: [ref]))
+      expect(worker.history.to_a).to include(hash_including(content: "Explain the conclusion"))
+      expect(worker.history.to_a).not_to include(hash_including(system_injected: true, content: a_string_including("speaking directly")))
+      expect(worker.history.to_a).to include(hash_including(system_injected: true, content: a_string_including("First draft")))
+      feedback = worker.history.to_a.find { |m| m[:content] == "Make it shorter" }
+      expect(feedback[:display_files]).to include(hash_including(name: "notes.txt", path: attachment_path))
+      expect(turn).to eq(3)
+      expect(current["outbox"].map { |e| e["state"] }).to eq(%w[superseded superseded pending])
+    end
+  end
+
+  %w[queue steer].each do |mode|
+    it "keeps running worker input visible on reconnect and honors #{mode}" do
+      config.input_behavior = mode
+      with_server(agent_config: config) do |server|
+        registry = server.instance_variable_get(:@registry)
+        owner_id = server.send(:build_session, name: "Owner", profile: "secretary")
+        card = server.work_service.delegate(registry.get(owner_id)[:agent], title: "Report", task: "Prepare report")
+        worker = registry.get(card["session_id"])[:agent]
+        entered, release = Queue.new, Queue.new
+        turn = 0
+        allow(worker).to receive(:run_memory_update_subagent)
+        allow(worker).to receive(:run_skill_evolution_hooks)
+        allow(worker).to receive(:think) do
+          turn += 1
+          if turn == 1
+            entered << true
+            release.pop
+            calls = [{ id: "read", name: "read", arguments: JSON.generate(path: __FILE__) }]
+          elsif turn == 2
+            expect(worker.history.to_a.any? { |m| m[:content] == "Explain the choice" }).to eq(mode == "steer")
+            calls = [{ id: "yield", name: "yield_work", arguments: JSON.generate(reason: "completed", summary: "Report ready") }]
+          else
+            expect(worker.history.to_a).to include(hash_including(content: "Explain the choice"))
+            worker.history.append(role: "assistant", content: "Here is the explanation.", task_id: worker.instance_variable_get(:@current_task_id))
+            next({ content: "Here is the explanation.", tool_calls: [] })
+          end
+          worker.history.append(role: "assistant", content: nil, tool_calls: calls)
+          { content: nil, tool_calls: calls }
+        end
+        begin
+          server.work_service.tick
+          Timeout.timeout(5) { entered.pop }
+          server.handle_user_message(card["session_id"], "Explain the choice", [], references: [{ "type" => "quote", "text" => "The choice" }])
+          expect(worker.pending_inputs.map { |entry| entry[:content] }).to eq(["Explain the choice"])
+          expect(server.work_service.list(owner_id).first["pending_inputs"]).to be_empty
+          reconnect_events = []
+          conn = double("reconnected browser").as_null_object
+          allow(conn).to receive(:closed?).and_return(false)
+          allow(conn).to receive(:send_json) { |event| reconnect_events << event; true }
+          server.on_ws_message(conn, JSON.generate(type: "subscribe", session_id: card["session_id"]))
+          expect(reconnect_events).to include(hash_including(type: "input_queue", entries: [hash_including(content: "Explain the choice")]))
+          expect(worker.to_session_data[:pending_inputs]).to include(hash_including(content: "Explain the choice"))
+          release << true
+          wait_thread(registry, card["session_id"])
+          expect(worker.pending_inputs).to be_empty
+          expect(worker.history.to_a.count { |m| m[:content] == "Explain the choice" }).to eq(1)
+          expect(worker.total_tasks).to eq(mode == "queue" ? 2 : 1)
+          expect(server.work_service.list(owner_id).first["status"]).to eq("completed")
+          saved = server.instance_variable_get(:@session_manager).load(card["session_id"])
+          expect(saved[:messages]).to include(hash_including(content: "Explain the choice"))
+        ensure
+          release << true
+          registry.get(card["session_id"])[:thread]&.join(5)
+        end
+      end
+    end
+  end
+
+  it "renders an ordinary direct answer without requiring yield or sending a new owner report" do
+    with_server(agent_config: config) do |server|
+      registry = server.instance_variable_get(:@registry)
+      events = []
+      allow(server).to receive(:broadcast) { |sid, event| events << [sid, event] }
+      owner_id = server.send(:build_session, name: "Owner", profile: "secretary")
+      owner = registry.get(owner_id)[:agent]
+      card = server.work_service.delegate(owner, title: "Report", task: "Prepare report")
+      worker = registry.get(card["session_id"])[:agent]
+      store = server.work_service.instance_variable_get(:@store)
+      store.transaction do |data|
+        data["cards"][card["id"]].merge!("status" => "completed", "progress" => "Delivered", "display_summary" => "Report ready")
+      end
+      allow(worker).to receive(:run_memory_update_subagent)
+      allow(worker).to receive(:run_skill_evolution_hooks)
+      allow(worker).to receive(:think) do
+        worker.history.append(role: "assistant", content: "I chose it because it fits your budget.", task_id: worker.instance_variable_get(:@current_task_id))
+        { content: "I chose it because it fits your budget.", tool_calls: [] }
+      end
+      server.handle_user_message(card["session_id"], "Why this option?")
+      wait_thread(registry, card["session_id"])
+      current = server.work_service.list(owner_id).first
+      expect(current).to include("status" => "completed", "progress" => "Delivered", "display_summary" => "Report ready")
+      expect(current["outbox"]).to be_empty
+      expect(current["pending_inputs"]).to be_empty
+      expect(registry.get(card["session_id"])[:status]).to eq(:idle)
+      expect(events).to include([card["session_id"], hash_including(type: "assistant_message", content: "I chose it because it fits your budget.")])
     end
   end
 
@@ -119,9 +257,8 @@ RSpec.describe "Secretary server integration" do
         expect(events).to include(hash_including(type: "task_finished", session_id: card["session_id"],
                                                 awaiting_feedback: status == :awaiting_feedback, notify_user: false))
         if status == :awaiting_feedback
-          server.work_service.manage(sid, action: "reply", work_id: card["id"], instruction: "Use the agreed option")
           reason = "completed"
-          server.work_service.tick
+          server.handle_user_message(card["session_id"], "Use the agreed option")
           wait_thread(registry, card["session_id"])
           expect(registry.get(card["session_id"])[:status]).to eq(:idle)
           expect(server.work_service.list(sid).first["status"]).to eq("completed")
@@ -228,8 +365,7 @@ RSpec.describe "Secretary server integration" do
         { content: "已收到更新。", tool_calls: [] }
       end
       allow(agent).to receive(:run_skill_evolution_hooks)
-      server.send(:run_session_task, sid, "internal-event", display_message: "后台更新",
-                  reference_contexts: ["private-context"])
+      server.send(:run_session_task, sid, "internal-event", display_message: "后台更新", reference_contexts: ["private-context"])
       wait_thread(registry, sid)
       expect(agent.ui).to have_received(:show_user_message).with("后台更新", source: :web)
       expect(agent.history.to_a).to include(hash_including(content: "internal-event", display_text: "后台更新"))
@@ -238,6 +374,35 @@ RSpec.describe "Secretary server integration" do
       expect(events).to include(hash_including(type: "history_user_message", content: "后台更新"))
       expect(events).to include(hash_including(type: "assistant_message", content: "已收到更新。"))
       expect(events.to_json).not_to include("private-context", "internal-event")
+    end
+  end
+
+  it "replays and continues a legacy ordinary session without rewriting its references" do
+    with_server(agent_config: config) do |server|
+      sid = server.send(:build_session, name: "Legacy chat", profile: "general")
+      agent = server.instance_variable_get(:@registry).get(sid)[:agent]
+      refs = [
+        { type: "session", session_id: "past-chat", name: "Past chat" },
+        { type: "quote", label: "Earlier answer", text: "Original quote" },
+        { type: "file", path: "/tmp/context.md", name: "context.md" }
+      ]
+      agent.history.append(role: "user", content: "original input", display_text: "Visible input",
+                           display_references: refs, task_id: 1)
+      agent.history.append(role: "user", content: "old hidden reference context", system_injected: true, task_id: 1)
+      agent.history.append(role: "assistant", content: "Old answer", task_id: 1)
+      saved = JSON.parse(JSON.generate(agent.to_session_data), symbolize_names: true)
+      restored = Clacky::Agent.from_session(double("client"), config.deep_copy, saved, ui: nil, profile: "general")
+      events = []
+      restored.replay_history(Clacky::Server::HistoryCollector.new(sid, events))
+      expect(events).to include(hash_including(type: "history_user_message", content: "Visible input", references: refs))
+      expect(events.to_json).not_to include("old hidden reference context")
+      expect(restored.history.to_api.to_json).to include("old hidden reference context")
+      allow(restored).to receive(:think).and_return(content: "New answer", tool_calls: [])
+      allow(restored).to receive(:run_skill_evolution_hooks)
+      allow(restored).to receive(:run_memory_update_subagent)
+      restored.run("Continue", reference_contexts: [{ type: "quote", text: "New quote", context: "[Quoted excerpt from this conversation]\nNew quote" }])
+      expect(restored.history.to_a).to include(hash_including(content: "original input", display_references: refs))
+      expect(restored.history.to_a).to include(hash_including(content: "[Quoted excerpt from this conversation]\nNew quote", system_injected: true))
     end
   end
 
@@ -250,7 +415,7 @@ RSpec.describe "Secretary server integration" do
       allow(agent).to receive(:think).and_return({ content: "已记录", tool_calls: [] })
       agent.run("保留之前的用户消息")
       allow(agent).to receive(:think).and_raise(Clacky::BadRequestError.new("bad request"))
-      expect { agent.run("internal-event", reference_contexts: ["hidden detail"]) }.to raise_error(Clacky::BadRequestError)
+      expect { agent.run("internal-event", reference_contexts: [{ type: "quote", text: "hidden detail", context: "[Quoted excerpt from this conversation]\nhidden detail" }]) }.to raise_error(Clacky::BadRequestError)
       snapshot = agent.to_session_data(status: :error, error_message: "bad request")
       # Restoring must retain the work-report turn as an error boundary as well.
       restored = Clacky::Agent.from_session(agent.instance_variable_get(:@client), config.deep_copy, snapshot, ui: nil, profile: "general")

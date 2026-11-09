@@ -6,11 +6,11 @@ require "clacky/server/channel"
 RSpec.describe Clacky::Channel::ChannelManager, "route_message input behavior" do
   let(:registry) { Clacky::Server::SessionRegistry.new(agent_config: Clacky::AgentConfig.new) }
   let(:agent) { double("agent") }
-  let(:adapter) { double("adapter", platform_id: :feishu) }
+  let(:adapter) { double("adapter", platform_id: :feishu, instance_id: "default") }
   let(:interrupts) { [] }
   let(:runs) { [] }
   let(:channel_config) do
-    double("channel_config", status_messages_enabled?: false, process_messages_enabled?: false)
+    Clacky::ChannelConfig.new
   end
   let(:manager) do
     described_class.new(
@@ -83,4 +83,49 @@ RSpec.describe Clacky::Channel::ChannelManager, "route_message input behavior" d
     expect(interrupts).to eq(["s"])
     expect(runs).to be_empty
   end
+  describe "setup from the current conversation" do
+    let(:channel_config) do
+      Clacky::ChannelConfig.new(channels: {
+        "feishu" => [{ "id" => "default", "bind_session_id" => "original" },
+                     { "id" => "other" }]
+      })
+    end
+
+    before do
+      allow(channel_config).to receive(:save)
+      registry.create(session_id: "original")
+      registry.with_session("original") { |s| s[:agent] = agent; s[:status] = :idle }
+      allow(registry).to receive(:list).and_return([{ id: "s", source: "manual" }, { id: "original", source: "manual" }])
+      allow(manager).to receive(:resolve_session).and_call_original
+    end
+
+    it "runs the first ordinary message in the original session without a pairing command" do
+      expect(manager).not_to receive(:auto_create_session)
+      expect(agent).to receive(:channel_info=).with(hash_including(chat_id: "chat-1")).at_least(:once)
+      expect(agent).to receive(:run).with("prompt", files: [], display_text: "hello")
+      manager.route_message(adapter, event)
+      expect(manager.resolve_session(event)).to eq("original")
+      expect(channel_config.instance(:feishu)["bind_session_id"]).to be_nil
+      expect(channel_config).to have_received(:save)
+      # The setup target is consumed, not used as a default for every chat.
+      expect(manager.resolve_session(event.merge(chat_id: "another-chat"))).to be_nil
+    end
+
+    it "does not apply the target to another bot instance" do
+      allow(manager).to receive(:resolve_session).and_return("s")
+      expect(manager).not_to receive(:bind_session)
+      manager.route_message(adapter, event.merge(channel_instance_id: "other"))
+      expect(channel_config.instance(:feishu)["bind_session_id"]).to eq("original")
+      expect(channel_config).not_to have_received(:save)
+    end
+
+    it "does not silently replace a deleted target with a new conversation" do
+      channel_config.instance(:feishu)["bind_session_id"] = "missing"
+      expect(manager).not_to receive(:auto_create_session)
+      expect(agent).not_to receive(:run)
+      expect(adapter).to receive(:send_text).with("chat-1", /no longer exists/)
+      manager.route_message(adapter, event)
+    end
+  end
+
 end
