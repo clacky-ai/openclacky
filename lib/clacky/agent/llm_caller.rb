@@ -45,7 +45,8 @@ module Clacky
       #   Inside call_llm we only *update in place* during retries, so the
       #   already-live progress slot shows meaningful transient status
       #   ("Network failed… attempt 2/10", etc.).
-      private def call_llm(agent_upstream_fails: nil, agent_upgrade_fails: nil)
+      # Only user-facing replies opt in; compression calls stay silent.
+      private def call_llm(agent_upstream_fails: nil, agent_upgrade_fails: nil, stream_reply: false)
         # Transition :fallback_active → :probing if cooling-off has expired.
         @config.maybe_start_probing
         refresh_client_if_card_changed!
@@ -118,7 +119,7 @@ module Clacky
             @history.to_api(force_reasoning_content_pad: force_reasoning_content_pad)
           end
 
-          response = with_assistant_text_stream do |on_text_delta|
+          response = with_assistant_text_stream(enabled: stream_reply) do |on_text_delta|
             @client.send_messages_with_tools(
               messages_to_send,
               model: api_call_model,
@@ -845,7 +846,8 @@ module Clacky
       end
 
       # Each attempt owns a preview. Always close it, including cancellation and retry.
-      private def with_assistant_text_stream
+      private def with_assistant_text_stream(enabled: true)
+        return yield(nil) unless enabled
         return yield(nil) unless @ui && @ui.respond_to?(:stream_assistant_text?) && @ui.stream_assistant_text?
 
         message_id = SecureRandom.uuid

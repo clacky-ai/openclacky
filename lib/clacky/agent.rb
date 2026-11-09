@@ -1446,7 +1446,8 @@ module Clacky
       begin
         response = call_llm(
           agent_upstream_fails: @task_upstream_fails,
-          agent_upgrade_fails: @task_upgrade_fails
+          agent_upgrade_fails: @task_upgrade_fails,
+          stream_reply: true
         )
       rescue
         # Ensure the spinner is stopped on any error path before it bubbles up.

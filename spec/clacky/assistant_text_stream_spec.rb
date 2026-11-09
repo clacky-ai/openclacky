@@ -111,6 +111,60 @@ RSpec.describe "optional assistant text streaming" do
     expect(agent.send(:with_assistant_text_stream) { |callback| callback }).to be_nil
   end
 
+  describe "reply-only streaming through the agent" do
+    let(:output) { StringIO.new }
+    let(:ui) { Clacky::JsonUIController.new(output: output, stream: true) }
+    let(:config) do
+      Clacky::AgentConfig.new(
+        models: [{ "type" => "default", "model" => "gpt-4", "api_key" => "test",
+                   "base_url" => "https://api.example.com/v1" }],
+        permission_mode: :auto_approve
+      )
+    end
+    let(:client) { Clacky::Client.new("test", base_url: "https://api.example.com/v1", model: "gpt-4") }
+    let(:agent) do
+      Clacky::Agent.new(client, config, working_dir: Dir.pwd, ui: ui, profile: "coding",
+                       session_id: Clacky::SessionManager.generate_id, source: :manual)
+    end
+    let(:callbacks) { [] }
+
+    before do
+      allow(client).to receive(:send_messages_with_tools) do |_messages, **opts|
+        callbacks << opts[:on_text_delta]
+        opts[:on_text_delta]&.call("answer")
+        opts[:on_chunk].call(input_tokens: 10, output_tokens: 2)
+        mock_api_response(content: "answer")
+      end
+    end
+
+    it "streams normal replies" do
+      allow(agent).to receive(:compress_messages_if_needed).and_return(nil)
+      agent.send(:think)
+      expect(callbacks.first).to be_a(Proc)
+      expect(json_events(output).select { |e| e["type"] == "assistant_message_delta" }
+        .map { |e| e["delta"] }).to eq(["answer"])
+    end
+
+    it "suppresses compression text while preserving token progress" do
+      context = {
+        compression_message: { role: "user", content: "Summarize", system_injected: true },
+        original_token_count: 100, original_message_count: 10, compression_level: 1
+      }
+      allow(agent).to receive(:compress_messages_if_needed).and_return(context)
+      allow(agent).to receive(:handle_compression_response)
+      agent.send(:think)
+      expect(callbacks).to eq([nil])
+      events = json_events(output)
+      expect(events.none? { |e| e["type"].start_with?("assistant_message") }).to eq(true)
+      expect(events).to include(hash_including("type" => "progress"))
+    end
+
+    it "keeps direct internal calls silent by default" do
+      agent.send(:call_llm)
+      expect(callbacks).to eq([nil])
+    end
+  end
+
   it "negotiates streaming per connection and resets it when omitted on resubscribe" do
     server = Clacky::Server::HttpServer.allocate
     registry = double("registry", ensure: true, get: nil, snapshot: nil)
