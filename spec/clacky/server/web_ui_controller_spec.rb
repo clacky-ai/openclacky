@@ -333,6 +333,23 @@ RSpec.describe Clacky::Server::WebUIController, "streamed assistant reply" do
     expect(of_type("assistant_tool_progress")).to be_empty
   end
 
+  it "keeps the compression label while its summary streams tokens" do
+    controller.with_progress(message: "Compressing message history...", style: :quiet) do
+      controller.stream_thinking_progress(input_tokens: 10, output_tokens: 5)
+    end
+    controller.show_progress("Thinking")
+    controller.stream_thinking_progress(input_tokens: 10, output_tokens: 6)
+
+    progress = of_type("progress").select { |e| e[:phase] == "active" }
+    expect(progress.map { |e| [e[:progress_type], e[:message]] }).to eq([
+      ["idle_compress", "Compressing message history..."],
+      ["idle_compress", "Compressing message history..."],
+      ["thinking", "Thinking"],
+      ["thinking", nil]
+    ])
+    expect(progress[1][:metadata]).to eq(input_tokens: 10, output_tokens: 5)
+  end
+
   it "does not replay a stream once progress has ended" do
     controller.stream_assistant_delta(:text, "Hi")
     events.clear

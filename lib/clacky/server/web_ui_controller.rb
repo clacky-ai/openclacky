@@ -464,6 +464,17 @@ module Clacky
         forward_to_subscribers { |sub| sub.show_progress(message) }
       end
 
+      # Token counts from an LLM call refine the current progress line. A
+      # compression summary is itself an LLM call, and relabelling its line
+      # as "thinking" hides the step from the user and restarts the timer.
+      def stream_thinking_progress(input_tokens:, output_tokens:)
+        state = @live_progress_state
+        return super unless state && state[:progress_type] == "idle_compress"
+
+        show_progress(state[:message], progress_type: "idle_compress", phase: "active",
+                                       metadata: { input_tokens: input_tokens, output_tokens: output_tokens })
+      end
+
       # Stream shell stdout/stderr lines to the browser while a command is running.
       # Called immediately via on_output callback from shell.rb — no polling delay.
       # Lines are also buffered in @live_stdout_buffer so late-joining subscribers
