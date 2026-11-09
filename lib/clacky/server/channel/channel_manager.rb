@@ -48,6 +48,7 @@ module Clacky
         @running           = false
         @mutex             = Mutex.new
         @session_counters  = {}
+        @binding_mutex     = Mutex.new
         @dedup_mutex       = Mutex.new
         @last_message      = {}  # channel_key => [digest, monotonic_time]
       end
@@ -317,6 +318,22 @@ module Clacky
           return
         end
 
+        # A setup request from a conversation claims one chat, once. Consume
+        # the target after persisting the binding; other chats keep normal routing.
+        @binding_mutex.synchronize do
+          instance = @channel_config.instance(event[:platform], event[:channel_instance_id])
+          target_id = instance && instance["bind_session_id"]
+          unless target_id.to_s.empty?
+            unless @registry.ensure(target_id)
+              adapter.send_text(event[:chat_id], "The conversation selected during setup no longer exists. Configure the channel again.")
+              return
+            end
+            bind_session(event, target_id)
+            instance.delete("bind_session_id")
+            @channel_config.save
+          end
+        end
+
         # Handle built-in commands
         if text&.match?(KNOWN_COMMAND)
           handle_command(adapter, event, text)
@@ -418,6 +435,57 @@ module Clacky
         end
       end
 
+      def bind_session(event, session_id)
+        raise ArgumentError, "Session not found" unless @registry.ensure(session_id)
+        key = channel_key(event)
+        # Detach channel_ui from the old session's web_ui, reattach to the new one.
+        # Stale channel_info for this key is then cleared from every other session
+        # (including ones evicted from memory) so resolve_session and
+        # restore_channel_bindings never see two sessions claim the same key.
+        old_session_id = resolve_session(event)
+        channel_ui = old_session_id ? channel_ui_for_session(old_session_id) : nil
+        cleared_agent = nil
+
+        if channel_ui
+          @registry.with_session(old_session_id) do |s|
+            s[:ui]&.unsubscribe_channel(channel_ui)
+            s.delete(:channel_ui)
+            agent = s[:agent]
+            if agent&.channel_info && channel_key_from_info(agent.channel_info) == key
+              agent.channel_info = nil
+              cleared_agent = agent
+            end
+          end
+        else
+          channel_ui = ChannelUIController.new(event, -> { adapter_for(event[:platform], event[:channel_instance_id]) }, -> { @channel_config.status_messages_enabled? }, -> { @channel_config.process_messages_enabled? }, -> { @channel_config.progress_cards_enabled? })
+        end
+
+        @persist_session&.call(cleared_agent) if cleared_agent
+        clear_channel_info_for_key(key, keep_session_id: session_id)
+
+        bind_key_to_session(key, session_id)
+        bound_agent = nil
+        @registry.with_session(session_id) do |s|
+          s[:ui]&.subscribe_channel(channel_ui)
+          s[:channel_ui] = channel_ui
+
+          # Stamp channel_info now instead of waiting for the next inbound message
+          # (see route_message): a restart in between would otherwise find no session
+          # carrying this key and drop the binding.
+          agent = s[:agent]
+          if agent
+            agent.channel_info = extract_channel_info(event)
+            bound_agent = agent
+          end
+        end
+
+        # Flush outside with_session: the registry mutex must not be held across file IO.
+        @persist_session&.call(bound_agent) if bound_agent
+
+        Clacky::Logger.info("[ChannelManager] Bound #{key} -> session #{session_id[0, 8]}")
+        session_id
+      end
+
       def handle_command(adapter, event, text)
         chat_id = event[:chat_id]
         key     = channel_key(event)
@@ -451,51 +519,7 @@ module Clacky
             return
           end
 
-          # Detach channel_ui from the old session's web_ui, reattach to the new one.
-          # Stale channel_info for this key is then cleared from every other session
-          # (including ones evicted from memory) so resolve_session and
-          # restore_channel_bindings never see two sessions claim the same key.
-          old_session_id = resolve_session(event)
-          channel_ui = old_session_id ? channel_ui_for_session(old_session_id) : nil
-          cleared_agent = nil
-
-          if channel_ui
-            @registry.with_session(old_session_id) do |s|
-              s[:ui]&.unsubscribe_channel(channel_ui)
-              s.delete(:channel_ui)
-              agent = s[:agent]
-              if agent&.channel_info && channel_key_from_info(agent.channel_info) == key
-                agent.channel_info = nil
-                cleared_agent = agent
-              end
-            end
-          else
-            channel_ui = ChannelUIController.new(event, -> { adapter_for(event[:platform], event[:channel_instance_id]) }, -> { @channel_config.status_messages_enabled? }, -> { @channel_config.process_messages_enabled? }, -> { @channel_config.progress_cards_enabled? })
-          end
-
-          @persist_session&.call(cleared_agent) if cleared_agent
-          clear_channel_info_for_key(key, keep_session_id: session_id)
-
-          bind_key_to_session(key, session_id)
-          bound_agent = nil
-          @registry.with_session(session_id) do |s|
-            s[:ui]&.subscribe_channel(channel_ui)
-            s[:channel_ui] = channel_ui
-
-            # Stamp channel_info now instead of waiting for the next inbound message
-            # (see route_message): a restart in between would otherwise find no session
-            # carrying this key and drop the binding.
-            agent = s[:agent]
-            if agent
-              agent.channel_info = extract_channel_info(event)
-              bound_agent = agent
-            end
-          end
-
-          # Flush outside with_session: the registry mutex must not be held across file IO.
-          @persist_session&.call(bound_agent) if bound_agent
-
-          Clacky::Logger.info("[ChannelManager] Bound #{key} -> session #{session_id[0, 8]}")
+          bind_session(event, session_id)
           adapter.send_text(chat_id, "Bound to session `#{session_id[0, 8]}`.")
 
         when "/stop"

@@ -6,7 +6,7 @@ description: |
   Configure IM platform channels (Feishu, WeCom, Weixin, Discord, Telegram, DingTalk, QQ) for openclacky.
   Uses browser automation for navigation; guides the user to paste credentials and perform UI steps.
   Trigger on: "channel setup", "setup feishu", "setup wecom", "setup weixin", "setup wechat", "setup discord", "setup telegram", "setup dingtalk", "setup qq",
-  "channel config", "channel status", "channel enable", "channel disable", "channel reconfigure", "channel doctor",
+  "bind this session to a channel", "channel config", "channel status", "channel enable", "channel disable", "channel reconfigure", "channel doctor",
   "send message to weixin", "send message to feishu", "send message to wecom", "send message to discord", "send message to telegram", "send message to dingtalk", "send message to qq".
   Subcommands: setup, status, enable <platform>, disable <platform>, reconfigure, doctor, send.
 argument-hint: "setup | status | enable <platform> | disable <platform> | reconfigure | doctor | send <platform> <message>"
@@ -38,6 +38,25 @@ Configure IM platform channels for openclacky.
 | `channel reconfigure` | reconfigure |
 | `channel doctor` | doctor |
 | `send <message> to weixin/feishu/wecom/discord/telegram/dingtalk/qq` | send |
+
+---
+
+## Keep the current conversation when connecting a channel
+
+When the user asks to connect a channel from this conversation, include
+`"bind_session_id": "<actual CLACKY_SESSION_ID>"` in the same
+`POST /api/channels/<platform>` request that saves the credentials. Read the
+actual ID from the terminal environment; never invent it. For an already
+configured channel, POST just `bind_session_id` and the selected `instance_id`.
+The first message received by that instance binds its chat to this conversation
+and runs here, retaining the role and history. No `/bind` command or new session
+is needed. Other chats keep their existing routing.
+
+The Weixin, Discord and DingTalk scripts below pass `CLACKY_SESSION_ID` when
+saving credentials. This only applies to setup/binding, not status, enable,
+disable or credential-only maintenance. When explicitly configuring an account
+without binding this conversation, omit `bind_session_id` and run scripts with
+`CLACKY_SESSION_ID` unset. Outside a session, omit the field.
 
 ---
 
@@ -164,7 +183,7 @@ Parse both values.
 ```bash
 curl -X POST http://${CLACKY_SERVER_HOST}:${CLACKY_SERVER_PORT}/api/channels/feishu \
   -H "Content-Type: application/json" \
-  -d '{"app_id":"<APP_ID>","app_secret":"<APP_SECRET>","domain":"https://open.feishu.cn"}'
+  -d '{"app_id":"<APP_ID>","app_secret":"<APP_SECRET>","domain":"https://open.feishu.cn","bind_session_id":"<actual CLACKY_SESSION_ID>"}'
 ```
 
 **CRITICAL: This curl call is the ONLY way to save credentials. NEVER write `~/.clacky/channels.yml`
@@ -244,7 +263,7 @@ When the session ends with `exit_code: 0`, tell the user:
    ```bash
    curl -X POST http://${CLACKY_SERVER_HOST}:${CLACKY_SERVER_PORT}/api/channels/wecom \
      -H "Content-Type: application/json" \
-     -d '{"bot_id":"<BOT_ID>","secret":"<SECRET>"}'
+     -d '{"bot_id":"<BOT_ID>","secret":"<SECRET>","bind_session_id":"<actual CLACKY_SESSION_ID>"}'
    ```
 
 On success: "✅ WeCom channel configured. WeCom client → Contacts → Smart Bot to find it."
@@ -407,7 +426,7 @@ Call the server API. It calls `getMe` against the Bot API to validate the token 
 ```bash
 curl -s -X POST http://${CLACKY_SERVER_HOST}:${CLACKY_SERVER_PORT}/api/channels/telegram \
   -H "Content-Type: application/json" \
-  -d '{"bot_token":"<TOKEN>","base_url":"<BASE_URL_OR_OMIT>"}'
+  -d '{"bot_token":"<TOKEN>","base_url":"<BASE_URL_OR_OMIT>","bind_session_id":"<actual CLACKY_SESSION_ID>"}'
 ```
 
 - `200 { "ok": true }` — token validated and saved. The adapter starts long-polling immediately.
@@ -460,7 +479,7 @@ The server persists the credentials and immediately opens the gateway WebSocket:
 ```bash
 curl -s -X POST http://${CLACKY_SERVER_HOST}:${CLACKY_SERVER_PORT}/api/channels/qq \
   -H "Content-Type: application/json" \
-  -d '{"app_id":"<APP_ID>","app_secret":"<APP_SECRET>","sandbox":<TRUE_OR_FALSE>}'
+  -d '{"app_id":"<APP_ID>","app_secret":"<APP_SECRET>","sandbox":<TRUE_OR_FALSE>,"bind_session_id":"<actual CLACKY_SESSION_ID>"}'
 ```
 
 - `200` — credentials saved; the QQ gateway session starts.

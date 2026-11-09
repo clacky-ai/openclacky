@@ -95,7 +95,10 @@ end
 
 def save_to_server(bot_token:)
   uri  = URI("#{CLACKY_SERVER_URL}/api/channels/discord")
-  body = JSON.generate({ bot_token: bot_token })
+  fields = { bot_token: bot_token }
+  session_id = ENV["CLACKY_SESSION_ID"].to_s.strip
+  fields[:bind_session_id] = session_id unless session_id.empty?
+  body = JSON.generate(fields)
 
   http = Net::HTTP.new(uri.host, uri.port)
   http.read_timeout = 30
