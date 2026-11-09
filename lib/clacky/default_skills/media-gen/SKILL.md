@@ -159,7 +159,7 @@ Common `error_type` values: `not_configured`, `auth_required`, `network_error`, 
 
 ## Step 3 — Show the image
 
-`Read` does NOT show the image to the user — it only feeds it into your own context. To make the user actually see it, write a markdown tag in your reply:
+`Read` does NOT show the image to the user — it only feeds it into your own context. To make the user actually see it, write exactly one markdown tag in your reply and nothing else for that file:
 
 ```markdown
 ![](file:///abs/path/from/response.png)
@@ -260,9 +260,17 @@ curl -s -X POST http://${CLACKY_SERVER_HOST}:${CLACKY_SERVER_PORT}/api/media/vid
 }
 ```
 
-The `video` field is an absolute path on disk. Show it to the user with a
-markdown link or an HTML5 `<video>` tag pointing at the `file://` path; embed
-it in documents with a path relative to the document.
+The `video` field is an absolute path on disk. To let the user watch it, write
+exactly one markdown tag in your reply and nothing else for that file:
+
+```markdown
+![clip.mp4](file:///abs/path/from/response.mp4)
+```
+
+The Web UI turns this into an inline player on its own — do NOT also write an
+HTML `<video>` tag or a second plain `[link]`, or the clip shows up twice. If
+you're embedding it in a document, convert the path to one relative to that
+document.
 
 ### Response (failure)
 
@@ -580,10 +588,10 @@ The `audio` field is an absolute path on disk. Output is mono 16-bit PCM at
 24 kHz wrapped in a standard WAV container — playable by any browser, OS
 player, or `<audio>` tag without conversion.
 
-To let the user hear it, write a markdown link in your reply:
+To let the user hear it, write exactly one markdown tag in your reply:
 
 ```markdown
-[🔊 听一下](file:///abs/path/from/response.wav)
+![response.wav](file:///abs/path/from/response.wav)
 ```
 
 For embedding in HTML documents, use:
