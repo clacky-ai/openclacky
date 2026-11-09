@@ -153,6 +153,7 @@ module Clacky
           name:       item["name"],
           arguments:  +""
         }
+        emit_delta(:tool_start, item["name"].to_s)
       end
     end
 
@@ -166,6 +167,7 @@ module Clacky
       return unless call_id && @function_calls[call_id]
 
       @function_calls[call_id][:arguments] << data["delta"].to_s
+      emit_delta(:tool_input, data["delta"].to_s)
     end
 
     private def handle_item_done(data)

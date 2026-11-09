@@ -206,7 +206,10 @@ module Clacky
       # The client already merges fragments per network read. Not forwarded to
       # channel subscribers: IM platforms deliver whole messages only.
       def stream_assistant_delta(kind, text)
-        kind = kind.to_sym == :reasoning ? :reasoning : :text
+        kind = kind.to_sym
+        return stream_tool_progress(kind, text) if kind == :tool_start || kind == :tool_input
+
+        kind = kind == :reasoning ? :reasoning : :text
         id, offset = @stream_mutex.synchronize do
           stream = (@live_streams[assistant_stream_key] ||= new_assistant_stream)
           offset = stream[kind].bytesize
@@ -214,6 +217,28 @@ module Clacky
           [stream[:id], offset]
         end
         emit("assistant_delta", stream_id: id, kind: kind.to_s, delta: text, offset: offset)
+      end
+
+      # A tool call the model is still writing. Only the name and the argument
+      # size go on the wire: the arguments are not shown until the call is
+      # complete, and a whole file body per frame would double the traffic.
+      # bytes is absolute, so a replayed or repeated event is idempotent.
+      # The pending card lives in the stream and goes when the stream does;
+      # the real tool_call event follows right after the response commits.
+      private def stream_tool_progress(kind, text)
+        update = @stream_mutex.synchronize do
+          stream = (@live_streams[assistant_stream_key] ||= new_assistant_stream)
+          tools = stream[:tools]
+          if kind == :tool_start
+            tools << { name: text, bytes: 0 }
+          elsif tools.empty?
+            next nil
+          else
+            tools.last[:bytes] += text.bytesize
+          end
+          { stream_id: stream[:id], index: tools.size - 1, name: tools.last[:name], bytes: tools.last[:bytes] }
+        end
+        emit("assistant_tool_progress", **update) if update
       end
 
       def discard_assistant_stream
@@ -228,7 +253,7 @@ module Clacky
       end
 
       private def new_assistant_stream
-        { id: "stream_#{SecureRandom.hex(6)}", text: +"", reasoning: +"", phase_id: assistant_stream_key }
+        { id: "stream_#{SecureRandom.hex(6)}", text: +"", reasoning: +"", tools: [], phase_id: assistant_stream_key }
       end
 
       private def take_assistant_stream
@@ -493,15 +518,18 @@ module Clacky
         # whatever the browser already has for that stream.
         snapshots = @stream_mutex.synchronize do
           @live_streams.values.map do |stream|
-            { id: stream[:id], phase_id: stream[:phase_id], reasoning: stream[:reasoning].dup, text: stream[:text].dup }
+            { id: stream[:id], phase_id: stream[:phase_id], reasoning: stream[:reasoning].dup, text: stream[:text].dup,
+              tools: stream[:tools].map(&:dup) }
           end
         end
         snapshots.each do |snapshot|
+          phase = snapshot[:phase_id] ? { phase_id: snapshot[:phase_id] } : {}
           %i[reasoning text].each do |kind|
             next if snapshot[kind].empty?
-            data = { stream_id: snapshot[:id], kind: kind.to_s, delta: snapshot[kind], offset: 0, snapshot: true }
-            data[:phase_id] = snapshot[:phase_id] if snapshot[:phase_id]
-            emit("assistant_delta", **data)
+            emit("assistant_delta", stream_id: snapshot[:id], kind: kind.to_s, delta: snapshot[kind], offset: 0, snapshot: true, **phase)
+          end
+          snapshot[:tools].each_with_index do |tool, index|
+            emit("assistant_tool_progress", stream_id: snapshot[:id], index: index, name: tool[:name], bytes: tool[:bytes], **phase)
           end
         end
       end

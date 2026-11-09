@@ -168,8 +168,10 @@ module Clacky
     #   a single synthetic invocation is fired after the response is received,
     #   so UI plumbing can be exercised end-to-end without the proxy work.
     # @param on_delta [Proc, nil] optional callback receiving (kind, text) for
-    #   each streamed text (:text) or reasoning (:reasoning) fragment. Only
-    #   fires on the streaming path, i.e. when on_chunk is also given.
+    #   each streamed text (:text) or reasoning (:reasoning) fragment, a tool
+    #   call opening (:tool_start, text is the tool name) and its argument
+    #   JSON fragments (:tool_input). Only fires on the streaming path, i.e.
+    #   when on_chunk is also given.
     def send_messages_with_tools(messages, model:, tools:, max_tokens:, enable_caching: false, reasoning_effort: nil, on_chunk: nil, on_delta: nil, agent_upstream_fails: nil, agent_upgrade_fails: nil)
       api_model = Providers.resolve_api_model(base_url: @base_url, api_key: @api_key, model: model)
       caching_enabled = enable_caching && supports_prompt_caching?(model)
@@ -963,12 +965,13 @@ module Clacky
     # Returns [collect, flush]. Aggregators call collect per SSE frame; the
     # on_data handler calls flush once per network read. Upstreams often pack
     # dozens of frames into one read, and the UI only needs one update each.
+    # :tool_start carries a tool name, and two of them are two separate calls.
     private def delta_batcher(on_delta)
       return [nil, -> {}] unless on_delta
       pending = []
       collect = lambda do |kind, text|
         last = pending.last
-        if last && last[0] == kind
+        if last && last[0] == kind && kind != :tool_start
           last[1] << text
         else
           pending << [kind, text.dup]

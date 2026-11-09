@@ -295,6 +295,44 @@ RSpec.describe Clacky::Server::WebUIController, "streamed assistant reply" do
       .to eq([["reasoning", "plan", 0, true], ["text", "Hi there", 0, true]])
   end
 
+  it "reports a tool call being written by name and absolute argument size only" do
+    controller.stream_assistant_delta(:tool_input, "{}")
+    controller.stream_assistant_delta(:tool_start, "write")
+    controller.stream_assistant_delta(:tool_input, '{"content":"')
+    controller.stream_assistant_delta(:tool_input, "👍")
+    controller.stream_assistant_delta(:tool_start, "shell")
+
+    progress = of_type("assistant_tool_progress")
+    expect(progress.map { |e| e.slice(:index, :name, :bytes) }).to eq([
+      { index: 0, name: "write", bytes: 0 },
+      { index: 0, name: "write", bytes: 12 },
+      { index: 0, name: "write", bytes: 16 },
+      { index: 1, name: "shell", bytes: 0 }
+    ])
+    expect(progress.none? { |e| e.key?(:delta) }).to be(true)
+    expect(of_type("assistant_delta")).to be_empty
+  end
+
+  it "drops pending tool calls with the stream and replays live ones" do
+    controller.show_progress("Thinking")
+    controller.stream_assistant_delta(:text, "Let me check")
+    controller.stream_assistant_delta(:tool_start, "read")
+    controller.stream_assistant_delta(:tool_input, '{"path":"a"}')
+    stream_id = of_type("assistant_delta").first[:stream_id]
+    events.clear
+
+    controller.replay_live_state
+
+    expect(of_type("assistant_tool_progress"))
+      .to eq([{ type: "assistant_tool_progress", session_id: "test-session",
+                stream_id: stream_id, index: 0, name: "read", bytes: 12 }])
+
+    controller.show_assistant_message("Let me check", files: [])
+    events.clear
+    controller.replay_live_state
+    expect(of_type("assistant_tool_progress")).to be_empty
+  end
+
   it "does not replay a stream once progress has ended" do
     controller.stream_assistant_delta(:text, "Hi")
     events.clear

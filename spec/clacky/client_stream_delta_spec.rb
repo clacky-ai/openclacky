@@ -41,6 +41,23 @@ RSpec.describe Clacky::Client, "streamed reply deltas" do
     expect(result[:content]).to eq("Hello world")
   end
 
+  it "merges argument fragments in one read but keeps each tool start separate" do
+    tool = ->(idx, name, args) { { index: idx, id: "c#{idx}", function: { name: name, arguments: args }.compact } }
+    stub_reads([
+      frame({ choices: [{ index: 0, delta: { tool_calls: [tool.(0, "read", '{"pa')] } }] }.to_json) +
+        frame({ choices: [{ index: 0, delta: { tool_calls: [tool.(0, nil, 'th":1}')] } }] }.to_json) +
+        frame({ choices: [{ index: 0, delta: { tool_calls: [tool.(1, "grep", "")] } }] }.to_json) +
+        frame({ choices: [{ index: 0, delta: { tool_calls: [tool.(2, "shell", "{}")] }, finish_reason: "tool_calls" }] }.to_json)
+    ])
+    deltas = []
+
+    client.send(:send_openai_stream_request, { model: "gpt-4" }, proc {},
+                on_delta: ->(kind, text) { deltas << [kind, text] })
+
+    expect(deltas).to eq([[:tool_start, "read"], [:tool_input, '{"path":1}'],
+                          [:tool_start, "grep"], [:tool_start, "shell"], [:tool_input, "{}"]])
+  end
+
   it "still returns the full response when on_delta raises" do
     stub_reads([frame('{"choices":[{"index":0,"delta":{"content":"ok"},"finish_reason":"stop"}]}')])
 

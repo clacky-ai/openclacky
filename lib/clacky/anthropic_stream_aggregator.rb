@@ -46,6 +46,7 @@ module Clacky
         case cb["type"]
         when "tool_use"
           @blocks[idx] = { kind: :tool_use, id: cb["id"], name: cb["name"], input_str: +"" }
+          emit_delta(:tool_start, cb["name"].to_s)
         else
           @blocks[idx] = { kind: :text, text: +"" }
         end
@@ -63,6 +64,7 @@ module Clacky
           block[:kind] = :tool_use
           block[:input_str] ||= +""
           block[:input_str] << delta["partial_json"].to_s
+          emit_delta(:tool_input, delta["partial_json"].to_s)
         when "thinking_delta"
           block[:kind] = :thinking
           block[:thinking] ||= +""

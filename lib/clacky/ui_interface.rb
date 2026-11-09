@@ -12,7 +12,8 @@ module Clacky
     def show_assistant_message(content, files:, interim: false, created_at: nil); end
 
     # Partial assistant output while the LLM is still generating.
-    # kind is :text or :reasoning. Display-only: the next show_assistant_message
+    # kind is :text, :reasoning, :tool_start (text is the tool name) or
+    # :tool_input (an argument JSON fragment). Display-only: the next show_assistant_message
     # supersedes everything streamed since the previous one, so UIs that cannot
     # render partial output (CLI, IM channels) simply ignore it.
     def stream_assistant_delta(kind, text); end

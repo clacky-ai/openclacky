@@ -46,9 +46,12 @@ RSpec.describe Clacky::OpenAIStreamAggregator do
     agg.handle({ choices: [{ index: 0, delta: { reasoning_content: "hmm" } }] }.to_json)
     agg.handle({ choices: [{ index: 0, delta: { content: "Hi" } }] }.to_json)
     agg.handle({ choices: [{ index: 0, delta: { content: "" } }] }.to_json)
-    agg.handle({ choices: [{ index: 0, delta: { tool_calls: [{ index: 0, id: "c", function: { name: "shell", arguments: "{}" } }] } }] }.to_json)
+    agg.handle({ choices: [{ index: 0, delta: { tool_calls: [{ index: 0, id: "c", function: { name: "shell", arguments: "{\"cmd" } }] } }] }.to_json)
+    agg.handle({ choices: [{ index: 0, delta: { tool_calls: [{ index: 0, function: { name: "shell", arguments: "\":1}" } }] } }] }.to_json)
 
-    expect(deltas).to eq([[:reasoning, "hmm"], [:text, "Hi"]])
+    # A provider that repeats the name on every frame still opens one call.
+    expect(deltas).to eq([[:reasoning, "hmm"], [:text, "Hi"], [:tool_start, "shell"],
+                          [:tool_input, "{\"cmd"], [:tool_input, "\":1}"]])
   end
 
   it "keeps assembling when on_delta raises" do

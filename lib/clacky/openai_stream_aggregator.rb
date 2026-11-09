@@ -110,8 +110,14 @@ module Clacky
       slot[:id] ||= tc["id"] if tc["id"]
       slot[:type] ||= tc["type"] if tc["type"]
       if (fn = tc["function"])
-        slot[:name] ||= fn["name"] if fn["name"]
-        slot[:arguments] << fn["arguments"].to_s if fn["arguments"]
+        if fn["name"] && slot[:name].nil?
+          slot[:name] = fn["name"]
+          emit_delta(:tool_start, fn["name"].to_s)
+        end
+        if fn["arguments"]
+          slot[:arguments] << fn["arguments"].to_s
+          emit_delta(:tool_input, fn["arguments"].to_s)
+        end
       end
       slot[:extra_content] = tc["extra_content"] if tc["extra_content"]
     end

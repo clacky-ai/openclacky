@@ -51,6 +51,7 @@ module Clacky
         start = data["start"] || {}
         if (tu = start["toolUse"])
           @blocks[idx] = { kind: :tool_use, id: tu["toolUseId"], name: tu["name"], input_str: +"" }
+          emit_delta(:tool_start, tu["name"].to_s)
         else
           @blocks[idx] = { kind: :text, text: +"" }
         end
@@ -69,6 +70,7 @@ module Clacky
           block[:input_str] << tu["input"].to_s
           block[:id]   ||= tu["toolUseId"]
           block[:name] ||= tu["name"]
+          emit_delta(:tool_input, tu["input"].to_s)
         elsif (rc = delta["reasoningContent"])
           block[:kind] = :reasoning
           block[:reasoning] ||= +""
