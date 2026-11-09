@@ -20,5 +20,4 @@ coscli*
 
 # CodeMirror bundle build tooling
 /lib/clacky/web/vendor/codemirror/node_modules/
-/lib/clacky/web/vendor/remend/node_modules/
-/lib/clacky/web/vendor/jsx-highlight/node_modules/
+/lib/clacky/web/vendor/streaming-markdown/node_modules/

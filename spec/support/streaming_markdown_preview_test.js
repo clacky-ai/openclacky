@@ -99,7 +99,7 @@ const document = {
 const context = vm.createContext({ document, globalThis: null });
 context.globalThis = context;
 vm.runInContext(fs.readFileSync(path.join(web, "vendor/marked/marked.min.js"), "utf8"), context);
-vm.runInContext(fs.readFileSync(path.join(web, "vendor/remend/remend.min.js"), "utf8"), context);
+vm.runInContext(fs.readFileSync(path.join(web, "vendor/streaming-markdown/streaming-markdown.min.js"), "utf8"), context);
 assert.equal(typeof context.remend, "function", "remend bundle must expose a global");
 
 // The code header shows the language label, so the preview does too.
