@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require "open3"
+
 RSpec.describe "Scheduled tasks page UI" do
   let(:web_dir) { File.expand_path("../../../lib/clacky/web", __dir__) }
   let(:view)    { File.read(File.join(web_dir, "features/tasks/view.js")) }
@@ -93,5 +95,11 @@ RSpec.describe "Scheduled tasks page UI" do
     expect(view).not_to include("task-card-detail")
     expect(styles).to include(".task-detail-modal .modal-body {")
     expect(styles).not_to include(".task-card-detail")
+  end
+
+  it "boots onPanelShow without a ReferenceError" do
+    script = File.expand_path("../../support/tasks_view_boot_test.js", __dir__)
+    output, status = Open3.capture2e("node", script)
+    expect(status.success?).to be(true), output
   end
 end
