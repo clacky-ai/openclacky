@@ -1938,12 +1938,14 @@ RSpec.describe Clacky::Server::HttpServer do
 
   describe "#interrupt_all_agents (private)" do
     let(:sessions_dir) { Dir.mktmpdir("clacky_interrupt_spec_sessions") }
+    let(:resume_file) { File.join(sessions_dir, "restart_resume.json") }
 
     after { FileUtils.rm_rf(sessions_dir) }
 
     # Production waits 2s per stuck thread; three of them would burn 6s of pure
     # idle time. The serial-wait behaviour is what matters, not the magnitude.
     before { stub_const("#{described_class}::AGENT_INTERRUPT_JOIN_SECONDS", 0.2) }
+    before { stub_const("#{described_class}::RESTART_RESUME_FILE", resume_file) }
 
     def build_server
       described_class.new(
@@ -2065,8 +2067,6 @@ RSpec.describe Clacky::Server::HttpServer do
     end
 
     describe "restart resume list" do
-      let(:resume_file) { File.join(sessions_dir, "restart_resume.json") }
-
       def register(server, sid, agent, thread)
         registry = server.instance_variable_get(:@registry)
         registry.create(session_id: sid)
@@ -2099,6 +2099,7 @@ RSpec.describe Clacky::Server::HttpServer do
     let(:sessions_dir) { Dir.mktmpdir("clacky_resume_spec_sessions") }
     let(:resume_file) { File.join(sessions_dir, "restart_resume.json") }
 
+    before { stub_const("#{described_class}::RESTART_RESUME_FILE", resume_file) }
     after { FileUtils.rm_rf(sessions_dir) }
 
     def build_server(resume_sessions:)

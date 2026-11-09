@@ -202,6 +202,7 @@ module Clacky
       # Consecutive restarts a task may be resumed across; a task that keeps
       # restarting the server (e.g. it runs the upgrade itself) stops here.
       MAX_RESTART_RESUMES = 2
+      RESTART_RESUME_FILE = File.join(Dir.home, ".clacky", "restart_resume.json")
       RESTART_RESUME_PROMPT = "The server restarted while you were working on the previous request and interrupted it. " \
                               "Continue that task from where it stopped. Actions cut off by the restart may or may not " \
                               "have taken effect, so check the current state before repeating anything with side effects."
@@ -268,7 +269,6 @@ module Clacky
         @restart_script = File.expand_path($0)
         @restart_argv   = ARGV.dup
         @session_manager = Clacky::SessionManager.new(sessions_dir: sessions_dir)
-        @restart_resume_file = File.join(sessions_dir || Clacky::SessionManager::SESSIONS_DIR, "restart_resume.json")
         @project_manager = Clacky::Server::ProjectManager.new(projects_file: projects_file)
         @registry        = SessionRegistry.new(
           session_manager:  @session_manager,
@@ -8684,16 +8684,16 @@ module Clacky
           # Host services own ext sessions (e.g. delegated work) and recover them their own way.
           resumes[id] = thread[:restart_resumes].to_i + 1 unless agent.source.to_s == "ext"
         end
-        File.write(@restart_resume_file, JSON.generate(resumes)) unless resumes.empty?
+        File.write(RESTART_RESUME_FILE, JSON.generate(resumes)) unless resumes.empty?
       end
 
       # The list is consumed on every boot so a later restart never replays a
       # stale one; only a master-driven restart actually resumes the tasks.
       private def resume_interrupted_sessions
-        return unless File.exist?(@restart_resume_file)
+        return unless File.exist?(RESTART_RESUME_FILE)
 
-        resumes = JSON.parse(File.read(@restart_resume_file)) rescue {}
-        File.delete(@restart_resume_file)
+        resumes = JSON.parse(File.read(RESTART_RESUME_FILE)) rescue {}
+        File.delete(RESTART_RESUME_FILE)
         return unless @resume_sessions
 
         resumes.each do |session_id, count|
