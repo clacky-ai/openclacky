@@ -969,6 +969,34 @@ body {
   gap: 4px;
 }
 
+/* ── Collapsible sidebar sections (Config / My Data) ─────────────────────── */
+.sidebar-section-header {
+  cursor: pointer;
+  user-select: none;
+}
+.sidebar-section-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+.sidebar-section-chevron {
+  flex-shrink: 0;
+  color: var(--color-text-muted);
+  opacity: 0;
+  transition: transform 0.2s ease, opacity 0.15s ease;
+  margin-left: 1px;
+}
+.sidebar-section-header:hover .sidebar-section-chevron {
+  opacity: 1;
+}
+.sidebar-section-header.is-collapsed .sidebar-section-chevron {
+  opacity: 1;
+  transform: rotate(-90deg);
+}
+.sidebar-section-body.is-collapsed {
+  display: none;
+}
+
 /* ── Chat section collapse ───────────────────────────────────────────────── */
 #chat-section-header {
   cursor: pointer;
