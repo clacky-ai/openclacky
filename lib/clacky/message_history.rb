@@ -11,7 +11,7 @@ module Clacky
   class MessageHistory
     # Fields that are internal to the agent and must not be sent to the API.
     INTERNAL_FIELDS = %i[
-      message_id task_id created_at system_injected session_context memory_update
+      message_id task_id created_at system_injected session_context context_key memory_update
       subagent_instructions subagent_result subagent_transcript token_usage
       compressed_summary chunk_path truncated transient
       chunk_index chunk_count ext_events skill_command skill_command_display
@@ -53,6 +53,19 @@ module Clacky
       @messages << stored_message
       yield stored_message if block_given?
       self
+    end
+
+    # Append a changed context snapshot without rewriting the cached prefix.
+    # A nil snapshot is absent: skip it initially, or use `empty` to supersede
+    # an earlier snapshot. The key survives serialization but is never model input.
+    def append_context(key, content, empty: nil)
+      previous = @messages.reverse_each.find { |message| message[:context_key] == key.to_s }
+      return self if content.nil? && previous.nil?
+
+      content ||= empty
+      return self if content.nil? || (previous && previous[:content] == content)
+
+      append(role: "user", content: content, system_injected: true, context_key: key.to_s)
     end
 
     # Replace (or insert at head) the system prompt message.
