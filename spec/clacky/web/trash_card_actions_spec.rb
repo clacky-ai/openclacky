@@ -5,6 +5,7 @@ RSpec.describe "File Recall card action buttons" do
   let(:view)    { File.read(File.join(web_dir, "features/trash/view.js")) }
   let(:styles)  { File.read(File.join(web_dir, "app.css")) }
   let(:i18n)    { File.read(File.join(web_dir, "i18n.js")) }
+  let(:page)    { File.read(File.join(web_dir, "index.html")) }
 
   it "renders both card actions as icon-only buttons" do
     expect(view.scan(/class="btn-trash-(?:session-)?(?:restore|delete)"/).size).to eq(4)
@@ -17,6 +18,19 @@ RSpec.describe "File Recall card action buttons" do
 
   it "keeps an accessible name on every icon button" do
     expect(view.scan(/class="btn-trash-(?:session-)?(?:restore|delete)"[^>]*aria-label=/).size).to eq(4)
+  end
+
+  it "hints the card buttons through the shared tooltip" do
+    expect(view.scan(/class="btn-trash-(?:session-)?(?:restore|delete)" data-tooltip=/).size).to eq(4)
+    expect(view).not_to match(/class="btn-trash-(?:session-)?(?:restore|delete)"[^>]*\stitle=/)
+  end
+
+  it "leaves the labelled toolbar buttons without a tooltip" do
+    %w[btn-trash-refresh btn-trash-empty-old btn-trash-empty-orphans btn-trash-empty-all].each do |id|
+      tag = page[/<button id="#{id}".*?>/m]
+      expect(tag).not_to be_nil
+      expect(tag).not_to include("data-tooltip", "data-i18n-tooltip", " title=")
+    end
   end
 
   it "sizes the file and session buttons with one shared rule" do

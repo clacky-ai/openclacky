@@ -19,6 +19,15 @@ RSpec.describe "Memory card action buttons" do
     expect(view.scan(/class="btn-memory-\w+"[^>]*aria-label=/).size).to eq(4)
   end
 
+  it "shows the shared tooltip on the icon buttons only" do
+    expect(view.scan(/class="btn-memory-(?:curate|edit|delete|expand)" data-tooltip=/).size).to eq(4)
+    expect(view).not_to match(/class="btn-memory-\w+"[^>]*\stitle=/)
+    # The list reload button carries a text label, so it needs no tooltip.
+    tag = page[/<button id="btn-memories-refresh-list".*?>/m]
+    expect(tag).not_to be_nil
+    expect(tag).not_to include("data-tooltip", "data-i18n-tooltip", " title=")
+  end
+
   it "sizes all four buttons and their glyphs the same" do
     expect(styles).to match(
       /\.btn-memory-curate,\s*\.btn-memory-edit,\s*\.btn-memory-delete,\s*\.btn-memory-expand\s*\{\s*width: 1\.875rem;\s*height: 1\.875rem;/
