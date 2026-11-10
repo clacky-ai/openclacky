@@ -671,6 +671,8 @@ module Clacky
         consume_steering_inputs
         @work_service&.guard!(self) if Thread.current[:clacky_work]
 
+        @hooks.trigger(:before_think)
+
         # Think: LLM reasoning with tool support
         response = think
 

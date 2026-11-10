@@ -8354,7 +8354,11 @@ module Clacky
           conn.send_json(type: "pong")
 
         else
-          conn.send_json(type: "error", message: "Unknown message type: #{type}")
+          namespace = /\Aext\.([^.]+)\..+\z/.match(type.to_s)
+          extension = namespace && Clacky::ApiExtension.registry[namespace[1]]
+          unless extension && extension.on_ws_event(conn, msg)
+            conn.send_json(type: "error", message: "Unknown message type: #{type}")
+          end
         end
       rescue JSON::ParserError => e
         conn.send_json(type: "error", message: "Invalid JSON: #{e.message}")
@@ -8366,6 +8370,13 @@ module Clacky
       def on_ws_close(conn)
         @ws_mutex.synchronize { @all_ws_conns.delete(conn) }
         unsubscribe(conn)
+        Clacky::ApiExtension.registry.each_value do |extension|
+          begin
+            extension.on_ws_close(conn)
+          rescue StandardError => e
+            Clacky::Logger.error("Extension WebSocket close error", ext: extension.ext_id, error: e)
+          end
+        end
       end
 
       # ── Session actions ───────────────────────────────────────────────────────

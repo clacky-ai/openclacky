@@ -10,6 +10,7 @@ module Clacky
       :on_start,
       :on_complete,
       :on_iteration,
+      :before_think,
       :session_rollback
     ].freeze
 
@@ -39,6 +40,8 @@ module Clacky
     # display/countdown. It may extend questions, display context and model-only
     # answer_context in place; answer_context is never sent to UI subscribers.
     # return values are ignored. Keep work bounded; no separate UI events.
+    # before_think receives (agent) after steering, before model reasoning.
+    # Its return value is ignored, like other observation/preparation hooks.
     def trigger(event, *args)
       validate_event!(event)
       # Keep payload hashes positional: Ruby 2.6 otherwise promotes their keys
@@ -51,7 +54,7 @@ module Clacky
           callback_args = [*args, @agent]
           callback_args << context.dup if context
           hook_result = hook.call(*callback_args)
-          next if [:on_complete, :prepare_feedback].include?(event)
+          next if [:on_complete, :prepare_feedback, :before_think].include?(event)
           next unless hook_result.is_a?(Hash)
           # First deny wins and stops the chain: a weaker later verdict must
           # never clobber a stronger earlier one, and the first deny's reason
