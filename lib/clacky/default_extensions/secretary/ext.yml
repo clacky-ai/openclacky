@@ -3,8 +3,11 @@ name: Secretary
 display_name: Secretary
 display_name_zh: 生活秘书
 description: Delegate work, track progress and resume after replies
+description_zh: 把工作委派到后台，跟进进展，收到回复后接着推进
 version: "0.1.0"
+icon: icon.svg
 author: OpenClacky
+license: MIT
 contributes:
   api: api/handler.rb
   agents:
