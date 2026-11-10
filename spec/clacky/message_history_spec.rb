@@ -5,6 +5,39 @@ require "json"
 RSpec.describe Clacky::MessageHistory do
   subject(:history) { described_class.new }
 
+  describe "#append_context" do
+    it "appends changed snapshots by key without rewriting history or matching prose" do
+      history.append(role: "user", content: "[Device context: online]")
+      history.append_context("ext.devices", "online")
+      prefix = history.to_a.map(&:dup)
+      history.append_context("ext.devices", "online")
+      expect(history.to_a).to eq(prefix)
+      history.append_context("ext.other", "online")
+      history.append_context("ext.devices", "changed")
+      expect(history.to_a.first(prefix.length)).to eq(prefix)
+      expect(history.to_a.last[:content]).to eq("changed")
+      expect(history.to_a.length).to eq(4)
+    end
+
+    it "skips an initially absent context and supersedes a removed snapshot once" do
+      history.append_context("ext.devices", nil, empty: "offline")
+      expect(history.to_a).to be_empty
+      history.append_context("ext.devices", "online")
+      2.times { history.append_context("ext.devices", nil, empty: "offline") }
+      expect(history.to_a.map { |message| message[:content] }).to eq(%w[online offline])
+    end
+
+    it "preserves identity after JSON restore and strips metadata from model input" do
+      history.append_context("ext.devices", "online")
+      restored = described_class.new(JSON.parse(JSON.generate(history.to_a), symbolize_names: true))
+      restored.append_context("ext.devices", "online")
+      expect(restored.to_a.length).to eq(1)
+      expect(restored.to_api).to eq([{ role: "user", content: "online" }])
+      restored.append_context("ext.devices", nil, empty: "offline")
+      expect(restored.to_a.last[:content]).to eq("offline")
+    end
+  end
+
   # Helper: build a basic message
   def user_msg(content = "hello", **opts)
     { role: "user", content: content, task_id: 1, created_at: Time.now.to_f }.merge(opts)
