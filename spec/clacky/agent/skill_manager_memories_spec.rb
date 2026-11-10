@@ -127,7 +127,7 @@ RSpec.describe "SkillManager memory helpers" do
   end
 
   # ─────────────────────────────────────────────
-  # LRU: mtime ordering and Top-20 cap
+  # LRU: mtime ordering and file cap
   # ─────────────────────────────────────────────
   describe "#load_memories_meta — LRU ordering" do
     it "returns files sorted by mtime descending (most recently touched first)" do
@@ -149,29 +149,98 @@ RSpec.describe "SkillManager memory helpers" do
       expect(result.index("alpha.md")).to be < result.index("beta.md")
     end
 
-    it "returns at most 20 files even when more exist" do
-      25.times do |i|
+    def write_many(count)
+      count.times do |i|
         write_memory("mem-#{i.to_s.rjust(2, "0")}.md", "---\ntopic: Topic #{i}\n---\n",
-                     mtime: Time.now - (25 - i) * 60)
+                     mtime: Time.now - (count - i) * 60)
       end
-
-      result = agent.load_memories_meta
-      # Count "| topic:" occurrences as a proxy for number of entries
-      entry_count = result.scan("| topic:").length
-      expect(entry_count).to eq(20)
     end
 
-    it "surfaces the 20 most recently touched files when more than 20 exist" do
-      25.times do |i|
-        write_memory("mem-#{i.to_s.rjust(2, "0")}.md", "---\ntopic: Topic #{i}\n---\n",
-                     mtime: Time.now - (25 - i) * 60)
-      end
+    it "lists every file when there are more than 20 but no more than the cap" do
+      write_many(25)
 
       result = agent.load_memories_meta
-      # mem-24 is newest, mem-05 is the 20th newest; mem-04 and older should be absent
-      expect(result).to include("mem-24.md")
+      expect(result.scan("| topic:").length).to eq(25)
+      expect(result).not_to include("older memories not listed")
+    end
+
+    it "returns at most MAX_MEMORIES_META_FILES files" do
+      cap = Clacky::Agent::SkillManager::MAX_MEMORIES_META_FILES
+      write_many(cap + 5)
+
+      expect(agent.load_memories_meta.scan("| topic:").length).to eq(cap)
+    end
+
+    it "keeps the most recently touched files and drops the oldest beyond the cap" do
+      cap = Clacky::Agent::SkillManager::MAX_MEMORIES_META_FILES
+      write_many(cap + 5)
+
+      result = agent.load_memories_meta
+      expect(result).to include("mem-#{(cap + 4).to_s.rjust(2, "0")}.md")
       expect(result).to include("mem-05.md")
       expect(result).not_to include("mem-04.md")
+    end
+
+    it "appends a hint with the number of omitted files" do
+      cap = Clacky::Agent::SkillManager::MAX_MEMORIES_META_FILES
+      write_many(cap + 5)
+
+      expect(agent.load_memories_meta).to end_with(
+        "(5 older memories not listed — search ~/.clacky/memories/ with grep if needed)"
+      )
+    end
+  end
+
+  # ─────────────────────────────────────────────
+  # Per-field truncation
+  # ─────────────────────────────────────────────
+  describe "#load_memories_meta — field truncation" do
+    let(:topic_cap) { Clacky::Agent::SkillManager::MAX_MEMORY_TOPIC_CHARS }
+    let(:desc_cap)  { Clacky::Agent::SkillManager::MAX_MEMORY_DESCRIPTION_CHARS }
+
+    it "keeps fields at exactly the cap untouched" do
+      write_memory("exact.md", "---\ntopic: #{"t" * topic_cap}\ndescription: #{"d" * desc_cap}\n---\n")
+
+      result = agent.load_memories_meta
+      expect(result).to include("topic: #{"t" * topic_cap} |")
+      expect(result).to include("| #{"d" * desc_cap} |")
+      expect(result).not_to include("…")
+    end
+
+    it "truncates an oversized topic with an ellipsis" do
+      write_memory("long-topic.md", "---\ntopic: #{"t" * (topic_cap + 50)}\n---\n")
+
+      result = agent.load_memories_meta
+      expect(result).to include("topic: #{"t" * topic_cap}… |")
+      expect(result).not_to include("t" * (topic_cap + 1))
+    end
+
+    it "truncates an oversized description with an ellipsis" do
+      write_memory("long-desc.md", "---\ntopic: T\ndescription: #{"d" * (desc_cap + 500)}\n---\n")
+
+      result = agent.load_memories_meta
+      expect(result).to include("| #{"d" * desc_cap}… |")
+      expect(result).not_to include("d" * (desc_cap + 1))
+    end
+
+    it "truncates by characters, not bytes, for multibyte text" do
+      write_memory("cjk.md", "---\ntopic: T\ndescription: #{"记" * (desc_cap + 10)}\n---\n")
+
+      expect(agent.load_memories_meta).to include("| #{"记" * desc_cap}… |")
+    end
+
+    it "collapses multi-line descriptions into a single line" do
+      write_memory("multiline.md", <<~MD)
+        ---
+        topic: T
+        description: |
+          first line
+          second line
+        ---
+      MD
+
+      result = agent.load_memories_meta
+      expect(result).to include("| first line second line |")
     end
   end
 end
