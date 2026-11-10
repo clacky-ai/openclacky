@@ -6489,21 +6489,15 @@ module Clacky
 
       # GET /api/memories
       # Returns { ok:, dir:, memories: [ { filename, topic, description, updated_at, size, preview } ] }
-      # Sorted by updated_at (YAML frontmatter) descending, falling back to file mtime.
+      # Sorted by file mtime descending — the same signal the agent sees, refreshed
+      # by every write and by recall-memory's touch.
       private def api_memories_list(res)
         FileUtils.mkdir_p(MEMORIES_DIR)
         memories = Dir.glob(File.join(MEMORIES_DIR, "*.md")).map do |path|
           _memory_summary(path)
         end.compact
 
-        # Sort key: prefer updated_at string (ISO-ish sorts correctly), fall back to mtime.
-        # `mtime` is always present in the summary (ISO 8601), so we use it as the
-        # ultimate tiebreaker. Negate by reversing after sort for descending order.
-        memories.sort_by! do |m|
-          key = m[:updated_at].to_s
-          key = m[:mtime].to_s if key.empty?
-          key
-        end
+        memories.sort_by! { |m| m[:mtime].to_s }
         memories.reverse!
 
         json_response(res, 200, { ok: true, dir: MEMORIES_DIR, memories: memories })
@@ -6632,12 +6626,11 @@ module Clacky
         if content.start_with?("---")
           if (m = content.match(/\A---\s*\n(.*?)\n---\s*\n/m))
             begin
-              # permitted_classes: Date so YAML `updated_at: 2026-05-01`
-              # parses to a Date instance instead of raising DisallowedClass.
+              # Legacy files may still carry `updated_at: 2026-05-01`; permit Date so
+              # they parse instead of raising DisallowedClass. The value itself is ignored.
               fm = YAML.safe_load(m[1], permitted_classes: [Date, Time]) || {}
               topic       = fm["topic"].to_s       unless fm["topic"].to_s.strip.empty?
               description = fm["description"].to_s
-              updated_at  = fm["updated_at"].to_s  unless fm["updated_at"].to_s.strip.empty?
             rescue StandardError
               # Bad frontmatter — fall back to defaults above.
             end

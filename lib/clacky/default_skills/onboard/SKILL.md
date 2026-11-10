@@ -493,7 +493,6 @@ Use the `read` tool. Expect YAML frontmatter:
 ---
 topic: <topic>
 description: <one-line>
-updated_at: YYYY-MM-DD
 ---
 
 <body in Markdown>
@@ -506,7 +505,7 @@ If parsing fails, continue — frontmatter is advisory.
 2–4 short sentences. Quote the topic + most concrete facts. Don't dump the file.
 
 Example (en):
-> This memory is about **Ruby style preferences** (updated 2026-04-10):
+> This memory is about **Ruby style preferences**:
 > you prefer inline `private def` over a standalone `private` keyword,
 > and frozen string literals on all new files.
 
@@ -538,17 +537,16 @@ zh:
 
 ### C.6a. "Leave it"
 
-Bump `updated_at` to today, write back. Tell the user you've confirmed it's current.
+Run `touch <path>` with the terminal tool instead of rewriting the file. Tell the user you've confirmed it's current.
 
 ### C.6b. "Update"
 
 Ask ONE follow-up (free text) for what changed. Then:
 
 1. Merge into the body. Rewrite in place for stale facts; append for net-new.
-2. Update `updated_at` to today.
-3. Keep under **300 words** — distill, don't accumulate.
-4. Write back with the same frontmatter keys.
-5. Show a short diff-style summary.
+2. Keep under **300 words** — distill, don't accumulate.
+3. Write back with the same `topic` / `description` keys. Drop any legacy `updated_at` key.
+4. Show a short diff-style summary.
 
 ### C.6c. "Delete"
 

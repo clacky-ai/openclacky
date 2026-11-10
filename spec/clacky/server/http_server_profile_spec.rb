@@ -194,8 +194,24 @@ RSpec.describe Clacky::Server::HttpServer, "profile + memories endpoints" do
       m = body["memories"].first
       expect(m["topic"]).to eq("Ruby style")
       expect(m["description"]).to eq("Yafei prefers inline private")
-      expect(m["updated_at"]).to eq("2026-05-01")
+      expect(m["updated_at"]).to eq(File.mtime(File.join(memories_dir, "ruby-style.md")).strftime("%Y-%m-%d"))
       expect(m["preview"]).to include("Body text")
+    end
+
+    it "sorts by file mtime and ignores a stale frontmatter updated_at" do
+      old_path = File.join(memories_dir, "old.md")
+      new_path = File.join(memories_dir, "new.md")
+      File.write(old_path, "---\ntopic: Old\nupdated_at: 2099-01-01\n---\nbody\n")
+      File.write(new_path, "---\ntopic: New\nupdated_at: 2000-01-01\n---\nbody\n")
+      File.utime(Time.now - 86_400 * 10, Time.now - 86_400 * 10, old_path)
+      File.utime(Time.now, Time.now, new_path)
+
+      req = fake_req(method: "GET", path: "/api/memories")
+      res = fake_res
+      dispatch(server, req, res)
+      body = parsed_body(res)
+      expect(body["memories"].map { |x| x["topic"] }).to eq(["New", "Old"])
+      expect(body["memories"].first["updated_at"]).to eq(Time.now.strftime("%Y-%m-%d"))
     end
   end
 
