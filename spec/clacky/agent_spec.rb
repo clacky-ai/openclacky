@@ -82,6 +82,29 @@ RSpec.describe Clacky::Agent do
       end
     end
 
+    it "prepares context after steering and before each model request" do
+      order = []
+      allow(agent).to receive(:consume_steering_inputs).and_wrap_original do |original, **kwargs|
+        order << :steering
+        original.call(**kwargs)
+      end
+      agent.add_hook(:before_think) do |current|
+        expect(current).to equal(agent)
+        expect(order.last).to eq(:steering)
+        order << :context
+        { action: :deny } # Preparation hooks cannot stop the run or later hooks.
+      end
+      agent.add_hook(:before_think) { order << :second_context }
+      allow(agent).to receive(:think).and_wrap_original do |original, *args|
+        expect(order.last).to eq(:second_context)
+        order << :think
+        original.call(*args)
+      end
+      expect(agent.run("Calculate 1+1")[:status]).to eq(:success)
+      expect(order.count(:context)).to eq(order.count(:think))
+      expect(order.count(:think)).to be >= 2
+    end
+
     it "executes Think-Act-Observe loop" do
       result = agent.run("Calculate 1+1")
 

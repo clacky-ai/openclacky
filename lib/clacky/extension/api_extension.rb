@@ -46,6 +46,19 @@ module Clacky
     end
 
     class << self
+      # Optional bidirectional events on the existing authenticated WebSocket.
+      # Only ext.<this extension id>.* frames reach this callback. Return true
+      # when handled; use connection.send_json for replies to this client only.
+      # Callbacks run on the socket reader: keep them short and non-blocking.
+      def on_ws_event(connection, message)
+        false
+      end
+
+      # Called after native subscription cleanup. Extensions own transient state.
+      def on_ws_close(connection)
+        nil
+      end
+
       # Keyed by ext_id — every extension contributes at most one API unit
       # (declared as `contributes.api: <path>` in ext.yml).
       def registry
