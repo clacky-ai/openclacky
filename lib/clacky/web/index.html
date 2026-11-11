@@ -1440,25 +1440,6 @@
             </div>
           </section>
 
-          <!-- Network / Proxy section -->
-          <section class="settings-section" id="network-section">
-            <div class="settings-section-title">
-              <span data-i18n="settings.network.title">Network</span>
-            </div>
-            <div class="settings-network">
-              <p class="settings-network-desc" data-i18n="settings.network.desc">Clacky always ignores HTTP_PROXY / HTTPS_PROXY from your shell. To route Clacky's outbound traffic through a proxy, set an explicit URL below.</p>
-              <div class="settings-network-url">
-                <label class="settings-network-url-label" for="settings-proxy-url" data-i18n="settings.network.proxyUrl">Proxy URL</label>
-                <div class="settings-network-url-row">
-                  <input type="text" id="settings-proxy-url" class="field-input" placeholder="http://user:pass@host:port" autocomplete="off" spellcheck="false">
-                  <button type="button" id="btn-save-proxy-url" class="btn-settings-action" data-i18n="settings.network.save">Save</button>
-                  <button type="button" id="btn-clear-proxy-url" class="btn-settings-action" data-i18n="settings.network.clear">Clear</button>
-                </div>
-                <div id="settings-proxy-url-status" class="model-test-result"></div>
-              </div>
-            </div>
-          </section>
-
           <!-- Web Search section -->
           <section class="settings-section" id="search-section">
             <div class="settings-section-title">
@@ -1497,6 +1478,25 @@
               <div class="settings-network-url-row settings-network-divider" id="custom-searcher-row">
                 <span class="settings-network-note" data-i18n="settings.search.customHint">Need another search provider? Put a script in ~/.clacky/searchers/, see tavily.rb.</span>
                 <button type="button" id="btn-custom-searcher" class="btn-settings-action" data-i18n="settings.search.customBtn">Build with Agent</button>
+              </div>
+            </div>
+          </section>
+
+          <!-- Network section -->
+          <section class="settings-section" id="network-section">
+            <div class="settings-section-title">
+              <span data-i18n="settings.network.title">Network</span>
+            </div>
+            <div class="settings-network">
+              <p class="settings-network-desc" data-i18n="settings.network.desc">Clacky always ignores HTTP_PROXY / HTTPS_PROXY from your shell. To route Clacky's outbound traffic through a proxy, set an explicit URL below.</p>
+              <div class="settings-network-url">
+                <label class="settings-network-url-label" for="settings-proxy-url" data-i18n="settings.network.proxyUrl">Proxy URL</label>
+                <div class="settings-network-url-row">
+                  <input type="text" id="settings-proxy-url" class="field-input" placeholder="http://user:pass@host:port" autocomplete="off" spellcheck="false">
+                  <button type="button" id="btn-save-proxy-url" class="btn-settings-action" data-i18n="settings.network.save">Save</button>
+                  <button type="button" id="btn-clear-proxy-url" class="btn-settings-action" data-i18n="settings.network.clear">Clear</button>
+                </div>
+                <div id="settings-proxy-url-status" class="model-test-result"></div>
               </div>
             </div>
           </section>
