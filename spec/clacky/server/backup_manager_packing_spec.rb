@@ -5,6 +5,7 @@ require "clacky/server/backup_manager"
 require "tmpdir"
 require "fileutils"
 require "digest"
+require "open3"
 
 # Packing a multi-GB ~/.clacky is the slowest part of "download backup" and
 # used to look frozen. build_archive now streams tar through gzip itself so it
@@ -64,15 +65,23 @@ RSpec.describe Clacky::Server::BackupManager, "packing progress" do
     archive = File.join(out_dir, "backup.tar.gz")
 
     ok = described_class.send(:build_archive, archive, described_class::ALWAYS_EXCLUDE)
-    listing = `tar -tzf #{archive}`
+    listing, status = Open3.capture2("tar", "-tzf", archive)
 
     expect(ok).to be(true)
+    expect(status).to be_success
     expect(listing).to include("sessions/s1.json")
     expect(listing).not_to include("trash/")
 
-    # The deflate retry path must not duplicate or drop bytes.
-    system("tar", "-xzf", archive, "-C", out_dir, "big.bin", out: File::NULL, err: File::NULL)
-    expect(Digest::SHA256.file(File.join(out_dir, "big.bin")).hexdigest)
-      .to eq(Digest::SHA256.file(File.join(root, "big.bin")).hexdigest)
+    # Extracting by name is not portable: GNU tar stores members as "./big.bin"
+    # and only matches that exact name, while bsdtar matches "big.bin" too.
+    extract_dir = Dir.mktmpdir("clacky-backup-extract")
+    begin
+      expect(system("tar", "-xzf", archive, "-C", extract_dir, out: File::NULL, err: File::NULL)).to be(true)
+      # The deflate retry path must not duplicate or drop bytes.
+      expect(Digest::SHA256.file(File.join(extract_dir, "big.bin")).hexdigest)
+        .to eq(Digest::SHA256.file(File.join(root, "big.bin")).hexdigest)
+    ensure
+      FileUtils.rm_rf(extract_dir)
+    end
   end
 end
