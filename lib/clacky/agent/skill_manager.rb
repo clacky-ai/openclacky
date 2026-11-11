@@ -99,8 +99,10 @@ module Clacky
       MAX_CONTEXT_MCP_SERVERS = 10
 
       # Bounds on the memories listing injected into recall/persist-memory skills.
-      # Per-field caps stop one oversized frontmatter from bloating the whole list.
-      MAX_MEMORIES_META_FILES = 60
+      # The file cap is an LRU shortlist, not a hard limit: older files stay
+      # reachable via grep. Per-field caps stop one oversized frontmatter from
+      # bloating the whole list.
+      MAX_MEMORIES_META_FILES = 20
       MAX_MEMORY_TOPIC_CHARS = 100
       MAX_MEMORY_DESCRIPTION_CHARS = 150
 

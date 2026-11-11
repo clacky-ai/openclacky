@@ -156,11 +156,12 @@ RSpec.describe "SkillManager memory helpers" do
       end
     end
 
-    it "lists every file when there are more than 20 but no more than the cap" do
-      write_many(25)
+    it "lists every file without a hint when at the cap" do
+      cap = Clacky::Agent::SkillManager::MAX_MEMORIES_META_FILES
+      write_many(cap)
 
       result = agent.load_memories_meta
-      expect(result.scan("| topic:").length).to eq(25)
+      expect(result.scan("| topic:").length).to eq(cap)
       expect(result).not_to include("older memories not listed")
     end
 
