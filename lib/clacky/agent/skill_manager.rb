@@ -98,6 +98,14 @@ module Clacky
       # so excessive mcp.json entries don't quietly bloat the system prompt.
       MAX_CONTEXT_MCP_SERVERS = 10
 
+      # Bounds on the memories listing injected into recall/persist-memory skills.
+      # The file cap is an LRU shortlist, not a hard limit: older files stay
+      # reachable via grep. Per-field caps stop one oversized frontmatter from
+      # bloating the whole list.
+      MAX_MEMORIES_META_FILES = 20
+      MAX_MEMORY_TOPIC_CHARS = 100
+      MAX_MEMORY_DESCRIPTION_CHARS = 150
+
       # Process-wide deduper for the "skill context limit" warning so that
       # every newly constructed Agent (sub-agents, retries, web turns…) doesn't
       # re-emit the same line.
@@ -494,11 +502,12 @@ module Clacky
         memories_dir = memories_base_dir
         return "(No long-term memories found.)" unless Dir.exist?(memories_dir)
 
-        files = Dir.glob(File.join(memories_dir, "*.md"))
-                    .sort_by { |f| File.mtime(f) }
-                    .reverse
-                    .first(20)
-        return "(No long-term memories found.)" if files.empty?
+        all_files = Dir.glob(File.join(memories_dir, "*.md"))
+                       .sort_by { |f| File.mtime(f) }
+                       .reverse
+        return "(No long-term memories found.)" if all_files.empty?
+
+        files = all_files.first(MAX_MEMORIES_META_FILES)
 
         lines = ["Available memory files in ~/.clacky/memories/:"]
         lines << ""
@@ -506,8 +515,8 @@ module Clacky
         files.each do |path|
           filename = File.basename(path)
           fm = parse_memory_frontmatter(path)
-          topic       = fm["topic"]       || filename.sub(/\.md$/, "")
-          description = fm["description"] || "(no description)"
+          topic       = truncate_memory_field(fm["topic"] || filename.sub(/\.md$/, ""), MAX_MEMORY_TOPIC_CHARS)
+          description = truncate_memory_field(fm["description"] || "(no description)", MAX_MEMORY_DESCRIPTION_CHARS)
           # Use file mtime as the "last seen" signal (covers both writes and
           # touch-on-recall LRU bumps). Authoritative — no longer relies on
           # an LLM-maintained `updated_at` frontmatter field.
@@ -518,7 +527,19 @@ module Clacky
           lines << entry
         end
 
+        omitted = all_files.size - files.size
+        if omitted > 0
+          lines << ""
+          lines << "(#{omitted} older memories not listed — search ~/.clacky/memories/ with grep if needed)"
+        end
+
         lines.join("\n")
+      end
+
+      # Collapse to a single line so each memory occupies exactly one entry in the listing.
+      private def truncate_memory_field(value, max_chars)
+        text = value.to_s.gsub(/\s+/, " ").strip
+        text.length > max_chars ? "#{text[0, max_chars]}…" : text
       end
 
       # Base directory for long-term memories. Override in tests for isolation.
