@@ -37,7 +37,7 @@ RSpec.describe "Quote selection persistence during live session updates" do
       /if \(options\.replace\).*?QuoteSelect\.dismiss\(\).*?RenderTarget\.outer\(\)\.replaceChildren\(\);/m
     )
     expect(sessions_js).to match(
-      /_cacheActiveAndDeselect\(\).*?QuoteSelect\.dismiss\(\)/m
+      /_cacheActiveAndDeselect\(\{ render = true \} = \{\}\).*?QuoteSelect\.dismiss\(\)/m
     )
   end
 end

@@ -22,6 +22,15 @@ RSpec.describe "Web session reference drag and drop" do
     expect(sessions).to include('type: "session"')
   end
 
+  it "selects on pointerup so WebKit's drag session cannot swallow the click" do
+    # WebKit starts a native drag on any press of a draggable element and then
+    # never dispatches click, so selection must not depend on click alone.
+    expect(sessions).to include("el.draggable = true")
+    expect(sessions).to include('el.addEventListener("pointerup"')
+    expect(sessions).to include("selectHandled")
+    expect(sessions).to include("suppressSelectUntil")
+  end
+
   it "binds the chat column and the new-session page as shared drop zones" do
     expect(sessions).to include('zone: document.getElementById("chat-main")')
     expect(sessions).not_to include('zone: document.getElementById("chat-panel")')

@@ -875,6 +875,9 @@ body {
   min-height: 0;
   padding: 0 6px 8px;
   margin-right: -1px;
+  /* Same reason as the message pane: keep the 4px track reserved so a
+     rebuild that shortens the list never shifts the rows sideways. */
+  scrollbar-gutter: stable;
   scrollbar-width: thin;
   scrollbar-color: transparent transparent;
 }
@@ -4578,6 +4581,10 @@ body {
   flex: 1;
   overflow-y: auto;
   overflow-x: hidden;
+  /* Reserve the scrollbar track on every platform: a session switch that
+     replaces a long history with a short one used to add/remove the bar and
+     reflow the column by its width — read as a flicker in Safari. */
+  scrollbar-gutter: stable;
   padding: 1.75rem 1.25rem 1.25rem;
   display: flex;
   flex-direction: column;
