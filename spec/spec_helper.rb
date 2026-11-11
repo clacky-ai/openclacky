@@ -28,7 +28,7 @@ Clacky::ExtensionLoader.send(:remove_const, :LEGACY_DISABLED_FILE)
 Clacky::ExtensionLoader.const_set(:LEGACY_DISABLED_FILE, File.join(TEST_EXT_DIR, "disabled.json"))
 
 TEST_PROJECTS_FILE = File.join(Dir.mktmpdir("clacky_projects_test"), "projects.json")
-TEST_RESTART_RESUME_FILE = File.join(Dir.mktmpdir("clacky_restart_resume_test"), "restart_resume.json")
+TEST_RESTART_MARKER_FILE = File.join(Dir.mktmpdir("clacky_restart_marker_test"), "restart.marker")
 
 RSpec.configure do |config|
   # Enable flags like --only-failures and --next-failure
@@ -49,8 +49,8 @@ RSpec.configure do |config|
   config.before(:suite) do
     Clacky::Server::ProjectManager.send(:remove_const, :PROJECTS_FILE)
     Clacky::Server::ProjectManager.const_set(:PROJECTS_FILE, TEST_PROJECTS_FILE)
-    Clacky::Server::HttpServer.send(:remove_const, :RESTART_RESUME_FILE)
-    Clacky::Server::HttpServer.const_set(:RESTART_RESUME_FILE, TEST_RESTART_RESUME_FILE)
+    Clacky::Server::HttpServer.send(:remove_const, :RESTART_MARKER_FILE)
+    Clacky::Server::HttpServer.const_set(:RESTART_MARKER_FILE, TEST_RESTART_MARKER_FILE)
   end
 
   config.expect_with :rspec do |c|

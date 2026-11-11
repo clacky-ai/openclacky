@@ -1938,14 +1938,12 @@ RSpec.describe Clacky::Server::HttpServer do
 
   describe "#interrupt_all_agents (private)" do
     let(:sessions_dir) { Dir.mktmpdir("clacky_interrupt_spec_sessions") }
-    let(:resume_file) { File.join(sessions_dir, "restart_resume.json") }
 
     after { FileUtils.rm_rf(sessions_dir) }
 
     # Production waits 2s per stuck thread; three of them would burn 6s of pure
     # idle time. The serial-wait behaviour is what matters, not the magnitude.
     before { stub_const("#{described_class}::AGENT_INTERRUPT_JOIN_SECONDS", 0.2) }
-    before { stub_const("#{described_class}::RESTART_RESUME_FILE", resume_file) }
 
     def build_server
       described_class.new(
@@ -2065,83 +2063,94 @@ RSpec.describe Clacky::Server::HttpServer do
       stuck_threads.each(&:kill)
       stuck_threads.each(&:join)
     end
-
-    describe "restart resume list" do
-      def register(server, sid, agent, thread)
-        registry = server.instance_variable_get(:@registry)
-        registry.create(session_id: sid)
-        registry.with_session(sid) { |s| s[:agent] = agent; s[:thread] = thread }
-      end
-
-      it "records running non-ext sessions and carries the resume count forward" do
-        server = build_server
-        fresh = spawn_interruptible_agent_thread
-        resumed = spawn_interruptible_agent_thread
-        resumed[:restart_resumes] = 1
-        register(server, "fresh", fake_agent("fresh"), fresh)
-        register(server, "resumed", fake_agent("resumed"), resumed)
-        register(server, "work", fake_agent("work", source: :ext), spawn_interruptible_agent_thread)
-
-        server.send(:interrupt_all_agents)
-
-        expect(JSON.parse(File.read(resume_file))).to eq("fresh" => 1, "resumed" => 2)
-      end
-
-      it "writes nothing when no session was running" do
-        build_server.send(:interrupt_all_agents)
-
-        expect(File.exist?(resume_file)).to be(false)
-      end
-    end
   end
 
   describe "#resume_interrupted_sessions (private)" do
     let(:sessions_dir) { Dir.mktmpdir("clacky_resume_spec_sessions") }
-    let(:resume_file) { File.join(sessions_dir, "restart_resume.json") }
+    let(:marker_file) { File.join(sessions_dir, "restart.marker") }
 
-    before { stub_const("#{described_class}::RESTART_RESUME_FILE", resume_file) }
+    before { stub_const("#{described_class}::RESTART_MARKER_FILE", marker_file) }
     after { FileUtils.rm_rf(sessions_dir) }
 
-    def build_server(resume_sessions:)
+    def build_server
       server = described_class.new(
         agent_config: agent_config, client_factory: -> { double("client") },
-        sessions_dir: sessions_dir, resume_sessions: resume_sessions
+        sessions_dir: sessions_dir
       )
       allow(server.instance_variable_get(:@registry)).to receive(:ensure).and_return(true)
       server
     end
 
-    it "resumes listed sessions under the restart cap and consumes the list" do
-      File.write(resume_file, JSON.generate("a" => 1, "b" => 2, "loop" => 3))
-      server = build_server(resume_sessions: true)
+    def save_session(server, id, last_status:, updated_at:, resumes: 0, source: "manual")
+      server.instance_variable_get(:@session_manager).save(
+        session_id: id, created_at: "2026-01-01T00:00:00", name: "T",
+        updated_at: updated_at, source: source, messages: [],
+        stats: { last_status: last_status, restart_resumes: resumes }
+      )
+    end
+
+    it "resumes sessions the restart interrupted and consumes the marker" do
+      File.write(marker_file, (Time.now - 1).iso8601)
+      server = build_server
+      now = Time.now.iso8601
+      save_session(server, "a", last_status: "interrupted", updated_at: now, resumes: 0)
+      save_session(server, "b", last_status: "interrupted", updated_at: now, resumes: 1)
+      save_session(server, "loop", last_status: "interrupted", updated_at: now, resumes: 2)
       resumed = []
       allow(server).to receive(:run_session_task) do |sid, prompt, display_message:, background:, &around|
         expect(prompt).to eq(described_class::RESTART_RESUME_PROMPT)
         expect(background).to be(true)
         expect(display_message).not_to be_empty
-        resumed << [sid, around.call(-> { Thread.current[:restart_resumes] }, nil)]
+        agent = Struct.new(:restart_resumes).new(sid == "loop" ? 2 : sid == "b" ? 1 : 0)
+        seen = nil
+        result = around.call(-> { seen = agent.restart_resumes; :ran }, agent)
+        resumed << [sid, seen, result, agent.restart_resumes]
+        true
       end
 
       server.send(:resume_interrupted_sessions)
 
-      expect(resumed).to eq([["a", 1], ["b", 2]])
-      expect(Thread.current[:restart_resumes]).to be_nil
-      expect(File.exist?(resume_file)).to be(false)
+      expect(resumed).to eq([["a", 1, :ran, 0], ["b", 2, :ran, 0]])
+      expect(File.exist?(marker_file)).to be(false)
     end
 
-    it "only consumes the list when the worker was not started by a restart" do
-      File.write(resume_file, JSON.generate("a" => 1))
-      server = build_server(resume_sessions: false)
+    it "ignores sessions that were not cut off by the restart" do
+      File.write(marker_file, Time.now.iso8601)
+      server = build_server
+      save_session(server, "stopped-earlier", last_status: "interrupted", updated_at: (Time.now - 3600).iso8601)
+      save_session(server, "finished", last_status: "success", updated_at: Time.now.iso8601)
+      save_session(server, "host-owned", last_status: "interrupted", updated_at: Time.now.iso8601, source: "ext")
       expect(server).not_to receive(:run_session_task)
 
       server.send(:resume_interrupted_sessions)
 
-      expect(File.exist?(resume_file)).to be(false)
+      expect(File.exist?(marker_file)).to be(false)
+    end
+
+    it "marks the restart before handing off to the master" do
+      server = build_server
+      server.instance_variable_set(:@master_pid, 42)
+      allow(Clacky::ThreadRegistry).to receive(:spawn) { |**_kw, &blk| blk.call }
+      allow(server).to receive(:sleep)
+      allow(Process).to receive(:kill)
+
+      server.send(:schedule_restart)
+
+      expect(Time.parse(File.read(marker_file))).to be <= Time.now
+    end
+
+    it "does nothing without a marker" do
+      server = build_server
+      save_session(server, "a", last_status: "interrupted", updated_at: Time.now.iso8601)
+      expect(server).not_to receive(:run_session_task)
+
+      server.send(:resume_interrupted_sessions)
     end
 
     it "skips sessions that no longer exist" do
-      File.write(resume_file, JSON.generate("gone" => 1))
-      server = build_server(resume_sessions: true)
+      File.write(marker_file, (Time.now - 1).iso8601)
+      server = build_server
+      save_session(server, "gone", last_status: "interrupted", updated_at: Time.now.iso8601)
       allow(server.instance_variable_get(:@registry)).to receive(:ensure).with("gone").and_return(false)
       expect(server).not_to receive(:run_session_task)
 

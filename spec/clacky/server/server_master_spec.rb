@@ -26,18 +26,6 @@ RSpec.describe Clacky::Server::Master do
     captured
   end
 
-  it "asks only restarted workers to resume interrupted sessions" do
-    allow(Clacky::AgentConfig).to receive(:load).and_return(Clacky::AgentConfig.new)
-    envs = []
-    allow(master).to receive(:spawn) { |env, *_args| envs << env; 12_345 }
-
-    master.spawn_worker
-    master.spawn_worker(resume_sessions: true)
-
-    expect(envs[0]).not_to have_key("CLACKY_RESUME_SESSIONS")
-    expect(envs[1]["CLACKY_RESUME_SESSIONS"]).to eq("1")
-  end
-
   it "inherits CLACKY_LICENSE_SERVER when no source has been saved" do
     allow(Clacky::AgentConfig).to receive(:load).and_return(
       Clacky::AgentConfig.new(clacky_license_server: nil)

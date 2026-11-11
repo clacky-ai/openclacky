@@ -202,7 +202,11 @@ module Clacky
       # Consecutive restarts a task may be resumed across; a task that keeps
       # restarting the server (e.g. it runs the upgrade itself) stops here.
       MAX_RESTART_RESUMES = 2
-      RESTART_RESUME_FILE = File.join(Dir.home, ".clacky", "restart_resume.json")
+      # One-shot signal that the previous worker stopped because of a restart.
+      # Written by schedule_restart before anything is interrupted; the fresh
+      # worker reads and deletes it on boot. The ISO timestamp inside is the
+      # cutoff for which interrupted sessions get resumed.
+      RESTART_MARKER_FILE = File.join(Dir.home, ".clacky", "restart.marker")
       RESTART_RESUME_PROMPT = "The server restarted while you were working on the previous request and interrupted it. " \
                               "Continue that task from where it stopped. Actions cut off by the restart may or may not " \
                               "have taken effect, so check the current state before repeating anything with side effects."
@@ -255,9 +259,8 @@ module Clacky
         - 将大目标拆解为可执行的小步骤
       MD
 
-      def initialize(host: "127.0.0.1", port: 7070, agent_config:, client_factory:, brand_test: false, sessions_dir: nil, projects_file: nil, socket: nil, master_pid: nil, resume_sessions: false)
+      def initialize(host: "127.0.0.1", port: 7070, agent_config:, client_factory:, brand_test: false, sessions_dir: nil, projects_file: nil, socket: nil, master_pid: nil)
         @host           = host
-        @resume_sessions = resume_sessions
         @port           = port
         @agent_config   = agent_config
         @client_factory = client_factory  # callable: -> { Clacky::Client.new(...) }
@@ -4158,6 +4161,9 @@ module Clacky
 
       private def schedule_restart
         Clacky::ThreadRegistry.spawn(name: "schedule-restart") do
+          # Mark first: sessions saved while this worker unwinds must land
+          # after the cutoff the next boot's resume scan uses.
+          write_restart_marker
           sleep 0.5  # Let WEBrick flush the HTTP response
 
           if @master_pid
@@ -8678,44 +8684,49 @@ module Clacky
           end
         end
         live.each { |_id, _agent, thread| thread.join(AGENT_INTERRUPT_JOIN_SECONDS) }
-        resumes = {}
-        live.each do |id, agent, thread|
+        live.each do |id, agent, _thread|
           @session_manager.save(agent.to_session_data(status: :interrupted, updated_at: Time.now))
-          # Host services own ext sessions (e.g. delegated work) and recover them their own way.
-          resumes[id] = thread[:restart_resumes].to_i + 1 unless agent.source.to_s == "ext"
         end
-        File.write(RESTART_RESUME_FILE, JSON.generate(resumes)) unless resumes.empty?
       end
 
-      # The list is consumed on every boot so a later restart never replays a
-      # stale one; only a master-driven restart actually resumes the tasks.
+      # The marker (Master writes it right before a restart) both gates and
+      # scopes the resume: its timestamp picks the sessions that restart saved
+      # as interrupted, and consuming it here means a later crash reboot never
+      # replays a stale resume.
       private def resume_interrupted_sessions
-        return unless File.exist?(RESTART_RESUME_FILE)
+        return unless File.exist?(RESTART_MARKER_FILE)
 
-        resumes = JSON.parse(File.read(RESTART_RESUME_FILE)) rescue {}
-        File.delete(RESTART_RESUME_FILE)
-        return unless @resume_sessions
+        cutoff = Time.parse(File.read(RESTART_MARKER_FILE).to_s) rescue nil
+        File.delete(RESTART_MARKER_FILE) rescue nil
+        return unless cutoff
 
-        resumes.each do |session_id, count|
-          if count.to_i > MAX_RESTART_RESUMES
-            Clacky::Logger.warn("[resume] session=#{session_id} skipped after #{count} consecutive restarts")
+        @session_manager.sessions_interrupted_since(cutoff).each do |session|
+          session_id = session[:session_id]
+          if session.dig(:stats, :restart_resumes).to_i >= MAX_RESTART_RESUMES
+            Clacky::Logger.warn("[resume] session=#{session_id} skipped after #{MAX_RESTART_RESUMES} consecutive restarts")
             next
           end
           next unless @registry.ensure(session_id)
 
           started = run_session_task(session_id, RESTART_RESUME_PROMPT,
                                      display_message: Clacky::I18n.t("session.resumed_after_restart"),
-                                     background: true) do |execute, _agent|
-            Thread.current[:restart_resumes] = count.to_i
+                                     background: true) do |execute, agent|
+            agent.restart_resumes += 1
             result = execute.call
-            # Later queued inputs on this thread are fresh work, not a resume.
-            Thread.current[:restart_resumes] = nil
+            # Later queued inputs are fresh work, not another resume.
+            agent.restart_resumes = 0
             result
           end
           Clacky::Logger.info("[resume] session=#{session_id} #{started ? 'resumed' : 'not started (busy or at capacity)'}")
         rescue => e
           Clacky::Logger.error("[resume] session=#{session_id} failed: #{e.class}: #{e.message}")
         end
+      end
+
+      private def write_restart_marker
+        File.write(RESTART_MARKER_FILE, Time.now.iso8601.to_s)
+      rescue => e
+        Clacky::Logger.warn("[Restart] marker not written: #{e.class}: #{e.message}")
       end
 
       # Run an agent task in a background thread, handling status updates,

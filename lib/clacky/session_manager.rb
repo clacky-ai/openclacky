@@ -373,6 +373,24 @@ module Clacky
       all_sessions(current_dir: working_dir).first
     end
 
+    # Sessions saved as interrupted at/after cutoff — the ones a master-driven
+    # restart cut off (see Master#hot_restart, which stamps the marker the
+    # cutoff comes from). Header-first: only recent candidates pay for the full
+    # parse that stats.last_status needs.
+    def sessions_interrupted_since(cutoff)
+      Dir.glob(File.join(@sessions_dir, "*.json")).filter_map do |filepath|
+        meta = load_session_metadata(filepath)
+        next unless meta
+        next if meta[:source] == "ext"
+        updated = Time.parse(meta[:updated_at].to_s) rescue nil
+        next unless updated && updated >= cutoff
+        session = load_session_file(filepath)
+        next unless session
+        next unless session.dig(:stats, :last_status).to_s == "interrupted"
+        session
+      end
+    end
+
     # Delete sessions not accessed within the given number of days (default: 90).
     # Returns count of deleted sessions.
     def cleanup(days: 90)

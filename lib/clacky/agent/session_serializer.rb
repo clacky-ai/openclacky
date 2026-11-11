@@ -36,6 +36,7 @@ module Clacky
         @created_at = session_data[:created_at]
         @persisted_updated_at = session_data[:updated_at]
         @total_tasks = session_data.dig(:stats, :total_tasks) || 0
+        @restart_resumes = session_data.dig(:stats, :restart_resumes) || 0
         # Restore cost_source so frontend knows if cost is reliable
         cost_src = session_data.dig(:stats, :cost_source)
         @cost_source = (cost_src && cost_src.to_sym) || :estimated
@@ -241,6 +242,7 @@ module Clacky
       def to_session_data(status: :success, error_message: nil, raw_message: nil, updated_at: nil)
         stats_data = {
           total_tasks: @total_tasks,
+          restart_resumes: @restart_resumes,
           total_iterations: @iterations,
           total_cost_usd: @total_cost.round(4),
           cost_source: @cost_source.to_s,

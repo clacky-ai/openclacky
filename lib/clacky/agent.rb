@@ -56,6 +56,10 @@ module Clacky
     attr_accessor :pinned
     attr_accessor :channel_info
     attr_accessor :project_id
+    # How many times this unfinished task has already been auto-resumed after
+    # a master-driven restart; persisted in stats so a task that keeps
+    # restarting the server (e.g. it runs the upgrade itself) stops resuming.
+    attr_accessor :restart_resumes
     # ISO8601 stamp set when the user archives the session; nil = active.
     # Archived sessions stay on disk but drop out of every normal list.
     attr_accessor :archived_at
@@ -136,6 +140,7 @@ module Clacky
       @working_dir = working_dir || Dir.pwd
       @created_at = Time.now.iso8601
       @total_tasks = 0
+      @restart_resumes = 0
       @cost_source = :estimated  # Track whether cost is from API or estimated
       @task_cost_source = :estimated  # Track cost source for current task
       @previous_total_tokens = 0  # Track tokens from previous iteration for delta calculation
