@@ -497,8 +497,9 @@ module Clacky
 
       # Scan ~/.clacky/memories/ and return a formatted summary of all memory files.
       # Parses YAML frontmatter (same pattern as Skill#parse_frontmatter) for each file.
+      # @param limit [Integer] max files listed, newest first
       # @return [String] Formatted list of memory topics and descriptions
-      def load_memories_meta
+      def load_memories_meta(limit: MAX_MEMORIES_META_FILES)
         memories_dir = memories_base_dir
         return "(No long-term memories found.)" unless Dir.exist?(memories_dir)
 
@@ -507,7 +508,7 @@ module Clacky
                        .reverse
         return "(No long-term memories found.)" if all_files.empty?
 
-        files = all_files.first(MAX_MEMORIES_META_FILES)
+        files = all_files.first(limit)
 
         lines = ["Available memory files in ~/.clacky/memories/:"]
         lines << ""

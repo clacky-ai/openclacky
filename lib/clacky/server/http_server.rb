@@ -6967,6 +6967,7 @@ module Clacky
           enable_idle_compression: @agent_config.enable_idle_compression,
           enable_prompt_caching: @agent_config.enable_prompt_caching,
           memory_update_enabled: @agent_config.memory_update_enabled,
+          memory_inject_enabled: @agent_config.memory_inject_enabled,
           proxy_url: @agent_config.proxy_url.to_s,
           clacky_license_server: effective_clacky_license_server
         })
@@ -6998,6 +6999,9 @@ module Clacky
         end
         if body.key?("memory_update_enabled")
           @agent_config.memory_update_enabled = !!body["memory_update_enabled"]
+        end
+        if body.key?("memory_inject_enabled")
+          @agent_config.memory_inject_enabled = !!body["memory_inject_enabled"]
         end
         if body.key?("proxy_url")
           raw = body["proxy_url"].to_s.strip
