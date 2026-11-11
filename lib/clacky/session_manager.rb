@@ -373,12 +373,14 @@ module Clacky
       all_sessions(current_dir: working_dir).first
     end
 
-    # Sessions saved as interrupted at/after cutoff — the ones a master-driven
-    # restart cut off (see Master#hot_restart, which stamps the marker the
-    # cutoff comes from). Header-first: only recent candidates pay for the full
-    # parse that stats.last_status needs.
+    # Sessions saved as interrupted at/after cutoff — the ones a restart cut
+    # off (the worker stamps the marker the cutoff comes from, right before
+    # handing off to the master). Header-first: only recent candidates pay for
+    # the full parse that stats.last_status needs.
+    # Sorted because Ruby < 3.0 Dir.glob returns raw readdir order (hash-based
+    # on ext4), and resume order should be deterministic (oldest first).
     def sessions_interrupted_since(cutoff)
-      Dir.glob(File.join(@sessions_dir, "*.json")).filter_map do |filepath|
+      Dir.glob(File.join(@sessions_dir, "*.json")).sort.filter_map do |filepath|
         meta = load_session_metadata(filepath)
         next unless meta
         next if meta[:source] == "ext"
