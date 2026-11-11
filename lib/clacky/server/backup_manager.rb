@@ -1,9 +1,12 @@
 # frozen_string_literal: true
 
 require "fileutils"
+require "find"
+require "open3"
 require "tmpdir"
 require "yaml"
 require "time"
+require "zlib"
 
 module Clacky
   module Server
@@ -20,6 +23,35 @@ module Clacky
     class BackupManager
       CLACKY_DIR  = File.expand_path("~/.clacky")
       CONFIG_FILE = File.join(CLACKY_DIR, "backup.yml")
+
+      # Minimal gzip writer over the raw deflate stream.
+      #
+      # Two reasons not to use Zlib::GzipWriter: it raises Zlib::BufError once
+      # a stream reaches a few MB, and Z_NO_FLUSH intermittently reports "no
+      # progress" (also surfaced as BufError). Flushing every chunk costs ~0.3%
+      # in size on real backups and keeps the stream well-behaved.
+      module GzipStream
+        HEADER = "\x1f\x8b\x08\x00\x00\x00\x00\x00\x00\x03".b
+
+        def self.write(io)
+          io.write(HEADER)
+          deflate = Zlib::Deflate.new(Zlib::DEFAULT_COMPRESSION, -Zlib::MAX_WBITS)
+          crc  = 0
+          size = 0
+
+          yield lambda { |chunk|
+            io.write(deflate.deflate(chunk, Zlib::SYNC_FLUSH))
+            crc = Zlib.crc32(chunk, crc)
+            size += chunk.bytesize
+          }
+
+          io.write(deflate.finish)
+          io.write([crc, size & 0xffffffff].pack("V2"))
+        ensure
+          deflate.close if deflate && !deflate.closed?
+        end
+      end
+      private_constant :GzipStream
 
       # Always excluded — regenerable or disposable.
       ALWAYS_EXCLUDE = %w[
@@ -161,10 +193,74 @@ module Clacky
         end
 
         private def build_archive(archive, excludes)
-          args = ["tar", "-czf", archive, "-C", CLACKY_DIR]
+          total = source_bytes(excludes)
+          done  = 0
+          report_progress(done, total)
+          last_report = Time.now
+
+          args = ["tar", "-c", "-C", CLACKY_DIR]
           excludes.each { |e| args << "--exclude=./#{e}" }
           args << "."
-          system(*args)
+
+          ok = false
+          File.open(archive, "wb") do |out|
+            GzipStream.write(out) do |sink|
+              Open3.popen2(*args) do |stdin, stdout, wait|
+                stdin.close
+                stdout.binmode
+                while (chunk = stdout.read(64 * 1024))
+                  sink.call(chunk)
+                  done += chunk.bytesize
+                  # Throttled: one update per 100ms is plenty for a 500ms
+                  # poll and keeps the mutex out of the copy loop.
+                  if Time.now - last_report >= 0.1
+                    report_progress(done, total)
+                    last_report = Time.now
+                  end
+                end
+                ok = wait.value.success?
+              end
+            end
+          end
+          ok
+        ensure
+          report_progress(nil, nil)
+        end
+
+        # Source bytes the archive will read, so the UI can show a real
+        # percentage instead of a spinner. `tar` itself reports nothing.
+        private def source_bytes(excludes)
+          total = 0
+          Find.find(CLACKY_DIR) do |path|
+            next if path == CLACKY_DIR
+
+            rel = path[(CLACKY_DIR.length + 1)..-1]
+            if excludes.include?(rel.to_s.split("/", 2).first)
+              Find.prune if File.lstat(path).directory?
+              next
+            end
+
+            stat = File.lstat(path)
+            total += stat.size if stat.file?
+          rescue SystemCallError
+            next
+          end
+          total
+        end
+
+        # { done:, total: } while packing, nil otherwise. Polled by the UI.
+        def progress
+          progress_mutex.synchronize { @progress && @progress.dup }
+        end
+
+        private def report_progress(done, total)
+          progress_mutex.synchronize do
+            @progress = done.nil? ? nil : { done: done, total: total }
+          end
+        end
+
+        private def progress_mutex
+          @progress_mutex ||= Mutex.new
         end
 
         private def prune(dest, keep)

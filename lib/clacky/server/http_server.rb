@@ -667,13 +667,10 @@ module Clacky
           30
         elsif path == "/api/media/video/understand"
           60
-        elsif path == "/api/backup/restore"
-          # Upload + extract + swap of a multi-GB ~/.clacky; the body read
-          # alone can take minutes on a slow disk.
+        elsif path == "/api/backup/restore" || path == "/api/backup/run" || path.start_with?("/api/backup/download")
+          # Restore (upload + extract + swap), run (packing to disk) and
+          # download (packing + streaming a large body) can take minutes.
           600
-        elsif path.start_with?("/api/backup/download") || path == "/api/backup/run"
-          # Building a tar.gz of ~/.clacky can take a while.
-          120
         elsif path == "/api/store/extension/install"
           10  # now async — just spawns a thread and returns job_id immediately
         elsif path == "/api/store/extension/import"
@@ -749,6 +746,7 @@ module Clacky
         when ["GET",    "/api/backup/status"]     then api_backup_status(res)
         when ["POST",   "/api/backup/run"]        then api_backup_run(res)
         when ["GET",    "/api/backup/download"]   then api_backup_download(res)
+        when ["GET",    "/api/backup/progress"]   then api_backup_progress(res)
         when ["POST",   "/api/backup/restore"]    then api_backup_restore(req, res)
         when ["POST",   "/api/backup/open-folder"] then api_backup_open_folder(res)
         when ["PATCH",  "/api/backup/config"]     then api_backup_config(req, res)
@@ -1813,6 +1811,17 @@ module Clacky
       ensure
         FileUtils.rm_f(result[:path]) if result && result[:path]
       end
+      # GET /api/backup/progress — packing progress of the archive the
+      # download endpoint is currently building. Polled by the settings page.
+      def api_backup_progress(res)
+        p = BackupManager.progress
+        if p
+          json_response(res, 200, { packing: true, done: p[:done], total: p[:total] })
+        else
+          json_response(res, 200, { packing: false })
+        end
+      end
+
       # Body: { enabled?, cron?, dest_dir?, keep?, include_sessions? }
       def api_backup_config(req, res)
         body = parse_json_body(req) || {}
