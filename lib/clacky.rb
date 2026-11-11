@@ -227,6 +227,7 @@ module Clacky
   class UpstreamTruncatedError < RetryableError; end
   class ToolCallError < AgentError; end  # Raised when tool call fails due to invalid parameters
   class BrowserNotReachableError < AgentError; end  # Chrome/Edge not running or remote debugging disabled
+  class BrowserNotConfiguredError < AgentError; end  # browser.yml missing: /browser-setup never ran
   class FanoutTimeoutError < AgentError; end  # A fan-out job exceeded the batch wall-clock budget
   # BrowserManager singleton: Clacky::BrowserManager.instance
 end

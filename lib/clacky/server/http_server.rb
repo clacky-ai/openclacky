@@ -1753,6 +1753,8 @@ module Clacky
       def api_browser_toggle(res)
         enabled = @browser_manager.toggle
         json_response(res, 200, { ok: true, enabled: enabled })
+      rescue Clacky::BrowserNotConfiguredError => e
+        json_response(res, 409, { ok: false, code: "not_configured", error: e.message })
       rescue StandardError => e
         json_response(res, 500, { ok: false, error: e.message })
       end

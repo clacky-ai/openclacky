@@ -8581,9 +8581,15 @@ a.msg-mention-badge:hover { text-decoration: underline; }
 .toggle-slider {
   position: absolute;
   inset: 0;
-  background: var(--color-border-primary);
+  background: color-mix(in srgb, var(--color-text-tertiary) 38%, transparent);
   border-radius: 20px;
-  transition: background 0.2s;
+  transition: background 0.2s, box-shadow 0.2s;
+}
+.toggle-switch:hover .toggle-slider {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-accent-primary) 22%, transparent);
+}
+.toggle-switch input:focus-visible + .toggle-slider {
+  box-shadow: 0 0 0 2px var(--color-accent-primary);
 }
 .toggle-slider::before {
   content: "";
@@ -8601,6 +8607,12 @@ a.msg-mention-badge:hover { text-decoration: underline; }
 }
 .toggle-switch input:checked + .toggle-slider::before {
   transform: translateX(1rem);
+}
+.toggle-switch input:disabled + .toggle-slider {
+  opacity: 0.5;
+}
+.toggle-switch input:disabled + .toggle-slider::before {
+  opacity: 0.9;
 }
 
 /* ── Model card ──────────────────────────────────────────────────────────── */

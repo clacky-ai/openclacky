@@ -177,6 +177,20 @@ RSpec.describe Clacky::BrowserManager do
         expect(s[:daemon_running]).to be false
         expect(s[:chrome_version]).to be_nil
       end
+
+      it "reports configured: false so the UI can tell it apart from switched off" do
+        expect(manager.status[:configured]).to be false
+      end
+    end
+
+    context "when browser.yml exists but is switched off" do
+      before { write_config("enabled" => false, "chrome_version" => "148") }
+
+      it "reports configured: true and enabled: false" do
+        s = manager.status
+        expect(s[:configured]).to be true
+        expect(s[:enabled]).to be false
+      end
     end
 
     context "when enabled: true and chrome_version set" do
@@ -239,6 +253,25 @@ RSpec.describe Clacky::BrowserManager do
       manager.configure(chrome_version: "148")
       cfg = manager.send(:load_config)
       expect(cfg["screenshot_max_base64_bytes"]).to eq(300_000)
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # #toggle
+  # ---------------------------------------------------------------------------
+  describe "#toggle" do
+    it "raises BrowserNotConfiguredError when browser.yml does not exist" do
+      expect { manager.toggle }.to raise_error(Clacky::BrowserNotConfiguredError, /not configured/)
+    end
+
+    it "flips the persisted enabled flag" do
+      write_config("enabled" => false, "chrome_version" => "148")
+      allow(manager).to receive(:reload)
+
+      expect(manager.toggle).to be true
+      expect(manager.send(:load_config)["enabled"]).to be true
+      expect(manager.toggle).to be false
+      expect(manager.send(:load_config)["enabled"]).to be false
     end
   end
 

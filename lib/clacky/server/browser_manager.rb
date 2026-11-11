@@ -111,12 +111,17 @@ module Clacky
 
     # Returns a status hash with real daemon liveness.
     # Uses wait_thr.alive? for a lightweight check — no ping, no mutex needed.
-    # @return [Hash] { enabled: bool, daemon_running: bool, chrome_version: String|nil }
+    # `configured` tells "browser.yml was never written" apart from "set up but
+    # switched off"; `enabled` alone cannot, because it is just false in both.
+    # @return [Hash] { configured: bool, enabled: bool, daemon_running: bool,
+    #                  chrome_version: String|nil }
     def status
-      cfg     = load_config
-      enabled = cfg["enabled"] == true
+      cfg        = load_config
+      configured = File.exist?(BROWSER_CONFIG_PATH)
+      enabled    = cfg["enabled"] == true
       running = @process && @process[:wait_thr]&.alive?
       {
+        configured:                  configured,
         enabled:                     enabled,
         daemon_running:              !!running,
         chrome_version:              cfg["chrome_version"],
@@ -146,7 +151,7 @@ module Clacky
     # @param max_base64_bytes [Integer, nil] screenshot size ceiling in bytes
     # @return [Hash] the effective settings after the update
     def update_screenshot_settings(max_base64_bytes: nil)
-      raise "Browser not configured. Run /browser-setup first." unless File.exist?(BROWSER_CONFIG_PATH)
+      raise Clacky::BrowserNotConfiguredError, "Browser not configured. Run /browser-setup first." unless File.exist?(BROWSER_CONFIG_PATH)
 
       if !max_base64_bytes.nil? && !(max_base64_bytes.is_a?(Integer) && max_base64_bytes.positive?)
         raise ArgumentError, "screenshot_max_base64_bytes must be a positive integer"
@@ -164,7 +169,7 @@ module Clacky
     # Raises if browser.yml doesn't exist (not yet set up).
     # @return [Boolean] new enabled state
     def toggle
-      raise "Browser not configured. Run /browser-setup first." unless File.exist?(BROWSER_CONFIG_PATH)
+      raise Clacky::BrowserNotConfiguredError, "Browser not configured. Run /browser-setup first." unless File.exist?(BROWSER_CONFIG_PATH)
 
       cfg         = load_config
       new_enabled = !(cfg["enabled"] == true)
