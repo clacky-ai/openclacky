@@ -328,6 +328,9 @@ module Clacky
         # One-time migration: move legacy trash contents into file-trash/ subdirectory.
         Clacky::TrashDirectory.migrate_legacy_if_needed
 
+        # Drop the tree a previous backup restore parked next to ~/.clacky.
+        sweep_pre_restore_dirs
+
         # Enable console logging for the server process so log lines are visible
         # in the terminal. Only echo when stderr is a real terminal — under a
         # LaunchAgent it's redirected to the log file, and echoing would write
@@ -664,8 +667,12 @@ module Clacky
           30
         elsif path == "/api/media/video/understand"
           60
-        elsif path.start_with?("/api/backup/download") || path == "/api/backup/run" || path == "/api/backup/restore"
-          # Building/extracting a tar.gz of ~/.clacky can take a while.
+        elsif path == "/api/backup/restore"
+          # Upload + extract + swap of a multi-GB ~/.clacky; the body read
+          # alone can take minutes on a slow disk.
+          600
+        elsif path.start_with?("/api/backup/download") || path == "/api/backup/run"
+          # Building a tar.gz of ~/.clacky can take a while.
           120
         elsif path == "/api/store/extension/install"
           10  # now async — just spawns a thread and returns job_id immediately
@@ -6803,25 +6810,48 @@ module Clacky
         })
       end
 
-      # POST /api/backup/restore — accept a tar.gz upload, extract over ~/.clacky, hot-restart
+      # POST /api/backup/restore — accept a tar.gz upload, swap it in over
+      # ~/.clacky, then hot-restart.
+      #
+      # The archive can be several hundred MB while ~/.clacky can be several
+      # GB, so nothing here buffers or copies the whole tree: the upload is
+      # streamed to disk, extracted into a sibling staging directory, and
+      # swapped in with two renames. A bad archive therefore never leaves
+      # ~/.clacky half-overwritten.
       def api_backup_restore(req, res)
-        body = req.body.to_s
-        return json_response(res, 400, { error: "Empty body" }) if body.empty?
-
-        clacky_dir = File.expand_path("~/.clacky")
-        stamp      = Time.now.strftime("%Y%m%d-%H%M%S")
+        clacky_dir  = File.expand_path("~/.clacky")
+        parent      = File.dirname(clacky_dir)
+        stamp       = Time.now.strftime("%Y%m%d-%H%M%S")
         tmp_archive = File.join(Dir.tmpdir, "clacky-restore-#{stamp}.tar.gz")
-        tmp_backup  = File.join(Dir.tmpdir, "clacky-pre-restore-#{stamp}")
+        staging     = File.join(parent, ".clacky-restore-#{stamp}")
+        retired     = File.join(parent, ".clacky-pre-restore-#{stamp}")
 
-        File.binwrite(tmp_archive, body)
+        received = 0
+        File.open(tmp_archive, "wb") do |f|
+          req.body do |chunk|
+            received += chunk.bytesize
+            f.write(chunk)
+          end
+        end
+        return json_response(res, 400, { error: "Empty body" }) if received.zero?
+        unless gzip_archive?(tmp_archive)
+          return json_response(res, 400, { error: "Not a .tar.gz archive" })
+        end
 
-        FileUtils.cp_r(clacky_dir, tmp_backup)
-
-        result = system("tar", "-xzf", tmp_archive, "-C", clacky_dir)
-        unless result
-          FileUtils.rm_rf(clacky_dir)
-          FileUtils.cp_r(tmp_backup, clacky_dir)
+        FileUtils.rm_rf(staging)
+        FileUtils.mkdir_p(staging)
+        unless system("tar", "-xzf", tmp_archive, "-C", staging)
+          FileUtils.rm_rf(staging)
           return json_response(res, 500, { error: "Failed to extract archive" })
+        end
+
+        FileUtils.rm_rf(retired)
+        File.rename(clacky_dir, retired)
+        begin
+          File.rename(staging, clacky_dir)
+        rescue => e
+          File.rename(retired, clacky_dir)
+          raise e
         end
 
         json_response(res, 200, { ok: true })
@@ -6839,10 +6869,33 @@ module Clacky
           end
         end
       rescue => e
+        FileUtils.rm_rf(staging) if staging && Dir.exist?(staging)
         json_response(res, 500, { ok: false, error: e.message })
       ensure
         FileUtils.rm_f(tmp_archive) if tmp_archive
-        FileUtils.rm_rf(tmp_backup) if tmp_backup && Dir.exist?(tmp_backup)
+      end
+
+      # A restore leaves the previous tree behind as .clacky-pre-restore-*, so
+      # the swap stays reversible until the new worker is up. Keeping it any
+      # longer just wastes gigabytes.
+      private def sweep_pre_restore_dirs
+        pattern = File.join(File.dirname(File.expand_path("~/.clacky")), ".clacky-pre-restore-*")
+        dirs    = Dir.glob(pattern)
+        return if dirs.empty?
+
+        Clacky::ThreadRegistry.spawn(name: "sweep-pre-restore") do
+          dirs.each do |dir|
+            begin
+              FileUtils.rm_rf(dir)
+            rescue => e
+              Clacky::Logger.warn("[HttpServer] could not remove #{dir}: #{e.class}: #{e.message}")
+            end
+          end
+        end
+      end
+
+      private def gzip_archive?(path)
+        File.open(path, "rb") { |f| f.read(2) } == "\x1F\x8B".b
       end
 
       # POST /api/backup/open-folder — open the backup destination in Finder/Explorer
