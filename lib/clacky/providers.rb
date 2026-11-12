@@ -38,8 +38,6 @@ module Clacky
           "auto",
           "dsk-deepseek-v4.1-flash",
           "dsk-deepseek-v4-pro",
-          "oc-glm-5.3",
-          "oc-kimi-k3",
           "abs-claude-fable-5-2",
           "abs-claude-fable-5-1",
           "abs-claude-fable-5",
@@ -61,7 +59,9 @@ module Clacky
           "abs-gpt-5.6-luna",
           "or-gemini-4-argon",
           "or-gemini-3-1-pro",
-          "or-gemini-3-8-flash"
+          "or-gemini-3-8-flash",
+          "oc-glm-5.3",
+          "oc-kimi-k3"
         ],
         # Image generation models served by the openclacky platform
         # gateway. The gateway exposes a standard OpenAI-compatible
