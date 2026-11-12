@@ -111,6 +111,16 @@ RSpec.describe Clacky::Agent::MemoryUpdater do
       expect(prompt).to include("4000 characters")
     end
 
+    it "excludes re-derivable knowledge such as code paths, git history, and fixes" do
+      prompt = agent.send(:build_memory_update_prompt)
+
+      expect(prompt).to include("Never persist what can be re-derived")
+      expect(prompt).to match(/file paths/i)
+      expect(prompt).to match(/Git history/i)
+      expect(prompt).to match(/how a bug was fixed/i)
+      expect(prompt).to match(/persist only the decision and its reason/i)
+    end
+
     it "embeds the persist-memory skill body via skill.process_content" do
       prompt = agent.send(:build_memory_update_prompt)
       expect(fake_skill).to have_received(:process_content)

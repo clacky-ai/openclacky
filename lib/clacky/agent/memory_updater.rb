@@ -188,6 +188,22 @@ module Clacky
           - Any task that produced no lasting decisions or preferences
           - Repeating or slightly rephrasing what is already in memory
 
+          ## Never persist what can be re-derived
+
+          Code and git are the source of truth; a memory that copies them goes stale
+          silently and later misleads. Do NOT persist:
+
+          - Code structure, architecture, file paths, class/method names, line numbers
+          - Implementation details of a feature that was just built or changed
+          - Git history, change logs, PR contents, or "what was modified"
+          - Debugging steps, root-cause narratives, or how a bug was fixed
+          - Content already in project rules or docs (.clackyrules, README, AGENTS.md, etc.)
+          - Temporary task state, progress, or TODOs of the current conversation
+
+          If a session's only takeaways fall into this list, write nothing. When a
+          whitelisted item involves code, persist only the decision and its reason,
+          not the implementation.
+
           ═══════════════════════════════════════════════════════════════
           EXECUTOR MANUAL (from persist-memory skill)
           ═══════════════════════════════════════════════════════════════
