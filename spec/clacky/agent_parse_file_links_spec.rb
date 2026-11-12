@@ -50,3 +50,89 @@ RSpec.describe Clacky::Agent, "#parse_file_links" do
     expect(parse("no links here")).to eq(text: "no links here", files: [])
   end
 end
+
+RSpec.describe Clacky::Agent, "#normalize_file_links" do
+  let(:client) do
+    instance_double(Clacky::Client).tap { |c| c.instance_variable_set(:@api_key, "k") }
+  end
+  let(:config) do
+    c = Clacky::AgentConfig.new(permission_mode: :auto_approve)
+    c.add_model(model: "claude-sonnet-4.5", api_key: "k", base_url: "https://api.anthropic.com")
+    c
+  end
+  let(:agent) do
+    described_class.new(client, config, working_dir: Dir.pwd, ui: nil,
+                        profile: "coding", session_id: Clacky::SessionManager.generate_id, source: :manual)
+  end
+
+  def normalize(content)
+    agent.send(:normalize_file_links, content)
+  end
+
+  def with_tmp_file(name)
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, name)
+      File.write(path, "x")
+      yield path
+    end
+  end
+
+  def project_ref(decoded)
+    "/workspace/projects/#{Base64.urlsafe_encode64(decoded, padding: false)}"
+  end
+
+  it "decodes a hosted-platform project ref back to a file:// link" do
+    with_tmp_file("报告.pdf") do |path|
+      expect(normalize("[报告](#{project_ref("cch1:file://#{path}")})"))
+        .to eq("[报告](file://#{path})")
+    end
+  end
+
+  it "decodes a project ref wrapped in the local server origin" do
+    with_tmp_file("report.pdf") do |path|
+      ref = project_ref("cch1:file://#{path}")
+      expect(normalize("[report](http://127.0.0.1:7070#{ref})"))
+        .to eq("[report](file://#{path})")
+    end
+  end
+
+  it "prefixes a bare absolute path with file://" do
+    with_tmp_file("report.pdf") do |path|
+      expect(normalize("[report](#{path})")).to eq("[report](file://#{path})")
+    end
+  end
+
+  it "leaves an existing file:// link untouched" do
+    with_tmp_file("report.pdf") do |path|
+      expect(normalize("[report](file://#{path})")).to eq("[report](file://#{path})")
+    end
+  end
+
+  it "leaves paths that do not exist locally untouched" do
+    content = "[x](/tmp/definitely-missing-#{SecureRandom.hex(6)}.pdf)"
+    expect(normalize(content)).to eq(content)
+  end
+
+  it "does not touch site routes or external links" do
+    content = "[api](/api/sessions) [docs](/docs/getting-started) [web](https://example.com/a) [mail](mailto:a@b.c)"
+    expect(normalize(content)).to eq(content)
+  end
+
+  it "keeps a malformed project ref as-is" do
+    content = "[x](/workspace/projects/!!!not-base64)"
+    expect(normalize(content)).to eq(content)
+  end
+
+  it "normalizes links before the message leaves the agent" do
+    with_tmp_file("report.pdf") do |path|
+      received = nil
+      ui = double("ui")
+      allow(ui).to receive(:show_assistant_message) { |content, **_kw| received = content }
+      agent.instance_variable_set(:@ui, ui)
+
+      agent.send(:emit_assistant_message, "[report](#{project_ref("cch1:file://#{path}")})")
+
+      expect(received).to eq("[report](file://#{path})")
+    end
+  end
+end
