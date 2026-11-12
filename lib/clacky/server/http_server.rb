@@ -608,7 +608,7 @@ module Clacky
         path   = req.path
         method = req.request_method
 
-        Thread.current[:lang] = req["X-Lang"].to_s.strip.then { |l| l.empty? ? nil : l }
+        Thread.current[:lang] = Clacky::I18n.normalize(req["X-Lang"])
 
         # CORS preflight — must run BEFORE the access-key guard because a
         # browser preflight carries no credentials (only the
@@ -2581,7 +2581,7 @@ module Clacky
       # on the next server start when the user chooses to skip the conversation.
       def api_onboard_skip_soul(req, res)
         body = parse_json_body(req)
-        lang = body["lang"].to_s.strip
+        lang = Clacky::I18n.normalize(body["lang"]) || Clacky::I18n.env_locale
         soul_content = lang == "zh" ? DEFAULT_SOUL_MD_ZH : DEFAULT_SOUL_MD
 
         agents_dir = File.expand_path("~/.clacky/agents")
@@ -3206,7 +3206,7 @@ module Clacky
         dir = container[:dir].to_s
         return nil if dir.empty?
 
-        names = Thread.current[:lang].to_s.start_with?("zh") ? %w[README.zh.md README.md] : %w[README.md]
+        names = Clacky::I18n.locale == "zh" ? %w[README.zh.md README.md] : %w[README.md]
         path  = names.map { |n| File.join(dir, n) }.find { |p| File.file?(p) }
         path && File.read(path, encoding: "UTF-8")
       end
@@ -8297,6 +8297,13 @@ module Clacky
         msg = JSON.parse(raw)
         type = msg["type"]
 
+        # WS frames carry the language because the handshake cannot. Thread#[]
+        # is fiber-local, which suffices because each connection owns a thread;
+        # a frame without a usable `lang` keeps this connection's last value.
+        # HTTP requests, by contrast, reset it per request.
+        lang = Clacky::I18n.normalize(msg["lang"])
+        Thread.current[:lang] = lang if lang
+
         case type
         when "subscribe"
           session_id = msg["session_id"]
@@ -8348,7 +8355,6 @@ module Clacky
 
         when "send_pending_input"
           session_id = msg["session_id"] || conn.session_id
-          Thread.current[:lang] = msg["lang"].to_s.strip.then { |l| l.empty? ? nil : l }
           send_pending_input(session_id, msg["id"])
 
         when "edit_message"
@@ -8357,7 +8363,6 @@ module Clacky
 
         when "message"
           session_id = msg["session_id"] || conn.session_id
-          Thread.current[:lang] = msg["lang"].to_s.strip.then { |l| l.empty? ? nil : l }
           # Merge legacy images array into files as { data_url:, name:, mime_type: } entries
           raw_images = (msg["images"] || []).map do |data_url|
             { "data_url" => data_url, "name" => "image.jpg", "mime_type" => "image/jpeg" }
@@ -8545,11 +8550,11 @@ module Clacky
         # confirmed skill name (matched against the authoritative skill registry).
         # agent.run re-resolves internally for dispatch; the broadcast only needs
         # the flag for the UI to highlight a valid /command. The display name is
-        # resolved against the client's language (Thread.current[:lang], set from
-        # the WS message's lang field) so a zh client gets the Chinese name.
+        # resolved against the client's language, falling back to the process
+        # environment, so a zh client gets the Chinese name.
         skill_command = agent.parse_skill_command(content)
         skill_command_display = if skill_command[:found] && skill_command[:skill]
-                                  skill_command[:skill].display_name(Thread.current[:lang])
+                                  skill_command[:skill].display_name(Clacky::I18n.locale)
                                 end
         # Pass the uploaded files through to the realtime broadcast so images and
         # attachments render in the bubble immediately. agent.run later appends the
@@ -8810,7 +8815,7 @@ module Clacky
 
         broadcast_session_update(session_id)
 
-        locale = Thread.current[:lang]
+        locale = Clacky::I18n.locale
         thread = Clacky::ThreadRegistry.spawn(name: "agent-task:#{session_id}") do
           Thread.current[:lang] = locale
           Thread.current[:task_epoch] = epoch

@@ -30,11 +30,33 @@ module Clacky
       localized { |code| translate(code, key, **vars) }
     end
 
-    def self.locale
-      return Thread.current[:lang] if Thread.current[:lang]
+    def self.supported?(code)
+      LOCALES.key?(code.to_s)
+    end
 
-      lang = ENV["LC_ALL"] || ENV["LC_MESSAGES"] || ENV["LANG"] || ""
-      lang.match?(/\Azh/i) ? "zh" : "en"
+    # Collapses every regional variant onto its base code ("zh-CN" -> "zh",
+    # "en_US.UTF-8" -> "en"). Returns nil for anything we have no table for.
+    # This is the single place that decides what a language tag means.
+    def self.normalize(code)
+      code = code.to_s.strip.downcase
+      return nil if code.empty?
+      return code if supported?(code)
+
+      base = code.split(/[-_.]/).first
+      supported?(base) ? base : nil
+    end
+
+    def self.locale
+      normalize(Thread.current[:lang]) || env_locale
+    end
+
+    # The first non-empty POSIX variable wins, so an empty LC_ALL must not
+    # mask LANG. An unsupported value (fr_FR) falls back to the default
+    # rather than letting a lower-priority variable decide.
+    def self.env_locale
+      raw = %w[LC_ALL LC_MESSAGES LANG].map { |key| ENV[key].to_s }
+                                       .find { |value| !value.strip.empty? }
+      normalize(raw) || DEFAULT_LOCALE
     end
   end
 end

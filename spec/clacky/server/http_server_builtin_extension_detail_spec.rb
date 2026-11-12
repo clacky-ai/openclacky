@@ -82,6 +82,11 @@ RSpec.describe Clacky::Server::HttpServer, "builtin extension detail and assets"
 
       it "serves README.md otherwise" do
         expect(detail_for("en")).to eq("# English guide")
+      end
+
+      it "falls back to the process locale when the client sends no language" do
+        allow(Clacky::I18n).to receive(:locale).and_return("en")
+
         expect(detail_for(nil)).to eq("# English guide")
       end
 

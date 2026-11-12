@@ -995,7 +995,7 @@ module Clacky
       # must already be authoritative while those slow operations are running.
       skill_command = parse_skill_command(user_input)
       skill_command_display = if skill_command[:found] && skill_command[:skill]
-                                skill_command[:skill].display_name(Thread.current[:lang])
+                                skill_command[:skill].display_name(Clacky::I18n.locale)
                               end
       created_at ||= Time.now.to_f
       message_id = SecureRandom.uuid

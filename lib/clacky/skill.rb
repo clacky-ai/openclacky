@@ -111,7 +111,7 @@ module Clacky
     # @param lang [String, nil] client language (e.g. "zh")
     # @return [String]
     def display_name(lang)
-      lang.to_s == "zh" && name_zh ? name_zh : identifier
+      Clacky::I18n.normalize(lang) == "zh" && name_zh ? name_zh : identifier
     end
 
     # Check if skill can be invoked by user via slash command

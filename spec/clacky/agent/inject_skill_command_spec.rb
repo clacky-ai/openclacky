@@ -166,6 +166,7 @@ RSpec.describe "Agent#inject_skill_command_as_assistant_message" do
       agent = Clacky::Agent.new(client, config, working_dir: tmpdir, ui: nil, profile: "general", session_id: Clacky::SessionManager.generate_id, source: :manual)
       allow(agent).to receive(:think).and_return({ finish_reason: "stop", content: "Done", tool_calls: [] })
       allow(agent).to receive(:inject_memory_prompt!).and_return(false)
+      allow(Clacky::I18n).to receive(:locale).and_return("en")
 
       agent.run("/slides")
 

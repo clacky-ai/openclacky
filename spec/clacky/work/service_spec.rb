@@ -64,6 +64,22 @@ RSpec.describe Clacky::Work::Service do
     expect(service.send(:notification_label, c.merge("locale" => nil), { "kind" => "completed" })).to eq("Work completed: 约饭")
   end
 
+  it "runs the card in the language it was delegated in" do
+    Thread.current[:lang] = "zh"
+    card
+    Thread.current[:lang] = "en"
+    idle_registry
+    seen = nil
+    allow(runner).to receive(:call) do |_sid, _prompt, **_options, &block|
+      block.call(-> { seen = Thread.current[:lang]; { status: :success } }, worker)
+      :thread
+    end
+
+    service.tick
+
+    expect(seen).to eq("zh")
+  end
+
   it "captures original user messages and queues without executing inline" do
     expect(runner).not_to receive(:call)
     expect(card).to include("status" => "queued", "revision" => 1)

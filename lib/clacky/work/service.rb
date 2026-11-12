@@ -399,6 +399,7 @@ module Clacky
         display = translate(c, "started", title: c["title"])
         thread = @submit_task.call(sid, work_prompt(c), display_message: display, background: true) do |execute, _agent|
           Thread.current[:clacky_work] = { id: c["id"], revision: c["revision"] }
+          Thread.current[:lang] = Clacky::I18n.normalize(c["locale"]) if c["locale"]
           begin
             result = execute.call
             settle(c, result)
@@ -462,6 +463,7 @@ module Clacky
           @submit_task.call(sid, report_prompt(c, event), display_message: display,
                             reference_contexts: [{ type: "session", session_id: c["id"], name: c["title"] }],
                             background: true) do |execute, current_agent|
+            Thread.current[:lang] = Clacky::I18n.normalize(c["locale"]) if c["locale"]
             live = @store.read["cards"][c["id"]]
             pending = live && live["outbox"].any? { |e| e["id"] == event["id"] && e["state"] == "pending" }
             next { status: :success } unless pending
