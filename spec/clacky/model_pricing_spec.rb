@@ -207,6 +207,23 @@ RSpec.describe Clacky::ModelPricing do
       end
     end
 
+    context "with Claude Fable 5.2" do
+      it "prices below Fable 5.1 and normalizes every alias form" do
+        fable_5_2 = described_class.get_pricing("claude-fable-5-2")
+
+        expect(fable_5_2[:input]).to eq({ default: 8.00, over_200k: 8.00 })
+        expect(fable_5_2[:output]).to eq({ default: 40.00, over_200k: 40.00 })
+        expect(fable_5_2[:cache][:write]).to eq(10.00)
+        expect(fable_5_2[:cache][:read]).to eq(0.20)
+
+        expect(described_class.normalize_model_name("abs-claude-fable-5-2")).to eq("claude-fable-5-2")
+        expect(described_class.normalize_model_name("global.anthropic.claude-fable-5-2")).to eq("claude-fable-5-2")
+        expect(described_class.normalize_model_name("claude-fable-5.2")).to eq("claude-fable-5-2")
+        # 5.1 must not be swallowed by the 5.2 branch.
+        expect(described_class.normalize_model_name("abs-claude-fable-5-1")).to eq("claude-fable-5-1")
+      end
+    end
+
     context "with Claude Opus 5" do
       let(:model) { "claude-opus-5" }
 

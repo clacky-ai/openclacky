@@ -40,6 +40,7 @@ module Clacky
           "dsk-deepseek-v4-pro",
           "oc-glm-5.3",
           "oc-kimi-k3",
+          "abs-claude-fable-5-2",
           "abs-claude-fable-5-1",
           "abs-claude-fable-5",
           "abs-claude-opus-5-5",
@@ -180,6 +181,7 @@ module Clacky
         # no injection happens when the default model is already lite-class.
         "lite_models" => {
           "auto"                 => "dsk-deepseek-v4.1-flash",
+          "abs-claude-fable-5-2"  => "abs-claude-haiku-5-5",
           "abs-claude-fable-5-1"  => "abs-claude-haiku-5-5",
           "abs-claude-fable-5"    => "abs-claude-haiku-5-5",
           "abs-claude-opus-5-5"   => "abs-claude-haiku-5-5",
@@ -199,6 +201,7 @@ module Clacky
         # Fallback chain: if a model is unavailable, try the next one in order.
         # Keys are primary model names; values are the fallback model to use instead.
         "fallback_models" => {
+          "abs-claude-fable-5-2"  => "abs-claude-fable-5-1",
           "abs-claude-fable-5-1"  => "abs-claude-fable-5",
           "abs-claude-fable-5"    => "abs-claude-opus-5",
           "abs-claude-opus-5-5"   => "abs-claude-opus-5",
@@ -453,6 +456,7 @@ module Clacky
         "api" => "anthropic-messages",
         "default_model" => "claude-sonnet-4-6",
         "models" => [
+          "claude-fable-5-2",
           "claude-fable-5-1",
           "claude-fable-5",
           "claude-opus-5",

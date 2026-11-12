@@ -7,6 +7,23 @@ module Clacky
     # Pricing per 1M tokens (MTok) in USD
     # All pricing is based on official API documentation
     PRICING_TABLE = {
+      # Claude Fable 5.2 — cheaper than 5.1 ($8/$40, cache read $0.20,
+      # cache write $10). Source: Anthropic pricing table.
+      "claude-fable-5-2" => {
+        input: {
+          default: 8.00,               # $8/MTok for prompts ≤ 200K tokens
+          over_200k: 8.00
+        },
+        output: {
+          default: 40.00,             # $40/MTok for prompts ≤ 200K tokens
+          over_200k: 40.00
+        },
+        cache: {
+          write: 10.00,               # $10/MTok cache write (5-min tier)
+          read: 0.20                  # $0.20/MTok cache read
+        }
+      },
+
       # Claude Fable 5.1 — same input/output as Fable 5, but cache read is
       # $0.25/MTok (vs $1.00 for Fable 5). Source: Anthropic pricing table.
       "claude-fable-5-1" => {
@@ -1441,6 +1458,8 @@ module Clacky
         # Support both dot and dash separators (e.g., "4.5", "4-5", "4-6")
         # Also handles Bedrock cross-region prefixes (e.g. "jp.anthropic.claude-sonnet-4-6")
         case model
+        when /claude.*fable.*5[.-]2/i
+          "claude-fable-5-2"
         when /claude.*fable.*5[.-]1/i
           "claude-fable-5-1"
         when /claude.*fable.*5/i

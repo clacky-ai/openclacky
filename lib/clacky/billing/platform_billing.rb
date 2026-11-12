@@ -34,6 +34,7 @@ module Clacky
         "abs-gpt-5.6-terra" => "global.openai.gpt-5.6-terra",
         "abs-gpt-5.6-luna"  => "global.openai.gpt-5.6-luna",
         # claude via bedrock (abs-)
+        "abs-claude-fable-5-2"  => "global.anthropic.claude-fable-5-2",
         "abs-claude-fable-5-1"  => "global.anthropic.claude-fable-5-1",
         "abs-claude-fable-5"    => "global.anthropic.claude-fable-5",
         "abs-claude-opus-5-5"   => "global.anthropic.claude-opus-5-5",

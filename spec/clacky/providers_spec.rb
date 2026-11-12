@@ -673,7 +673,7 @@ RSpec.describe Clacky::Providers do
     context "Anthropic current model lineup" do
       it "includes the Claude 5 family without changing the default" do
         expect(described_class.models("anthropic")).to include(
-          "claude-sonnet-5", "claude-opus-5", "claude-fable-5", "claude-fable-5-1"
+          "claude-sonnet-5", "claude-opus-5", "claude-fable-5", "claude-fable-5-1", "claude-fable-5-2"
         )
         expect(described_class.default_model("anthropic")).to eq("claude-sonnet-4-6")
       end
