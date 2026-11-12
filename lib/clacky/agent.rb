@@ -21,6 +21,7 @@ require_relative "agent/system_prompt_builder"
 require_relative "agent/llm_caller"
 require_relative "agent/time_machine"
 require_relative "agent/memory_updater"
+require_relative "agent/memory_injector"
 require_relative "agent/skill_evolution"
 require_relative "agent/skill_reflector"
 require_relative "agent/skill_auto_creator"
@@ -42,6 +43,7 @@ module Clacky
     include LlmCaller
     include TimeMachine
     include MemoryUpdater
+    include MemoryInjector
     include SkillEvolution
     include SkillReflector
     include SkillAutoCreator
@@ -627,6 +629,8 @@ module Clacky
 
       # Inject chunk index card if archived chunks exist and index is stale
       inject_chunk_index_if_needed
+
+      inject_relevant_memories(user_input, task_id: task_id)
 
       append_user_input(user_input, files: files, reference_contexts: reference_contexts,
                         display_text: display_text, created_at: created_at,

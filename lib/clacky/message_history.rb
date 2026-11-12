@@ -14,7 +14,7 @@ module Clacky
       message_id task_id created_at system_injected session_context context_key memory_update
       subagent_instructions subagent_result subagent_transcript token_usage
       compressed_summary chunk_path truncated transient
-      chunk_index chunk_count ext_events skill_command skill_command_display
+      chunk_index chunk_count memory_recall memory_files ext_events skill_command skill_command_display
       display_files display_references feedback_requests
     ].freeze
 

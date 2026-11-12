@@ -162,7 +162,7 @@ module Clacky
                   :enable_compression, :enable_idle_compression, :enable_prompt_caching,
                   :compression_threshold, :message_count_threshold,
                   :models, :current_model_index, :current_model_id,
-                  :memory_update_enabled, :skill_evolution,
+                  :memory_update_enabled, :memory_inject_enabled, :skill_evolution,
                   :max_running_agents, :max_idle_agents,
                   :default_working_dir, :pid_dir,
                   :proxy_url,
@@ -208,6 +208,7 @@ module Clacky
 
       # Memory and skill evolution configuration
       @memory_update_enabled = options[:memory_update_enabled].nil? ? true : options[:memory_update_enabled]
+      @memory_inject_enabled = options[:memory_inject_enabled] == true
       @skill_evolution = options[:skill_evolution] || {
         enabled: true,
         auto_create_threshold: 12,
@@ -458,7 +459,7 @@ module Clacky
     CONFIG_SETTINGS_KEYS = %w[
       enable_compression enable_idle_compression enable_prompt_caching
       compression_threshold message_count_threshold
-      memory_update_enabled input_behavior ask_user_timeout_seconds
+      memory_update_enabled memory_inject_enabled input_behavior ask_user_timeout_seconds
       skill_evolution max_running_agents max_idle_agents
       default_working_dir pid_dir
       proxy_url clacky_license_server
@@ -480,6 +481,7 @@ module Clacky
         "compression_threshold" => @compression_threshold,
         "message_count_threshold" => @message_count_threshold,
         "memory_update_enabled" => @memory_update_enabled,
+        "memory_inject_enabled" => @memory_inject_enabled,
         "skill_evolution" => @skill_evolution,
         "max_running_agents" => @max_running_agents,
         "max_idle_agents" => @max_idle_agents,

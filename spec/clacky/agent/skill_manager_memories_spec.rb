@@ -190,6 +190,16 @@ RSpec.describe "SkillManager memory helpers" do
         "(5 older memories not listed — search ~/.clacky/memories/ with grep if needed)"
       )
     end
+
+    it "honors an explicit limit" do
+      write_many(10)
+
+      result = agent.load_memories_meta(limit: 3)
+      expect(result.scan("| topic:").length).to eq(3)
+      expect(result).to include("mem-09.md", "mem-07.md")
+      expect(result).not_to include("mem-06.md")
+      expect(result).to end_with("(7 older memories not listed — search ~/.clacky/memories/ with grep if needed)")
+    end
   end
 
   # ─────────────────────────────────────────────

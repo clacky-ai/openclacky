@@ -34,42 +34,7 @@ module Clacky
       # @param raw_api_usage [Hash, nil] Raw API usage data for debugging
       # @param model [String, nil] Model name to use for billing (defaults to current_model)
       def track_cost(usage, raw_api_usage: nil, model: nil)
-        # Priority 1: Use API-provided cost if available (OpenRouter, LiteLLM, etc.)
-        iteration_cost = nil
-        if usage[:api_cost]
-          add_cost(usage[:api_cost])
-          @cost_source = :api
-          @task_cost_source = :api
-          iteration_cost = usage[:api_cost]
-          @ui&.log("Using API-provided cost: $#{usage[:api_cost]}", level: :debug) if @config.verbose
-        else
-          # Priority 2: Calculate from tokens using ModelPricing
-          # Use provided model name (from API call time) to ensure accurate billing
-          # even if the user switches models during the API call
-          billing_model = model || current_model
-          result = ModelPricing.calculate_cost(model: billing_model, usage: usage)
-          cost = result[:cost]
-          pricing_source = result[:source]
-
-          # Only accumulate cost when the model has known pricing.
-          # Unknown models return nil — display N/A, don't add to total.
-          if cost
-            add_cost(cost)
-            iteration_cost = cost
-            @cost_source = pricing_source
-            @task_cost_source = pricing_source
-          end
-
-          if @config.verbose
-            if cost
-              source_label = pricing_source == :price ? "model pricing" : "default pricing"
-              @ui&.log("Calculated cost for #{@config.model_name} using #{source_label}: $#{cost.round(6)}", level: :debug)
-            else
-              @ui&.log("No pricing data available for #{@config.model_name} — cost is unknown", level: :debug)
-            end
-            @ui&.log("Usage breakdown: prompt=#{usage[:prompt_tokens]}, completion=#{usage[:completion_tokens]}, cache_write=#{usage[:cache_creation_input_tokens] || 0}, cache_read=#{usage[:cache_read_input_tokens] || 0}", level: :debug)
-          end
-        end
+        iteration_cost = accumulate_cost(usage, model)
 
         # Collect token usage data for this iteration (returned to caller for deferred display)
         token_data = collect_iteration_tokens(usage, iteration_cost)
@@ -125,6 +90,60 @@ module Clacky
 
         # Return token_data so the caller can display it at the right moment
         token_data
+      end
+
+      # Bill a side LLM call (e.g. the memory picker) into the session total.
+      # Unlike track_cost it leaves @previous_total_tokens and the cache stats
+      # alone: those describe the main conversation and drive compression.
+      # @return [Float, nil] cost of the call, nil when pricing is unknown
+      def track_auxiliary_cost(usage, model:)
+        cost = accumulate_cost(usage, model)
+        unless @is_subagent
+          @ui&.update_sessionbar(cost: @total_cost, cost_source: @cost_source)
+          persist_billing_record(usage, cost, model: model)
+        end
+        cost
+      end
+
+      # Add one call's cost to the running total.
+      # @return [Float, nil] the call's cost, nil when pricing is unknown
+      private def accumulate_cost(usage, model)
+        # Priority 1: Use API-provided cost if available (OpenRouter, LiteLLM, etc.)
+        if usage[:api_cost]
+          add_cost(usage[:api_cost])
+          @cost_source = :api
+          @task_cost_source = :api
+          @ui&.log("Using API-provided cost: $#{usage[:api_cost]}", level: :debug) if @config.verbose
+          return usage[:api_cost]
+        end
+
+        # Priority 2: Calculate from tokens using ModelPricing
+        # Use provided model name (from API call time) to ensure accurate billing
+        # even if the user switches models during the API call
+        billing_model = model || current_model
+        result = ModelPricing.calculate_cost(model: billing_model, usage: usage)
+        cost = result[:cost]
+        pricing_source = result[:source]
+
+        # Only accumulate cost when the model has known pricing.
+        # Unknown models return nil — display N/A, don't add to total.
+        if cost
+          add_cost(cost)
+          @cost_source = pricing_source
+          @task_cost_source = pricing_source
+        end
+
+        if @config.verbose
+          if cost
+            source_label = pricing_source == :price ? "model pricing" : "default pricing"
+            @ui&.log("Calculated cost for #{billing_model} using #{source_label}: $#{cost.round(6)}", level: :debug)
+          else
+            @ui&.log("No pricing data available for #{billing_model} — cost is unknown", level: :debug)
+          end
+          @ui&.log("Usage breakdown: prompt=#{usage[:prompt_tokens]}, completion=#{usage[:completion_tokens]}, cache_write=#{usage[:cache_creation_input_tokens] || 0}, cache_read=#{usage[:cache_read_input_tokens] || 0}", level: :debug)
+        end
+
+        cost
       end
 
       # Persist a billing record to the billing store

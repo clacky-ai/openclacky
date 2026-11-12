@@ -1298,6 +1298,21 @@ RSpec.describe Clacky::AgentConfig do
     end
   end
 
+  describe "memory_inject_enabled" do
+    it "defaults to false" do
+      expect(described_class.new.memory_inject_enabled).to be(false)
+    end
+
+    it "persists via save/load roundtrip" do
+      with_temp_config do |config_file|
+        config = described_class.new(memory_inject_enabled: true)
+        config.save(config_file)
+
+        expect(described_class.load(config_file).memory_inject_enabled).to be(true)
+      end
+    end
+  end
+
   # Helper to set environment variables temporarily
   def with_env(vars)
     old_values = {}
