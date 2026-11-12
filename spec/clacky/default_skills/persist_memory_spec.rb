@@ -27,12 +27,13 @@ RSpec.describe "persist-memory default skill" do
 
   it "leaves out implementation details unless the user's own words request them" do
     expect(content).to match(/Leave out code paths/i)
-    expect(content).to match(/\*\*user's own words\*\*/)
+    expect(content).to match(/conversation shows the \*\*user's own words\*\*/)
     expect(content).to match(/details the calling agent added on its own do not count/i)
   end
 
-  it "forbids adding facts the task did not state" do
-    expect(content).to match(/Record only facts stated in the task/i)
+  it "forbids writing unverified guesses as facts" do
+    expect(content).to match(/Record only what the user stated or what was verified in the conversation/i)
+    expect(content).to match(/Do not write guesses as facts/i)
   end
 
   it "keeps content rules in force even when told to persist" do

@@ -68,8 +68,8 @@ Use the `write` tool. Always include the YAML frontmatter shown above.
 - For decisions, rules, and preferences, record the reason (**Why**) and when it applies (**How to apply**) — a bare rule cannot be judged in edge cases.
 - Keep the current state, not a timeline. When new info supersedes old, replace the old statement instead of appending a dated entry.
 - Write absolute dates (e.g. `2026-03-05`), never relative ones like "next Thursday".
-- Leave out code paths, implementation details, install paths, git history, and debugging or troubleshooting narratives — the code and git log are authoritative, and copies go stale. The only exception is when the task quotes the **user's own words** asking to remember that specific detail; details the calling agent added on its own do not count.
-- Record only facts stated in the task. Do not add inferred facts, general best practices, or advice the user never gave — a future recall will treat everything in the file as confirmed by the user.
+- Leave out code paths, implementation details, install paths, git history, and debugging or troubleshooting narratives — the code and git log are authoritative, and copies go stale. The only exception is when the conversation shows the **user's own words** asking to remember that specific detail; details the calling agent added on its own do not count.
+- Record only what the user stated or what was verified in the conversation. Do not write guesses as facts, and do not add general best practices or advice the user never gave — a future recall treats everything in the file as established.
 - One topic per file. Don't bundle unrelated facts together.
 - Do NOT use `terminal` or `file_reader` to list the memories directory — the list above is authoritative.
 
