@@ -8202,22 +8202,18 @@ a.msg-mention-badge:hover { text-decoration: underline; }
   align-items: center;
   padding: 0 0.5rem;
   flex-shrink: 0;
-  /* Anchors the first-run tip, so it follows sidebar resizing and the
-     slide-out when the rail is hidden. */
-  position: relative;
 }
 
-/* First-run hint pointing at the Settings entry; dismissed for good on close. */
-.settings-tip {
-  position: absolute;
-  left: 0.5rem;
-  bottom: calc(100% + 0.625rem);
+/* First-run hint bubble, portalled to <body> and positioned by HintTip.
+   The tail is a rotated square inheriting the background, so the bubble and
+   the tail can never drift apart in colour. */
+.hint-tip {
+  position: fixed;
   z-index: 60;
   display: flex;
   align-items: flex-start;
   gap: 0.375rem;
   width: max-content;
-  max-width: calc(var(--sidebar-width) - 1rem);
   padding: 0.5rem 0.5rem 0.5rem 0.75rem;
   /* Brand-blue hint, deliberately not the theme accent: the tip must read the
      same on every accent colour the user picks. */
@@ -8227,23 +8223,32 @@ a.msg-mention-badge:hover { text-decoration: underline; }
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.18);
   font-size: 0.8125rem;
   line-height: 1.45;
-  animation: settings-tip-in 0.18s ease-out;
+  animation: hint-tip-in 0.18s ease-out;
 }
-.settings-tip::after {
+.hint-tip::after {
   content: "";
   position: absolute;
-  left: 13px;
-  bottom: -4px;
+  left: var(--hint-tip-arrow-left, 16px);
   width: 10px;
   height: 10px;
+  margin-left: -5px;
   background: inherit;
   border-radius: 2px;
   transform: rotate(45deg);
 }
-.settings-tip-text {
-  flex: 1;
+.hint-tip--above::after {
+  bottom: -4px;
 }
-.settings-tip-close {
+.hint-tip--below::after {
+  top: -4px;
+}
+.hint-tip-text {
+  flex: 1;
+  /* Let the browser balance the two lines instead of stranding the last
+     character of a CJK word on its own row. Unsupported browsers wrap as usual. */
+  text-wrap: pretty;
+}
+.hint-tip-close {
   flex-shrink: 0;
   display: inline-flex;
   align-items: center;
@@ -8260,11 +8265,11 @@ a.msg-mention-badge:hover { text-decoration: underline; }
   cursor: pointer;
   transition: opacity .12s, background .12s;
 }
-.settings-tip-close:hover {
+.hint-tip-close:hover {
   opacity: 1;
   background: rgba(255, 255, 255, 0.18);
 }
-@keyframes settings-tip-in {
+@keyframes hint-tip-in {
   from { opacity: 0; transform: translateY(4px); }
   to   { opacity: 1; transform: translateY(0); }
 }
