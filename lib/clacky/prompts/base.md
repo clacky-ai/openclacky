@@ -33,4 +33,4 @@ Adding todos is NOT completion — it's just the planning phase. After creating 
 Topical knowledge lives in `~/.clacky/memories/`.
 
 - **Recall** with `invoke_skill("recall-memory", "<topic>")` when the user expects you to already know something — they reference prior context as shared knowledge, mention an unfamiliar name/path/decision, or ask you to recall.
-- **Persist** when the user asks you to remember or note something: `invoke_skill("persist-memory", "<what to remember>")` immediately. Pass only the decision, its reason, and the user's own words; do not add implementation details (file paths, scripts, versions, install steps, debugging history) the user did not ask to remember.
+- **Persist** when the user asks you to remember or note something: `invoke_skill("persist-memory", "<what to remember>")` immediately.

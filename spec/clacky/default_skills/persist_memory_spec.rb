@@ -39,11 +39,3 @@ RSpec.describe "persist-memory default skill" do
     expect(content).to match(/content rules in Guidelines still decide which details/i)
   end
 end
-
-RSpec.describe "base prompt memory instructions" do
-  let(:base) { File.read(File.expand_path("../../../lib/clacky/prompts/base.md", __dir__)) }
-
-  it "tells the main agent not to pass implementation details to persist-memory" do
-    expect(base).to match(/Pass only the decision, its reason, and the user's own words/)
-  end
-end
