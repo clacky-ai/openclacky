@@ -48,6 +48,11 @@
   --color-link:           #1a56db;
   --color-link-visited:   #7c3aed;
 
+  /* Fixed product blue — same in every theme and independent of the themed
+     accent. Use it for informational hints and "setup"-style markers, where
+     the colour must stay recognisable whatever accent the user picks. */
+  --color-brand-blue: #2e90fa;
+
   /* Semantic (fixed, not brand-driven) */
   --color-success: #10b981;
   --color-success-bg: #ecfdf5;
@@ -1200,8 +1205,8 @@ body {
 }
 /* Source: setup — soft blue tint. */
 .session-badge--setup   {
-  background: color-mix(in srgb, #2e90fa 10%, transparent);
-  color: #2e90fa;
+  background: color-mix(in srgb, var(--color-brand-blue) 10%, transparent);
+  color: var(--color-brand-blue);
   border-color: transparent;
 }
 /* Agent profile: coding — soft green tint. */
@@ -8197,6 +8202,71 @@ a.msg-mention-badge:hover { text-decoration: underline; }
   align-items: center;
   padding: 0 0.5rem;
   flex-shrink: 0;
+  /* Anchors the first-run tip, so it follows sidebar resizing and the
+     slide-out when the rail is hidden. */
+  position: relative;
+}
+
+/* First-run hint pointing at the Settings entry; dismissed for good on close. */
+.settings-tip {
+  position: absolute;
+  left: 0.5rem;
+  bottom: calc(100% + 0.625rem);
+  z-index: 60;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.375rem;
+  width: max-content;
+  max-width: calc(var(--sidebar-width) - 1rem);
+  padding: 0.5rem 0.5rem 0.5rem 0.75rem;
+  /* Brand-blue hint, deliberately not the theme accent: the tip must read the
+     same on every accent colour the user picks. */
+  background: var(--color-brand-blue);
+  color: var(--color-text-inverse);
+  border-radius: 8px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.18);
+  font-size: 0.8125rem;
+  line-height: 1.45;
+  animation: settings-tip-in 0.18s ease-out;
+}
+.settings-tip::after {
+  content: "";
+  position: absolute;
+  left: 13px;
+  bottom: -4px;
+  width: 10px;
+  height: 10px;
+  background: inherit;
+  border-radius: 2px;
+  transform: rotate(45deg);
+}
+.settings-tip-text {
+  flex: 1;
+}
+.settings-tip-close {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  margin-top: 1px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  color: inherit;
+  opacity: 0.75;
+  cursor: pointer;
+  transition: opacity .12s, background .12s;
+}
+.settings-tip-close:hover {
+  opacity: 1;
+  background: rgba(255, 255, 255, 0.18);
+}
+@keyframes settings-tip-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
 }
 .sidebar-nav-btn {
   display: flex;
