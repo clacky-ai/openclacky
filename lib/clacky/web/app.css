@@ -16852,6 +16852,40 @@ body.setup-mode {
   outline: 2px solid var(--color-accent-primary);
   outline-offset: 2px;
 }
+/* Dismiss button for the OpenClacky AI Keys banner above the Secondary Models
+   section. The promo inside the model modal has no dismiss button. */
+.promo-close {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--color-text-tertiary);
+  opacity: 0;
+  cursor: pointer;
+  transition: opacity 0.15s, background 0.15s, color 0.15s;
+}
+.media-promo:hover .promo-close,
+.media-promo:focus-within .promo-close {
+  opacity: 1;
+}
+.promo-close:hover {
+  background: color-mix(in srgb, var(--color-text-primary) 9%, transparent);
+  color: var(--color-text-primary);
+}
+.promo-close:focus-visible {
+  opacity: 1;
+  outline: 2px solid var(--color-accent-primary);
+  outline-offset: 2px;
+}
+@media (hover: none) {
+  .promo-close { opacity: 1; }
+}
 @media (max-width: 640px) {
   .media-promo { flex-wrap: wrap; }
   .media-promo-btn { margin-left: 2.75rem; }
