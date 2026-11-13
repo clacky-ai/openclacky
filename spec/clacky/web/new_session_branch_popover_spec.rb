@@ -22,6 +22,16 @@ RSpec.describe "New-session branch popover layout" do
     expect(view).to include("Math.max(8, window.innerWidth - popRect.width - 8)")
   end
 
+  # The branch picker opens with the full list, so it flips up; filtering every
+  # row out then shrinks it. Pinning the flipped box by its top edge kept the
+  # offset measured for the full list, leaving the box floating far above the
+  # chip. Its bottom edge is the one that has to stay glued to the anchor.
+  it "anchors the flipped popover by its bottom edge" do
+    expect(view).to include('pop.style.top = "auto";')
+    expect(view).to include("pop.style.bottom = `${window.innerHeight - rect.top + 6}px`;")
+    expect(view).to include('pop.style.maxHeight = `${Math.max(120, rect.top - 14)}px`;')
+  end
+
   it "insets the dividers instead of running them into the frame" do
     rule = styles[/\.ns-branch-foot::before \{[^}]*\}/]
     expect(rule).not_to be_nil
