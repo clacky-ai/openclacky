@@ -3198,6 +3198,7 @@ body {
 .agent-card-avatar--general       { --agent-icon-color: var(--color-accent-primary); }
 .agent-card-avatar--coding        { --agent-icon-color: #17b26a; }
 .agent-card-avatar--ext-developer { --agent-icon-color: #ef6820; }
+.agent-card-avatar--secretary     { --agent-icon-color: #e11d48; }
 .agent-card-new {
   font-size: 0.6rem;
   font-weight: 700;
