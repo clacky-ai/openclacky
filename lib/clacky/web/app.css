@@ -2267,6 +2267,10 @@ body {
     transition-duration: 0s !important;
     transition-delay: 0s !important;
   }
+  .project-name__content {
+    transition-duration: 0s !important;
+    transition-delay: 0s !important;
+  }
 }
 
 /* ── Task items in sidebar ───────────────────────────────────────────────── */
@@ -18302,10 +18306,32 @@ body.setup-mode {
   flex: 1;
   min-width: 0;
   overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 0.875rem;
   color: var(--color-text-primary);
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 1rem), transparent);
+  mask-image: linear-gradient(to right, #000 calc(100% - 1rem), transparent);
+}
+/* Overlong names slide left on hover, mirroring the session rows: the wrapper
+   is the fixed viewport and the content keeps its natural width so it can
+   travel under the mask. */
+.project-name__content {
+  display: inline-block;
+  min-width: max-content;
+  transform: translateX(0);
+  transition: transform 0.18s ease-out;
+}
+.project-group-header.project-name-scrolling .project-name__content {
+  transform: translateX(calc(-1 * var(--project-name-scroll-distance)));
+  transition-duration: var(--project-name-scroll-duration);
+  transition-delay: 0.3s;
+  transition-timing-function: linear;
+}
+/* Same leading fade as the session rows: without it the sliding text is cut
+   flat at the left edge. Added by JS after the slide's 0.3s delay. */
+.project-group-header.project-name-leading-fade .project-name {
+  -webkit-mask-image: linear-gradient(to right, transparent, #000 1rem, #000 calc(100% - 1rem), transparent);
+  mask-image: linear-gradient(to right, transparent, #000 1rem, #000 calc(100% - 1rem), transparent);
 }
 
 /* Pin badge next to the name of a pinned project (mirrors .session-pin-icon) */

@@ -104,7 +104,7 @@ function boot() {
     document,
     window: { innerWidth: 1280, innerHeight: 800 },
     localStorage: { getItem: k => (k in store ? store[k] : null), setItem: (k, v) => { store[k] = String(v); } },
-    Sessions: { all: [], renderSessionItem() {}, renderList() {}, patch() {}, removeByProjectId() {} },
+    Sessions: { all: [], renderSessionItem() {}, renderList() {}, patch() {}, removeByProjectId() {}, _setupHorizontalTextOverflow() {} },
     I18n: { t: (_key, fallback) => fallback, applyAll() {} },
     NewSessionStore: { state: {}, updateAdvanced() {} },
     Router: { navigate() {} },
