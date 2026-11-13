@@ -174,8 +174,7 @@ module Clacky
 
       # GET /preview/f/<absolute-path> — serve a local file outside the
       # workspace, addressed by its absolute path (the panel maps file:// URLs
-      # here). Restricted to the user's home directory so it cannot read
-      # system files elsewhere.
+      # here). See preview_local_allowed? for the roots this may read.
       private def serve_preview_local(req, res)
         unless req.request_method == "GET" || req.request_method == "HEAD"
           preview_method_not_allowed(res)
@@ -185,14 +184,36 @@ module Clacky
         abs = preview_decode_path(req.path.delete_prefix("/preview/f"))
         return preview_not_found(res) if abs.empty? || !abs.start_with?("/")
 
-        abs  = File.expand_path(abs)
-        home = File.expand_path(Dir.home)
-        unless abs == home || abs.start_with?(home + File::SEPARATOR)
+        abs = File.expand_path(abs)
+        unless preview_local_allowed?(abs)
           preview_not_found(res)
           return
         end
 
         serve_preview_file(req, res, abs)
+      end
+
+      # The user's home covers the files the panel links to from chat; the
+      # system temp dirs cover the throwaway HTML an AI turn writes under /tmp
+      # or $TMPDIR. Home keeps the plain prefix match so a folder linked into
+      # ~ from another volume still previews. Temp dirs are world-writable, so
+      # a symlink planted there is re-checked through realpath and can never
+      # reach /etc, /usr or any other root.
+      private def preview_local_allowed?(abs)
+        home = File.expand_path(Dir.home)
+        return true if abs == home || abs.start_with?(home + File::SEPARATOR)
+
+        real = preview_realpath(abs)
+        return false if real.nil?
+
+        temp_roots = [Dir.tmpdir, "/tmp"].map { |path| preview_realpath(path) }.compact
+        temp_roots.any? { |root| real == root || real.start_with?(root + File::SEPARATOR) }
+      end
+
+      private def preview_realpath(path)
+        File.realpath(path)
+      rescue SystemCallError
+        nil
       end
 
       # Shared tail for the file-serving routes: resolve a directory to its
