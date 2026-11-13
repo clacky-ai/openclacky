@@ -4,6 +4,52 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
+## [1.5.24] - 2026-11-13
+
+### Added
+- Stream assistant replies as they are written
+- Point first-time users at Settings with a hint
+- Add a first-run hint on the model picker in the session info bar
+- Recall relevant memories automatically before each message (opt-in)
+- Collapse the Config and My Data sidebar sections
+- Preview files an AI turn leaves in the system temp directory
+- Dismiss the OpenClacky AI Keys promo and keep it dismissed
+- Show progress while packing and downloading a backup
+- Add model hints for audio, speech-to-text and video understanding
+- Add Claude Fable 5.2 to the hosted model picker
+- Give the secretary extension an icon and a detail page
+- Let extensions follow WebSocket events and run before the first think
+
+### Improved
+- Unify the settings section headings and their icons
+- Tighten the long-term memory write rules so stored facts stay worth keeping
+- Keep the memories listing compact and flag the files it leaves out
+- Move Web Search above Network in the general tab
+- Keep memories timestamped by file mtime
+- Use the shared tooltip on memory and recycle-bin row actions
+- Stream backup restore uploads instead of buffering them
+- Reveal overlong project names on hover
+- Rename auto recall to plainer wording
+
+### Fixed
+- Switch sessions with one click in Safari
+- Keep backend text in the client's language
+- Rewrite hosted-platform file references to local links
+- Render non-media image references as plain links instead of broken thumbnails
+- Show media with a single inline reference
+- Keep dropdown lists inside the viewport
+- Keep the flipped new-session popover glued to its chip
+- Localise the channel platform names
+- Open channel setup in the session that started it
+- Keep the git panel diffs rendered when switching layout
+- Pin the git panel file header while scrolling a long diff
+- Order the git panel diff stream like the file tree
+- Show actionable browser toggle state and errors in settings
+- Stop the scheduled tasks view from opening with no active menu item
+
+### More
+- Move GLM 5.3 and Kimi K3 to the end of the model picker
+
 ## [1.5.23] - 2026-11-06
 
 ### Added
