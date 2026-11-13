@@ -71,9 +71,30 @@ module Clacky
           });
           window.addEventListener("popstate", report);
           window.addEventListener("hashchange", report);
+          // SPA routers (React Router / Vue Router history mode) push root-
+          // absolute paths ("/virtual/abs"), which resolve against the frame
+          // origin and drop the /preview/p/<port> (or /preview/s/<session>)
+          // prefix. The frame would then request its own assets from the host
+          // origin, and the reporter would announce a URL relFromUrl cannot
+          // map back. Re-attach the prefix the page was served under; an empty
+          // prefix (directly framed dev server) leaves the call untouched.
+          var seg = location.pathname.split("/");
+          var port = Number(seg[3]);
+          var prefix = "";
+          if (seg[1] === "preview" && seg[2] === "p" && port > 0) prefix = "/preview/p/" + seg[3];
+          else if (seg[1] === "preview" && seg[2] === "s" && seg[3]) prefix = "/preview/s/" + seg[3];
+          function keepPrefix(url){
+            if (!prefix || url === null || url === undefined || url === "") return url;
+            var u;
+            try { u = new URL(String(url), location.href); } catch(e){ return url; }
+            if (u.origin !== location.origin) return url;
+            if (u.pathname === prefix || u.pathname.indexOf(prefix + "/") === 0) return url;
+            u.pathname = prefix + u.pathname;
+            return u.pathname + u.search + u.hash;
+          }
           var push = history.pushState, replace = history.replaceState;
-          history.pushState = function(){ push.apply(history, arguments); report(); };
-          history.replaceState = function(){ replace.apply(history, arguments); report(); };
+          history.pushState = function(state, title, url){ push.call(history, state, title, keepPrefix(url)); report(); };
+          history.replaceState = function(state, title, url){ replace.call(history, state, title, keepPrefix(url)); report(); };
           setInterval(report, 500);
         })()</script>
       JS
