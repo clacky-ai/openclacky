@@ -523,9 +523,9 @@ RSpec.describe Clacky::Server::HttpServer, "preview route" do
   end
 
   describe "local file route /preview/f/<absolute-path>" do
-    let(:outside_dir) { Dir.mktmpdir("clacky_preview_outside") }
+    let(:temp_dir) { Dir.mktmpdir("clacky_preview_temp") }
 
-    after { FileUtils.rm_rf(outside_dir) }
+    after { FileUtils.rm_rf(temp_dir) }
 
     before { allow(Dir).to receive(:home).and_return(tmpdir) }
 
@@ -564,13 +564,53 @@ RSpec.describe Clacky::Server::HttpServer, "preview route" do
       expect(r.body).to include("<p>site</p>")
     end
 
-    it "404s on a path outside the home directory" do
-      outside = File.join(outside_dir, "secret.html")
-      File.write(outside, "secret")
-
-      r = serve_local(server, "GET", "/preview/f#{outside}")
+    it "404s on a path outside the allowed roots" do
+      r = serve_local(server, "GET", "/preview/f#{File::SEPARATOR}etc#{File::SEPARATOR}hosts")
 
       expect(r.status).to eq(404)
+    end
+
+    it "serves a file under the system temp directory" do
+      File.write(File.join(temp_dir, "scratch.html"), "<p>scratch</p>")
+
+      r = serve_local(server, "GET", "/preview/f#{File.join(temp_dir, "scratch.html")}")
+
+      expect(r.status).to eq(200)
+      expect(r.body).to include("<p>scratch</p>")
+    end
+
+    it "serves a file reached through the /tmp alias" do
+      path = File.join("/tmp", "clacky_preview_alias_#{Process.pid}.html")
+      File.write(path, "<p>alias</p>")
+
+      begin
+        r = serve_local(server, "GET", "/preview/f#{path}")
+
+        expect(r.status).to eq(200)
+        expect(r.body).to include("<p>alias</p>")
+      ensure
+        FileUtils.rm_f(path)
+      end
+    end
+
+    it "404s when a symlink under a temp dir points outside the allowed roots" do
+      link = File.join(temp_dir, "leak.html")
+      File.symlink("/etc/hosts", link)
+
+      r = serve_local(server, "GET", "/preview/f#{link}")
+
+      expect(r.status).to eq(404)
+    end
+
+    # Deliberate: the home prefix check is a plain string match, so a folder
+    # linked into ~ from another volume keeps previewing.
+    it "keeps previewing a symlink that sits inside the home directory" do
+      link = File.join(tmpdir, "linked.html")
+      File.symlink("/etc/hosts", link)
+
+      r = serve_local(server, "GET", "/preview/f#{link}")
+
+      expect(r.status).to eq(200)
     end
 
     it "404s when the path is not absolute" do
