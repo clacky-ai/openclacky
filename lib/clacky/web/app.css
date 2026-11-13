@@ -8362,7 +8362,19 @@ a.msg-mention-badge:hover { text-decoration: underline; }
   padding-bottom: 0.5rem;
 }
 .settings-section-title > span {
-  font-weight: 700;
+  font-weight: 500;
+}
+.settings-section-heading {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+}
+.settings-section-icon {
+  width: 1rem;
+  height: 1rem;
+  flex-shrink: 0;
+  color: currentColor;
 }
 .btn-settings-add {
   display: flex;
@@ -8399,6 +8411,25 @@ a.msg-mention-badge:hover { text-decoration: underline; }
 .settings-personalize-desc {
   font-size: 0.8125rem;
   color: var(--color-text-secondary);
+  line-height: 1.5;
+  margin: 0;
+}
+.settings-personalize-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1875rem;
+  min-width: 0;
+}
+.settings-personalize-title {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--color-text-primary);
+  line-height: 1.35;
+  margin: 0;
+}
+.settings-personalize-hint {
+  font-size: 0.75rem;
+  color: var(--color-text-tertiary);
   line-height: 1.5;
   margin: 0;
 }
