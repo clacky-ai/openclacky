@@ -737,6 +737,10 @@ RSpec.describe "Compression chunk MD archiving" do
                       :compression_level, :previous_total_tokens,
                       :history, :message_compressor, :ui, :config
 
+        def build_system_prompt
+          @history.to_a.find { |message| message[:role] == "system" }[:content]
+        end
+
         # Expose for the helper's instance-variable access pattern
         def initialize
           @compressed_summaries = []

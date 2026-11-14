@@ -246,6 +246,13 @@ module Clacky
         # Note: we need to remove the compression instruction message we just added
         original_messages = @history.to_a[0..-2]  # All except the last (compression instruction)
 
+        # Refresh only after the compression request has completed, preserving
+        # its cached prefix. Stage the new prompt so failed rebuilds leave the
+        # live history untouched, and include it in every size check below.
+        refreshed_history = MessageHistory.new(original_messages)
+        refreshed_history.replace_system_prompt(build_system_prompt)
+        refreshed_messages = refreshed_history.to_a
+
         # Keep the usual recent messages unless they would immediately trigger
         # compression again. The summary covers all original_messages, so any
         # dropped recent messages can safely join the archive below.
@@ -255,7 +262,7 @@ module Clacky
           end
           candidate = @message_compressor.rebuild_with_compression(
             compressed_content,
-            original_messages: original_messages,
+            original_messages: refreshed_messages,
             recent_messages: compression_context[:recent_messages],
             pulled_back_messages: compression_context[:pulled_back_messages] || []
           )
@@ -330,7 +337,7 @@ module Clacky
 
         rebuilt_messages = @message_compressor.rebuild_with_compression(
           compressed_content,
-          original_messages: original_messages,
+          original_messages: refreshed_messages,
           recent_messages: compression_context[:recent_messages],
           chunk_path: chunk_path,
           topics: topics,
