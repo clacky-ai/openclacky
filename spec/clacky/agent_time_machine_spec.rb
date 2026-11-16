@@ -461,6 +461,39 @@ RSpec.describe "Clacky::Agent TimeMachine" do
     end
   end
 
+  describe "#read_text_safe" do
+    it "returns UTF-8 text unchanged" do
+      path = File.join(working_dir, "cn.txt")
+      File.write(path, "修改于 2026-11-12，今天天气不错\n")
+
+      expect(agent.send(:read_text_safe, path)).to eq("修改于 2026-11-12，今天天气不错\n")
+    end
+
+    it "replaces undecodable bytes instead of raising" do
+      path = File.join(working_dir, "broken.txt")
+      File.binwrite(path, "bad\xE4\xBD".b)
+
+      text = agent.send(:read_text_safe, path)
+      expect(text).to include("bad")
+      expect(text).to include("\u{FFFD}")
+      expect(text.valid_encoding?).to be true
+    end
+  end
+
+  describe "#task_file_diff" do
+    it "keeps CJK text intact in the patch" do
+      create_file("notes.md", "修改于 2026-11-12，随便写的：今天天气不错\n")
+
+      agent.start_new_task
+      task_write("notes.md", "修改于 2026-11-13，随便写的：今天下雨\n")
+      agent.start_new_task
+
+      diff = agent.task_file_diff(1, "notes.md")
+      expect(diff[:patch]).to include("今天天气不错", "今天下雨")
+      expect(diff[:patch]).not_to include("\u{FFFD}")
+    end
+  end
+
   describe "#looks_binary?" do
     it "does not misclassify text when the 8000-byte window cuts a multibyte char" do
       # 7998 ASCII bytes + a 3-byte box-drawing char (─ U+2500 = E2 94 80).
