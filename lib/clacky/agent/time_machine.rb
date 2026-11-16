@@ -543,10 +543,10 @@ module Clacky
       end
 
       private def read_text_safe(path)
-        File.read(path, mode: "rb").then do |s|
-          s.encoding == Encoding::UTF_8 && s.valid_encoding? ? s :
-            s.encode("UTF-8", invalid: :replace, undef: :replace, replace: "\u{FFFD}")
-        end
+        raw = File.binread(path).force_encoding(Encoding::UTF_8)
+        return raw if raw.valid_encoding?
+
+        raw.encode("UTF-8", invalid: :replace, undef: :replace, replace: "\u{FFFD}")
       rescue StandardError
         ""
       end
