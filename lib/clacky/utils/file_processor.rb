@@ -60,6 +60,7 @@ module Clacky
       ".jpeg" => "image/jpeg",
       ".gif"  => "image/gif",
       ".webp" => "image/webp",
+      ".svg"  => "image/svg+xml",
       ".mp4"  => "video/mp4",
       ".webm" => "video/webm",
       ".mov"  => "video/quicktime",
@@ -85,13 +86,18 @@ module Clacky
       ".wav"  => :audio, ".mp3" => :audio, ".ogg" => :audio,
       ".aac"  => :audio, ".flac" => :audio, ".m4a" => :audio,
       ".csv"  => :csv,
-      ".md"   => :text, ".markdown" => :text, ".txt" => :text, ".log" => :text
+      ".md"   => :text, ".markdown" => :text, ".txt" => :text, ".log" => :text,
+      ".svg"  => :text
     }.freeze
 
     # Plain-text extensions whose raw content can be embedded directly as the
     # preview (no external parser needed). Kept conservative to avoid pulling
     # in huge source files by mistake.
-    TEXT_PREVIEW_EXTENSIONS = %w[.md .markdown .txt .log].freeze
+    # .svg is XML source: vision APIs reject it, so the model reads the markup instead.
+    TEXT_PREVIEW_EXTENSIONS = %w[.md .markdown .txt .log .svg].freeze
+
+    # Image formats accepted inline by vision APIs (mirrors the Web UI's ACCEPTED_IMAGE_TYPES).
+    VISION_IMAGE_MIME_TYPES = %w[image/png image/jpeg image/gif image/webp].freeze
 
     # FileRef: result of process / process_path.
     FileRef = Struct.new(:name, :type, :original_path, :preview_path, :parse_error, :parser_path, keyword_init: true) do
@@ -224,6 +230,10 @@ module Clacky
 
     def self.detect_mime_type(path, _data = nil)
       MIME_TYPES[File.extname(path).downcase] || "application/octet-stream"
+    end
+
+    def self.vision_image_mime?(mime_type)
+      VISION_IMAGE_MIME_TYPES.include?(mime_type.to_s.downcase)
     end
 
     # Quantize with a frequency-weighted median-cut palette using only chunky_png.
@@ -626,9 +636,12 @@ module Clacky
     LOCAL_IMAGE_EXTENSIONS = %w[.png .jpg .jpeg .gif .webp].freeze
     LOCAL_VIDEO_EXTENSIONS = %w[.mp4 .webm .mov].freeze
     LOCAL_AUDIO_EXTENSIONS = %w[.wav .mp3 .ogg .aac .flac .m4a].freeze
+    # Images the Web UI can render as thumbnails. .svg is display-only: it must
+    # never be inlined as a data URL for the model, so it stays out of LOCAL_IMAGE_EXTENSIONS.
+    LOCAL_PREVIEW_IMAGE_EXTENSIONS = (LOCAL_IMAGE_EXTENSIONS + %w[.svg]).freeze
     # .pdf: served by /api/local-image so the WebUI file viewer can embed it
     # in an iframe (browser-native PDF rendering, no extra dependency).
-    LOCAL_MEDIA_EXTENSIONS = (LOCAL_IMAGE_EXTENSIONS + LOCAL_VIDEO_EXTENSIONS + LOCAL_AUDIO_EXTENSIONS + %w[.pdf]).freeze
+    LOCAL_MEDIA_EXTENSIONS = (LOCAL_PREVIEW_IMAGE_EXTENSIONS + LOCAL_VIDEO_EXTENSIONS + LOCAL_AUDIO_EXTENSIONS + %w[.pdf]).freeze
 
     # Replace local image paths in markdown content with base64 data URLs.
     #

@@ -2594,14 +2594,15 @@ module Clacky
     # @param files [Array] Unused — kept for signature compatibility
     # @return [String|Array] String if no images, Array with content blocks otherwise
     # Partition files array into [image_files, non_image_files].
-    # Image files: have mime_type starting with "image/" OR have data_url present.
+    # Image files: have a vision-supported mime_type OR have data_url present.
+    # Other image/* formats (svg, bmp, heic...) are rejected by vision APIs, so they go to disk.
     private def partition_files(files)
       image_files = []
       non_image_files = []
       files.each do |f|
-        mime = f[:mime_type] || f["mime_type"] || ""
+        mime = f[:mime_type] || f["mime_type"]
         data_url = f[:data_url] || f["data_url"]
-        if mime.start_with?("image/") || data_url
+        if Utils::FileProcessor.vision_image_mime?(mime) || data_url
           image_files << f
         else
           non_image_files << f

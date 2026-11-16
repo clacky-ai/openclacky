@@ -40,6 +40,17 @@ RSpec.describe Clacky::Utils::FileProcessor do
   # ---------------------------------------------------------------------------
   # .save — store only, no parsing
   # ---------------------------------------------------------------------------
+  describe ".vision_image_mime?" do
+    it "accepts only formats vision APIs take inline" do
+      %w[image/png image/jpeg image/gif image/webp IMAGE/PNG].each do |mime|
+        expect(described_class.vision_image_mime?(mime)).to be(true), mime
+      end
+      ["image/svg+xml", "image/bmp", "image/heic", "application/pdf", nil].each do |mime|
+        expect(described_class.vision_image_mime?(mime)).to be(false), mime.inspect
+      end
+    end
+  end
+
   describe ".save" do
     it "writes bytes to disk and returns name + path" do
       result = described_class.save(body: "hello", filename: "notes.txt")
@@ -92,6 +103,18 @@ RSpec.describe Clacky::Utils::FileProcessor do
           expect(ref.original_path).to eq(path)
           expect(ref.preview_path).to be_nil
         end
+      end
+    end
+
+    it "treats svg as text whose preview is the original file" do
+      Dir.mktmpdir do |dir|
+        path = File.join(dir, "logo.svg")
+        File.write(path, "<svg xmlns='http://www.w3.org/2000/svg'/>")
+        expect(Clacky::Utils::ParserManager).not_to receive(:parse)
+
+        ref = described_class.process_path(path)
+        expect(ref.type).to eq(:text)
+        expect(ref.preview_path).to eq(path)
       end
     end
 
