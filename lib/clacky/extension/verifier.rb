@@ -26,7 +26,7 @@ module Clacky
     CHANNEL_KEYS = %w[id platform adapter].freeze
     PATCH_KEYS   = %w[target file fingerprint on_mismatch].freeze
     HOOK_KEYS    = %w[event file].freeze
-    TOOL_KEYS    = %w[id file].freeze
+    TOOL_KEYS    = %w[id file attach].freeze
 
     ATTACH_TOKEN_RE = /\A(\*|[\w\-]+)\z/.freeze
     VERSION_RE      = /\A[0-9]+\.[0-9]+\.[0-9]+\z/.freeze
@@ -121,16 +121,18 @@ module Clacky
         check_unit_keys(issues, ext_id, manifest_path, contributes["hooks"],    HOOK_KEYS,    "hook")
         check_unit_keys(issues, ext_id, manifest_path, contributes["tools"],    TOOL_KEYS,    "tool")
 
-        Array(contributes["panels"]).each do |entry|
-          next unless entry.is_a?(Hash)
-          attach = entry["attach"]
-          next if attach.nil?
-          unless attach.is_a?(Array) && attach.all? { |t| t.is_a?(String) && t.match?(ATTACH_TOKEN_RE) }
-            issues << Issue.new(
-              ext: ext_id, unit: entry["id"], level: :error, code: "schema.bad_attach",
-              message: "panel `attach` must be an array of agent ids or `\"*\"`, got #{attach.inspect}",
-              file: manifest_path, hint: 'Example: attach: [coding]  or  attach: ["*"]'
-            )
+        { "panel" => contributes["panels"], "tool" => contributes["tools"] }.each do |label, list|
+          Array(list).each do |entry|
+            next unless entry.is_a?(Hash)
+            attach = entry["attach"]
+            next if attach.nil?
+            unless attach.is_a?(Array) && attach.all? { |t| t.is_a?(String) && t.match?(ATTACH_TOKEN_RE) }
+              issues << Issue.new(
+                ext: ext_id, unit: entry["id"], level: :error, code: "schema.bad_attach",
+                message: "#{label} `attach` must be an array of agent ids or `\"*\"`, got #{attach.inspect}",
+                file: manifest_path, hint: 'Example: attach: [coding]  or  attach: ["*"]'
+              )
+            end
           end
         end
 

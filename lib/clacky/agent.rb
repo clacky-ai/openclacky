@@ -2184,10 +2184,8 @@ module Clacky
     # class. A failing file is logged and skipped so one broken tool never
     # blocks agent startup.
     private def register_extension_tools
-      dir = @agent_profile.container_dir
-      return unless dir
-      @agent_profile.tools.each do |id|
-        require File.join(dir, "tools", "#{id}.rb")
+      extension_tool_files.each do |id, file|
+        require file
         klass = extension_tool_class_for(id)
         next unless klass
 
@@ -2198,6 +2196,22 @@ module Clacky
         Clacky::Logger.warn("agent.register_extension_tool",
                             error: e.message, tool: id)
       end
+    end
+
+    # [[id, abs_file]] for this agent: tools it declares via `tools:` in its own
+    # container, plus tools any container offers via `attach:` (["*"] = every
+    # agent, or agent ids — a derived agent also matches its base's id).
+    private def extension_tool_files
+      files = []
+      dir = @agent_profile.container_dir
+      @agent_profile.tools.each { |id| files << [id, File.join(dir, "tools", "#{id}.rb")] } if dir
+
+      Array(ExtensionLoader.last_result&.tools).each do |unit|
+        attach = Array(unit.spec["attach"])
+        next unless attach.include?("*") || attach.any? { |a| @agent_profile.based_on?(a) }
+        files << [unit.id, unit.spec["file_abs"]]
+      end
+      files.uniq { |_, file| File.expand_path(file) }
     end
 
     # tools/<id>.rb must define Clacky::Tools::<Camelized id> — the file name

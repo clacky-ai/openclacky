@@ -27,7 +27,7 @@ RSpec.describe Clacky::Agent, "extension tools" do
   # The agent reads result.agents (AgentProfile lookup) at init, so the stub
   # result always carries the `coding` agent unit — its `dir` becomes the
   # container dir, and its `tools:` declaration drives injection.
-  def stub_extension_result(dir:, agent_tools: [])
+  def stub_extension_result(dir:, agent_tools: [], tool_units: [])
     prompt_file = File.join(dir, "coding.md")
     File.write(prompt_file, "hi")
     agent_unit = Clacky::ExtensionLoader::Unit.new(
@@ -37,7 +37,7 @@ RSpec.describe Clacky::Agent, "extension tools" do
     )
     result = Clacky::ExtensionLoader::Result.new(
       panels: [], api: [], skills: [], agents: [agent_unit], channels: [],
-      patches: [], hooks: [], tools: [], errors: [], overridden: [], containers: {}
+      patches: [], hooks: [], tools: tool_units, errors: [], overridden: [], containers: {}
     )
     allow(Clacky::ExtensionLoader).to receive(:last_result).and_return(result)
   end
@@ -118,6 +118,64 @@ RSpec.describe Clacky::Agent, "extension tools" do
       registry = agent.instance_variable_get(:@tool_registry)
       expect(registry.tool_names).not_to include("broken")
       expect(registry.tool_names).to include("terminal")
+    end
+  end
+
+  # A tool from ANOTHER container (e.g. knowledge) reaches agents via attach:.
+  def tool_unit(dir, id, attach)
+    Clacky::ExtensionLoader::Unit.new(
+      kind: :tool, id: id, ext_id: "other", layer: :local, origin: "self", dir: dir,
+      spec: { "id" => id, "file" => "tools/#{id}.rb",
+              "file_abs" => File.join(dir, "tools", "#{id}.rb"), "attach" => attach }
+    )
+  end
+
+  describe "attach:" do
+    it "registers a cross-container tool attached to every agent with [\"*\"]" do
+      Dir.mktmpdir do |agent_dir|
+        Dir.mktmpdir do |other|
+          write_tool(other, file_name: "kb_probe_all.rb", class_name: "KbProbeAll", tool_name: "kb_probe_all")
+          stub_extension_result(dir: agent_dir, tool_units: [tool_unit(other, "kb_probe_all", ["*"])])
+
+          expect(build_agent.instance_variable_get(:@tool_registry).tool_names).to include("kb_probe_all")
+        end
+      end
+    end
+
+    it "registers a tool attached to this agent by id" do
+      Dir.mktmpdir do |agent_dir|
+        Dir.mktmpdir do |other|
+          write_tool(other, file_name: "kb_probe_named.rb", class_name: "KbProbeNamed", tool_name: "kb_probe_named")
+          stub_extension_result(dir: agent_dir, tool_units: [tool_unit(other, "kb_probe_named", ["coding"])])
+
+          expect(build_agent.instance_variable_get(:@tool_registry).tool_names).to include("kb_probe_named")
+        end
+      end
+    end
+
+    it "skips a tool attached to a different agent or with no attach" do
+      Dir.mktmpdir do |agent_dir|
+        Dir.mktmpdir do |other|
+          write_tool(other, file_name: "kb_probe_other.rb", class_name: "KbProbeOther", tool_name: "kb_probe_other")
+          write_tool(other, file_name: "kb_probe_none.rb", class_name: "KbProbeNone", tool_name: "kb_probe_none")
+          stub_extension_result(dir: agent_dir, tool_units: [
+            tool_unit(other, "kb_probe_other", ["designer"]),
+            tool_unit(other, "kb_probe_none", [])
+          ])
+
+          names = build_agent.instance_variable_get(:@tool_registry).tool_names
+          expect(names).not_to include("kb_probe_other", "kb_probe_none")
+        end
+      end
+    end
+
+    it "registers a tool only once when both declared and attached" do
+      Dir.mktmpdir do |dir|
+        write_tool(dir, file_name: "weather.rb", class_name: "Weather", tool_name: "weather")
+        stub_extension_result(dir: dir, agent_tools: ["weather"], tool_units: [tool_unit(dir, "weather", ["*"])])
+
+        expect(build_agent.instance_variable_get(:@tool_registry).tool_names.count("weather")).to eq(1)
+      end
     end
   end
 

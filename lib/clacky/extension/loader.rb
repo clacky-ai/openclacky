@@ -611,6 +611,7 @@ module Clacky
                    "id"      => spec["id"].to_s,
                    "file"    => spec["file"],
                    "file_abs" => file_abs,
+                   "attach"   => Array(spec["attach"]).map(&:to_s),
                  })
       end
     end
