@@ -31,4 +31,23 @@ RSpec.describe "Git panel diff render budget" do
     expect(reflow).not_to include("state.records = new Map()")
     expect(reflow).to include("renderFileBody(section, file)")
   end
+
+  # A spent stream budget turns later files into load-on-click placeholders; it
+  # never truncates the file being drawn. Reporting the leftover budget as the
+  # visible row count told users "showing the first 2984 lines" while the body
+  # held all 3995 of them.
+  it "reports the rows actually rendered, not the leftover budget" do
+    expect(body).not_to include("rendered >= limit")
+    expect(body).to include('replace("{{n}}", String(rendered))')
+  end
+
+  it "shows the note only when the payload or the body was really clipped" do
+    expect(body).to include("if (file.truncated || clipped)")
+    expect(body).to include("let clipped = false;")
+  end
+
+  it "marks a clip only on a MAX_RENDER_LINES early exit" do
+    expect(body).to include("if (rendered >= MAX_RENDER_LINES) { clipped = true; break; }")
+    expect(body).to include("clipped = clipped || h + 1 < hunks.length;")
+  end
 end
