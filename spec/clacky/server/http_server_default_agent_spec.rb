@@ -14,7 +14,9 @@ RSpec.describe Clacky::Server::HttpServer, "default agent" do
       self.headers = {}
     end
 
-    def [](key) = headers[key]
+    def [](key)
+      headers[key]
+    end
     def []=(key, value)
       headers[key] = value
     end
