@@ -445,8 +445,8 @@ module Clacky
       end
 
       # Split a multi-file `git diff` into { path => chunk } keyed by the repo
-      # path, preferring the `+++ b/` side (the `--- a/` side is
-      # `/dev/null` for added files).
+      # path. Empty, binary, mode-only and pure-rename entries have no
+      # `---`/`+++` lines, so the path comes from the headers instead.
       def split_diff(text)
         chunks = {}
         path = nil
@@ -458,19 +458,26 @@ module Clacky
           if line.start_with?("diff --git ")
             flush.call
             buf = [line]
-            path = nil
+            path = header_path(line)
           else
             buf << line
-            next if path
-            if line.start_with?("--- a/")
-              path = line.sub("--- a/", "").chomp
-            elsif line.start_with?("+++ b/")
-              path = line.sub("+++ b/", "").chomp
-            end
+            path = line.chomp.split(" to ", 2).last if line.start_with?("rename to ", "copy to ")
           end
         end
         flush.call
         chunks
+      end
+
+      # `diff --git a/P b/P` repeats the same path unless the file was renamed
+      # or copied, so halving it is exact even when P contains spaces. Quoted
+      # headers keep their raw text so the entry is listed rather than dropped.
+      def header_path(line)
+        header = line.chomp.sub("diff --git ", "")
+        return header unless header.size.odd? && header.start_with?("a/")
+
+        len = (header.size - 5) / 2
+        path = header[2, len]
+        header[len + 2, 3] == " b/" && header[len + 5..-1] == path ? path : header
       end
 
       def count_changes(text)
