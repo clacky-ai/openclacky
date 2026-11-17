@@ -1077,9 +1077,9 @@ module Clacky
         name = body["name"]
         return json_response(res, 400, { error: "name is required" }) if name.nil? || name.strip.empty?
 
-        # Optional agent_profile; defaults to "general" if omitted or invalid
+        # Optional agent_profile; defaults to the configured default agent.
         profile = body["agent_profile"].to_s.strip
-        profile = "general" if profile.empty?
+        profile = resolved_default_agent if profile.empty?
 
         # Optional source; defaults to :manual. Accept "system" for skill-launched sessions
         # (e.g. /onboard, /browser-setup, /channel-manager).
@@ -5465,7 +5465,9 @@ module Clacky
         working_dir  = File.expand_path("~/clacky_workspace")
         FileUtils.mkdir_p(working_dir)
 
-        session_id = build_session(name: session_name, working_dir: working_dir, permission_mode: :auto_approve)
+        # Same as scheduled runs: cron sessions always use the general agent.
+        session_id = build_session(name: session_name, working_dir: working_dir, permission_mode: :auto_approve,
+                                   profile: Clacky::AgentConfig::DEFAULT_AGENT)
         @registry.update(session_id, pending_task: prompt, pending_working_dir: working_dir, pending_cron_task: name)
         broadcast_session_update(session_id, created: true)
 
@@ -5526,7 +5528,22 @@ module Clacky
       def api_list_agents(res)
         recency = agent_last_used_recency
         agents = Clacky::AgentProfile.all(recency: recency)
-        json_response(res, 200, { agents: agents })
+        json_response(res, 200, { agents: agents, default_agent: resolved_default_agent(agents) })
+      end
+
+      # Ids that may be chosen as the default agent: installed and not hidden.
+      private def selectable_agent_ids(agents = Clacky::AgentProfile.all)
+        agents.reject { |a| a[:hidden] }.map { |a| a[:id] }
+      end
+
+      # The configured default agent, or "general" when it was uninstalled,
+      # hidden, or never set — a stale value must never block session creation.
+      private def resolved_default_agent(agents = nil)
+        id = @agent_config.default_agent.to_s
+        return Clacky::AgentConfig::DEFAULT_AGENT if id.empty? || id == Clacky::AgentConfig::DEFAULT_AGENT
+        selectable_agent_ids(agents || Clacky::AgentProfile.all).include?(id) ? id : Clacky::AgentConfig::DEFAULT_AGENT
+      rescue StandardError
+        Clacky::AgentConfig::DEFAULT_AGENT
       end
 
       # Map agent_profile id => most recent session's updated_at (epoch seconds),
@@ -6970,6 +6987,7 @@ module Clacky
           enable_prompt_caching: @agent_config.enable_prompt_caching,
           memory_update_enabled: @agent_config.memory_update_enabled,
           memory_inject_enabled: @agent_config.memory_inject_enabled,
+          default_agent: resolved_default_agent,
           proxy_url: @agent_config.proxy_url.to_s,
           clacky_license_server: effective_clacky_license_server
         })
@@ -6990,6 +7008,13 @@ module Clacky
           end
         end
 
+        if body.key?("default_agent")
+          id = body["default_agent"].to_s.strip
+          unless selectable_agent_ids.include?(id)
+            return json_response(res, 422, { ok: false, error: "Unknown agent: #{id}" })
+          end
+        end
+
         if body.key?("enable_compression")
           @agent_config.enable_compression = !!body["enable_compression"]
         end
@@ -7005,6 +7030,7 @@ module Clacky
         if body.key?("memory_inject_enabled")
           @agent_config.memory_inject_enabled = !!body["memory_inject_enabled"]
         end
+        @agent_config.default_agent = body["default_agent"] if body.key?("default_agent")
         if body.key?("proxy_url")
           raw = body["proxy_url"].to_s.strip
           if raw.empty?
@@ -9012,7 +9038,9 @@ module Clacky
       # @param working_dir [String] working directory for the agent
       # @param permission_mode [Symbol] :confirm_all (default, human present) or
       #   :auto_approve (unattended — suppresses ask_user waits)
-      def build_session(name:, working_dir: nil, permission_mode: :confirm_all, profile: "general", source: :manual, model_id: nil)
+      def build_session(name:, working_dir: nil, permission_mode: :confirm_all, profile: nil, source: :manual, model_id: nil)
+        # Channel, cron and other callers that omit profile get the default agent.
+        profile = resolved_default_agent if profile.to_s.strip.empty?
         working_dir ||= default_working_dir
         FileUtils.mkdir_p(working_dir) unless Dir.exist?(working_dir)
         session_id = Clacky::SessionManager.generate_id

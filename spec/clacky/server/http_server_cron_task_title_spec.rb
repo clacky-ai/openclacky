@@ -135,4 +135,19 @@ RSpec.describe Clacky::Server::HttpServer, "cron task titles" do
     expect(res.status).to eq(202)
     expect(captured[:name]).to eq("▶ daily_report 09:00")
   end
+
+  it "always builds a manually triggered run with the general agent" do
+    post("name" => "daily_report", "content" => "Write the report", "cron" => "0 9 * * *")
+
+    captured = {}
+    registry = double("registry", update: nil, session_summary: { id: "s1" })
+    server.instance_variable_set(:@registry, registry)
+    allow(server).to receive(:build_session) { |**kw| captured[:profile] = kw[:profile]; "s1" }
+    allow(server).to receive(:broadcast_session_update)
+
+    res = FakeResponse.new
+    server.send(:api_run_cron_task, "daily_report", res)
+
+    expect(captured[:profile]).to eq("general")
+  end
 end

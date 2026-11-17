@@ -3078,7 +3078,7 @@ body {
   flex-direction: column;
   gap: 1.25rem;
   width: 100%;
-  padding: 5.5rem max(1.5rem, calc(50% - 30rem)) 1rem;
+  padding: 5rem max(1.5rem, calc(50% - 30rem)) 1rem;
 }
 .new-session-composer {
   position: relative;
@@ -9227,6 +9227,12 @@ a.msg-mention-badge:hover { text-decoration: underline; }
 }
 .model-provider-filter .custom-select-trigger {
   height: 100%;
+}
+
+/* Settings › General › Default agent */
+.settings-default-agent-select {
+  flex: 0 0 11rem;
+  width: 11rem;
 }
 
 /* ── Grid Model Card ────────────────────────────────────────────────────────── */

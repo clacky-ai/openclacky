@@ -100,9 +100,10 @@ RSpec.describe "Settings section headings and memory rows" do
   describe "memory toggle rows" do
     let(:rows) { markup.scan(%r{<div class="settings-personalize">\s*<div class="settings-personalize-text">.*?</div>}m) }
 
+    # Three titled rows: Default agent, Save to memory, Auto recall.
     it "labels each toggle with a title above the description" do
-      expect(markup.scan('class="settings-personalize-title"').size).to eq(2)
-      expect(rows.size).to eq(2)
+      expect(markup.scan('class="settings-personalize-title"').size).to eq(3)
+      expect(rows.size).to eq(3)
 
       rows.each do |row|
         title_at = row.index("settings-personalize-title")

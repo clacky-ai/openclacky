@@ -1313,6 +1313,21 @@ RSpec.describe Clacky::AgentConfig do
     end
   end
 
+  describe "default_agent" do
+    it "defaults to general, also for blank values" do
+      expect(described_class.new.default_agent).to eq("general")
+      expect(described_class.new(default_agent: " ").default_agent).to eq("general")
+    end
+
+    it "persists via save/load roundtrip" do
+      with_temp_config do |config_file|
+        described_class.new(default_agent: "knowledge").save(config_file)
+
+        expect(described_class.load(config_file).default_agent).to eq("knowledge")
+      end
+    end
+  end
+
   # Helper to set environment variables temporarily
   def with_env(vars)
     old_values = {}

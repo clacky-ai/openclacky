@@ -289,6 +289,22 @@ RSpec.describe Clacky::Server::Scheduler do
       expect(built_name).to eq("⏰ daily_report 09:00")
     end
 
+    it "always builds the cron session with the general agent" do
+      built_profile = nil
+      s = described_class.new(
+        session_registry: fake_registry,
+        session_builder:  ->(**kw) { built_profile = kw[:profile]; "session-profile" },
+        task_runner:      task_runner
+      )
+      stub_const("Clacky::Server::Scheduler::SCHEDULES_FILE", File.join(tmpdir, "schedules.yml"))
+      stub_const("Clacky::Server::Scheduler::TASKS_DIR",      File.join(tmpdir, "tasks"))
+      s.write_task("my_task", "x")
+
+      s.send(:fire_task, { "name" => "daily_report", "task" => "my_task", "cron" => "0 9 * * *" })
+
+      expect(built_profile).to eq("general")
+    end
+
     it "does nothing when no agent is registered for the new session" do
       empty_registry = Object.new.tap do |r|
         r.define_singleton_method(:with_session) { |_sid, &blk| blk.call({ agent: nil }) }

@@ -7,6 +7,7 @@ require "securerandom"
 require "fileutils"
 require "monitor"
 require "date"
+require_relative "../agent_config"
 
 module Clacky
   module Server
@@ -426,7 +427,11 @@ module Clacky
         name      = "⏰ #{label} #{Time.now.strftime("%H:%M")}"
 
         # Scheduled tasks run unattended — use auto_approve so ask_user doesn't block.
-        session_id = @session_builder.call(name: name, permission_mode: :auto_approve, source: :cron)
+        # They always run as the general agent: a task is unattended automation,
+        # and the default agent (e.g. a knowledge-base agent) would inject
+        # retrieval context that is noise here.
+        session_id = @session_builder.call(name: name, permission_mode: :auto_approve, source: :cron,
+                                           profile: Clacky::AgentConfig::DEFAULT_AGENT)
 
         Clacky::Logger.info("scheduler_task_fired", task: task_name, session: session_id)
 

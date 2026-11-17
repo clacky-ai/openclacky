@@ -209,6 +209,9 @@ module Clacky
       # Memory and skill evolution configuration
       @memory_update_enabled = options[:memory_update_enabled].nil? ? true : options[:memory_update_enabled]
       @memory_inject_enabled = options[:memory_inject_enabled] == true
+      # Agent used when a session is created without an explicit profile
+      # (New Session page, sidebar quick-create, channel and cron sessions).
+      self.default_agent = options[:default_agent]
       @skill_evolution = options[:skill_evolution] || {
         enabled: true,
         auto_create_threshold: 12,
@@ -382,6 +385,15 @@ module Clacky
     # in Settings, producing bugs like "Failed to switch model" for newly
     # added models on Windows and Linux. See http_server.rb#api_switch_session_model
     # and http_server.rb#api_save_config for the companion logic.
+    DEFAULT_AGENT = "general"
+
+    attr_reader :default_agent
+
+    def default_agent=(value)
+      id = value.to_s.strip
+      @default_agent = id.empty? ? DEFAULT_AGENT : id
+    end
+
     def deep_copy
       # dup gives us a new AgentConfig with independent scalar ivars but
       # the same @models reference — exactly what we want.
@@ -459,7 +471,7 @@ module Clacky
     CONFIG_SETTINGS_KEYS = %w[
       enable_compression enable_idle_compression enable_prompt_caching
       compression_threshold message_count_threshold
-      memory_update_enabled memory_inject_enabled input_behavior ask_user_timeout_seconds
+      memory_update_enabled memory_inject_enabled default_agent input_behavior ask_user_timeout_seconds
       skill_evolution max_running_agents max_idle_agents
       default_working_dir pid_dir
       proxy_url clacky_license_server
@@ -482,6 +494,7 @@ module Clacky
         "message_count_threshold" => @message_count_threshold,
         "memory_update_enabled" => @memory_update_enabled,
         "memory_inject_enabled" => @memory_inject_enabled,
+        "default_agent" => @default_agent,
         "skill_evolution" => @skill_evolution,
         "max_running_agents" => @max_running_agents,
         "max_idle_agents" => @max_idle_agents,
