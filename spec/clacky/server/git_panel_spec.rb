@@ -629,6 +629,57 @@ RSpec.describe Clacky::Server::GitPanel, ".review" do
     expect(data[:add]).to eq(1)
   end
 
+  describe "entries without ---/+++ lines" do
+    before do
+      write "mode.sh", "x\n"
+      write "old.txt", "same\n"
+      File.binwrite(File.join(@dir, "a.bin"), [0, 1, 2].pack("C*"))
+      commit_all "init"
+      write "new empty.txt", ""
+      File.chmod(0o755, File.join(@dir, "mode.sh"))
+      run "git", "mv", "old.txt", "renamed.txt"
+      File.binwrite(File.join(@dir, "a.bin"), [0, 1, 3].pack("C*"))
+      write "sp ace.txt", "z\n"
+      run "git", "add", "-A"
+    end
+
+    let(:expected) do
+      ["new empty.txt", "mode.sh", "renamed.txt", "a.bin", "sp ace.txt"]
+    end
+
+    def by_path(data)
+      data[:files].each_with_object({}) { |f, h| h[f[:path]] = f }
+    end
+
+    it "lists every staged entry under its real path" do
+      files = by_path(described_class.review(@dir, scope: "staged"))
+      expect(files.keys).to match_array(expected)
+      expect(files["new empty.txt"][:x]).to eq("A")
+      expect(files["a.bin"][:binary]).to be_truthy
+      expect(files["sp ace.txt"][:add]).to eq(1)
+    end
+
+    it "lists every entry of a picked commit" do
+      commit_all "second"
+      head = run("git", "rev-parse", "HEAD").strip
+      files = by_path(described_class.review(@dir, scope: "committed", base: head))
+      expect(files.keys).to match_array(expected)
+      expect(files["renamed.txt"][:diff]).to include("rename to renamed.txt")
+    end
+  end
+
+  it "lists a deleted empty file in a picked commit" do
+    write "a.txt", "one\n"
+    write "gone.txt", ""
+    commit_all "init"
+    File.delete(File.join(@dir, "gone.txt"))
+    commit_all "drop"
+    head = run("git", "rev-parse", "HEAD").strip
+
+    files = described_class.review(@dir, scope: "committed", base: head)[:files]
+    expect(files.map { |f| [f[:path], f[:x]] }).to eq([["gone.txt", "D"]])
+  end
+
   describe "payload budget" do
     it "drops the diff of files past the budget but keeps their counts" do
       write "a.txt", "one\ntwo\nthree\n"
