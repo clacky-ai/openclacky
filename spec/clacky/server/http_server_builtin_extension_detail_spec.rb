@@ -154,7 +154,7 @@ RSpec.describe Clacky::Server::HttpServer, "builtin extension detail and assets"
   end
 
   describe "shipped builtin icons" do
-    %w[advisor git preview computer-use meeting time_machine].each do |id|
+    %w[advisor git preview computer-use meeting time_machine knowledge].each do |id|
       it "declares an existing icon for #{id}" do
         dir      = File.join(Clacky::ExtensionLoader::BUILTIN_DIR, id)
         manifest = YAMLCompat.load_file(File.join(dir, "ext.yml"))

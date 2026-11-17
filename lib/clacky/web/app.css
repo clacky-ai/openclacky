@@ -3201,6 +3201,7 @@ body {
 }
 .agent-card-avatar--general       { --agent-icon-color: var(--color-accent-primary); }
 .agent-card-avatar--coding        { --agent-icon-color: #17b26a; }
+.agent-card-avatar--knowledge     { --agent-icon-color: #0e9384; }
 .agent-card-avatar--ext-developer { --agent-icon-color: #ef6820; }
 .agent-card-avatar--secretary     { --agent-icon-color: #e11d48; }
 .agent-card-new {

@@ -1,0 +1,46 @@
+id: knowledge
+name: Knowledge
+display_name: Knowledge Base
+display_name_zh: 知识库
+description: A knowledge-base agent that answers from your own documents with citations
+description_zh: 基于你的资料回答，并标注出处
+version: "0.1.0"
+icon: icon.svg
+author: OpenClacky
+license: MIT
+enabled_by_default: false
+contributes:
+  # Management page: a sidebar entry (below Creator Center) that opens a
+  # full-page workspace at #ext/knowledge. Global app chrome — not tied to
+  # any agent, so no `attach`.
+  api: api/handler.rb
+  panels:
+    - id: kb
+      title: Knowledge Base
+      title_zh: 知识库
+      description: Browse, add and test the knowledge base
+      description_zh: 浏览、添加资料，试检索
+      view: panels/kb/view.js
+  agents:
+    # Builds on "general" so it keeps every everyday capability; only the
+    # knowledge-first prompt, the kb tools and auto-recall are added.
+    # Make it the default in Settings › General to cover all new sessions,
+    # including channel (Feishu / WeChat…) sessions.
+    - id: knowledge
+      base_agent: general
+      title: Knowledge Base
+      title_zh: 知识库
+      description: Answers from your own documents, with citations
+      description_zh: 基于你的资料回答，并标注出处
+      order: 3
+      prompt: agents/knowledge/system_prompt.md
+  hooks:
+    - event: on_start
+      file: hooks/kb_inject.rb
+  tools:
+    - id: kb_search
+      file: tools/kb_search.rb
+      attach: ["knowledge"]
+    - id: kb_read
+      file: tools/kb_read.rb
+      attach: ["knowledge"]

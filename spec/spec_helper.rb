@@ -8,6 +8,8 @@ require_relative "support/coverage"
 # Redirect billing writes away from ~/.clacky/billing/ during test runs
 require "tmpdir"
 ENV["CLACKY_BILLING_DIR"] = Dir.mktmpdir("clacky_billing_test")
+# Keep the knowledge extension from creating ~/.clacky/knowledge in tests
+ENV["CLACKY_KNOWLEDGE_DIR"] = Dir.mktmpdir("clacky_knowledge_test")
 
 require "clacky"
 require "clacky/server/project_manager"
