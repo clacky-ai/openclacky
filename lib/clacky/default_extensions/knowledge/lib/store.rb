@@ -140,7 +140,7 @@ module Clacky
           meta = File.file?(abs) ? split_frontmatter(File.read(abs, encoding: "UTF-8").scrub(""))[0] : {}
         end
 
-        meta = meta.except("category").merge("title" => title, "source" => blank_to_nil(source))
+        meta = meta.reject { |k, _v| k == "category" }.merge("title" => title, "source" => blank_to_nil(source))
         meta.delete_if { |_k, v| v.nil? }
         FileUtils.mkdir_p(File.dirname(abs))
         front = meta.empty? ? "" : "#{YAML.dump(meta)}---\n\n"

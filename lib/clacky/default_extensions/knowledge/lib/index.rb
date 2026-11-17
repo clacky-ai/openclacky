@@ -73,8 +73,13 @@ module Clacky
         texts = [""] if texts.empty?
         texts.map do |text|
           tokens = self.class.tokenize("#{entry.title}\n#{text}")
-          Chunk.new(entry: entry, text: text, terms: tokens.tally, length: tokens.size)
+          Chunk.new(entry: entry, text: text, terms: term_counts(tokens), length: tokens.size)
         end
+      end
+
+      # Enumerable#tally is Ruby 2.7+; the gem still ships to 2.6.
+      private def term_counts(tokens)
+        tokens.each_with_object(Hash.new(0)) { |t, counts| counts[t] += 1 }
       end
     end
   end
