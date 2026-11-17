@@ -662,9 +662,14 @@ module Clacky
           # gateway's 8-minute ceiling. Give the local handler headroom.
           600
         elsif path == "/api/media/audio/speech"
-          120
+          # Gemini TTS synthesises the whole clip in one upstream call; long
+          # inputs can run for minutes. Must exceed the media client's 330s read
+          # timeout so the inner layer reports the failure instead of this guard.
+          360
         elsif path == "/api/media/audio/transcriptions"
-          30
+          # Transcription of a full audio file is one long upstream call; the
+          # media client waits up to 240s, so leave it room to report failures.
+          280
         elsif path == "/api/media/video/understand"
           60
         elsif path == "/api/backup/restore" || path == "/api/backup/run" || path.start_with?("/api/backup/download")

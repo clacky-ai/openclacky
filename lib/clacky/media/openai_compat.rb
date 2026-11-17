@@ -533,25 +533,32 @@ module Clacky
         end
       end
 
+      # TTS generates the audio synchronously upstream; long inputs can take
+      # several minutes. Stay slightly above the gateway's own 300s budget so
+      # the gateway is the one that gives up first and reports why.
       private def audio_connection
         Faraday.new(url: normalized_base_url) do |f|
-          f.options.timeout      = 120
+          f.options.timeout      = 330
           f.options.open_timeout = 10
         end
       end
 
+      # The gateway is slow on this path: ~7 s for a 2 s clip, ~60 s for 13 s
+      # and over 140 s for 15 s. Keep the read timeout above the worst case a
+      # single piece can hit, so a slow answer is reported by the gateway
+      # instead of being cut off here as a bare Net::ReadTimeout.
       private def stt_connection
         Faraday.new(url: normalized_base_url) do |f|
-          f.options.timeout      = 30
+          f.options.timeout      = 240
           f.options.open_timeout = 10
         end
       end
 
       # STT JSON body carries a large base64 payload; upstream may need longer
-      # to decode/transcribe it than the 30s multipart path.
+      # to decode/transcribe it than the multipart path.
       private def stt_json_connection
         Faraday.new(url: normalized_base_url) do |f|
-          f.options.timeout      = 120
+          f.options.timeout      = 200
           f.options.open_timeout = 10
         end
       end
