@@ -34,9 +34,12 @@ Click **Summarize Notes**. The AI builds structured notes from the full transcri
 - Discussion highlights
 - Open questions
 
+Click **Discard** instead if you don't want notes: the recording is thrown away without calling the AI.
+
 ## More
 
 - **Mute / Unmute** temporarily turns the microphone off; nothing is recorded meanwhile.
+- **Discard** aborts the recording, returns to the start screen, and keeps no transcript or notes (it asks for confirmation first).
 - **Resume Recording** continues an unfinished meeting after a page reload (microphone access is requested again).
 - **Meeting vocabulary**: add names, product names and jargon (press Enter after each), then click **Save** — this noticeably improves recognition accuracy.
 

@@ -94,6 +94,27 @@ class MeetingExt < Clacky::ApiExtension
     json(ok: true, meeting_id: mid)
   end
 
+  # POST /api/ext/meeting/cancel
+  # body: { session_id, meeting_id }
+  # Discards an in-progress meeting: the folder is moved under
+  # ~/.clacky/meetings/.trash so it stops showing up in /active, and no
+  # summarization is triggered. Used when the user bails out mid-recording.
+  post "/cancel" do
+    sid, mid = json_body.values_at("session_id", "meeting_id")
+    error!("session_id and meeting_id required", status: 422) unless sid && mid
+
+    # sid / mid come from the browser, so keep the move inside MEETINGS_ROOT.
+    dir = File.expand_path(File.join(MEETINGS_ROOT, sid.to_s, mid.to_s))
+    next json(ok: true, discarded: false) unless dir.start_with?(MEETINGS_ROOT + File::SEPARATOR) && File.directory?(dir)
+
+    trash = File.join(MEETINGS_ROOT, ".trash", sid.to_s)
+    FileUtils.mkdir_p(trash)
+    dest = File.join(trash, "#{File.basename(dir)}_cancelled_#{Time.now.strftime('%Y%m%d_%H%M%S')}")
+    FileUtils.mv(dir, dest)
+    logger.info("cancel: sid=#{sid} mid=#{mid} -> #{dest}")
+    json(ok: true, discarded: true)
+  end
+
   # ── Transcription ─────────────────────────────────────────────────────────
 
   # POST /api/ext/meeting/transcribe
