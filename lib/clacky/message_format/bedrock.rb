@@ -62,7 +62,7 @@ module Clacky
         regular_messages = messages.reject { |m| m[:role] == "system" }
 
         # Merge consecutive same-role messages (Bedrock requires alternating roles)
-        api_messages = merge_consecutive_tool_results(regular_messages.map { |msg| to_api_message(msg) })
+        api_messages = merge_consecutive_user_messages(regular_messages.map { |msg| to_api_message(msg) })
 
         # Inject cachePoint blocks AFTER conversion to Bedrock API format.
         # Doing this on canonical messages (before to_api_message) is incorrect because
@@ -316,26 +316,32 @@ module Clacky
         end
       end
 
-      # Bedrock Converse API requires strict user/assistant alternation.
-      # Merge consecutive tool result messages (role: "user") into a single message.
-      private_class_method def self.merge_consecutive_tool_results(messages)
+      # Converse requires strict user/assistant alternation. Merge every
+      # consecutive user-user run, not just toolResult pairs: injected context
+      # (session context, chunk archive, memory recall) lands as user messages
+      # right before the user's own turn, producing runs of four or five. The
+      # proxy reports them as "tool_use 块缺少对应的 tool_result" because a
+      # misaligned toolResult is what its validator trips on first.
+      private_class_method def self.merge_consecutive_user_messages(messages)
         return messages if messages.empty?
 
         merged = []
         messages.each do |msg|
           prev = merged.last
-          # If current and previous are both user messages containing toolResult blocks,
-          # merge their content arrays together
           if prev && prev[:role] == "user" && msg[:role] == "user" &&
-             prev[:content].is_a?(Array) && msg[:content].is_a?(Array) &&
-             prev[:content].any? { |b| b[:toolResult] } &&
-             msg[:content].any? { |b| b[:toolResult] }
-            merged.last[:content].concat(msg[:content])
+             prev[:content].is_a?(Array) && msg[:content].is_a?(Array)
+            prev[:content] = merge_user_blocks(prev[:content], msg[:content])
           else
             merged << msg.dup
           end
         end
         merged
+      end
+
+      # toolResult blocks must lead the user message's content array.
+      private_class_method def self.merge_user_blocks(left, right)
+        tool_results, rest = (left + right).partition { |b| b.is_a?(Hash) && b[:toolResult] }
+        tool_results + rest
       end
 
       # Inject cachePoint blocks into already-converted Bedrock API format messages.
@@ -345,7 +351,7 @@ module Clacky
       # Why operate on Bedrock API format (not canonical):
       #   - tool-result canonical messages (role: "tool") become toolResult blocks inside
       #     a user message. Bedrock does NOT allow cachePoint inside toolResult.content.
-      #   - After merge_consecutive_tool_results, message boundaries may differ from canonical.
+      #   - After merge_consecutive_user_messages, message boundaries may differ from canonical.
       #   - Operating here guarantees cachePoint is always a top-level sibling block.
       private_class_method def self.apply_api_caching(api_messages)
         return api_messages if api_messages.empty?

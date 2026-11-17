@@ -31,6 +31,53 @@ RSpec.describe Clacky::MessageFormat::Bedrock do
     end
   end
 
+  describe "role alternation" do
+    let(:model)      { "anthropic.claude-sonnet-4-v1:0" }
+    let(:tools)      { [] }
+    let(:max_tokens) { 1024 }
+
+    it "merges injected user messages that pile up before the user's own turn" do
+      messages = [
+        { role: "user", content: "question" },
+        { role: "assistant", content: "", tool_calls: [{ id: "c1", function: { name: "terminal", arguments: "{}" } }] },
+        { role: "tool", tool_call_id: "c1", content: "output" },
+        { role: "assistant", content: "done" },
+        { role: "user", content: "[Session context: today is ...]" },
+        { role: "user", content: "## Previous Session Archives" },
+        { role: "user", content: "<system-reminder>memories</system-reminder>" },
+        { role: "user", content: "继续" }
+      ]
+
+      body = described_class.build_request_body(messages, model, tools, max_tokens)
+
+      roles = body[:messages].map { |m| m[:role] }
+      expect(roles).to eq(%w[user assistant user assistant user])
+      expect(body[:messages].last[:content].map { |b| b[:text] }).to eq(
+        ["[Session context: today is ...]", "## Previous Session Archives",
+         "<system-reminder>memories</system-reminder>", "继续"]
+      )
+    end
+
+    it "keeps toolResult blocks ahead of merged text" do
+      messages = [
+        { role: "assistant", content: "", tool_calls: [
+          { id: "c1", function: { name: "terminal", arguments: "{}" } },
+          { id: "c2", function: { name: "terminal", arguments: "{}" } }
+        ] },
+        { role: "tool", tool_call_id: "c1", content: "output" },
+        { role: "tool", tool_call_id: "c2", content: "output2" },
+        { role: "user", content: "继续" }
+      ]
+
+      body = described_class.build_request_body(messages, model, tools, max_tokens)
+
+      expect(body[:messages].size).to eq(2)
+      blocks = body[:messages].last[:content]
+      expect(blocks.count { |b| b[:toolResult] }).to eq(2)
+      expect(blocks.last[:text]).to eq("继续")
+    end
+  end
+
   describe "reasoning effort injection" do
     let(:messages)   { [{ role: "user", content: "hi" }] }
     let(:tools)      { [] }
