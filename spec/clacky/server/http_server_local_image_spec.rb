@@ -68,6 +68,31 @@ RSpec.describe Clacky::Server::HttpServer, "GET /api/local-image media serving" 
     end
   end
 
+  it "serves svg as image/svg+xml inside a CSP sandbox" do
+    svg_path = File.join(tmpdir, "logo.svg")
+    File.write(svg_path, "<svg xmlns='http://www.w3.org/2000/svg'/>")
+    with_server(agent_config: agent_config) do |server|
+      res = request_local_file(server, svg_path)
+      expect(res.status).to eq(200)
+      expect(res["Content-Type"]).to eq("image/svg+xml")
+      expect(res["Content-Security-Policy"]).to eq("sandbox")
+    end
+  end
+
+  it "does not sandbox raster images" do
+    with_server(agent_config: agent_config) do |server|
+      expect(request_image(server)["Content-Security-Policy"]).to be_nil
+    end
+  end
+
+  it "refuses image formats the browser preview does not support" do
+    bmp_path = File.join(tmpdir, "scan.bmp")
+    File.binwrite(bmp_path, "BM")
+    with_server(agent_config: agent_config) do |server|
+      expect(request_local_file(server, bmp_path).status).to eq(403)
+    end
+  end
+
   it "returns 304 with no body when If-None-Match matches the current ETag" do
     with_server(agent_config: agent_config) do |server|
       etag = request_image(server)["ETag"]

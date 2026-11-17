@@ -4899,6 +4899,8 @@ module Clacky
 
         file_size = File.size(path)
         mime = Utils::FileProcessor::MIME_TYPES[ext] || "application/octet-stream"
+        # SVG can carry scripts; sandbox it in case the URL is opened directly on our origin.
+        res["Content-Security-Policy"] = "sandbox" if ext == ".svg"
 
         # ETag from mtime+size so an overwritten same-name file invalidates the
         # browser cache. Use no-cache (revalidate every time) rather than

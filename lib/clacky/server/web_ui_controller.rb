@@ -150,7 +150,8 @@ module Clacky
           type = f[:type]     || f["type"]
           path = f[:path]     || f["path"]
           mime = f[:mime_type] || f["mime_type"]
-          image = type.to_s == "image" || mime.to_s.start_with?("image/")
+          image = type.to_s == "image" ||
+                  Clacky::Utils::FileProcessor::LOCAL_PREVIEW_IMAGE_EXTENSIONS.include?(File.extname((path || name).to_s).downcase)
 
           if url
             rendered_images << url

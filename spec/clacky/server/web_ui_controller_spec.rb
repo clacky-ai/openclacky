@@ -73,6 +73,24 @@ RSpec.describe Clacky::Server::WebUIController, "#show_user_message" do
     expect(images.first).to start_with("/api/local-image?path=")
   end
 
+  it "renders a replayed svg (type text) as a thumbnail, matching the live bubble" do
+    svg_path = File.join(tmpdir, "logo.svg")
+    File.write(svg_path, "<svg/>")
+
+    event = emitted_event("", [{ name: "logo.svg", type: "text", path: svg_path }])
+    expect(event[:images].first).to start_with("/api/local-image?path=")
+    expect(event).not_to have_key(:attachments)
+  end
+
+  it "shows image formats /api/local-image cannot serve as attachment cards" do
+    bmp_path = File.join(tmpdir, "scan.bmp")
+    File.binwrite(bmp_path, "BM")
+
+    event = emitted_event("", [{ name: "scan.bmp", mime_type: "image/bmp", path: bmp_path }])
+    expect(event).not_to have_key(:images)
+    expect(event[:attachments]).to eq([{ name: "scan.bmp", type: "image/bmp", path: bmp_path }])
+  end
+
   it "supports symbol and string keyed file hashes" do
     image_path = File.join(tmpdir, "str.png")
     File.binwrite(image_path, "PNG")
