@@ -16,7 +16,7 @@ class MeetingExt < Clacky::ApiExtension
   # Always injected into STT vocabulary — these are our own wake words / brand
   # names and must not be droppable by the user's saved list.
   SYSTEM_VOCABULARY = "Clacky, 小克".freeze
-  DEFAULT_VOCABULARY = "Clacky, 小克, OpenClacky, openclacky"
+  DEFAULT_VOCABULARY = "clacky, openclacky, 小克"
 
   # annotate is a read-only analysis: block every side-effecting tool so the
   # forked subagent can only read/think, never write files, run commands,
@@ -315,7 +315,9 @@ class MeetingExt < Clacky::ApiExtension
 
   private def merge_vocabulary(user_terms)
     parts = SYSTEM_VOCABULARY.split(/\s*,\s*/) + user_terms.to_s.split(/\s*,\s*/)
-    parts.map(&:strip).reject(&:empty?).uniq.join(", ")
+    # The saved list can repeat a system term in another case ("clacky" vs
+    # "Clacky"); the STT prompt only needs one spelling, so dedupe that way.
+    parts.map(&:strip).reject(&:empty?).uniq(&:downcase).join(", ")
   end
 
   HALLUCINATION_PHRASES = Set.new(%w[
