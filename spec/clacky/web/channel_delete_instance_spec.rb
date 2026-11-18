@@ -8,10 +8,22 @@ RSpec.describe "Channel instance deletion" do
   let(:server)  { File.read(File.expand_path("../../../lib/clacky/server/http_server.rb", __dir__)) }
   let(:config)  { File.read(File.expand_path("../../../lib/clacky/server/channel/channel_config.rb", __dir__)) }
 
-  it "offers a destructive delete item in the row menu, matching the other row menus" do
+  it "sets the destructive delete item apart with a divider, like the session menu" do
     expect(view).to include('item("delete", I18n.t("channels.btn.delete"), true)')
-    expect(view).not_to include("ext-row-menu-divider")
+    divider = view.index('class="ext-row-menu-divider"')
+    expect(divider).not_to be_nil
+    # The rule sits between the last ordinary item and delete, never above it.
+    expect(view.index('item("add"')).to be < divider
+    expect(divider).to be < view.index('item("delete"')
     expect(view).to match(/else if \(kind === "delete"\) _onDeleteInstance\(platform, instanceId\)/)
+  end
+
+  it "styles the divider like the session actions menu one" do
+    css  = File.read(File.join(web_dir, "app.css"))
+    rule = css[/\.ext-row-menu-divider \{(.*?)\}/m, 1]
+    expect(rule).not_to be_nil
+    expect(rule).to include("height: 1px")
+    expect(rule).to include("background: var(--color-border-secondary)")
   end
 
   it "asks for confirmation before deleting" do

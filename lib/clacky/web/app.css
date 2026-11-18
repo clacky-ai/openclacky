@@ -11891,6 +11891,14 @@ button:focus-visible { outline: 2px solid var(--color-accent-primary); outline-o
   transition: background .15s;
 }
 .ext-row-menu-item:hover { background: var(--color-bg-hover); }
+/* Irreversible actions (delete/uninstall/remove) are grouped below a rule.
+   Mirrors .session-actions-menu-divider: 1px hairline + breathing room, no
+   extra colour — the danger highlight only appears on hover. */
+.ext-row-menu-divider {
+  height: 1px;
+  margin: 0.1875rem 0;
+  background: var(--color-border-secondary);
+}
 /* Same treatment as .session-actions-menu-icon, so row menus match the
    sidebar and workspace menus: neutral grey icon, red text only on hover. */
 .ext-row-menu-item svg { flex-shrink: 0; color: var(--color-text-secondary); }
@@ -14003,6 +14011,11 @@ body.setup-mode {
   font-weight: 500;
   color: var(--color-text-primary);
   white-space: nowrap;
+  /* Display names are user-editable (see the ⋯ → 修改名称 menu), so a long one
+     has to ellipsize instead of pushing the badge and toggle out of the row. */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
 }
 .channel-row-desc {
   font-size: 0.75rem;

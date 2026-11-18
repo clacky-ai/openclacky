@@ -244,6 +244,23 @@ module Clacky
       inst["id"]
     end
 
+    # Set an instance's display name. Returns false when the instance does not
+    # exist — unlike set_platform/4 this never creates one, so a typo in the
+    # instance id cannot silently add an empty entry to channels.yml.
+    # The id is what bindings and thread names key on, so only the label moves.
+    #
+    # @param platform [Symbol, String]
+    # @param instance_id [String]
+    # @param name [String]
+    # @return [Boolean] whether the instance was found and renamed
+    def rename_instance(platform, instance_id, name)
+      inst = instance(platform, instance_id)
+      return false unless inst
+
+      inst["name"] = name.to_s.strip
+      true
+    end
+
     # Global toggle: whether process-status messages ("Thinking...", "Done"
     # summary) are sent to IM chats. Defaults to false.
     def status_messages_enabled?

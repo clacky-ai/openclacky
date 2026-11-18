@@ -837,6 +837,11 @@ module Clacky
             platform    = rest.split("/").first
             instance_id = URI.decode_www_form_component(rest.split("/").last)
             api_delete_channel(platform, res, instance_id)
+          elsif method == "PATCH" && path.match?(%r{^/api/channels/[^/]+/instances/[^/]+$})
+            rest        = path.sub("/api/channels/", "")
+            platform    = rest.split("/").first
+            instance_id = URI.decode_www_form_component(rest.split("/").last)
+            api_rename_channel(platform, instance_id, req, res)
           elsif method == "PATCH" && path == "/api/channels/status_messages"
             api_channel_status_messages(req, res)
           elsif method == "PATCH" && path == "/api/channels/process_messages"
@@ -5132,6 +5137,36 @@ module Clacky
         json_response(res, 422, { ok: false, error: e.message })
       end
 
+      # PATCH /api/channels/:platform/instances/:id
+      # Body: { name: "..." }
+      # Renames an instance. Only the display name changes — the id stays put
+      # because channel bindings and thread names are keyed on it, and no
+      # adapter needs to restart for a label change.
+      def api_rename_channel(platform, instance_id, req, res)
+        platform = platform.to_sym
+        name     = parse_json_body(req)["name"].to_s.strip
+
+        if name.empty?
+          json_response(res, 422, { ok: false, error: "name is required" })
+          return
+        end
+        if name.length > MAX_INSTANCE_NAME_LENGTH
+          json_response(res, 422, { ok: false, error: "name is too long (max #{MAX_INSTANCE_NAME_LENGTH} characters)" })
+          return
+        end
+
+        config = Clacky::ChannelConfig.load
+        unless config.rename_instance(platform, instance_id, name)
+          json_response(res, 422, { ok: false, error: "instance not found" })
+          return
+        end
+
+        config.save
+        json_response(res, 200, { ok: true, instance_id: instance_id, name: name })
+      rescue StandardError => e
+        json_response(res, 422, { ok: false, error: e.message })
+      end
+
       # PATCH /api/channels/status_messages
       # Body: { status_messages: true|false }
       # Global toggle for process-status messages ("Thinking...", "Done"
@@ -5243,6 +5278,10 @@ module Clacky
       private def valid_instance_id?(id)
         id.to_s.match?(/\A[A-Za-z0-9][A-Za-z0-9_-]{0,39}\z/)
       end
+
+      # Display names only ever appear in the WebUI row title, so the limit is
+      # about staying readable on one line rather than storage.
+      MAX_INSTANCE_NAME_LENGTH = 40
 
       # Returns non-secret fields for a platform instance (masked secrets).
       private def platform_safe_fields(platform, config, instance_id = nil)
