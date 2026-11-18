@@ -1,12 +1,13 @@
 # Knowledge Base (knowledge)
 
-This extension adds a **Knowledge Base** agent. It builds on the **General** agent and adds three things:
+This extension adds a **Knowledge Base** agent that does one thing: answer questions from your documents. It's meant for people who shouldn't touch your computer — tour guides, students, channel users — and works like this:
 
 - **Automatic retrieval before every question**: the most relevant passages are injected for the AI, with their titles and sources, before it answers.
 - **Follow-up lookups on demand**: the AI can call two tools:
   - `kb_search`: search again with different keywords
   - `kb_read`: read a whole document by id; pass `pattern` to grep within that document only
-- **Answering rules**: check the knowledge base first, name the source in plain words when it matters, and say so plainly when the material doesn't cover something instead of making it up.
+- **Answering rules**: check the knowledge base first, name the source in plain words when it matters, and say so plainly when the material doesn't cover something instead of making it up — never fill the gap from general knowledge.
+- **Knowledge base only**: `kb_search` and `kb_read` are its only tools. It can't run commands, read or write files, search the web, drive the browser, use skills, or read or update long-term memory. Anything else gets one fixed sentence back — "This question is outside the knowledge base, so I can't answer it." — with no alternatives, commands or suggestions (a greeting or "who are you" may get one short self-introduction first). When you need the full toolset, switch to the **General** agent.
 
 Other agents (General, Coding, etc.) get no knowledge injection and don't have the two tools above. Sub-agents are not injected either.
 
@@ -21,7 +22,8 @@ Once it's on, choose **Knowledge Base** under **Settings › General › Default
 - New sessions
 - Quick "New session" in the sidebar
 - Channel sessions (Feishu, WeChat, etc.)
-- Scheduled tasks
+
+Scheduled tasks always run on the General agent and are not affected.
 
 Switch the default back to **General** and the knowledge base only applies to sessions where you pick the **Knowledge Base** card yourself.
 

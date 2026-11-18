@@ -52,7 +52,7 @@ RSpec.describe "Knowledge default extension" do
       FileUtils.remove_entry(tmp)
     end
 
-    it "once enabled, adds a knowledge agent built on general, with the hook and tools scoped to it" do
+    it "once enabled, adds a standalone knowledge agent whitelisted to the kb tools, with the hook and tools scoped to it" do
       tmp = Dir.mktmpdir
       Clacky::ExtensionLoader.enable!("knowledge")
       result = load_builtin(tmp)
@@ -63,9 +63,18 @@ RSpec.describe "Knowledge default extension" do
       expect(tools.map(&:id)).to contain_exactly("kb_search", "kb_read")
       expect(tools.map { |t| t.spec["attach"] }).to all(eq(["knowledge"]))
       agent = result.agents.find { |a| a.id == "knowledge" }
-      expect(agent.spec).to include("base_agent" => "general", "title_zh" => "知识库")
+      expect(agent.spec).to include("title_zh" => "知识库", "tools_allow" => %w[kb_search kb_read])
+      # Not built on general: no "versatile digital employee" prompt and no
+      # tools attached to general (e.g. meeting) leak in.
+      expect(agent.spec["base_agent"]).to be_nil
       expect(agent.spec["hidden"]).to be_falsey
-      expect(File.read(agent.spec["prompt_abs"])).to include("[K1]", "kb_search")
+      prompt = File.read(agent.spec["prompt_abs"])
+      expect(prompt).to include("[K1]", "kb_search", "only answer questions about the knowledge base")
+      expect(prompt).not_to include("handled as usual")
+      # Off-topic requests get one fixed sentence: no general-knowledge
+      # fallback, no alternative suggestions, no commands.
+      expect(prompt).to include("这个问题和知识库无关，我无法回答", "This question is outside the knowledge base")
+      expect(prompt).not_to include("answer from general knowledge only if helpful", "suggest what you can help with instead")
       panel = result.panels.find { |p| p.ext_id == "knowledge" }
       expect(panel.id).to eq("kb")
       expect(Array(panel.spec["attach"])).to be_empty
