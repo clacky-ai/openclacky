@@ -33,7 +33,9 @@ RSpec.describe Clacky::Agent, "tools_allow whitelist" do
             self.tool_name = "#{id}"
             self.tool_description = "Test tool"
             self.tool_parameters = { type: "object", properties: {}, required: [] }
-            def execute(**) = { ok: "#{id}" }
+            def execute(*_args, **_kwargs)
+              { ok: "#{id}" }
+            end
           end
         end
       end
@@ -75,7 +77,9 @@ RSpec.describe Clacky::Agent, "tools_allow whitelist" do
                         session_id: Clacky::SessionManager.generate_id, source: :manual)
   end
 
-  def registry(agent) = agent.instance_variable_get(:@tool_registry)
+  def registry(agent)
+    agent.instance_variable_get(:@tool_registry)
+  end
 
   it "registers and sends only whitelisted tools" do
     Dir.mktmpdir do |dir|
