@@ -309,7 +309,11 @@ module Clacky
         # Skip injection for todo_manager tool itself to avoid redundancy
         return result if tool_name == "todo_manager"
 
-        # Get pending TODOs
+        # Get pending TODOs. todo_manager may not be registered at all for
+        # agents restricted by a tools_allow whitelist, so check first:
+        # ToolRegistry#get raises instead of returning nil when absent.
+        return result unless @tool_registry.tool_names.include?("todo_manager")
+
         todo_tool = @tool_registry.get("todo_manager")
         return result unless todo_tool
 
