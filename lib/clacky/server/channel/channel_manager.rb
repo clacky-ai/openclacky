@@ -822,7 +822,7 @@ module Clacky
       def auto_create_session(adapter, event)
         key      = channel_key(event)
         platform = event[:platform].to_s
-        name     = next_session_name(platform)
+        name     = session_name_for(adapter, platform)
         session_id = @session_builder.call(name: name, source: :channel)
         bind_key_to_session(key, session_id)
 
@@ -837,6 +837,19 @@ module Clacky
 
         Clacky::Logger.info("[ChannelManager] Auto-created session #{session_id[0, 8]} for #{key}")
         session_id
+      end
+
+      # Channel sessions are titled with the channel instance's display name
+      # (as configured in 频道管理 › 已接入), e.g. "公司微信", so the sidebar
+      # matches what the user sees in channel settings. Sessions are allowed to
+      # share a title — distinguishing them by number is not wanted.
+      # Falls back to the legacy "platform-N" numbering when the instance has
+      # no name (fresh install, or an instance never renamed).
+      private def session_name_for(adapter, platform)
+        label = adapter.respond_to?(:instance_name) ? adapter.instance_name.to_s.strip : ""
+        return label unless label.empty?
+
+        next_session_name(platform)
       end
 
       # Channel session names resume from the highest "platform-N" already on

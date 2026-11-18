@@ -56,6 +56,13 @@ RSpec.describe "Channel instance rename" do
     expect(server).to include("MAX_INSTANCE_NAME_LENGTH = 40")
   end
 
+  it "pushes the new name into the running adapter so new sessions use it" do
+    body = server[/def api_rename_channel\(platform, instance_id, req, res\)(.*?)\n      end/m, 1]
+    expect(body).not_to be_nil
+    expect(body.index("config.save")).to be < body.index("adapter.instance_name = name")
+    expect(body).to include("adapter_for(platform, instance_id)")
+  end
+
   it "renames an existing instance and never creates one" do
     config = Clacky::ChannelConfig.new(
       channels: { "feishu" => [{ "id" => "default", "name" => "", "enabled" => true, "app_id" => "cli_x" }] }

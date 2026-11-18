@@ -70,4 +70,31 @@ RSpec.describe Clacky::Channel::ChannelManager, "channel session naming" do
 
     expect(created_names).to eq(["weixin-1", "weixin-2"])
   end
+
+  context "when the channel instance has a display name (频道管理 › 已接入)" do
+    let(:adapter) { double("adapter", platform_id: :weixin, instance_id: "work", instance_name: "公司微信") }
+
+    it "titles the session with the instance name" do
+      create_session
+
+      expect(created_names).to eq(["公司微信"])
+    end
+
+    it "reuses the same title for further sessions of that instance" do
+      create_session
+      create_session
+
+      expect(created_names).to eq(["公司微信", "公司微信"])
+    end
+  end
+
+  context "when the instance name is blank" do
+    let(:adapter) { double("adapter", platform_id: :weixin, instance_id: "default", instance_name: "  ") }
+
+    it "falls back to the platform-number numbering" do
+      create_session
+
+      expect(created_names).to eq(["weixin-1"])
+    end
+  end
 end

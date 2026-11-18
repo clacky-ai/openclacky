@@ -5162,6 +5162,10 @@ module Clacky
         end
 
         config.save
+        # Keep a running adapter's display name in sync: channel sessions are
+        # titled with it, so a rename must take effect without an adapter restart.
+        adapter = @channel_manager.adapter_for(platform, instance_id)
+        adapter.instance_name = name if adapter
         json_response(res, 200, { ok: true, instance_id: instance_id, name: name })
       rescue StandardError => e
         json_response(res, 422, { ok: false, error: e.message })
