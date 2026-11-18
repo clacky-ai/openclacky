@@ -251,6 +251,13 @@ RSpec.describe Clacky::Billing::PlatformBilling do
       expect(described_class.real_model("dsk-deepseek-flash")).to eq("deepseek-flash")
     end
 
+    it "maps the abs- Bedrock GPT aliases to their Global CRIS ids and back" do
+      expect(described_class.real_model("abs-gpt-6.2-astra")).to eq("global.openai.gpt-6.2-astra")
+      expect(described_class.display_model("global.openai.gpt-6.2-astra")).to eq("abs-gpt-6.2-astra")
+      expect(described_class.real_model("abs-gpt-6.2-sol")).to eq("global.openai.gpt-6.2-sol")
+      expect(described_class.display_model("global.openai.gpt-6.2-sol")).to eq("abs-gpt-6.2-sol")
+    end
+
     it "resolves the oc- TokHub aliases as identities" do
       expect(described_class.real_model("oc-gpt-6.1-sol")).to eq("oc-gpt-6.1-sol")
       expect(described_class.display_model("oc-gpt-6.1-sol")).to eq("oc-gpt-6.1-sol")

@@ -707,6 +707,66 @@ RSpec.describe Clacky::ModelPricing do
       end
     end
     
+    context "with GPT-6.2 (Bedrock Global CRIS)" do
+      it "resolves both aliases without stealing the 6.1 / 6.0 ids" do
+        expect(described_class.normalize_model_name("abs-gpt-6.2-astra")).to eq("gpt-6.2-astra")
+        expect(described_class.normalize_model_name("global.openai.gpt-6.2-sol")).to eq("gpt-6.2-sol")
+        expect(described_class.normalize_model_name("abs-gpt-6-astra")).to eq("gpt-6-astra")
+        expect(described_class.normalize_model_name("abs-gpt-6.1-sol")).to eq("gpt-6.1-sol")
+      end
+
+      it "bills Astra's short-context tier with cache read" do
+        usage = {
+          prompt_tokens: 150_000,
+          completion_tokens: 100_000,
+          cache_read_input_tokens: 50_000
+        }
+
+        # Regular input: (150_000 - 50_000)/1M * $8.00  = $0.80
+        # Cache read:      50_000/1M * $0.40            = $0.02
+        # Output:         100_000/1M * $40.00           = $4.00
+        result = described_class.calculate_cost(model: "gpt-6.2-astra", usage: usage)
+        expect(result[:cost]).to be_within(0.0001).of(4.82)
+        expect(result[:source]).to eq(:price)
+      end
+
+      it "bills Astra's long-context tier once input passes 272K" do
+        usage = { prompt_tokens: 300_000, completion_tokens: 100_000 }
+
+        # Input:  300_000/1M * $16.00 = $4.80
+        # Output: 100_000/1M * $60.00 = $6.00
+        result = described_class.calculate_cost(model: "global.openai.gpt-6.2-astra", usage: usage)
+        expect(result[:cost]).to be_within(0.0001).of(10.80)
+      end
+
+      it "bills Sol's long-context card, whose cache read sits at $0.20" do
+        usage = {
+          prompt_tokens: 300_000,
+          completion_tokens: 100_000,
+          cache_read_input_tokens: 100_000
+        }
+
+        # Input:      200_000/1M * $4.00  = $0.80
+        # Cache read: 100_000/1M * $0.20  = $0.02
+        # Output:     100_000/1M * $15.00 = $1.50
+        result = described_class.calculate_cost(model: "gpt-6.2-sol", usage: usage)
+        expect(result[:cost]).to be_within(0.0001).of(2.32)
+      end
+
+      it "bills the platform aliases 1.2x list through the Bedrock lane" do
+        usage = { prompt_tokens: 100_000, completion_tokens: 100_000 }
+
+        # $0.20 in + $1.00 out at list.
+        expect(described_class.calculate_cost(model: "abs-gpt-6.2-sol", usage: usage)[:cost])
+          .to be_within(0.0001).of(1.44)
+        # $0.80 in + $4.00 out at list.
+        expect(described_class.calculate_cost(model: "abs-gpt-6.2-astra", usage: usage)[:cost])
+          .to be_within(0.0001).of(5.76)
+        expect(described_class.markup_rate("abs-gpt-6.2-astra")).to eq(1.2)
+        expect(described_class.markup_rate("gpt-6.2-astra")).to eq(1.0)
+      end
+    end
+
     context "with GPT-6.1 Sol (Bedrock Global CRIS)" do
       it "resolves the gateway alias and the Bedrock usage key to one rate" do
         expect(described_class.normalize_model_name("abs-gpt-6.1-sol")).to eq("gpt-6.1-sol")

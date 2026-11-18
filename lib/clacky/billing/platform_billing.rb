@@ -26,6 +26,8 @@ module Clacky
         "dsk-deepseek-v4-flash"            => "deepseek-v4-flash",
         "dsk-deepseek-v4-flash-vision-exp" => "deepseek-v4-flash-vision-exp",
         # gpt via bedrock (abs-, OpenAI-compatible endpoint)
+        "abs-gpt-6.2-astra" => "global.openai.gpt-6.2-astra",
+        "abs-gpt-6.2-sol"   => "global.openai.gpt-6.2-sol",
         "abs-gpt-6-astra"  => "global.openai.gpt-6-astra",
         "abs-gpt-6.1-sol"  => "global.openai.gpt-6.1-sol",
         "abs-gpt-6-sol"    => "global.openai.gpt-6-sol",

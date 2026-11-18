@@ -846,6 +846,44 @@ module Clacky
         }
       },
 
+      # GPT-6.2 Astra / Sol via Bedrock's OpenAI-compatible endpoint (Global
+      # CRIS). Same 272K breakpoint and 200K–272K over-estimation caveat as
+      # the GPT-6 SKUs below. USD per 1M tokens, source: llm_proxy
+      # bedrock_openai pricing.
+      "gpt-6.2-astra" => {
+        input: {
+          default: 8.00,
+          over_200k: 16.00
+        },
+        output: {
+          default: 40.00,
+          over_200k: 60.00
+        },
+        cache: {
+          write_default: 10.00,
+          write_over_200k: 20.00,
+          read_default: 0.40,
+          read_over_200k: 0.80
+        }
+      },
+
+      "gpt-6.2-sol" => {
+        input: {
+          default: 2.00,
+          over_200k: 4.00
+        },
+        output: {
+          default: 10.00,
+          over_200k: 15.00
+        },
+        cache: {
+          write_default: 2.50,
+          write_over_200k: 5.00,
+          read_default: 0.10,
+          read_over_200k: 0.20
+        }
+      },
+
       # GPT-6.1 Sol via Bedrock's OpenAI-compatible endpoint (Global CRIS).
       # Tiered at 272K input tokens like the other GPT-6 SKUs, so the
       # 200K–272K band is slightly over-estimated. Cache read is billed at
@@ -1627,6 +1665,10 @@ module Clacky
         # rules would otherwise miss them. GPT-5.6 additionally accepts the
         # "-pro" suffix (priced identically to the base tier). Batch ids
         # (":batch") stay unmatched - they bill at half price.
+        when /^(?:abs-|us\.openai\.|global\.openai\.|openai\/)?gpt-?6[.-]?2[.-]?astra$/i
+          "gpt-6.2-astra"
+        when %r{^(?:abs-|us\.openai\.|global\.openai\.|openai/)?gpt-?6[\.-]?2[\.-]?sol(-pro)?$}i
+          "gpt-6.2-sol"
         when /^(?:abs-|us\.openai\.|global\.openai\.|openai\/)?gpt-?6[.-]?astra$/i
           "gpt-6-astra"
         when %r{^(?:abs-|us\.openai\.|global\.openai\.|openai/)?gpt-?6[\.-]?1[\.-]?sol(-pro)?$}i
