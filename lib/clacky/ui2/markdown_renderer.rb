@@ -18,6 +18,8 @@ module Clacky
           # tty-markdown pulls in rouge + kramdown (~0.4s). Server mode renders
           # markdown in the browser, so only pay that cost on a real terminal render.
           require "tty-markdown" unless defined?(TTY::Markdown)
+          # Tables need CJK-aware column widths before anything is rendered.
+          require_relative "tty_markdown_cjk_table_patch" unless defined?(Clacky::UI2::TTYMarkdownCJKTablePatch)
 
           # Get current theme colors
           theme = ThemeManager.current_theme

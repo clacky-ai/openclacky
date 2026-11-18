@@ -7,9 +7,49 @@ require "strings"
 # indexes via String#insert, so any colored CJK content that needs wrapping
 # raises IndexError. These methods mirror upstream with offsets tracked in
 # character count instead of display width.
+#
+# Two more places count the wrong thing once CJK is involved:
+#
+# - Upstream bails out early when the printable *character* count is below
+#   wrap_at. Forty Chinese characters are eighty terminal columns, so such a
+#   line is returned unwrapped and overflows the pane.
+# - Insertion offsets recorded on one line are meaningless on the next one,
+#   yet they were kept in the stack and reused verbatim. A stale offset can
+#   land inside an escape sequence, splitting "\e[38;5;230m" into "\e[38;5"
+#   plus a literal ";230m" printed to the user.
 module Strings
+  # Upstream ANSI_MATCHER ends with an optional `([\];])?` group, so a literal
+  # ";" right after a color code is swallowed along with it: the text
+  # "\e[38;5;230m;230m" is measured as "230m", one column short of what the
+  # terminal actually shows, and the table's right border lands one cell left.
+  # Strip well-formed CSI sequences first and only fall back to the loose
+  # matcher for genuinely broken leftovers.
+  module ANSI
+    CSI_SEQUENCE = /\e\[[0-9:;<=>?]*[ -\/]*[@-~]/
+    module_function
+
+    def sanitize(string)
+      cleaned = string.gsub(CSI_SEQUENCE, "")
+      return cleaned unless cleaned.include?("\e")
+
+      cleaned.gsub(/#{ANSI_MATCHER}/, "")
+    end
+    module_function :sanitize
+  end
+
   module Wrap
     module_function
+
+    def wrap(text, wrap_at = DEFAULT_WIDTH, separator: NEWLINE)
+      width = wrap_at.to_i
+      return text if width.zero?
+      return text if text.lines.all? { |line| display_width(line.chomp) <= width }
+
+      ansi_stack = []
+      text.lines.map do |line|
+        format_line(line, width, ansi_stack).join(separator)
+      end.join
+    end
 
     def format_line(text_line, wrap_at, ansi_stack)
       lines = []
@@ -125,6 +165,10 @@ module Strings
       end
 
       ansi_stack.replace(new_stack)
+      # Nothing recorded above survives this line: offsets are character
+      # positions inside the line we just emitted. Whatever is still open has
+      # to be reopened at the very start of the next line.
+      ansi_stack.each { |ansi| ansi[1] = 0 }
 
       output
     end
