@@ -2161,21 +2161,37 @@ module Clacky
     end
 
     private def register_builtin_tools
-      @tool_registry.register(Tools::Terminal.new)
-      @tool_registry.register(Tools::FileReader.new)
-      @tool_registry.register(Tools::Write.new)
-      @tool_registry.register(Tools::Edit.new)
-      @tool_registry.register(Tools::Glob.new)
-      @tool_registry.register(Tools::Grep.new)
+      register_tool(Tools::Terminal.new)
+      register_tool(Tools::FileReader.new)
+      register_tool(Tools::Write.new)
+      register_tool(Tools::Edit.new)
+      register_tool(Tools::Glob.new)
+      register_tool(Tools::Grep.new)
       [Tools::WebSearch, Tools::WebFetch].each do |klass|
         tool = klass.new
         tool.agent = self
-        @tool_registry.register(tool)
+        register_tool(tool)
       end
-      @tool_registry.register(Tools::TodoManager.new)
-      @tool_registry.register(Tools::AskUser.new)
-      @tool_registry.register(Tools::InvokeSkill.new)
-      @tool_registry.register(Tools::Browser.new) if Tools::Browser.available?
+      register_tool(Tools::TodoManager.new)
+      register_tool(Tools::AskUser.new)
+      register_tool(Tools::InvokeSkill.new)
+      register_tool(Tools::Browser.new) if Tools::Browser.available?
+    end
+
+    # Single gate for the profile's tools_allow whitelist: a tool that is not
+    # registered is never sent to the model, never resolved from an alias and
+    # never executed (ToolRegistry#get raises "Tool not found").
+    private def register_tool(tool)
+      return unless @agent_profile.tool_allowed?(tool.name)
+
+      @tool_registry.register(tool)
+    end
+
+    # A whitelisted agent (e.g. a public-facing knowledge agent) must not pull
+    # the owner's private context into replies nor run background work its
+    # tool set cannot carry out: no memory recall/update, no skill auto-create.
+    def tools_restricted?
+      @agent_profile.tools_restricted?
     end
 
     # Register tools the agent declared via `tools:` — each id maps to
@@ -2191,7 +2207,7 @@ module Clacky
 
         tool = klass.new
         tool.agent = self if tool.respond_to?(:agent=)
-        @tool_registry.register(tool)
+        register_tool(tool)
       rescue StandardError, ScriptError => e
         Clacky::Logger.warn("agent.register_extension_tool",
                             error: e.message, tool: id)

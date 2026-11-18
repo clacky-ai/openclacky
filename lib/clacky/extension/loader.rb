@@ -517,6 +517,8 @@ module Clacky
                    "skills"         => Array(spec["skills"]).map(&:to_s),
                    "disabled_skills" => Array(spec["disabled_skills"]).map(&:to_s),
                    "tools"          => Array(spec["tools"]).map(&:to_s),
+                   # nil (key absent) = unrestricted; [] = no tools at all.
+                   "tools_allow"    => spec.key?("tools_allow") ? Array(spec["tools_allow"]).map(&:to_s) : nil,
                  })
       end
 

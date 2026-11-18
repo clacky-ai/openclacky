@@ -44,6 +44,7 @@ module Clacky
       def should_update_memory?
         return false unless memory_update_enabled?
         return false if @is_subagent  # Subagents never update memory
+        return false if @agent_profile&.tools_restricted? # Whitelisted agents can't write memory
 
         task_iterations = @iterations - (@task_start_iterations || 0)
         task_iterations >= MEMORY_UPDATE_MIN_ITERATIONS

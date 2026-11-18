@@ -22,12 +22,14 @@ contributes:
       description_zh: 浏览、添加资料，试检索
       view: panels/kb/view.js
   agents:
-    # Builds on "general" so it keeps every everyday capability; only the
-    # knowledge-first prompt, the kb tools and auto-recall are added.
-    # Make it the default in Settings › General to cover all new sessions,
-    # including channel (Feishu / WeChat…) sessions.
+    # Question answering over the knowledge base ONLY — meant for people who
+    # should not touch the host machine (tour guides, students, channel users).
+    # tools_allow is a hard whitelist: no terminal, files, web, browser,
+    # skills or memory. Owners who need the full toolset switch to the
+    # General agent. Make it the default in Settings › General to cover all
+    # new sessions, including channel (Feishu / WeChat…) sessions.
     - id: knowledge
-      base_agent: general
+      tools_allow: [kb_search, kb_read]
       title: Knowledge Base
       title_zh: 知识库
       description: Answers from your own documents, with citations

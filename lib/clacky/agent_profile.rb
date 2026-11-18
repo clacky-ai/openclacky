@@ -85,6 +85,33 @@ module Clacky
       @tools ||= Array((@base_unit ? @base_unit.spec : @profile_data)["tools"]).map(&:to_s)
     end
 
+    # Tool whitelist, declared via `tools_allow` in profile.yml or the ext agent
+    # spec. nil = unrestricted (every built-in plus attached tools). When set,
+    # the agent gets ONLY these tools — nothing else is registered, sent to the
+    # model or executable. Every declaring layer (base, ext, own profile.yml)
+    # applies, so a derived or user-overridden profile can only narrow it.
+    # @return [Array<String>, nil]
+    def tools_allow
+      return @tools_allow if defined?(@tools_allow)
+
+      lists = [@base_unit&.spec, @ext_unit&.spec, @profile_data]
+              .map { |src| src && src["tools_allow"] }
+              .compact
+              .map { |list| Array(list).map(&:to_s) }
+      @tools_allow = lists.empty? ? nil : lists.reduce(:&)
+    end
+
+    # @return [Boolean] true when the agent runs with a tool whitelist
+    def tools_restricted?
+      !tools_allow.nil?
+    end
+
+    # @param name [String] canonical tool name
+    # @return [Boolean]
+    def tool_allowed?(name)
+      !tools_restricted? || tools_allow.include?(name.to_s)
+    end
+
     # Directory of the ext container this agent belongs to, or nil for a user
     # profile without a base. A derived profile uses its base container and
     # declared tool set; it cannot add arbitrary cross-container tools.
@@ -98,6 +125,9 @@ module Clacky
     # @param skill [Skill]
     # @return [Boolean]
     def skill_allowed?(skill)
+      # Skills reach the model through invoke_skill; a whitelist without it
+      # means the agent has no skills at all (none listed, none runnable).
+      return false unless tool_allowed?("invoke_skill")
       return false if disabled_skills.include?(skill.identifier)
       skill.allowed_for_agent?(name) || (!!@base_unit && skill.allowed_for_agent?(@base_unit.id))
     end
@@ -199,6 +229,9 @@ module Clacky
 
     # @return [String] base prompt shared by all agents (bundled resource)
     def base_prompt
+      # base.md teaches file / todo / skill / memory tools; a whitelisted agent
+      # has none of them, so its own system_prompt.md is the whole rulebook.
+      return "" if tools_restricted?
       return "" unless File.file?(BASE_PROMPT_PATH)
       File.read(BASE_PROMPT_PATH).strip
     end
@@ -239,6 +272,7 @@ module Clacky
           "skills"      => @ext_unit.spec["skills"],
           "disabled_skills" => @ext_unit.spec["disabled_skills"],
           "tools"       => @ext_unit.spec["tools"],
+          "tools_allow" => @ext_unit.spec["tools_allow"],
         }
       end
 

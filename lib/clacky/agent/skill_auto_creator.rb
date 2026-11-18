@@ -31,6 +31,8 @@ module Clacky
       # Determine if this task is a candidate for skill auto-creation
       # @return [Boolean]
       private def should_auto_create_skill?
+        return false if @agent_profile&.tools_restricted?
+
         threshold = skill_evolution_config[:auto_create_threshold] || DEFAULT_AUTO_CREATE_THRESHOLD
 
         # Calculate iterations within THIS TASK ONLY (not session-cumulative)

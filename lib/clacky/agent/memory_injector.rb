@@ -38,6 +38,9 @@ module Clacky
       private def inject_relevant_memories(user_input, task_id:)
         return unless @config.memory_inject_enabled
         return if @is_subagent
+        # Owner's private memories must not leak into a whitelisted
+        # (public-facing) agent's replies.
+        return if @agent_profile&.tools_restricted?
 
         message = user_input.to_s.strip
         return if message.empty?
