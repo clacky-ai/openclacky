@@ -335,6 +335,26 @@ module Clacky
         @output_row = start_row
       end
 
+      # When the fixed area grows (input box gains a line, todo list appears,
+      # suggestions pop up) it takes rows away from the bottom of the output
+      # area. Whatever still occupies those rows has to move into native
+      # scrollback; otherwise the buffer keeps more live lines than the output
+      # area can show, the next native \n commits the wrong line, and any later
+      # repaint re-emits a line that is already in scrollback — the user sees
+      # the same rows twice, in the middle of the transcript.
+      private def release_rows_to_scrollback(new_max_row)
+        return if @fullscreen_mode
+        overflow = @output_row - new_max_row
+        return if overflow <= 0
+
+        overflow.times do
+          screen.move_cursor(screen.height - 1, 0)
+          print "\n"
+          @buffer.commit_oldest_lines(1)
+        end
+        @output_row -= overflow
+      end
+
       # Repaint the entire output area from the buffer's live entries.
       # Only called on layout changes (resize, fixed-area height change,
       # /clear, fullscreen exit) — never on a normal append path.
@@ -434,6 +454,7 @@ module Clacky
           calculate_layout
 
           if @input_row != old_input_row
+            release_rows_to_scrollback(@gap_row) if @gap_row < old_gap_row
             ([old_gap_row, 0].max...screen.height).each do |row|
               screen.move_cursor(row, 0)
               screen.clear_line
@@ -533,6 +554,7 @@ module Clacky
 
           if old_height != new_height
             calculate_layout
+            release_rows_to_scrollback(@gap_row) if @gap_row < old_gap_row
             ([old_gap_row, 0].max...screen.height).each do |row|
               screen.move_cursor(row, 0)
               screen.clear_line
@@ -557,6 +579,7 @@ module Clacky
 
           if old_height != new_height
             calculate_layout
+            release_rows_to_scrollback(@gap_row) if @gap_row < old_gap_row
             ([old_gap_row, 0].max...screen.height).each do |row|
               screen.move_cursor(row, 0)
               screen.clear_line
@@ -581,6 +604,7 @@ module Clacky
 
           if old_height != new_height
             calculate_layout
+            release_rows_to_scrollback(@gap_row) if @gap_row < old_gap_row
             ([old_gap_row, 0].max...screen.height).each do |row|
               screen.move_cursor(row, 0)
               screen.clear_line

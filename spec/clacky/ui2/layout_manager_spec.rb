@@ -301,3 +301,99 @@ RSpec.describe Clacky::UI2::LayoutManager, "#rerender_all must not erase the scr
     expect(content).to include("beta")
   end
 end
+
+RSpec.describe Clacky::UI2::LayoutManager, "when the fixed area grows into a full output area" do
+  # Regression: the input box gains a line, the todo list appears, or the
+  # command-suggestion popup opens — any of these take rows away from the
+  # bottom of the output area. Those rows used to be cleared and overwritten
+  # without ever leaving the buffer, so the buffer kept more live lines than
+  # the output area could show. The next native \n then committed the wrong
+  # line, and any later repaint re-emitted a line that was already in
+  # terminal scrollback — the user saw the same rows twice, mid-transcript.
+  #
+  # The rows have to move into native scrollback (one \n each, one committed
+  # buffer line each) before the repaint.
+  let(:input_area) do
+    Class.new do
+      attr_accessor :row, :height
+      def initialize; @height = 2; end
+      def required_height; @height; end
+      def paused?; false; end
+      def clear; end
+      def set_tips(*); end
+      def render(start_row:, width: nil); end
+      def update_sessionbar(**_); end
+      def set_skill_loader(_, _); end
+      def set_agent(_, _); end
+      def handle_key(_); { action: nil }; end
+      def empty?; true; end
+      def pause; end
+      def resume; end
+      def show_user_tip(**_); end
+      def clear_user_tip; end
+    end.new
+  end
+
+  let(:todo_area) do
+    Class.new do
+      attr_reader :height
+      def initialize; @items = []; @height = 0; end
+      def update(items); @items = items; @height = visible? ? @items.length + 1 : 0; end
+      def visible?; !@items.empty?; end
+      def render(start_row:); end
+      def hide; @items = []; @height = 0; end
+      def show; end
+    end.new
+  end
+
+  around(:each) do |ex|
+    @captured = []
+    captured = @captured
+    Kernel.send(:alias_method, :__orig_print_for_spec4, :print)
+    Kernel.send(:define_method, :print) do |*args|
+      args.each { |a| captured << a.to_s }
+    end
+    begin
+      ex.run
+    ensure
+      Kernel.send(:alias_method, :print, :__orig_print_for_spec4)
+      Kernel.send(:remove_method, :__orig_print_for_spec4)
+    end
+  end
+
+  # 20 rows, 1 gap + 2 input rows → 17 output rows.
+  def build_full_manager
+    lm = described_class.new(input_area: input_area, todo_area: todo_area)
+    lm.screen.instance_variable_set(:@width, 40)
+    lm.screen.instance_variable_set(:@height, 20)
+    lm.send(:calculate_layout)
+    (1..17).each { |i| lm.append("row #{i}") }
+    expect(lm.instance_variable_get(:@output_row)).to eq(17)
+    lm
+  end
+
+  def live_line_count(lm)
+    lm.instance_variable_get(:@buffer).tail_lines(500).length
+  end
+
+  it "moves the rows the input area took away into scrollback" do
+    lm = build_full_manager
+
+    input_area.height = 5
+    lm.send(:recalculate_layout)
+
+    expect(lm.send(:fixed_area_start_row)).to eq(14)
+    # 17 live lines no longer fit in 14 rows. Three of them must have been
+    # committed, otherwise the buffer and the screen disagree.
+    expect(live_line_count(lm)).to eq(14)
+  end
+
+  it "moves the rows a newly visible todo list took away into scrollback" do
+    lm = build_full_manager
+
+    lm.update_todos((1..3).map { |i| { text: "todo #{i}", done: false } })
+
+    expect(lm.send(:fixed_area_start_row)).to eq(13)
+    expect(live_line_count(lm)).to eq(13)
+  end
+end
