@@ -104,7 +104,8 @@ RSpec.describe Clacky::Server::HttpServer, "default agent" do
 
     before { config.default_agent = "knowledge" }
 
-    it "applies the default agent when no profile is given (channel, cron)" do
+    it "applies the default agent when no profile is given (manual, channel)" do
+      expect(profile_used { server.send(:build_session, name: "Session 1", working_dir: tmpdir) }).to eq("knowledge")
       expect(profile_used { server.send(:build_session, name: "weixin-1", working_dir: tmpdir, source: :channel) }).to eq("knowledge")
     end
 
@@ -112,15 +113,45 @@ RSpec.describe Clacky::Server::HttpServer, "default agent" do
       expect(profile_used { server.send(:build_session, name: "s", working_dir: tmpdir, profile: "coding") }).to eq("coding")
     end
 
-    it "applies the default agent to POST /api/sessions without agent_profile" do
+    it "always runs setup, skill and cron sessions as the general agent" do
+      # /onboard, /browser-setup and /channel-manager install something; skill
+      # sessions run helper commands such as /cron-task-creator; cron sessions
+      # fire unattended. None of them may inherit a restricted default agent
+      # (e.g. a knowledge-base agent with a tools whitelist).
+      %i[setup skill cron].each do |src|
+        expect(
+          profile_used { server.send(:build_session, name: "s", working_dir: tmpdir, source: src) }
+        ).to eq("general"), "expected #{src} sessions to use the general agent"
+      end
+    end
+
+    it "still honours an explicit profile on a setup session" do
+      expect(
+        profile_used { server.send(:build_session, name: "s", working_dir: tmpdir, source: :setup, profile: "coding") }
+      ).to eq("coding")
+    end
+
+    it "passes the source through from POST /api/sessions" do
       captured = nil
-      allow(server).to receive(:build_session) { |**kw| captured = kw[:profile]; "sid" }
+      allow(server).to receive(:build_session) { |**kw| captured = kw[:source]; "sid" }
       allow(server).to receive(:broadcast_session_update)
       allow(server.instance_variable_get(:@registry)).to receive(:session_summary).and_return({ id: "sid" })
 
-      status, = call(:api_create_session, "name" => "Session 1", "working_dir" => tmpdir)
+      status, = call(:api_create_session, "name" => "Session 1", "source" => "skill", "working_dir" => tmpdir)
       expect(status).to eq(201)
-      expect(captured).to eq("knowledge")
+      expect(captured).to eq(:skill)
+    end
+
+    it "degrades an unknown source to manual" do
+      # A stale value such as the old "onboard" must not silently become a
+      # session type of its own.
+      captured = nil
+      allow(server).to receive(:build_session) { |**kw| captured = kw[:source]; "sid" }
+      allow(server).to receive(:broadcast_session_update)
+      allow(server.instance_variable_get(:@registry)).to receive(:session_summary).and_return({ id: "sid" })
+
+      call(:api_create_session, "name" => "Memories", "source" => "onboard", "working_dir" => tmpdir)
+      expect(captured).to eq(:manual)
     end
   end
 end

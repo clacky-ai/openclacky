@@ -189,7 +189,7 @@ module Clacky
       # Sorted by created_at descending (newest first).
       #
       # Parameters (all optional, independent):
-      #   source:  "manual"|"cron"|"channel"|"setup"|nil
+      #   source:  "manual"|"cron"|"channel"|"setup"|"skill"|nil
       #            nil = no source filter (all sessions)
       #   profile: "general"|"coding"|nil
       #            nil = no agent_profile filter
@@ -244,7 +244,7 @@ module Clacky
 
         # ── type filter (replaces old source/profile split) ──────────────────
         # type=coding  → agent_profile == "coding"
-        # type=manual/cron/channel/setup → source match (profile=general implied)
+        # type=manual/cron/channel/setup/skill → source match (profile=general implied)
         if type
           if type == "coding"
             all = all.select { |s| (s[:agent_profile] || "general").to_s == "coding" }

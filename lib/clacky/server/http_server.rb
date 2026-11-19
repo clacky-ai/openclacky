@@ -196,6 +196,14 @@ module Clacky
       include Preview
 
       WEB_ROOT = File.expand_path("../web", __dir__)
+
+      # Session sources that always run as the general agent, whatever the
+      # user's configured default is. They either install/wire something up,
+      # run a mechanical helper command, or fire unattended — all of them need
+      # the full tool set, while the default may be a restricted agent (e.g. a
+      # knowledge-base agent whose tools_allow whitelist has no terminal).
+      GENERAL_AGENT_SOURCES = %i[setup skill cron].freeze
+
       # How long shutdown waits for each agent thread to unwind before falling
       # back to a manual session save.
       AGENT_INTERRUPT_JOIN_SECONDS = 2
@@ -1087,14 +1095,20 @@ module Clacky
         name = body["name"]
         return json_response(res, 400, { error: "name is required" }) if name.nil? || name.strip.empty?
 
-        # Optional agent_profile; defaults to the configured default agent.
-        profile = body["agent_profile"].to_s.strip
-        profile = resolved_default_agent if profile.empty?
-
-        # Optional source; defaults to :manual. Accept "system" for skill-launched sessions
-        # (e.g. /onboard, /browser-setup, /channel-manager).
+        # Optional source; defaults to :manual. Sources:
+        #   manual  — user-created session
+        #   channel — inbound messaging-channel conversation
+        #   cron    — scheduled task run
+        #   setup   — skill that installs or wires something up
+        #             (e.g. /onboard, /browser-setup, /channel-manager)
+        #   skill   — skill launched on demand (e.g. /cron-task-creator, /skill-add)
         raw_source = body["source"].to_s.strip
-        source = %w[manual cron channel setup].include?(raw_source) ? raw_source.to_sym : :manual
+        source = %w[manual cron channel setup skill].include?(raw_source) ? raw_source.to_sym : :manual
+
+        # Optional agent_profile. Left empty here: build_session decides which
+        # agent to use from the source (setup / skill / cron always run as the
+        # general agent, everything else follows the configured default).
+        profile = body["agent_profile"].to_s.strip
 
         raw_dir = body["working_dir"].to_s.strip
         working_dir = raw_dir.empty? ? default_working_dir : File.expand_path(raw_dir)
@@ -9087,8 +9101,16 @@ module Clacky
       # @param permission_mode [Symbol] :confirm_all (default, human present) or
       #   :auto_approve (unattended — suppresses ask_user waits)
       def build_session(name:, working_dir: nil, permission_mode: :confirm_all, profile: nil, source: :manual, model_id: nil)
-        # Channel, cron and other callers that omit profile get the default agent.
-        profile = resolved_default_agent if profile.to_s.strip.empty?
+        # Callers that omit profile get the default agent — except for sources
+        # that must always run as general (setup / skill / cron), see
+        # GENERAL_AGENT_SOURCES.
+        if profile.to_s.strip.empty?
+          profile = if GENERAL_AGENT_SOURCES.include?(source.to_s.to_sym)
+                      Clacky::AgentConfig::DEFAULT_AGENT
+                    else
+                      resolved_default_agent
+                    end
+        end
         working_dir ||= default_working_dir
         FileUtils.mkdir_p(working_dir) unless Dir.exist?(working_dir)
         session_id = Clacky::SessionManager.generate_id
