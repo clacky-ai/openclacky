@@ -17,19 +17,40 @@ module Clacky
         end.max
       end
 
-      # Each column costs its width plus "| " and " " (three cells) and the
-      # closing border. The upstream formula subtracts only n+3, so the table
-      # is laid out 2n-2 columns wider than the width it was given.
+      # Each column costs its width plus one space of padding on either side,
+      # plus one border character per column edge, plus the trailing space
+      # tty-markdown leaves at the end of every row, plus the indent the block
+      # is drawn at: sum(widths) + 3n + 2 + indent. Upstream subtracts only
+      # n + 3, so the table comes out wider than the width it was given and
+      # its right border is cut off by the pane.
+      #
+      # Shrinking every column by its proportional share is wrong too, even
+      # when the rounding is exact: a 4-column table with natural widths of
+      # roughly 8/24/56/90 columns gave the first column 5 cells, so "方面"
+      # broke into one character per row. That tripled the table's height,
+      # which is what made the screen below it redraw over stale rows.
+      # Lower a shared ceiling instead: narrow columns keep what they need,
+      # wide columns give up their spare space evenly.
       private def distribute_widths(widths)
-        total_width = widths.reduce(:+)
-        screen_width = @width - (widths.size * 3 + 1)
-        return widths if total_width <= screen_width
+        budget = @width - (widths.size * 3 + 2) - @current_indent.to_i
+        budget = [budget, widths.size].max
+        return widths if widths.sum <= budget
 
-        extra_width = total_width - screen_width
-        widths.map do |w|
-          ratio = w / total_width.to_f
-          [1, w - (extra_width * ratio).floor].max
+        level = widths.max
+        while level > 1 && widths.sum { |w| [w, level].min } > budget
+          level -= 1
         end
+        cells = widths.map { |w| [w, level].min }
+
+        # The ceiling is a whole number, so a few cells are left over. Hand
+        # them back to the columns that were cut the most.
+        trimmed = widths.each_index.select { |i| widths[i] > cells[i] }.sort_by { |i| -widths[i] }
+        leftover = budget - cells.sum
+        if leftover.positive? && !trimmed.empty?
+          leftover.times { |i| cells[trimmed[i % trimmed.size]] += 1 }
+        end
+
+        cells
       end
     end
   end

@@ -106,6 +106,169 @@ RSpec.describe Clacky::UI2::MarkdownRenderer do
 
       expect(Strings.wrap(text, 40).lines.size).to be >= 2
     end
+
+    # Regression: tty-markdown wraps one inline element at a time, so a
+    # paragraph mixing Chinese text with `inline code` is only as short as its
+    # longest single element. A real message came out as one 240-column line
+    # in a 136-column pane; the terminal hard-wrapped it, everything below
+    # moved down a row, and the screen looked like overlapping text with
+    # crooked table borders.
+    describe "lines that inline elements split into short pieces" do
+      let(:paragraph) do
+        "明白，目标是把每处都做对，同时保证主聊天不出问题。我又看了一遍分发逻辑：" \
+          "主聊天对每个事件都检查 `ev.session_id === Sessions.activeId`" \
+          "（`ws-dispatcher.js:603` 起）。所以只要侧边会话有自己的 session_id，" \
+          "它的事件本来就进不了主聊天，不需要另外绕路。"
+      end
+
+      def widths(rendered)
+        rendered.lines.map { |line| Unicode::DisplayWidth.of(Strings::ANSI.sanitize(line.chomp)) }
+      end
+
+      it "wraps the paragraph to the width it was given" do
+        allow(TTY::Screen).to receive(:width).and_return(84) # 80 usable columns
+        # Real sessions render with colour: stdout is a tty, so tty-markdown
+        # enables Pastel. A piped test run silently exercises the colourless
+        # path, which is exactly how the coloured wrap bug went unnoticed.
+        allow(TTY::Markdown).to receive(:parse).and_wrap_original do |original, *args, **kwargs|
+          original.call(*args, **kwargs, color: :always)
+        end
+
+        rendered = described_class.render(paragraph)
+
+        expect(rendered).to include("\e[") # colour really is on
+        expect(rendered.lines.size).to be > 2
+        expect(widths(rendered).max).to be <= 80
+      end
+
+      it "keeps the inline code text intact" do
+        allow(TTY::Screen).to receive(:width).and_return(84)
+
+        plain = Strings::ANSI.sanitize(described_class.render(paragraph))
+        expect(plain).to include("ws-dispatcher.js:603")
+        expect(plain).to include("Sessions.activeId")
+      end
+
+      it "never leaves half a colour sequence in the text" do
+        allow(TTY::Screen).to receive(:width).and_return(84)
+        # Real sessions render with colour: stdout is a tty, so tty-markdown
+        # enables Pastel. A piped test run silently exercises the colourless
+        # path, which is exactly how the coloured wrap bug went unnoticed.
+        allow(TTY::Markdown).to receive(:parse).and_wrap_original do |original, *args, **kwargs|
+          original.call(*args, **kwargs, color: :always)
+        end
+
+        # Several colour runs on one line is what broke Strings.wrap: its
+        # reinserted offsets landed inside another sequence, so the terminal
+        # printed "0m", "9m", "97m" as body text.
+        markdown = "- 代码核对基本完成。确认了 `fork_subagent`、`SessionManager#save`、" \
+          "registry 的回收和驱逐逻辑、WS 断开处理（`on_ws_close`）、" \
+          "软删除（`soft_delete_session`）这几处的实际写法"
+
+        rendered = described_class.render(markdown)
+        plain = Strings::ANSI.sanitize(rendered)
+
+        expect(rendered).to include("\e[")
+        expect(plain).not_to match(/\d{1,3}(?:;\d{1,3})+m/)
+        expect(plain).not_to match(/(?<![0-9;])\d{1,3}m/)
+        # No escape may survive on its own: every "\e" opens a full sequence.
+        rendered.each_line do |line|
+          expect(line.scan("\e").size).to eq(line.scan(/\e\[[0-9;]*m/).size)
+        end
+        expect(widths(rendered).max).to be <= 80
+      end
+
+      # Regression: with two colour runs on one line, Strings.wrap reinserted a
+      # code at a stale offset, landing inside another sequence — "\e[97m" came
+      # out as "\e" + "[97m", so the terminal printed "[97m" (and "0m", "9m")
+      # as body text. This exact string is the minimal case that broke it.
+      it "does not cut a colour sequence when several runs share a line" do
+        coloured = "●\e[38;5;230mWS 断开处理（on_ws_close）、SessionManager#save、" \
+          "\e[97mregistry 的回收和驱逐逻辑、registry 的回收和驱逐逻辑、"
+
+        lines = described_class.send(:wrap_colored, coloured, 50, "  ")
+
+        expect(lines.size).to be > 1
+        lines.each do |line|
+          expect(line.scan("\e").size).to eq(line.scan(/\e\[[0-9;]*m/).size)
+          expect(Strings::ANSI.sanitize(line)).not_to match(/(?<![0-9;])\d{1,3}m/)
+          expect(Unicode::DisplayWidth.of(Strings::ANSI.sanitize(line))).to be <= 50 + 2
+        end
+      end
+
+      it "replays the active colour on continuation lines" do
+        coloured = "确认了 \e[1mregistry 的回收和驱逐逻辑、WS 断开处理（on_ws_close）、" \
+          "软删除（soft_delete_session）这几处的实际写法"
+
+        lines = described_class.send(:wrap_colored, coloured, 24, "  ")
+
+        expect(lines.size).to be > 1
+        # The line that continues inside the bold run re-opens it.
+        continuation = lines.find { |line| Strings::ANSI.sanitize(line).include?("WS 断开") }
+        expect(continuation).to start_with("  \e[1m")
+        expect(Unicode::DisplayWidth.of(Strings::ANSI.sanitize(continuation))).to be <= 24 + 2
+      end
+
+      # Regression: the table came out at width + 6 — borders cut off by the
+      # pane — because shrinking columns per share and flooring each one left
+      # the rounding difference on the table.
+      it "keeps a wide Chinese table inside the pane with aligned borders" do
+        allow(TTY::Screen).to receive(:width).and_return(124) # 120 usable
+        # Real sessions render with colour: stdout is a tty, so tty-markdown
+        # enables Pastel. A piped test run silently exercises the colourless
+        # path, which is exactly how the coloured wrap bug went unnoticed.
+        allow(TTY::Markdown).to receive(:parse).and_wrap_original do |original, *args, **kwargs|
+          original.call(*args, **kwargs, color: :always)
+        end
+
+        markdown = <<~MD
+          | 方面 | 上一版 | 改为 | 理由 |
+          |---|---|---|---|
+          | 事件通道 | 把侧边事件包成 `side_event`，借主会话的连接发 | 侧边会话就是 registry 里的一个正常会话，有自己的 session_id 和 `WebUIController` | 中断、排队、报错、状态、切模型全部走现有路径，不用另写一套 |
+          | 不落盘 | 在各个保存点跳过 | 只在 `SessionManager#save` 入口加一句：`source == "side"` 时直接返回 | 任务结束、出错、中断、空闲压缩这十几个保存点都由这一处拦住 |
+        MD
+
+        rendered = described_class.render(markdown)
+        table_lines = rendered.lines.select do |line|
+          Strings::ANSI.sanitize(line).strip.start_with?("│", "┌", "├", "└")
+        end
+
+        expect(table_lines).not_to be_empty
+        # Ignore the padding space tty-markdown puts after the closing border.
+        borders = table_lines.map { |line| Strings::ANSI.sanitize(line).rstrip }
+        expect(widths(borders.join("\n")).uniq.size).to eq(1)
+        expect(widths(rendered).max).to be <= 120
+      end
+
+      # Regression: shrinking every column by its proportional share gave the
+      # first column five cells, so "方面" broke into one character per row —
+      # the header alone became two lines and the whole table grew tall enough
+      # to fight with the rows below it.
+      it "keeps the narrow column readable and gives the wide ones equal room" do
+        allow(TTY::Screen).to receive(:width).and_return(130)
+        allow($stdout).to receive(:tty?).and_return(true)
+
+        markdown = <<~MD
+          | 方面 | 上一版 | 改为 | 理由 |
+          |---|---|---|---|
+          | 事件通道 | 把侧边事件包成 `side_event`，借主会话的连接发 | 侧边会话就是 registry 里的一个正常会话，有自己的 session_id 和 `WebUIController` | 中断、排队、报错、状态、切模型全部走现有路径，不用另写一套 |
+          | 不落盘 | 在各个保存点跳过 | 只在 `SessionManager#save` 入口加一句：`source == "side"` 时直接返回 | 任务结束、出错、中断、空闲压缩这十几个保存点都由这一处拦住 |
+        MD
+
+        plain = Strings::ANSI.sanitize(described_class.render(markdown))
+        border = plain.lines.find { |line| line.strip.start_with?("┌") }
+
+        expect(border).not_to be_nil
+        cells = border.strip[1..-2].split("┬").map(&:length)
+        # "方面" is four columns wide; anything under six squeezes the padding.
+        expect(cells.first).to be >= 6
+        expect(cells.drop(1).max - cells.drop(1).min).to be <= 1
+        # Nothing in the rows may run past the grid.
+        expect(plain.lines.map { |l| Unicode::DisplayWidth.of(l.chomp) }.max).to be <= 126
+        expect(plain).to include("WebUIController")
+        expect(plain).to include("SessionManager#save")
+      end
+    end
   end
 
   describe "Strings.wrap CJK patch" do
