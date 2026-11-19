@@ -122,6 +122,7 @@ async function navigatorTests() {
       previews.clear(); if (cached) data.forEach(item => previews.set(item.id, item));
     },
     _hover, _hide, _nearest, _tickY, _visibleBounds, _renderTicks, _renderPreview, _jump,
+    _onPointerMove, _cancelHover,
     _loadIndex, _syncBounds, _cancelPreview, _toggleBookmark, _bookmarkKey,
     state() { return {items, activeIdx, hoveredIdx, loading, failed, previewFailure,
       cacheSize: previews.size, bookmarks: [...bookmarks]}; },
@@ -295,6 +296,18 @@ async function navigatorTests() {
   assert.equal(nodes.popup.style.top, "0px", "preview stays below toolbar");
   api._hover(359);
   assert.ok(parseFloat(nodes.popup.style.top) + nodes.popup.offsetHeight <= 360, "preview stays above composer");
+
+  // Drag-selecting text over the track must not pop the preview open: the
+  // pointer is down, so the movement is a selection gesture, not a hover.
+  api._hover(86);
+  assert.equal(nodes.popup.hidden, false, "hovering still opens the preview");
+  api._onPointerMove({ clientY: 120, buttons: 1 });
+  assert.equal(nodes.popup.hidden, true, "dragging a selection over the track keeps the preview closed");
+  assert.equal(api.state().hoveredIdx, -1, "a drag clears the hovered tick");
+  api._onPointerMove({ clientY: 150, buttons: 1 });
+  assert.equal(nodes.popup.hidden, true, "the preview stays closed for the whole drag");
+  api._onPointerMove({ clientY: 86, buttons: 0 });
+  assert.equal(nodes.popup.hidden, false, "releasing the pointer restores plain hovering");
   let target;
   context.Sessions.jumpToHistory = async id => { target = id; return true; };
   await api._jump();
