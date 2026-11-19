@@ -1,17 +1,23 @@
-# Meeting
+## How to open
 
-Let the AI sit in on your meetings: live captions, ask questions by voice at any time, and get meeting notes automatically when you finish.
+- Side panel of a general assistant session → the **Meeting Assistant** tab.
+- Status: off by default. Enable **Meeting Assistant** under **Extensions › All › Official** first.
 
-> This extension is **off by default**. After clicking **Enable** in Extensions, a **Meeting Assistant** tab appears in the side panel of the general assistant session.
+## Before you start
 
-## Starting a meeting
+- Have a working model provider configured — speech recognition and notes both use it.
+- Tell the participants that the meeting is being recorded and transcribed.
+
+## How to use
+
+### Starting a meeting
 
 1. Open a general assistant session and switch to **Meeting Assistant** in the side panel.
 2. Click **Start Recording** and allow microphone access when the browser asks.
 3. Speech is transcribed into live captions in the panel.
 4. About every 2 minutes, the AI adds **annotations** — short highlights of what was discussed.
 
-## Asking the AI during the meeting
+### Asking the AI during the meeting
 
 Say a wake phrase followed by your question, e.g. "Hey Clacky, what launch date did we just agree on?"
 
@@ -25,7 +31,7 @@ The AI answers by voice. At any time you can click:
 - **Stop Voice** to stop the current playback
 - **Interrupt** to cancel the current answer
 
-## Ending the meeting
+### Ending the meeting
 
 Click **Summarize Notes**. The AI builds structured notes from the full transcript:
 
@@ -36,14 +42,12 @@ Click **Summarize Notes**. The AI builds structured notes from the full transcri
 
 Click **Discard** instead if you don't want notes: the recording is thrown away without calling the AI.
 
-## More
+### Muting and resuming
 
 - **Mute / Unmute** temporarily turns the microphone off; nothing is recorded meanwhile.
-- **Discard** aborts the recording, returns to the start screen, and keeps no transcript or notes (it asks for confirmation first).
 - **Resume Recording** continues an unfinished meeting after a page reload (microphone access is requested again).
 - **Meeting vocabulary**: add names, product names and jargon (press Enter after each), then click **Save** — this noticeably improves recognition accuracy.
 
 ## Notes
 
-- Speech recognition uses your configured model provider; make sure a working model is set up.
 - Recording captures other people's speech — let participants know before you start.

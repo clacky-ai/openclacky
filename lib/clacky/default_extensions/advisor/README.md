@@ -1,6 +1,8 @@
-# Advisor
+## How to open
 
-After each round of work, the AI reviews what it just did and shows **3 suggested next steps** above the input box, so you never have to wonder what to do next.
+- **Above the input box**: after each round of work, a "Next steps" card appears with 3 suggestions.
+- **Settings › Suggestions**: the ⏻ button on the card turns it off; turn it back on here.
+- Status: on by default.
 
 ## How to use
 
@@ -13,13 +15,8 @@ After each round of work, the AI reviews what it just did and shows **3 suggeste
 
 Suggestions usually cover three different directions: continue / fix, verify, and wrap up. Nothing runs automatically — you are always in control.
 
-## Turning it on and off
-
-- The **⏻** button on the card turns the advisor off.
-- Turn it back on any time in **Settings → Advisor**.
-- You can also disable the whole extension from Extensions.
-
-## Tips
+## Notes
 
 - Suggestions are based only on what actually happened in the round — no invented files or commands.
 - If there is no sensible next step, no card is shown.
+- You can also disable the whole extension from Extensions.

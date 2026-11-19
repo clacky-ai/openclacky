@@ -1,17 +1,20 @@
-# Secretary
+## How to open
 
-An assistant you can hand work to: it answers simple questions on the spot, runs the slow parts in the background, and comes back when there is a result or a decision to make.
+- **New session**: pick the **Secretary** card to start an assistant you can hand work to.
+- **Session side panel**: the **Work** tab lists every background item and its progress.
+- **Above the input box**: a card appears when work items exist; click it to jump to the item.
+- Status: on by default.
 
-> This extension is **on by default**. Pick **Secretary** when starting a session and the **Work** tab appears in the side panel.
+## How to use
 
-## What suits it
+### What suits it
 
 - Research that needs reading docs, searching, or comparing options
 - Execution that produces files, code changes, or cleaned-up data
 - Work that has to wait for someone else's reply
 - A routine summary at a fixed time each morning or evening
 
-## Using it
+### Describing a task
 
 State the goal, what "done" looks like, and any known constraints, for example:
 
@@ -22,7 +25,7 @@ The secretary decides whether the work needs a background run:
 - **Simple questions** are answered directly and never show up in **Work**.
 - **Longer work** becomes a work item handed to a background worker, and the conversation continues with you immediately.
 
-## The Work panel
+### The Work panel
 
 Each item is a card with a title, status and creation time. The list stays in creation order, so status changes never move a card around.
 
@@ -47,7 +50,7 @@ Card actions:
 
 The **Recurring plans** section below lists scheduled runs (daily / weekdays), the next run time and the plan text. To change one, click **Discuss with secretary** and describe the change in a sentence.
 
-## How background work runs
+### How background work runs
 
 1. The secretary writes the objective, background, authorization boundaries and acceptance criteria into a task and hands it to the worker.
 2. The worker executes in **its own session** using existing tools, under your current permissions and confirmation settings.
@@ -62,8 +65,3 @@ An existing item can take further requests in the same session — no need to st
 - The worker does not widen its own authorization. If a step needs new permission or falls outside scope, it comes back to ask.
 - **Completed** means this round delivered a result, not that you accepted it — send feedback to keep refining.
 - Recurring plans depend on the local service running; nothing fires while the machine or server is down.
-
-## Extension info
-
-- Extension ID: `secretary`
-- Contributes: the **Secretary** agent, the hidden **Secretary Worker** agent, the `delegate_work` / `manage_work` / `yield_work` tools, the **Work** panel, and `/api/ext/secretary/work`
