@@ -134,3 +134,86 @@ RSpec.describe Clacky::UI2::LayoutManager do
     end
   end
 end
+
+RSpec.describe Clacky::UI2::LayoutManager, "recalculate_layout after the input area shrinks" do
+  # Regression: /config closes → the multiline input area collapses back to a
+  # single line. recalculate_layout clears the rows the fixed area releases
+  # and then calls render_fixed_areas. That method only repaints the output
+  # area when @last_fixed_area_height changed — but an intervening append has
+  # already refreshed that bookkeeping to the *new* height while @gap_row was
+  # still stale, so the guard is false and the released rows stay blank.
+  # Users see a hole in the middle of the transcript.
+  let(:input_area) do
+    Class.new do
+      attr_accessor :row, :height
+      def initialize; @height = 2; end
+      def required_height; @height; end
+      def paused?; false; end
+      def clear; end
+      def set_tips(*); end
+      def render(start_row:, width: nil); end
+      def update_sessionbar(**_); end
+      def set_skill_loader(_, _); end
+      def set_agent(_, _); end
+      def handle_key(_); { action: nil }; end
+      def empty?; true; end
+      def pause; end
+      def resume; end
+      def show_user_tip(**_); end
+      def clear_user_tip; end
+    end.new
+  end
+
+  around(:each) do |ex|
+    @captured = []
+    captured = @captured
+    Kernel.send(:alias_method, :__orig_print_for_spec2, :print)
+    Kernel.send(:define_method, :print) do |*args|
+      args.each { |a| captured << a.to_s }
+    end
+    begin
+      ex.run
+    ensure
+      Kernel.send(:alias_method, :print, :__orig_print_for_spec2)
+      Kernel.send(:remove_method, :__orig_print_for_spec2)
+    end
+  end
+
+  def printed_content
+    @captured.reject { |w| w.start_with?("\e") || w == "\n" }
+  end
+
+  it "repaints the output lines it just cleared" do
+    lm = described_class.new(input_area: input_area)
+    lm.screen.instance_variable_set(:@width, 40)
+    lm.screen.instance_variable_set(:@height, 20)
+
+    lm.instance_variable_set(:@last_fixed_area_height, 3)
+    lm.append("L1")
+    lm.append("L2")
+    lm.append("L3")
+
+    # Input area grew (e.g. the /config overlay pushed tips in): layout moved
+    # down but the manager was not asked to recalculate yet.
+    input_area.height = 8
+    lm.send(:calculate_layout)
+    expect(lm.instance_variable_get(:@gap_row)).to eq(11)
+
+    # Input area collapses again before the recalculation runs.
+    input_area.height = 2
+
+    # An append in between refreshes @last_fixed_area_height to the *new*
+    # fixed height (1 gap + 2 input) while @gap_row is still 11.
+    lm.append("L4")
+    expect(lm.instance_variable_get(:@last_fixed_area_height)).to eq(3)
+
+    @captured.clear
+    lm.send(:recalculate_layout)
+
+    # Rows 11..16 were released to the output area and cleared; the live
+    # buffer content must be painted back into them.
+    content = printed_content
+    expect(content).to include("L1")
+    expect(content).to include("L4")
+  end
+end

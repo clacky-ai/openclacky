@@ -445,7 +445,16 @@ module Clacky
               # buffer to fill them in.
               render_output_from_buffer
             else
-              render_fixed_areas
+              # The rows just cleared now belong to the output area, so the
+              # transcript has to be painted back into them. Do this
+              # explicitly rather than relying on render_fixed_areas' height
+              # guard: an append that ran between calculate_layout and this
+              # point has already refreshed @last_fixed_area_height to the
+              # new height while @gap_row was still stale, which made the
+              # guard false and left the released rows blank (a visible hole
+              # in the transcript after closing an overlay such as /config).
+              render_output_from_buffer
+              render_fixed_areas(skip_buffer_rerender: true)
             end
             screen.flush
           end
