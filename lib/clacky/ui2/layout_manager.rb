@@ -481,7 +481,19 @@ module Clacky
 
       def rerender_all
         @render_mutex.synchronize do
-          screen.clear_screen
+          # Deliberately NOT screen.clear_screen. Erasing the screen makes the
+          # terminal push whatever is currently displayed into scrollback
+          # (iTerm2 and tmux both do this), so everything on screen at this
+          # moment is preserved a second time in history. When an overlay has
+          # just closed this is actively harmful: clear_modal blanks a 70-column
+          # rectangle before on_close runs, so the erased frame carries that
+          # rectangular hole into scrollback, and the user scrolling up sees a
+          # band of missing text in the middle of the transcript alongside a
+          # duplicated copy of the same output.
+          #
+          # The erase is redundant anyway: render_output_from_buffer clears every
+          # row of the output area individually and render_fixed_areas repaints
+          # the gap / todo / input rows, so together they cover the whole screen.
           render_output_from_buffer
           render_fixed_areas
           screen.flush

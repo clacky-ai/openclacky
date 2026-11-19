@@ -217,3 +217,87 @@ RSpec.describe Clacky::UI2::LayoutManager, "recalculate_layout after the input a
     expect(content).to include("L4")
   end
 end
+RSpec.describe Clacky::UI2::LayoutManager, "#rerender_all must not erase the screen" do
+  # Regression: closing the /config modal calls rerender_all. That used to
+  # begin with screen.clear_screen (ESC[2J). Terminals (iTerm2 and tmux both)
+  # copy whatever is currently on the visible screen into scrollback when the
+  # screen is erased, so the frame on screen at that instant became permanent
+  # history — a second time. clear_modal blanks a 70-column rectangle right
+  # before on_close runs, so the preserved frame carried a rectangular hole:
+  # users who scrolled up saw a band of missing text in the middle of the
+  # transcript, next to a duplicated copy of the same output.
+  #
+  # The erase was redundant anyway — render_output_from_buffer clears every
+  # output row individually and render_fixed_areas repaints the gap / todo /
+  # input rows, so together they already cover the whole screen.
+  let(:input_area) do
+    Class.new do
+      attr_accessor :row, :height
+      def initialize; @height = 2; end
+      def required_height; @height; end
+      def paused?; false; end
+      def clear; end
+      def set_tips(*); end
+      def render(start_row:, width: nil); end
+      def update_sessionbar(**_); end
+      def set_skill_loader(_, _); end
+      def set_agent(_, _); end
+      def handle_key(_); { action: nil }; end
+      def empty?; true; end
+      def pause; end
+      def resume; end
+      def show_user_tip(**_); end
+      def clear_user_tip; end
+    end.new
+  end
+
+  around(:each) do |ex|
+    @captured = []
+    captured = @captured
+    Kernel.send(:alias_method, :__orig_print_for_spec3, :print)
+    Kernel.send(:define_method, :print) do |*args|
+      args.each { |a| captured << a.to_s }
+    end
+    begin
+      ex.run
+    ensure
+      Kernel.send(:alias_method, :print, :__orig_print_for_spec3)
+      Kernel.send(:remove_method, :__orig_print_for_spec3)
+    end
+  end
+
+  def build_manager
+    lm = described_class.new(input_area: input_area)
+    lm.screen.instance_variable_set(:@width, 60)
+    lm.screen.instance_variable_set(:@height, 20)
+    lm.send(:calculate_layout)
+    lm.append("alpha")
+    lm.append("beta")
+    lm
+  end
+
+  def printed_content
+    @captured.reject { |w| w.start_with?("\e") || w == "\n" }
+  end
+
+  it "emits no full-screen erase, which the terminal would push into scrollback" do
+    lm = build_manager
+
+    @captured.clear
+    lm.rerender_all
+
+    erasures = @captured.select { |w| w.include?("\e[2J") || w.include?("\e[3J") || w.include?("\e[H\e[J") }
+    expect(erasures).to be_empty
+  end
+
+  it "still repaints every live buffer line, leaving no stale frame behind" do
+    lm = build_manager
+
+    @captured.clear
+    lm.rerender_all
+
+    content = printed_content
+    expect(content).to include("alpha")
+    expect(content).to include("beta")
+  end
+end
