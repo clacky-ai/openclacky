@@ -46,5 +46,6 @@ Ask the AI to "run the computer-use doctor check". It verifies permissions and e
 
 ## Notes
 
+- Every step needs a screenshot and a model round-trip, which burns far more tokens than chat. Enable this extension only if you need it.
 - Avoid using the mouse and keyboard while the AI is working, so you don't interfere with each other.
 - Keep an eye on each step for sensitive actions such as payments or deletions.
