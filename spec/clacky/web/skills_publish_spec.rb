@@ -29,9 +29,20 @@ RSpec.describe "Skills publish UI" do
     expect(view).to include('I18n.t("skills.publish.upToDate")')
   end
 
+  # The button belongs with "try it out" and the enable switch, not in the
+  # status row below the description — one action cluster, one state row.
+  it "puts the publish button in the detail header's action row" do
+    expect(view).to include("function _publishButton(skill) {")
+    expect(view).to include("const publishBtn = _publishButton(skill);")
+    expect(view).to include('<div class="skill-detail-actions">${publishBtn}${tryHtml}${toggleHtml}${moreHtml}</div>')
+    expect(styles).to include(".skill-publish-btn { padding: 0.3rem 0.875rem;")
+    expect(styles).not_to include(".skill-publish-btn { margin-left: auto;")
+  end
+
   it "leaves system and invalid skills out of the publish flow" do
     expect(view).to include("function _publishBlock(skill) {")
-    expect(view).to include('if (_isSystem(skill) || skill.invalid) return "";')
+    expect(view).to include("function _publishButton(skill) {")
+    expect(view.scan('if (_isSystem(skill) || skill.invalid) return "";').size).to eq(2)
   end
 
   it "confirms before overwriting a same-named cloud skill" do

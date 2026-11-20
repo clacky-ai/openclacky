@@ -11185,7 +11185,7 @@ button:focus-visible { outline: 2px solid var(--color-accent-primary); outline-o
 .skill-publish-version,
 .skill-publish-meta { font-size: 0.6875rem; color: var(--color-text-muted); }
 .skill-publish-uptodate { font-size: 0.8125rem; color: var(--color-text-tertiary); margin-left: auto; }
-.skill-publish-btn { margin-left: auto; padding: 0.3rem 0.875rem; font-size: 0.8125rem; border-radius: 8px; }
+.skill-publish-btn { padding: 0.3rem 0.875rem; font-size: 0.8125rem; border-radius: 8px; }
 /* Cloud Skills tab — published skills as regular tiles, with the publish
    badges reused from the detail page. */
 .skill-cloud-meta {
