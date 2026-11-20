@@ -626,14 +626,14 @@ RSpec.describe Clacky::Utils::FileProcessor do
       expect(described_class.rewrite_local_image_urls(content)).to eq("[chart](file:///nonexistent/chart.png)")
     end
 
-    it "rewrites a local PDF to the media proxy URL" do
+    it "downgrades image syntax for a local PDF to a plain link" do
       Dir.mktmpdir do |dir|
         pdf = File.join(dir, "doc.pdf")
         File.binwrite(pdf, "%PDF")
 
         content = "![doc](file://#{pdf})"
         result = described_class.rewrite_local_image_urls(content)
-        expect(result).to start_with("![doc](/api/local-image?path=")
+        expect(result).to eq("[doc](file://#{pdf})")
       end
     end
 

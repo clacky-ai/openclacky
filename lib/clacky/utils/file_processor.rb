@@ -639,9 +639,11 @@ module Clacky
     # Images the Web UI can render as thumbnails. .svg is display-only: it must
     # never be inlined as a data URL for the model, so it stays out of LOCAL_IMAGE_EXTENSIONS.
     LOCAL_PREVIEW_IMAGE_EXTENSIONS = (LOCAL_IMAGE_EXTENSIONS + %w[.svg]).freeze
+    # Media the chat can render inline as an image or a player.
+    LOCAL_INLINE_MEDIA_EXTENSIONS = (LOCAL_PREVIEW_IMAGE_EXTENSIONS + LOCAL_VIDEO_EXTENSIONS + LOCAL_AUDIO_EXTENSIONS).freeze
     # .pdf: served by /api/local-image so the WebUI file viewer can embed it
     # in an iframe (browser-native PDF rendering, no extra dependency).
-    LOCAL_MEDIA_EXTENSIONS = (LOCAL_PREVIEW_IMAGE_EXTENSIONS + LOCAL_VIDEO_EXTENSIONS + LOCAL_AUDIO_EXTENSIONS + %w[.pdf]).freeze
+    LOCAL_MEDIA_EXTENSIONS = (LOCAL_INLINE_MEDIA_EXTENSIONS + %w[.pdf]).freeze
 
     # Replace local image paths in markdown content with base64 data URLs.
     #
@@ -705,7 +707,7 @@ module Clacky
         real = Clacky::Utils::EnvironmentDetector.resolve_local_path(href)
 
         ext = File.extname(real).downcase
-        if !LOCAL_MEDIA_EXTENSIONS.include?(ext) || !File.exist?(real)
+        if !LOCAL_INLINE_MEDIA_EXTENSIONS.include?(ext) || !File.exist?(real)
           label = alt.to_s.strip.empty? ? File.basename(real).to_s : alt
           "[#{label}](#{href})"
         elsif LOCAL_VIDEO_EXTENSIONS.include?(ext) || LOCAL_AUDIO_EXTENSIONS.include?(ext)
