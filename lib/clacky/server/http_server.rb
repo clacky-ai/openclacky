@@ -1005,6 +1005,9 @@ module Clacky
           elsif method == "POST" && path.match?(%r{^/api/my-skills/[^/]+/publish$})
             name = URI.decode_www_form_component(path.sub("/api/my-skills/", "").sub("/publish", ""))
             api_publish_my_skill(name, req, res)
+          elsif method == "DELETE" && path.match?(%r{^/api/my-skills/[^/]+$})
+            name = URI.decode_www_form_component(path.sub("/api/my-skills/", ""))
+            api_unpublish_my_skill(name, res)
           elsif method == "GET" && path.match?(%r{^/api/memories/[^/]+$})
             filename = URI.decode_www_form_component(path.sub("/api/memories/", ""))
             api_memories_get(filename, res)
@@ -6849,6 +6852,29 @@ module Clacky
           json_response(res, 500, { ok: false, error: e.message })
         ensure
           FileUtils.rm_rf(tmp_dir) if tmp_dir && Dir.exist?(tmp_dir)
+        end
+      end
+
+      # DELETE /api/my-skills/:name — take a published skill off the marketplace.
+      # The local copy is untouched; the platform record is soft-deleted, so the
+      # skill disappears from the creator listing and from other users' installs.
+      private def api_unpublish_my_skill(name, res)
+        brand = Clacky::BrandConfig.load
+
+        unless brand.user_licensed?
+          json_response(res, 403, { ok: false, error: "User license required to unpublish skills" })
+          return
+        end
+
+        # No local-skill lookup here on purpose: a skill whose folder is already
+        # gone must still be removable from the cloud.
+        result = brand.delete_skill!(name)
+
+        if result[:success]
+          Clacky::BrandConfig.forget_upload!(name)
+          json_response(res, 200, { ok: true, name: name })
+        else
+          json_response(res, 422, { ok: false, error: result[:error].to_s })
         end
       end
 

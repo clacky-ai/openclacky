@@ -635,6 +635,49 @@ module Clacky
       { success: false, error: "Network error: #{e.message}" }
     end
 
+    # Soft-delete (unpublish) one of the creator's skills by name.
+    # Uses DELETE /api/v1/client/skills/:name — the platform resolves :id by
+    # name too. The same signed-request params as upload_skill! travel in the
+    # query string because DELETE carries no body.
+    #
+    # The record survives on the platform (deleted_at + hub_status removed),
+    # but it disappears from the creator listing and can no longer be
+    # downloaded. Publishing the same name again creates a fresh record.
+    # Returns { success: true } or { success: false, error: "..." }.
+    def delete_skill!(skill_name)
+      return { success: false, error: "License not activated" } unless activated?
+      return { success: false, error: "User license required to unpublish skills" } unless user_licensed?
+
+      user_id   = @license_user_id.to_s
+      key_hash  = Digest::SHA256.hexdigest(@license_key)
+      ts        = Time.now.utc.to_i.to_s
+      nonce     = SecureRandom.hex(16)
+      signature = OpenSSL::HMAC.hexdigest("SHA256", @license_key, "#{user_id}:#{@device_id}:#{ts}:#{nonce}")
+
+      query = URI.encode_www_form(
+        key_hash:  key_hash,
+        user_id:   user_id,
+        device_id: @device_id,
+        timestamp: ts,
+        nonce:     nonce,
+        signature: signature
+      )
+      path = "/api/v1/client/skills/#{URI.encode_www_form_component(skill_name)}?#{query}"
+
+      result = platform_client.delete(path)
+
+      if result[:success]
+        { success: true }
+      else
+        body = result[:data] || {}
+        code = body["code"] || body["error"]
+        msg  = result[:error] || code || "Unpublish failed"
+        { success: false, error: msg }
+      end
+    rescue StandardError => e
+      { success: false, error: "Network error: #{e.message}" }
+    end
+
     # ── Extension marketplace (creator publishing via device token) ──
     # Extensions authenticate with the device token stored in identity.yml,
     # which binds this device to a platform account. This is independent of any
@@ -1644,6 +1687,18 @@ module Clacky
       File.write(UPLOAD_META_FILE, JSON.generate(meta))
     rescue StandardError
       # Non-fatal — metadata write failure should not break the upload flow
+    end
+
+    # Drop a skill's upload record once it has been taken off the platform, so
+    # the local UI stops reporting it as published.
+    # @param skill_name [String]
+    def self.forget_upload!(skill_name)
+      meta = load_upload_meta
+      return if meta.delete(skill_name).nil?
+
+      File.write(UPLOAD_META_FILE, JSON.generate(meta))
+    rescue StandardError
+      # Non-fatal — a stale record only affects the "published" hint
     end
 
     # Vendors may configure a bare domain ("example.com"). Without a scheme the
