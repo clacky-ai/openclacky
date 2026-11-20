@@ -6185,7 +6185,12 @@ module Clacky
 
         File.write(skill_md, content)
         @skill_loader.load_all
-        json_response(res, 200, { ok: true, name: skill.identifier })
+        # `name` is the identifier (it doubles as the /command), so editing it
+        # renames the skill while the directory keeps its old name. Report the
+        # identifier the reloaded skill now has, so the UI can reopen it.
+        renamed  = fields.is_a?(Hash) ? @skill_loader[fields["name"].to_s] : nil
+        new_name = renamed ? renamed.identifier : skill.identifier
+        json_response(res, 200, { ok: true, name: new_name })
       rescue StandardError => e
         json_response(res, 500, { ok: false, error: e.message })
       end
