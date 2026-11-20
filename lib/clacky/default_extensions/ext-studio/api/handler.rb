@@ -428,8 +428,9 @@ class ExtStudioExt < Clacky::ApiExtension
   post "/develop" do
     idea = presence(json_body["idea"])
     name = idea ? "扩展开发: #{idea[0, 40]}" : "扩展开发"
-    sid  = create_session(name: name, prompt: idea, profile: "ext-developer")
-    json(ok: true, session_id: sid)
+    sid  = create_session(name: name, prompt: idea, profile: "ext-developer",
+                          display_message: idea || name, defer: true)
+    json(ok: true, session_id: sid, pending: !idea.nil?)
   end
 
   # GET /api/ext/ext-studio/binding

@@ -292,7 +292,8 @@ module Clacky
     # associated with the project. `model_id` selects a configured model by
     # its stable id; omitting it keeps the current default model.
     def create_session(name: nil, prompt: nil, working_dir: nil, profile: "general",
-                       source: :manual, display_message: nil, project_id: nil, model_id: nil)
+                       source: :manual, display_message: nil, project_id: nil, model_id: nil,
+                       defer: false)
       error!("server not ready", status: 503) unless @http_server
 
       src = source.to_s
@@ -340,7 +341,16 @@ module Clacky
       # and before submit_task can emit ordinary running-state updates.
       @http_server.send(:broadcast_session_update, session_id, created: true)
 
-      submit_task(session_id, prompt, display_message: display_message) if prompt && !prompt.strip.empty?
+      if prompt && !prompt.strip.empty?
+        if defer
+          # Leave the first turn pending: the client fires it over "run_task"
+          # once it has subscribed, so every broadcast it causes (including the
+          # user bubble) reaches a connection that is already listening.
+          registry&.update(session_id, pending_task: prompt, pending_display_message: display_message)
+        else
+          submit_task(session_id, prompt, display_message: display_message)
+        end
+      end
 
       session_id
     end

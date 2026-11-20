@@ -222,6 +222,15 @@ RSpec.describe "ApiExtension#create_session with project_id" do
     expect(instance.create_session(prompt: "start", display_message: "Starting")).to eq("sess-4")
   end
 
+  it "defers the first task to the client's run_task when asked" do
+    allow(http_server).to receive(:send).with(:build_session, name: nil, working_dir: nil, profile: "general", source: :manual, model_id: nil).and_return("sess-6")
+    allow(http_server).to receive(:send).with(:broadcast_session_update, "sess-6", created: true)
+    expect(registry).to receive(:update).with("sess-6", pending_task: "start", pending_display_message: "Starting")
+    expect(instance).not_to receive(:submit_task)
+
+    expect(instance.create_session(prompt: "start", display_message: "Starting", defer: true)).to eq("sess-6")
+  end
+
   it "passes a configured model_id through the public creation lifecycle" do
     allow(agent_config).to receive(:models).and_return([{ "id" => "model-1" }])
     allow(http_server).to receive(:send).with(:build_session, name: nil, working_dir: nil, profile: "general", source: :manual, model_id: "model-1").and_return("sess-5")
