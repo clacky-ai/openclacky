@@ -63,7 +63,7 @@ module Clacky
     ENV_LITE_ANTHROPIC_FORMAT = "CLACKY_LITE_ANTHROPIC_FORMAT"
 
     # Default model name (only for model, not base_url)
-    DEFAULT_MODEL = "claude-sonnet-4-5"
+    DEFAULT_MODEL = "claude-sonnet-5-5"
 
     class << self
       # Check if default model is configured via environment variables
@@ -147,7 +147,7 @@ module Clacky
     CONFIG_FILE = File.join(CONFIG_DIR, "config.yml")
 
     # Default model for ClaudeCode environment
-    CLAUDE_DEFAULT_MODEL = "claude-sonnet-4-5"
+    CLAUDE_DEFAULT_MODEL = "claude-sonnet-5-5"
 
     PERMISSION_MODES = [:auto_approve, :confirm_safes, :confirm_all].freeze
 

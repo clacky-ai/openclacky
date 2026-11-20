@@ -945,7 +945,7 @@ RSpec.describe Clacky::AgentConfig do
             
             config = described_class.load(config_file)
             
-            expect(config.models.first["model"]).to eq("claude-sonnet-4-5")
+            expect(config.models.first["model"]).to eq("claude-sonnet-5-5")
           end
         end
       end
