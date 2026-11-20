@@ -771,12 +771,14 @@ module Clacky
         when ["GET",    "/api/store/extensions/brand"]   then api_store_extensions_brand(req, res)
         when ["GET",    "/api/store/extensions/system"]   then api_store_extensions_system(res)
         when ["GET",    "/api/store/extensions/installed"] then api_store_extensions_installed(res)
+        when ["GET",    "/api/store/extensions/local"]     then api_store_extensions_local(res)
         when ["GET",    "/api/store/extension"]       then api_store_extension_detail(req, res)
         when ["POST",   "/api/store/extension/install"]  then api_store_extension_install(req, res)
         when ["POST",   "/api/store/extension/import"]   then api_store_extension_import(req, res)
         when ["GET",    "/api/store/extension/install/status"] then api_store_extension_install_status(req, res)
         when ["POST",   "/api/store/extension/disable"] then api_store_extension_disable(req, res)
         when ["POST",   "/api/store/extension/enable"]  then api_store_extension_enable(req, res)
+        when ["POST",   "/api/store/extension/delete-local"] then api_store_extension_delete_local(req, res)
         when ["DELETE", "/api/store/extension"]         then api_store_extension_uninstall(req, res)
         when ["GET",    "/api/brand/status"]      then api_brand_status(res)
         when ["POST",   "/api/brand/activate"]    then api_brand_activate(req, res)
@@ -3090,6 +3092,98 @@ module Clacky
         end
 
         json_response(res, 200, { ok: true, extensions: extensions })
+      rescue StandardError => e
+        json_response(res, 500, { ok: false, error: e.message })
+      end
+
+      # GET /api/store/extensions/local
+      #
+      # The extensions the user develops on this machine (the "local" layer under
+      # ~/.clacky/ext/local). They are never part of the marketplace catalog nor
+      # of the installed list, so the personal-creation tab reads them here.
+      # Disabled containers stay in the list on purpose: switching one back on is
+      # the main reason to open this tab.
+      def api_store_extensions_local(res)
+        result  = Clacky::ExtensionLoader.load_all
+        entries = Array(result&.containers).select do |_ext_id, container|
+          container[:layer] == :local
+        end
+
+        # Most recently edited first: this tab is a workbench, not a catalog.
+        ordered = entries.sort_by { |_ext_id, container| -local_extension_mtime(container) }
+
+        extensions = ordered.map do |ext_id, container|
+          local_name = container[:name].to_s
+          local_name = ext_id if local_name.empty?
+          {
+            "id"              => ext_id,
+            "name"            => local_name,
+            "display_name"    => container.dig(:raw, "display_name") || local_name,
+            "display_name_zh" => container.dig(:raw, "display_name_zh"),
+            "description"     => container.dig(:raw, "description").to_s,
+            "description_zh"  => container.dig(:raw, "description_zh").to_s,
+            "version"         => container[:version],
+            "author"          => container[:author].to_s,
+            "icon_url"        => extension_icon_url(container),
+            "units"           => units_from_container(container),
+            "origin"          => container[:origin],
+            "layer"           => "local",
+            "installed"       => true,
+            "disabled"        => container[:disabled] == true,
+          }
+        end
+
+        json_response(res, 200, { ok: true, extensions: extensions })
+      rescue StandardError => e
+        json_response(res, 500, { ok: false, error: e.message })
+      end
+
+      private def local_extension_mtime(container)
+        dir = container && container[:dir]
+        return 0 if dir.to_s.empty?
+
+        File.mtime(File.join(dir, "ext.yml")).to_i
+      rescue StandardError
+        0
+      end
+
+      # POST /api/store/extension/delete-local   body: { id: <slug> }
+      #
+      # Removes a self-developed extension's directory under ~/.clacky/ext/local.
+      # Marketplace installs keep their own DELETE /api/store/extension route;
+      # this handler refuses every other layer, so a stray id can never wipe a
+      # builtin or an installed copy.
+      def api_store_extension_delete_local(req, res)
+        id        = parse_json_body(req)["id"].to_s
+        container = extension_container(id)
+
+        if container.nil?
+          json_response(res, 404, { ok: false, error: "Extension not found." })
+          return
+        end
+        unless container[:layer] == :local
+          json_response(res, 422, { ok: false, error: "Only self-developed extensions can be deleted here." })
+          return
+        end
+
+        dir  = File.expand_path(container[:dir].to_s)
+        root = Clacky::ExtensionLoader::LOCAL_DIR
+        if dir.empty? || !Dir.exist?(dir)
+          json_response(res, 404, { ok: false, error: "Extension directory not found." })
+          return
+        end
+        # Belt and braces: never rm_rf anything outside the local layer root,
+        # even if a manifest ever points `dir` somewhere else.
+        unless dir.start_with?(root + File::SEPARATOR)
+          json_response(res, 422, { ok: false, error: "Extension directory is outside ~/.clacky/ext/local." })
+          return
+        end
+
+        FileUtils.rm_rf(dir)
+        Clacky::ExtensionLoader.invalidate_cache!
+        # Unmount the deleted extension's API routes without a server restart.
+        Clacky::ApiExtensionLoader.load_all
+        json_response(res, 200, { ok: true, id: id })
       rescue StandardError => e
         json_response(res, 500, { ok: false, error: e.message })
       end

@@ -10708,7 +10708,8 @@ button:focus-visible { outline: 2px solid var(--color-accent-primary); outline-o
 /* Shared base for both buttons */
 .btn-import-skill,
 .btn-create-skill,
-.btn-import-extension {
+.btn-import-extension,
+.btn-create-extension {
   display: flex;
   align-items: center;
   gap: 0.375rem;
@@ -10736,16 +10737,19 @@ button:focus-visible { outline: 2px solid var(--color-accent-primary); outline-o
 .btn-import-skill:active,
 .btn-import-extension:active { transform: translateY(0); }
 /* Create — solid primary style */
-.btn-create-skill {
+.btn-create-skill,
+.btn-create-extension {
   background: var(--color-button-primary);
   color: #fff;
   border: none;
 }
-.btn-create-skill:hover {
+.btn-create-skill:hover,
+.btn-create-extension:hover {
   background: var(--color-button-primary-hover);
   transform: translateY(-1px);
 }
-.btn-create-skill:active { transform: translateY(0); }
+.btn-create-skill:active,
+.btn-create-extension:active { transform: translateY(0); }
 
 /* ── Inline Import Bar ─────────────────────────────────────────────────── */
 .skill-import-bar {
@@ -11603,6 +11607,11 @@ button:focus-visible { outline: 2px solid var(--color-accent-primary); outline-o
   gap: 0.75rem;
   margin-bottom: 0.25rem;
 }
+.extensions-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
 .extensions-toolbar-right {
   display: flex;
   align-items: center;
@@ -11834,7 +11843,8 @@ button:focus-visible { outline: 2px solid var(--color-accent-primary); outline-o
   border-radius: 4px;
   padding: 0.2rem 0.375rem;
 }
-.extension-unlisted {
+.extension-unlisted,
+.extension-disabled {
   font-size: 0.6875rem;
   color: var(--color-text-secondary);
   background: var(--color-surface-2, rgba(0,0,0,0.06));

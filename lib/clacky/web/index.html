@@ -850,6 +850,13 @@
               </svg>
               <span data-i18n="extensions.btn.import">Import</span>
             </button>
+            <button id="btn-create-extension" class="btn-create-extension" type="button" data-i18n-title="extensions.create.tooltip">
+              <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon-sm">
+                <path d="M5 12h14"/>
+                <path d="M12 5v14"/>
+              </svg>
+              <span data-i18n="extensions.btn.create">Create</span>
+            </button>
             <input id="extension-import-file" type="file" accept=".zip" style="display:none" />
           </div>
         </div>
@@ -859,6 +866,7 @@
             <button type="button" class="extensions-filter-tab page-tab active" data-filter="all" id="tab-extensions-all" data-i18n="extensions.filter.all">All</button>
             <button type="button" class="extensions-filter-tab page-tab" data-filter="brand" id="tab-extensions-brand" data-i18n="extensions.filter.all" style="display:none">All</button>
             <button type="button" class="extensions-filter-tab page-tab" data-filter="installed" data-i18n="extensions.filter.installed">Installed</button>
+            <button type="button" class="extensions-filter-tab page-tab" data-filter="local" id="tab-extensions-local" data-i18n="extensions.filter.local">My creations</button>
           </div>
           <div class="extensions-toolbar-right">
             <div class="extensions-search-box">

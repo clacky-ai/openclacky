@@ -27,7 +27,7 @@ RSpec.describe "Extensions row action menu UI" do
   end
 
   it "offers the + affordance for official extensions that are switched off" do
-    expect(view).to include('if (ext.layer === "builtin" && ext.disabled === true)')
+    expect(view).to include('if (ext.disabled === true && (ext.layer === "builtin" || ext.layer === "local")) {')
     expect(view).to include('data-ext-row-enable="${escapeHtml(id)}"')
     expect(view).to include("Extensions.setEnabled(enable.dataset.extRowEnable, true)")
   end
