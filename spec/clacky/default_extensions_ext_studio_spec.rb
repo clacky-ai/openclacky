@@ -95,6 +95,20 @@ RSpec.describe "ExtStudioExt creator navigation" do
     expect(rebuild.index("buildReadmeCard")).to be < rebuild.index("publish.render")
     expect(rebuild).to include("runVerify();")
   end
+
+  # A native <select> opens an OS-drawn list (blue highlight, no theme), so the
+  # extension picker goes through the app-wide CustomSelect like every other
+  # dropdown in the UI.
+  it "builds the extension picker with the shared CustomSelect" do
+    picker = view_source[/function renderPicker\(.*?\n  \}\n/m]
+    expect(picker).not_to be_nil
+    expect(picker).to include("custom-select-wrapper")
+    expect(picker).to include('class: "custom-select-trigger"')
+    expect(picker).to include('class: "custom-select-dropdown"')
+    expect(picker).not_to include('el("select"')
+    expect(view_source).to include("window.CustomSelect.init")
+    expect(view_source).to include("wirePicker(")
+  end
 end
 
 RSpec.describe "ExtStudioExt brand owner publishing" do
