@@ -5,21 +5,13 @@ RSpec.describe "Sidebar section collapse" do
   let(:page)    { File.read(File.join(web_dir, "index.html")) }
   let(:css)     { File.read(File.join(web_dir, "app.css")) }
   let(:sidebar) { File.read(File.join(web_dir, "components/sidebar.js")) }
-  let(:i18n)    { File.read(File.join(web_dir, "i18n.js")) }
 
-  %w[config data other].each do |section|
+  %w[config data].each do |section|
     it "makes the #{section} section header fold its nav items" do
       expect(page).to include(%(data-collapsible-section="#{section}-nav-items"))
       expect(page).to match(/<div id="#{section}-nav-items" class="sidebar-section-body">/)
       expect(page).to match(/class="sidebar-section-chevron"/)
     end
-  end
-
-  it "drops the Other group when no extension contributes to the bottom nav" do
-    expect(page).to include('data-slot="sidebar.nav.bottom"')
-    expect(css).to include("#other-section:not(:has(#ext-slot-sidebar-nav-bottom > *))")
-    expect(i18n).to include('"sidebar.otherSection": "Other"')
-    expect(i18n).to include('"sidebar.otherSection": "其他"')
   end
 
   it "binds the header clicks and persists the folded state" do

@@ -924,12 +924,10 @@ body {
   padding: 10px 0 0px;
   border-top: 1px solid var(--color-border-secondary);
 }
-/* No extension contributes to the bottom nav → drop the label with it. */
-#other-section:not(:has(#ext-slot-sidebar-nav-bottom > *)) {
-  display: none;
-}
 #ext-slot-sidebar-nav-bottom {
-  padding: 0 0 4px;
+  padding: 8px 0 10px;
+  margin-top: 6px;
+  border-top: 1px solid var(--color-border-secondary);
 }
 
 /* ── Sidebar divider (Section Labels) ───────────────────────────────────── */

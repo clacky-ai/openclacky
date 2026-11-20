@@ -65,17 +65,21 @@ RSpec.describe "ExtStudioExt creator navigation" do
     ))
   end
 
-  it "hides the creator center for branded non-owners using the existing permission flags" do
-    expect(view_source).to include(
-      'const brandNonAdmin = typeof Brand !== "undefined" && Brand.branded && !Brand.userLicensed;'
-    )
-    expect(view_source).to include("creatorNavItem.hidden = !brandStatusReady || brandNonAdmin;")
+  # The Creator Center is retired: its skills list moved to the Skills page's
+  # "Cloud skills" tab, publishing moved to the skill detail page and the
+  # extension row menu. Nothing should put it back in the sidebar.
+  it "no longer contributes a sidebar entry for the creator center" do
+    expect(view_source).not_to include('mount("sidebar.nav.bottom"')
+    expect(view_source).not_to include("creatorNavItem")
+    expect(view_source).not_to include("syncCreatorNavVisibility")
   end
 
-  it "updates the navigation after brand status is resolved" do
-    expect(view_source).to include('Brand.on("brand:status", function () {')
-    expect(view_source).to include("brandStatusReady = true;")
-    expect(view_source).to include("syncCreatorNavVisibility();")
+  it "keeps the workspace registered so a bookmarked hash still resolves" do
+    expect(view_source).to include("registerWorkspace(WS_ID")
+  end
+
+  it "keeps the session-scoped debug and publish panels" do
+    expect(view_source.scan('Clacky.ext.ui.mount("session.aside"').size).to eq(2)
   end
 end
 
