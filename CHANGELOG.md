@@ -4,6 +4,61 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
+## [1.5.25] - 2026-11-20
+
+### Added
+- Add a built-in knowledge base extension that answers from your own markdown notes
+- Publish and update skills from the skills page
+- Browse and iterate on the extensions you build locally in a personal creations tab
+- Let extension-contributed tools attach to other agents
+- Cap an agent to a chosen set of tools with a `tools_allow` list
+- Pick a default agent for new sessions in Settings
+- Rename a channel instance from its row menu
+- Title channel sessions after the instance name
+- Add GPT-6.2 Astra and Sol to the hosted models
+
+### Improved
+- Merge the extension debug and publish tabs into one development view
+- Warn about token cost and unverified extensions in the extension market
+- Rebuild the meeting panel and let the user discard a recording
+- Fold extension sidebar entries into a collapsible Other group
+- Keep the publish action in the skill detail header
+- Remember the last agent picked in the new-session dialog
+- Label the edit and preview panes in the markdown editor
+- Clarify the add-instance button on multi-account channels
+- Retire the creator center sidebar entry
+
+### Fixed
+- Keep absolute-path file links clickable after a refresh or when switching sessions
+- Show a PDF written with image syntax as a link instead of a broken image
+- Keep the round preview closed while drag-selecting over the chat navigator
+- Keep portalled dropdowns anchored while the page scrolls
+- Reveal the app only after the layout is restored, without a flash
+- Clear a folded group's status dot when its sessions finish
+- Park the first extension turn until the client has subscribed
+- Stamp backend-submitted user bubbles so they show on the first screen
+- Keep the open workspace when re-rendering extension slots
+- Keep empty, binary, mode-only and renamed files in the git review
+- Label created and deleted empty files instead of reporting no change
+- Decode Time Machine snapshot text as UTF-8 in the last-turn diff
+- Report the rendered row count in the truncated-diff note
+- Keep the URL fragment in the preview address bar
+- Keep the preview prefix when a single-page app pushes an absolute path
+- Send SVG attachments as text instead of a vision image
+- Stop cutting TTS and STT off before the gateway answers
+- Merge consecutive user messages so Bedrock keeps role alternation
+- Default new configurations to claude-sonnet-5-5
+- Skip the todo reminder when the todo tool is not registered
+- Run setup, skill and cron sessions with the general agent
+- Stop the terminal UI erasing the screen on a full repaint
+- Keep wrapped markdown inside the terminal pane without splitting colour codes
+- Lay out CJK tables by display width in the terminal UI
+
+### More
+- Raise the Claude series discount to 0.5
+- Unify the built-in extension readmes around an entry point
+- Shorten the new-extension seed prompt to a plain ask for guidance
+
 ## [1.5.24] - 2026-11-13
 
 ### Added
