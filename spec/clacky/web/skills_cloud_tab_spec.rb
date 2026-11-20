@@ -77,10 +77,20 @@ RSpec.describe "Skills cloud tab" do
   end
 
   it "asks the reader to publish rather than talking about a creator licence" do
-    expect(i18n).to include('"skills.cloud.locked":        "发布技能后才能查看云端技能。"')
-    expect(i18n).to include('"skills.cloud.locked":        "Publish a skill to see your cloud skills."')
+    expect(i18n).to include('"skills.cloud.locked":        "发布技能后，这里会列出你发布过的技能。"')
+    expect(i18n).to include('"skills.cloud.locked":        "Publish a skill and it shows up here."')
+    expect(i18n).to include('"skills.tab.cloud":           "我发布的技能"')
+    expect(i18n).to include('"skills.tab.cloud":           "My Published Skills"')
     expect(i18n).not_to include("查看云端技能需要创作者授权")
     expect(i18n).not_to include("A creator license is required to see your cloud skills")
+  end
+
+  it "drops the cloud-skills wording from the tab and its hints" do
+    %w[skills.tab.cloud skills.cloud.locked skills.cloud.loadFailed].each do |key|
+      lines = i18n.lines.select { |line| line.include?(%("#{key}":)) }
+      expect(lines.size).to eq(2)
+      lines.each { |line| expect(line).not_to include("云端技能", "Cloud Skills") }
+    end
   end
 
   it "searches inside the cloud list, not the other tabs" do
