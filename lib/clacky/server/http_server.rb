@@ -5530,7 +5530,8 @@ module Clacky
         # Same as scheduled runs: cron sessions always use the general agent.
         session_id = build_session(name: session_name, working_dir: working_dir, permission_mode: :auto_approve,
                                    profile: Clacky::AgentConfig::DEFAULT_AGENT)
-        @registry.update(session_id, pending_task: prompt, pending_working_dir: working_dir, pending_cron_task: name)
+        @registry.update(session_id, pending_task: prompt, pending_working_dir: working_dir,
+                                   pending_display_message: label, pending_cron_task: name)
         broadcast_session_update(session_id, created: true)
 
         json_response(res, 202, { ok: true, session: @registry.session_summary(session_id) })
@@ -8770,11 +8771,17 @@ module Clacky
 
         run_agent_task(session_id, agent, background: background) do
           execute = lambda do
+            # Same value for the broadcast bubble and the history entry, so the
+            # client dedups the replayed message by created_at instead of
+            # rendering it twice.
+            message_created_at = display_message ? Time.now.to_f : nil
             display_options = { source: :web }
+            display_options[:created_at] = message_created_at if message_created_at
             visible_references = Array(reference_contexts).select { |ref| ref.is_a?(Hash) }.map { |ref| ref.reject { |key, _| key.to_s == "context" } }
             display_options[:references] = visible_references unless visible_references.empty?
             web_ui&.show_user_message(display_message, **display_options) if display_message
             options = { display_text: display_message }
+            options[:created_at] = message_created_at if message_created_at
             options[:reference_contexts] = build_reference_contexts(reference_contexts) if reference_contexts
             agent.run(prompt, **options)
           end
@@ -8806,17 +8813,22 @@ module Clacky
         # programmatically-submitted tasks (e.g. meeting summarization) don't
         # appear as a thinking spinner with no preceding message. When a short
         # display_message is provided we show that instead of the full prompt.
+        # created_at is shared with agent.run so the broadcast bubble and the
+        # history entry carry the same value and the client dedups on replay.
+        message_created_at = display_message ? Time.now.to_f : nil
         if display_message
           web_ui = nil
           @registry.with_session(session_id) { |s| web_ui = s[:ui] }
-          web_ui&.show_user_message(display_message, source: :web)
+          web_ui&.show_user_message(display_message, source: :web, created_at: message_created_at)
         end
 
+        run_options = { display_text: display_message }
+        run_options[:created_at] = message_created_at if message_created_at
         run_agent_task(session_id, agent) do
           if cron_task
-            @scheduler.track_run(cron_task, session_id, trigger: :manual) { agent.run(prompt, display_text: display_message) }
+            @scheduler.track_run(cron_task, session_id, trigger: :manual) { agent.run(prompt, **run_options) }
           else
-            agent.run(prompt, display_text: display_message)
+            agent.run(prompt, **run_options)
           end
         end
       end

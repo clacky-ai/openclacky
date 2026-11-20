@@ -359,7 +359,12 @@ RSpec.describe "Secretary server integration" do
       registry = server.instance_variable_get(:@registry)
       sid = server.send(:build_session, name: "Background", profile: "general")
       agent = registry.get(sid)[:agent]
-      allow(agent.ui).to receive(:show_user_message)
+      broadcast_created_at = nil
+      allow(agent.ui).to receive(:show_user_message) do |content, **opts|
+        broadcast_created_at = opts[:created_at]
+        expect(content).to eq("后台更新")
+        expect(opts[:source]).to eq(:web)
+      end
       allow(agent).to receive(:think) do
         agent.history.append(role: "assistant", content: "已收到更新。")
         { content: "已收到更新。", tool_calls: [] }
@@ -367,8 +372,11 @@ RSpec.describe "Secretary server integration" do
       allow(agent).to receive(:run_skill_evolution_hooks)
       server.send(:run_session_task, sid, "internal-event", display_message: "后台更新", reference_contexts: ["private-context"])
       wait_thread(registry, sid)
-      expect(agent.ui).to have_received(:show_user_message).with("后台更新", source: :web)
+      expect(broadcast_created_at).to be_a(Float)
       expect(agent.history.to_a).to include(hash_including(content: "internal-event", display_text: "后台更新"))
+      # The bubble's created_at must match the history entry's, otherwise the
+      # replayed message is rendered a second time instead of being deduped.
+      expect(agent.history.to_a.find { |m| m[:content] == "internal-event" }[:created_at]).to eq(broadcast_created_at)
       events = []
       agent.replay_history(Clacky::Server::HistoryCollector.new(sid, events))
       expect(events).to include(hash_including(type: "history_user_message", content: "后台更新"))
