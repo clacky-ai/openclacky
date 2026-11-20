@@ -773,6 +773,9 @@ module Clacky
           # a phantom <think>-only bubble splits consecutive tool_calls into separate
           # UI groups, breaking the "N tool(s) used" collapse after refresh (C-5672).
           raw_text  = extract_text_from_content(msg[:content]).to_s.strip
+          # Same rewrite the live exit applies (agent.rb emit_assistant_message),
+          # so bare paths and hosted refs stay clickable after a refresh (C-5879).
+          raw_text  = Utils::FileLinkNormalizer.normalize(raw_text)
           reasoning = msg[:reasoning_content]
           unless raw_text.empty?
             text = if reasoning && !reasoning.to_s.strip.empty?
@@ -941,7 +944,7 @@ module Clacky
 
           case role
           when "assistant"
-            text = extract_text_from_content(content).to_s.strip
+            text = Utils::FileLinkNormalizer.normalize(extract_text_from_content(content).to_s.strip)
             ui.show_assistant_message(text, files: [], created_at: ev[:created_at] || ev["created_at"]) unless text.empty?
             Array(tool_calls).each do |tc|
               name = tc[:name] || tc["name"] || ""
