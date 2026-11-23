@@ -565,27 +565,31 @@ RSpec.describe Clacky::Server::GitPanel, ".review" do
     expect(data[:files].first[:diff]).not_to include("+unstaged")
   end
 
-  it "compares the current branch against a base for 'branch'" do
+  it "reviews the picked branch from the default base, not from HEAD" do
     write "a.txt", "one\n"
     commit_all "init"
     base = run("git", "rev-parse", "--abbrev-ref", "HEAD").strip
     run "git", "checkout", "-q", "-b", "feature"
     write "b.txt", "b\n"
     commit_all "feature commit"
+    run "git", "checkout", "-q", base
+    write "c.txt", "c\n"
+    commit_all "base moved on"
 
-    data = described_class.review(@dir, scope: "branch", base: base)
+    data = described_class.review(@dir, scope: "branch", target: "feature")
     expect(data[:base]).to eq(base)
+    expect(data[:target]).to eq("feature")
     expect(data[:files].map { |f| f[:path] }).to eq(["b.txt"])
     expect(data[:files].first[:x]).to eq("A")
     expect(data[:add]).to eq(1)
   end
 
-  it "reports note: noBase when the base ref does not exist" do
+  it "reports note: noTarget when the picked branch does not exist" do
     write "a.txt", "one\n"
     commit_all "init"
-    data = described_class.review(@dir, scope: "branch", base: "no-such-branch")
+    data = described_class.review(@dir, scope: "branch", target: "no-such-branch")
     expect(data[:files]).to eq([])
-    expect(data[:note]).to eq("noBase")
+    expect(data[:note]).to eq("noTarget")
   end
 
   it "falls back to the default base when 'committed' gets none" do
@@ -596,12 +600,32 @@ RSpec.describe Clacky::Server::GitPanel, ".review" do
     expect(data[:base]).to eq(branch)
   end
 
-  it "falls back to the default base when 'branch' gets none" do
+  it "measures 'branch' from the default branch even when HEAD tracks its own upstream" do
+    write "a.txt", "one\n"
+    commit_all "init"
+    run "git", "update-ref", "refs/remotes/origin/main", run("git", "rev-parse", "HEAD").strip
+    run "git", "checkout", "-q", "-b", "feature"
+    write "b.txt", "b\n"
+    commit_all "pushed"
+    run "git", "update-ref", "refs/remotes/origin/feature", run("git", "rev-parse", "HEAD").strip
+    run "git", "config", "remote.origin.url", @dir
+    run "git", "config", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*"
+    run "git", "config", "branch.feature.remote", "origin"
+    run "git", "config", "branch.feature.merge", "refs/heads/feature"
+    write "c.txt", "c\n"
+    commit_all "unpushed"
+
+    data = described_class.review(@dir, scope: "branch")
+    expect(data[:base]).to eq("origin/main")
+    expect(data[:files].map { |f| f[:path] }).to eq(["b.txt", "c.txt"])
+  end
+
+  it "falls back to the current branch when 'branch' gets no target" do
     write "a.txt", "one\n"
     commit_all "init"
     branch = run("git", "rev-parse", "--abbrev-ref", "HEAD").strip
     data = described_class.review(@dir, scope: "branch")
-    expect(data[:base]).to eq(branch)
+    expect(data[:target]).to eq(branch)
   end
 
   it "reviews the picked commit against its parent" do

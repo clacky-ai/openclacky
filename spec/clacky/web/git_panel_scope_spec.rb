@@ -1,23 +1,24 @@
 # frozen_string_literal: true
 
 # The changes panel has two pills: the scope (上一轮 / 未提交 / … / 已提交 /
-# 分支) and - only for "分支" - a `head → base` compare pill. "已提交" opens a
-# commit list and shows the picked commit subject inside its pill; "分支" is a
-# plain row whose base is picked from the compare pill.
+# 分支) and - only for "分支" - a `base → target` compare pill. "已提交" opens
+# a commit list and shows the picked commit subject inside its pill; "分支" is a
+# plain row whose branch under review is picked from the compare pill.
 RSpec.describe "Git panel review scope" do
   let(:view) do
     File.read(File.expand_path("../../../lib/clacky/default_extensions/git/panels/git/view.js", __dir__))
   end
 
-  it "sends a base for the branch and committed scopes only" do
+  it "sends a target for the branch scope and a base for the committed one" do
     query = view[/function scopeQuery\(\) \{.*?\n  \}/m]
-    expect(query).to include('state.scope === "branch" && state.base')
+    expect(query).to include('state.scope === "branch" && state.target')
+    expect(query).to include("target=${encodeURIComponent(state.target)}")
     expect(query).to include('state.scope === "committed" && state.commit')
   end
 
-  it "keeps the server-resolved commit baseline out of the user pick" do
+  it "adopts the server-resolved branch while keeping the commit pick separate" do
     refresh = view[/state\.sessionId = sessionId;.*?renderStream\(\);/m]
-    expect(refresh).to include('if (state.scope === "branch" && !state.base && data.base) state.base = data.base;')
+    expect(refresh).to include('if (state.scope === "branch" && !state.target && data.target) state.target = data.target;')
     expect(refresh).not_to include("state.commit = data.base")
   end
 
@@ -30,7 +31,7 @@ RSpec.describe "Git panel review scope" do
 
   it "keeps the scope pill wording fixed and shows the commit subject instead" do
     label = view[/function scopeLabel\(\) \{.*?\n  \}/m]
-    expect(label).not_to include("state.base")
+    expect(label).not_to include("state.target")
 
     subject = view[/function scopeSubject\(\) \{.*?\n  \}/m]
     expect(subject).to include('state.scope !== "committed"')
@@ -48,6 +49,8 @@ RSpec.describe "Git panel review scope" do
   it "renders the compare pill only for the branch scope" do
     pill = view[/function comparePill\(data\) \{.*?\n  \}/m]
     expect(pill).to include('if (state.scope !== "branch") return null;')
+    expect(pill).to include('el("span", { class: "cg-scope-head", text: base })')
+    expect(pill).to include('el("span", { class: "cg-scope-base", text: target })')
     expect(pill).to include('el("span", { class: "cg-compare-arrow" })')
     expect(pill).to include('openRefMenu(btn, "branches"')
 
@@ -58,7 +61,8 @@ RSpec.describe "Git panel review scope" do
 
   it "remembers each scope's pick separately" do
     apply = view[/function applyScope\(scope, value\) \{.*?\n  \}/m]
-    expect(apply).to include('if (scope === "branch") state.base = value || "";')
+    expect(apply).to include('if (scope === "branch") {')
+    expect(apply).to include('if (value) state.target = value;')
     expect(apply).to include('else if (scope === "committed") state.commit = value || "";')
   end
 

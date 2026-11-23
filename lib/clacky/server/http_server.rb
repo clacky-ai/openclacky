@@ -5811,14 +5811,14 @@ module Clacky
         when "diff"
           json_response(res, 200, { repo: true, diff: Clacky::Server::GitPanel.diff(
             dir, file: query["file"], context: query["context"],
-            scope: query["scope"], base: query["base"]
+            scope: query["scope"], base: query["base"], target: query["target"]
           ) })
         when "review"
           if query["scope"].to_s == "lastTurn"
             json_response(res, 200, Clacky::Server::GitPanel.last_turn_review(git_session_agent(session_id)))
           else
             json_response(res, 200, Clacky::Server::GitPanel.review(
-              dir, scope: query["scope"], base: query["base"]
+              dir, scope: query["scope"], base: query["base"], target: query["target"]
             ))
           end
         when "log"
