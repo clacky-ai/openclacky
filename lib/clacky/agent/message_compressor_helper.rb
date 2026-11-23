@@ -656,6 +656,7 @@ module Clacky
             lines << format_archived_user_content(content, display_files)
             lines << ""
             append_display_files_line(lines, display_files)
+            append_display_references_line(lines, msg)
             append_ext_events_line(lines, msg)
           when "assistant"
             # If this message is itself a compressed summary, annotate the header
@@ -757,6 +758,23 @@ module Clacky
         return if files.empty?
 
         lines << "_Display files: #{files.to_json}_"
+        lines << ""
+      end
+
+      # Serialize reference chips (@mention, quoted excerpt) so they survive
+      # compression — the bubble keeps the badge it had before archiving. The
+      # model-facing `context` is dropped here: it is re-derivable from the
+      # message body it belongs to, and the archive is a UI replay source, not a
+      # second copy of the prompt payload.
+      def append_display_references_line(lines, msg)
+        references = Array(msg[:display_references]).filter_map do |ref|
+          next unless ref.is_a?(Hash)
+
+          ref.reject { |key, _| key.to_s == "context" }
+        end
+        return if references.empty?
+
+        lines << "_Display references: #{references.to_json}_"
         lines << ""
       end
 

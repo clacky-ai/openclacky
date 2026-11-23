@@ -38,9 +38,9 @@ RSpec.describe "replay_history chunk MD expansion" do
       @events = []
     end
 
-    def show_user_message(content, task_id: nil, created_at: nil, files: [], editable: true, skill_command: nil, skill_command_display: nil)
+    def show_user_message(content, task_id: nil, created_at: nil, files: [], editable: true, skill_command: nil, skill_command_display: nil, references: [])
       @events << { type: :user, content: content, task_id: task_id, created_at: created_at,
-                   files: files, editable: editable }
+                   files: files, editable: editable, references: references }
     end
 
     def show_assistant_message(content, files:, interim: false, created_at: nil)
@@ -112,6 +112,41 @@ RSpec.describe "replay_history chunk MD expansion" do
       expect(rounds.size).to eq(1)
       expect(rounds.first[:user_msg][:content]).to eq("")
       expect(rounds.first[:user_msg][:display_files]).to eq([{ name: "data.csv", type: "csv" }])
+    end
+
+    it "keeps a reference-only user round and its chips" do
+      path = File.join(sessions_dir, "chunk-1.md")
+      File.write(path, chunk_md(
+        user_content: '_Display references: [{"type":"quote","text":"麻烦再发一次附件","label":"上一条回复"}]_',
+        assistant_content: "Quoted reply"
+      ))
+
+      rounds = build_agent([]).send(:parse_chunk_md_to_rounds, path)
+
+      expect(rounds.size).to eq(1)
+      expect(rounds.first[:user_msg][:content]).to eq("")
+      expect(rounds.first[:user_msg][:display_references]).to eq(
+        [{ type: "quote", text: "麻烦再发一次附件", label: "上一条回复" }]
+      )
+    end
+
+    it "replays reference chips on the user bubble without leaking the marker" do
+      path = File.join(sessions_dir, "chunk-1.md")
+      File.write(path, chunk_md(
+        user_content: "看这个\n\n_Display references: [{\"type\":\"file\",\"name\":\"app.rb\",\"path\":\"/tmp/app.rb\"}]_",
+        assistant_content: "Read it"
+      ))
+
+      agent = build_agent([
+        { role: "system", content: "System." },
+        { role: "assistant", content: "Summary.", compressed_summary: true, chunk_path: path }
+      ])
+      collector = TestCollector.new
+      agent.replay_history(collector)
+
+      user_event = collector.events.find { |event| event[:type] == :user }
+      expect(user_event[:content]).to eq("看这个")
+      expect(user_event[:references]).to eq([{ type: "file", name: "app.rb", path: "/tmp/app.rb" }])
     end
 
     it "removes attachment metadata from replayed user text" do

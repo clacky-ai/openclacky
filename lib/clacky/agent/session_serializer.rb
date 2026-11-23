@@ -521,6 +521,7 @@ module Clacky
           text = sec[:lines].join.strip
           text, sec_ext_events = extract_ext_events_from_text(text)
           text, sec_display_files = extract_display_files_from_text(text)
+          text, sec_display_references = extract_display_references_from_text(text)
 
           # Nested chunk: expand it recursively, prepend before current rounds
           if sec[:nested_chunk]
@@ -537,7 +538,7 @@ module Clacky
             next
           end
 
-          next if text.empty? && sec_ext_events.empty? && sec_display_files.empty?
+          next if text.empty? && sec_ext_events.empty? && sec_display_files.empty? && sec_display_references.empty?
 
           if sec[:role] == "user"
             round_index += 1
@@ -552,6 +553,7 @@ module Clacky
             }
             user_msg[:task_id] = sec[:task_id] if sec[:task_id]
             user_msg[:display_files] = sec_display_files unless sec_display_files.empty?
+            user_msg[:display_references] = sec_display_references unless sec_display_references.empty?
             current_round = {
               user_msg: user_msg,
               events: [],
@@ -654,6 +656,31 @@ module Clacky
         end
 
         [kept.join.strip, files]
+      end
+
+      # Pull the "_Display references: [...]_" line out of a chunk section,
+      # returning the remaining text plus the reference chips. Counterpart to
+      # MessageCompressorHelper#append_display_references_line. Keys are
+      # symbolized because replay passes the chips straight to the UI.
+      def extract_display_references_from_text(text)
+        return [text, []] unless text.include?("_Display references:")
+
+        references = []
+        kept = text.each_line.reject do |line|
+          match = line.strip.match(/\A_Display references:\s*(\[.*\])_?\z/i)
+          next false unless match
+
+          parsed = JSON.parse(match[1], symbolize_names: true) rescue []
+          Array(parsed).each do |ref|
+            next unless ref.is_a?(Hash)
+            next if (ref[:type] || ref["type"]).to_s.empty?
+
+            references << ref
+          end
+          true
+        end
+
+        [kept.join.strip, references]
       end
 
 

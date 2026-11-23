@@ -267,6 +267,10 @@ RSpec.describe Clacky::Agent::HistoryNavigation do
       ## Assistant
       图片回复
       ## User
+      _Display references: [{"type":"quote","text":"麻烦再发一次附件"}]
+      ## Assistant
+      引用回复
+      ## User
       最后一轮
       ## Assistant
       最终回复
@@ -274,7 +278,7 @@ RSpec.describe Clacky::Agent::HistoryNavigation do
     agent = archived_agent(path)
     full = agent.send(:parse_chunk_md_to_rounds, path)
     entries = all_entries(agent)
-    expect(entries.map { |entry| entry[:assistant] }).to eq(["旧回复", "图片回复", "最终回复"])
+    expect(entries.map { |entry| entry[:assistant] }).to eq(["旧回复", "图片回复", "引用回复", "最终回复"])
     entries.each_with_index do |entry, position|
       events.clear
       agent.replay_history_window(collector, around: entry[:id], limit: 1)
