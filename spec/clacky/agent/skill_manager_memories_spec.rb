@@ -61,6 +61,23 @@ RSpec.describe "SkillManager memory helpers" do
       path = write_memory("bad.md", "---\n: bad: yaml:\n---\ncontent\n")
       expect(agent.parse_memory_frontmatter(path)).to eq({})
     end
+
+    # C-5880: YAML types a bare date as Date, which safe_load rejects unless the
+    # class is permitted. The block used to be discarded wholesale.
+    it "keeps topic and description when a frontmatter value is a bare date" do
+      path = write_memory("dated.md", <<~MD)
+        ---
+        topic: 发布约定
+        description: 线上发布的时间窗口与审批要求
+        updated_at: 2026-05-07
+        ---
+        Content.
+      MD
+
+      fm = agent.parse_memory_frontmatter(path)
+      expect(fm["topic"]).to eq("发布约定")
+      expect(fm["description"]).to eq("线上发布的时间窗口与审批要求")
+    end
   end
 
   # ─────────────────────────────────────────────
@@ -108,6 +125,24 @@ RSpec.describe "SkillManager memory helpers" do
       expect(result).not_to include("2020-01-01")
       expect(result).not_to include("updated:")
       expect(result).to include("last seen:")
+    end
+
+    # C-5880: an unquoted date used to void the whole block, so the listing
+    # showed the filename slug and "(no description)" instead of the real fields.
+    it "shows real topic and description when frontmatter carries a bare date" do
+      write_memory("release.md", <<~MD)
+        ---
+        topic: 发布约定
+        description: 线上发布的时间窗口与审批要求
+        updated_at: 2026-05-07
+        ---
+        Content.
+      MD
+
+      result = agent.load_memories_meta
+      expect(result).to include("topic: 发布约定")
+      expect(result).to include("线上发布的时间窗口与审批要求")
+      expect(result).not_to include("(no description)")
     end
 
     it "falls back to filename stem as topic when frontmatter is missing" do
