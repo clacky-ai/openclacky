@@ -82,7 +82,7 @@ RSpec.describe "ExtStudioExt creator navigation" do
   # they now share one "Extension dev" tab (picker → checks → publish).
   it "merges the session-scoped debug and publish panels into one tab" do
     expect(view_source.scan('Clacky.ext.ui.mount("session.aside"').size).to eq(1)
-    expect(view_source).to include('tab: { id: "ext-develop", label: () => t("ext.dev.tab") }, order: 10 }')
+    expect(view_source).to include('tab: { id: "ext-develop", label: () => t("ext.dev.tab") }, order: 70 }')
     expect(view_source).not_to include('id: "ext-debug"')
     expect(view_source).not_to include('id: "ext-publish"')
   end

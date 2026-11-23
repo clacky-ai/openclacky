@@ -8,6 +8,7 @@ const vm = require("node:vm");
 class Style {
   constructor() { this.transition = ""; this.values = {}; }
   setProperty(name, value) { this.values[name] = value; }
+  removeProperty(name) { delete this.values[name]; }
 }
 
 class Element {
@@ -70,6 +71,9 @@ function boot(platform = "MacIntel") {
     localStorage: {
       getItem: key => storage.has(key) ? storage.get(key) : null,
       setItem: (key, value) => storage.set(key, String(value)),
+      removeItem: key => storage.delete(key),
+      get length() { return storage.size; },
+      key: i => Array.from(storage.keys())[i] ?? null,
     },
     matchMedia: () => ({ matches: false }),
     getComputedStyle: element => ({
@@ -167,6 +171,33 @@ const shortcutEvent = (overrides = {}) => ({
   fire("keydown", event);
   assert.equal(storage.get("clacky.aside.open"), "1");
   assert.equal(event.prevented, false);
+}
+
+// Open/closed is remembered per session: two conversations have different
+// reasons to keep the column on screen.
+{
+  const { context, nodes, storage } = boot();
+  const Aside = context.Clacky.Aside;
+
+  Aside.onSession("s1");
+  Aside.open();
+  assert.equal(storage.get("clacky.aside.open"), "1");
+
+  Aside.onSession("s2");
+  assert.equal(nodes["session-aside"].classes.has("collapsed"), false,
+    "a session with no record yet inherits the last choice");
+  Aside.close();
+
+  Aside.onSession("s1");
+  assert.equal(nodes["session-aside"].classes.has("collapsed"), false, "s1 stays open");
+  Aside.onSession("s2");
+  assert.equal(nodes["session-aside"].classes.has("collapsed"), true, "s2 stays closed");
+
+  assert.equal(storage.get("clacky.aside.open.s1"), "1", "s1 keeps its own record");
+  assert.equal(storage.get("clacky.aside.open.s2"), "0", "s2 keeps its own record");
+
+  Aside.forgetSession("s1");
+  assert.equal(storage.has("clacky.aside.open.s1"), false, "deleting a session drops its record");
 }
 
 console.log("aside shortcut tests passed");

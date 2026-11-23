@@ -69,7 +69,7 @@ RSpec.describe "WebUI extension architecture" do
       expect(ext_js).to include("tabBar.scrollWidth - tabBar.clientWidth")
       expect(styles).to include(".aside-tabs-frame.can-scroll-left::before")
       expect(styles).to include(".aside-tabs-frame.can-scroll-right::after")
-      expect(styles).to include("linear-gradient(to left, var(--color-bg-secondary), transparent)")
+      expect(styles).to match(/linear-gradient\(to left, var\(--color-bg-secondary\)[^)]*transparent\)/)
       expect(styles.scan("var(--aside-tabbar-actions-width)").length).to be >= 3
     end
 

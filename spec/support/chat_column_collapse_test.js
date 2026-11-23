@@ -8,6 +8,7 @@ const vm = require("node:vm");
 class Style {
   constructor() { this.transition = ""; this.values = {}; }
   setProperty(name, value) { this.values[name] = value; }
+  removeProperty(name) { delete this.values[name]; }
 }
 
 class Element {
@@ -55,11 +56,12 @@ function boot(options = {}) {
   if (options.emptySlot) nodes["ext-slot-session-aside"].children = [];
   nodes["chat-panel"].rectWidth = options.panelWidth ?? 1200;
 
-  const storage = new Map([
+  const storage = options.storage || new Map([
     ["clacky.aside.open", options.open === false ? "0" : "1"],
     ["clacky.aside.fullscreen", "0"],
   ]);
   const documentListeners = {};
+  const observers = [];
   const document = {
     readyState: "complete",
     documentElement: new Element("html"),
@@ -82,7 +84,10 @@ function boot(options = {}) {
       getPropertyValue: name => element.style.values[name] ||
         (name === "--session-aside-width" ? "256px" : ""),
     }),
-    MutationObserver: class MutationObserver { observe() {} },
+    MutationObserver: class MutationObserver {
+      constructor(callback) { this.callback = callback; observers.push(this); }
+      observe() {}
+    },
     requestAnimationFrame: fn => { fn(); return 1; },
     addEventListener() {},
     Clacky: { I18n: { t: key => LABELS[key] || key } },
@@ -95,6 +100,10 @@ function boot(options = {}) {
     "utf8"
   ), context);
 
+  // A probe starts bound to a real session: width is stored per session, so
+  // the __default__ bucket the welcome page uses is not what these exercise.
+  if (options.session !== false) context.Clacky.Aside.onSession(options.session || "s1");
+
   const fire = (type, event) => (documentListeners[type] || []).forEach(fn => fn(event));
   const drag = (type, clientX) => ({
     clientX,
@@ -103,51 +112,143 @@ function boot(options = {}) {
   const onHandle = (type, clientX) => (nodes["session-aside-resize"].listeners[type] || [])
     .forEach(fn => fn(drag(type, clientX)));
   return {
-    nodes, storage, fire, onHandle,
-    collapsed: () => nodes["chat-panel"].classes.has("chat-collapsed"),
-    width: () => parseInt(nodes["session-aside"].style.values["--session-aside-width"], 10),
+    nodes, storage, fire, onHandle, context, observers,
+    triggerMutation: () => observers.forEach(observer => observer.callback()),
+    fullscreen: () => nodes["chat-panel"].classes.has("aside-fullscreen"),
+    width: () => parseInt(nodes["session-aside"].style.values["--session-aside-width"] || "256", 10),
   };
 }
 
-// Dragging the divider past the chat column's floor hands the workspace to
-// the aside instead of squeezing the conversation into a strip.
+// Dragging the divider past the chat column's floor hands the workspace to the
+// aside — through fullscreen, so the button and Esc share the same exit.
 {
   const ui = boot();
-  assert.equal(ui.collapsed(), false);
+  assert.equal(ui.fullscreen(), false);
 
   ui.onHandle("mousedown", 1000);
   ui.fire("mousemove", { clientX: 544 });
   assert.equal(ui.width(), 712);
-  assert.equal(ui.collapsed(), false, "488px of chat is still a split");
+  assert.equal(ui.fullscreen(), false, "488px of chat is still a split");
 
   ui.fire("mousemove", { clientX: 200 });
-  assert.equal(ui.width(), 960);
-  assert.equal(ui.collapsed(), true, "chat below 300px collapses");
+  assert.equal(ui.width(), 900, "the split drops back to the largest legal width");
+  assert.equal(ui.fullscreen(), true, "chat below 300px takes the fullscreen state");
 
-  // Pulling back past the threshold restores the split immediately.
   ui.fire("mouseup", { clientX: 200 });
-  ui.onHandle("mousedown", 0);
-  ui.fire("mousemove", { clientX: 40 });
-  assert.equal(ui.width(), 920);
-  assert.equal(ui.collapsed(), true, "920px still leaves under 300px");
+  assert.equal(ui.storage.get("clacky.aside.width.s1"), "900");
 
-  ui.fire("mousemove", { clientX: 260 });
-  assert.equal(ui.width(), 700);
-  assert.equal(ui.collapsed(), false, "500px of chat restores the split");
+  // Leaving fullscreen lands on a readable split instead of bouncing back in.
+  ui.context.Clacky.Aside.fullscreen(false);
+  assert.equal(ui.fullscreen(), false);
+  assert.equal(ui.width(), 899, "the chat column keeps its 300px floor");
+
+  // The divider is back in hand and can widen the chat again.
+  ui.onHandle("mousedown", 899);
+  ui.fire("mousemove", { clientX: 998 });
+  assert.equal(ui.width(), 800);
+  assert.equal(ui.fullscreen(), false, "800px leaves 400px for the chat");
+}
+
+// Leaving fullscreen must survive a reload: the drag-written width is already
+// inside the floor, so init must not bounce back into fullscreen.
+{
+  const ui = boot();
+  ui.onHandle("mousedown", 1000);
+  ui.fire("mousemove", { clientX: 200 });
+  ui.fire("mouseup", { clientX: 200 });
+  assert.equal(ui.storage.get("clacky.aside.fullscreen"), "1");
+  assert.equal(ui.storage.get("clacky.aside.width.s1"), "900");
+
+  ui.context.Clacky.Aside.fullscreen(false);
+  assert.equal(ui.storage.get("clacky.aside.fullscreen"), "0");
+  assert.equal(ui.storage.get("clacky.aside.width.s1"), "899",
+    "the width the user sees on exit is the one that gets persisted");
+
+  const reloaded = boot({ storage: ui.storage });
+  assert.equal(reloaded.width(), 899);
+  assert.equal(reloaded.fullscreen(), false, "a reload stays out of fullscreen");
+}
+
+// A width the user chose comes back exactly as dragged: a reload is not a
+// layout pass that gets to re-clamp a split that already fits.
+{
+  const ui = boot();
+  ui.onHandle("mousedown", 1000);
+  ui.fire("mousemove", { clientX: 556 });
+  ui.fire("mouseup", { clientX: 556 });
+  assert.equal(ui.storage.get("clacky.aside.width.s1"), "700");
+
+  const reloaded = boot({ storage: ui.storage });
+  assert.equal(reloaded.width(), 700);
+  assert.equal(reloaded.fullscreen(), false);
+}
+
+// A width that no longer fits never leaves the chat column under the floor: the
+// aside hands the workspace over, exactly as the divider does.
+{
+  const ui = boot({ storage: new Map([
+    ["clacky.aside.open", "1"],
+    ["clacky.aside.width.s1", "950"],
+    ["clacky.aside.fullscreen", "0"],
+  ]) });
+  assert.equal(ui.width(), 900, "the split drops back to the largest legal width");
+  assert.equal(ui.fullscreen(), true);
 }
 
 // A collapsed aside (or an agent with no aside panels) must never be turned
-// into a full-width column by the collapse class.
+// into a full-width column by the split rule.
 {
   const closed = boot({ open: false });
   closed.onHandle("mousedown", 1000);
   closed.fire("mousemove", { clientX: 200 });
-  assert.equal(closed.collapsed(), false);
+  assert.equal(closed.fullscreen(), false);
 
   const empty = boot({ emptySlot: true });
   empty.onHandle("mousedown", 1000);
   empty.fire("mousemove", { clientX: 200 });
-  assert.equal(empty.collapsed(), false);
+  assert.equal(empty.fullscreen(), false);
+}
+
+// Fullscreen survives a reload: the panels render a frame after init, so the
+// slot is briefly empty and must hide the mode without forgetting it.
+{
+  const ui = boot({
+    storage: new Map([
+      ["clacky.aside.open", "1"],
+      ["clacky.aside.width.s1", "900"],
+      ["clacky.aside.fullscreen", "1"],
+    ]),
+    emptySlot: true,
+  });
+  assert.equal(ui.fullscreen(), false, "no panels, no fullscreen column");
+  assert.equal(ui.storage.get("clacky.aside.fullscreen"), "1", "the preference is kept");
+
+  ui.nodes["ext-slot-session-aside"].appendChild(new Element("panel"));
+  ui.triggerMutation();
+  assert.equal(ui.fullscreen(), true, "the mode comes back with the panels");
+}
+
+// Reloading a fullscreen session: app.js binds the welcome state and then the
+// session, which used to read as a session switch and drop fullscreen.
+{
+  const ui = boot({
+    session: false,
+    storage: new Map([
+      ["clacky.aside.open", "1"],
+      ["clacky.aside.width.s1", "900"],
+      ["clacky.aside.fullscreen", "1"],
+    ]),
+  });
+  assert.equal(ui.fullscreen(), true, "init restores fullscreen");
+
+  ui.context.Clacky.Aside.onSession(null);
+  ui.context.Clacky.Aside.onSession("s1");
+  assert.equal(ui.fullscreen(), true, "binding the session keeps fullscreen");
+  assert.equal(ui.storage.get("clacky.aside.fullscreen"), "1");
+
+  ui.context.Clacky.Aside.onSession("s2");
+  assert.equal(ui.fullscreen(), false, "a real session switch leaves fullscreen");
+  assert.equal(ui.storage.get("clacky.aside.fullscreen"), "0");
 }
 
 // Narrow layouts render the aside as a fixed drawer, and a panel narrower
@@ -156,12 +257,60 @@ function boot(options = {}) {
   const narrow = boot({ narrow: true });
   narrow.onHandle("mousedown", 1000);
   narrow.fire("mousemove", { clientX: 200 });
-  assert.equal(narrow.collapsed(), false);
+  assert.equal(narrow.fullscreen(), false);
 
   const small = boot({ panelWidth: 280 });
   small.onHandle("mousedown", 1000);
   small.fire("mousemove", { clientX: 200 });
-  assert.equal(small.collapsed(), false);
+  assert.equal(small.fullscreen(), false);
 }
 
 console.log("chat column collapse tests passed");
+
+// Width is remembered per session: the room opened for a diff stays with that
+// conversation instead of following the user into the next one.
+{
+  const ui = boot();
+  ui.context.Clacky.Aside.onSession("sA");
+  ui.onHandle("mousedown", 1000);
+  ui.fire("mousemove", { clientX: 556 });
+  ui.fire("mouseup", { clientX: 556 });
+  assert.equal(ui.width(), 700);
+  assert.equal(ui.storage.get("clacky.aside.width.sA"), "700");
+
+  ui.context.Clacky.Aside.onSession("sB");
+  assert.equal(ui.width(), 256,
+    "a session that was never dragged starts at the default, not at sA's width");
+
+  ui.onHandle("mousedown", 1000);
+  ui.fire("mousemove", { clientX: 756 });
+  ui.fire("mouseup", { clientX: 756 });
+  assert.equal(ui.width(), 500);
+  assert.equal(ui.storage.get("clacky.aside.width.sB"), "500");
+  assert.equal(ui.storage.get("clacky.aside.width.sA"), "700",
+    "and dragging sB leaves sA untouched");
+
+  ui.context.Clacky.Aside.onSession("sA");
+  assert.equal(ui.width(), 700, "coming back restores the width this session was left at");
+}
+
+// A switch leaves fullscreen behind, but it must not re-clamp the width that
+// fullscreen was painting over — that number belongs to the session leaving.
+{
+  const ui = boot();
+  ui.context.Clacky.Aside.onSession("sA");
+  ui.onHandle("mousedown", 1000);
+  ui.fire("mousemove", { clientX: 200 });
+  ui.fire("mouseup", { clientX: 200 });
+  assert.equal(ui.fullscreen(), true);
+  assert.equal(ui.storage.get("clacky.aside.width.sA"), "900");
+
+  ui.context.Clacky.Aside.onSession("sB");
+  assert.equal(ui.fullscreen(), false, "a switch leaves fullscreen behind");
+  assert.equal(ui.width(), 256,
+    "the incoming session starts at the default instead of inheriting a width it never chose");
+  assert.equal(ui.storage.get("clacky.aside.width.sA"), "900",
+    "the hidden width is still the width that session owns");
+  assert.equal(ui.storage.get("clacky.aside.width.sB"), undefined,
+    "and the switch does not write a record the user never asked for");
+}

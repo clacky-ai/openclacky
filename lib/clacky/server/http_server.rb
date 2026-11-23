@@ -1429,7 +1429,9 @@ module Clacky
           ext_id   = "ext/#{unit.ext_id}/#{unit.id}"
           panel_id = "#{unit.ext_id}/#{unit.id}"
           src      = "/ext_ui/#{unit.ext_id}/#{rel}"
-          "<script>Clacky.ext._extBegin(#{ext_id.to_json}, #{nil.to_json}, #{panel_id.to_json})</script>" \
+          # Layer rides along so the web UI can group panels into "tools"
+          # (built-in) vs "extensions" (installed / self-made) in the picker.
+          "<script>Clacky.ext._extBegin(#{ext_id.to_json}, #{nil.to_json}, #{panel_id.to_json}, #{unit.layer.to_s.to_json})</script>" \
             "<script src=#{src.to_json} data-ext-id=#{ext_id.to_json}></script>" \
             "<script>Clacky.ext._extEnd()</script>"
         end.join("\n")

@@ -3829,6 +3829,9 @@ body {
 #session-aside {
   --session-aside-width: 16rem;
   --aside-tabbar-actions-width: 78px;
+  /* A warm wash one step lighter than the theme's hover fill, so cards and
+     resting pills stay quiet while still matching the palette. */
+  --aside-fill: color-mix(in srgb, var(--color-bg-hover) 60%, var(--color-bg-secondary));
   width: var(--session-aside-width);
   flex-shrink: 0;
   position: relative;
@@ -3882,7 +3885,7 @@ body {
   display: flex;
   align-items: center;
   gap: 2px;
-  padding-right: 4px;
+  padding-right: 6px;
   background: var(--color-bg-secondary);
   border-bottom: 1px solid var(--color-border-primary);
 }
@@ -3914,24 +3917,26 @@ body {
 }
 #chat-panel.aside-fullscreen .session-aside-resize { display: none; }
 
-/* Too narrow to split: the aside crossed the chat column's floor, so it takes
-   the workspace and the resize handle moves inside the window edge to drag
-   the split back. */
-#chat-panel.chat-collapsed #chat-main { display: none; }
-#chat-panel.chat-collapsed #session-aside {
-  width: 100%;
-  border-left: none;
-}
-#chat-panel.chat-collapsed .session-aside-resize { left: 0; }
+/* The aside crossed the chat column's floor: it takes the workspace through
+   fullscreen, so one button / Esc leaves both. */
 
 .session-aside-slot { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
 
 /* Tab bar (rendered by Clacky.ext). Neutral edge fades reveal when more tabs
-   are available in either direction without competing with the active color. */
+   are available in either direction without competing with the active color.
+   The strip scrolls; the + opener is parked outside it so a crowded row never
+   pushes the way to add another tab off screen. */
 .aside-tabs-frame {
   position: relative;
   flex: none;
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
   height: 40px;
+  padding-right: calc(var(--aside-tabbar-actions-width) + 2px);
+  border-bottom: 1px solid var(--color-border-primary);
+  /* Lets the tabs size themselves against the strip's real width (100cqw). */
+  container-type: inline-size;
 }
 .aside-tabs-frame::before,
 .aside-tabs-frame::after {
@@ -3950,41 +3955,142 @@ body {
   background: linear-gradient(to right, var(--color-bg-secondary), transparent);
 }
 .aside-tabs-frame::after {
-  right: var(--aside-tabbar-actions-width);
+  right: calc(var(--aside-tabbar-actions-width) + 2px + 1.75rem + 0.25rem);
+  width: 42px;
   background: linear-gradient(to left, var(--color-bg-secondary), transparent);
 }
 .aside-tabs-frame.can-scroll-left::before,
 .aside-tabs-frame.can-scroll-right::after { opacity: 1; }
 
-/* Leaves room on the right for the fullscreen + collapse buttons docked by
-   the host over that end. */
+/* Shrink-to-fit while the tabs are few (so the + keeps following the last
+   one); squeezed to the available width once they overflow. */
 .aside-tabs {
   display: flex;
-  align-items: stretch;
-  width: 100%;
-  height: 40px;
-  padding: 0 var(--aside-tabbar-actions-width) 0 4px;
-  gap: 2px;
-  border-bottom: 1px solid var(--color-border-primary);
+  align-items: center;
+  flex: 0 1 auto;
+  min-width: 0;
+  height: 100%;
+  padding: 0 0.25rem 0 6px;
+  gap: 0.25rem;
   overflow-x: auto;
   scrollbar-width: none;
 }
 .aside-tabs::-webkit-scrollbar { display: none; }
+/* A tab is a pill floating in the strip, not a strip segment: padding on a
+   soft fill instead of an underline, so nothing draws a full-width edge.
+   Width follows the strip rather than the label, so a two-letter name still
+   reads as a target: the tabs share what's available, capped at 10rem while
+   there are only a couple, and never squeezed below 6.5rem — an icon, a gap
+   and the close slot already eat ~3.5rem, which left room for a single glyph
+   at 6rem. Past the floor the strip scrolls and the + opener stays parked at
+   the right end. */
 .aside-tab {
   display: inline-flex;
+  position: relative;
   align-items: center;
+  flex: 0 0 auto;
+  width: clamp(6.5rem, calc((100cqw - 2.625rem) / var(--aside-tab-count, 1) - 0.25rem), 10rem);
   gap: 6px;
-  padding: 0 12px;
+  height: 1.9rem;
+  padding: 0 0.5rem 0 0.625rem;
   white-space: nowrap;
+  /* A <button> centres its text by default; the label must hug the icon. */
+  text-align: left;
   cursor: pointer;
   border: none;
-  background: none;
+  border-radius: 0.5rem;
+  background: transparent;
   font-size: 12.5px;
-  color: var(--color-text-tertiary);
-  border-bottom: 2px solid transparent;
+  color: var(--color-text-secondary);
+  transition: background-color var(--transition-fast), color var(--transition-fast);
 }
-.aside-tab:hover { color: var(--color-text-secondary); }
-.aside-tab.active { color: var(--color-text-primary); border-bottom-color: var(--color-accent-primary); font-weight: 500; }
+.aside-tab:hover { color: var(--color-text-primary); background: var(--aside-fill); }
+/* A hairline only between two idle tabs: a filled neighbour (active or hovered)
+   already reads as its own block, and a line against its edge looked like dirt. */
+.aside-tab:not(.active) + .aside-tab:not(.active)::before {
+  content: "";
+  position: absolute;
+  left: calc(-0.125rem - 0.5px);
+  top: 50%;
+  width: 1px;
+  height: 1rem;
+  margin-top: -0.5rem;
+  background: var(--color-border-primary);
+  transition: opacity var(--transition-fast);
+  pointer-events: none;
+}
+.aside-tab:hover::before,
+.aside-tab:hover + .aside-tab::before { opacity: 0; }
+/* Hover takes the quiet wash, selection the theme's hover fill one step
+   deeper, so the current tab still stands out from a hovered neighbour. */
+.aside-tab.active { color: var(--color-text-primary); background: var(--color-bg-hover); font-weight: 500; }
+.aside-tab-icon { flex: none; display: inline-flex; opacity: 0.7; }
+.aside-tab-icon svg { display: block; }
+.aside-tab.active .aside-tab-icon { opacity: 0.9; }
+/* Takes the slack so the ✕ sits on the pill's right edge instead of floating
+   mid-pill when the strip is wide. A narrow strip clips the label at the pill
+   edge instead of spending width on an ellipsis, the way a browser tab does:
+   the name stays readable as long as it fits and loses its tail, rather than
+   turning into "会…" while there is still room for two more glyphs. */
+.aside-tab-label { flex: 1 1 auto; min-width: 0; overflow: hidden; }
+/* Only the labels actually cut get a soft edge (the class comes from
+   `syncClippedLabels`), and the mask fades the glyphs' own colour — no
+   background needed, so it reads right on the idle wash, the selected fill and
+   a hovered pill alike. */
+.aside-tab.is-clipped .aside-tab-label {
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 0.75rem), transparent);
+  mask-image: linear-gradient(to right, #000 calc(100% - 0.75rem), transparent);
+}
+/* Keeps its own slot so hovering never shifts the label: the ✕ is always in
+   the layout, invisible until the tab is the current one or under the pointer. */
+.aside-tab-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin-left: 1px;
+  border-radius: var(--radius-xs);
+  opacity: 0;
+  transition: opacity var(--transition-fast), background-color var(--transition-fast);
+}
+.aside-tab:hover .aside-tab-close,
+.aside-tab.active .aside-tab-close,
+.aside-tab-close:focus-visible { opacity: 0.5; }
+/* Translucent so it deepens whatever sits underneath: the tab itself is
+   already at --color-bg-hover when selected, and an opaque fill vanished there. */
+.aside-tab .aside-tab-close:hover {
+  opacity: 1;
+  background: color-mix(in srgb, var(--color-text-primary) 12%, transparent);
+}
+/* Last item in the strip, so it sits right after the final tab and scrolls
+   with them. Same pill as a tab, one square instead of a label. */
+.aside-tab-add {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.9rem;
+  height: 1.9rem;
+  padding: 0;
+  border: none;
+  border-radius: 0.5rem;
+  background: none;
+  /* Same tone as the host's fullscreen / collapse buttons at that end. */
+  color: var(--color-text-tertiary);
+  cursor: pointer;
+  transition: color var(--transition-fast), background-color var(--transition-fast);
+}
+.aside-tab-add:hover { color: var(--color-text-primary); background: var(--color-bg-hover); }
+/* Already on the picker the opener has no target; it nudges once if the user
+   hits it anyway, but it keeps its full contrast: dimming read as disabled. */
+.aside-tab-add.is-nudging { animation: aside-add-nudge 0.22s ease-in-out; }
+@keyframes aside-add-nudge {
+  0%, 100% { transform: translateX(0); }
+  35% { transform: translateX(-0.09375rem); }
+  70% { transform: translateX(0.09375rem); }
+}
 .aside-tab-badge {
   font-size: 10px;
   min-width: 16px;
@@ -3997,6 +4103,59 @@ body {
   align-items: center;
   justify-content: center;
 }
+
+/* The "+" page: pick an unopened panel. Two groups — tools that ship with the
+   app, and panels contributed by installed / self-made extensions. Cards stay
+   at two per row and stretch, however wide the column gets; only a squeezed
+   column (the 256px minimum, ~14rem of usable width) falls back to one per
+   row so labels keep breathing. */
+.aside-newtab {
+  padding: 1.5rem 1rem 1.5rem;
+  gap: 1.5rem;
+  overflow-y: auto;
+  container: aside-newtab / inline-size;
+}
+.aside-newtab-group { display: flex; flex-direction: column; gap: 0.625rem; }
+.aside-newtab-title {
+  padding-left: 0.125rem;
+  font-size: 0.8125rem;
+  font-weight: 400;
+  color: var(--color-text-primary);
+}
+.aside-newtab-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.375rem;
+}
+@container aside-newtab (max-width: 17rem) {
+  .aside-newtab-grid { grid-template-columns: minmax(0, 1fr); }
+}
+/* Borderless rows on the quiet wash; hovering steps up to the theme hover
+   fill, the same colour a selected tab uses. */
+.aside-newtab-card {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+  min-height: 2.45rem;
+  padding: 0.5rem 0.625rem;
+  border: none;
+  border-radius: 0.625rem;
+  background: var(--aside-fill);
+  color: var(--color-text-primary);
+  font-size: 0.8125rem;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color var(--transition-fast);
+}
+.aside-newtab-card:hover { background: var(--color-bg-hover); }
+.aside-newtab-icon { flex: none; display: inline-flex; color: var(--color-text-secondary); }
+.aside-newtab-icon svg { display: block; }
+.aside-newtab-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.aside-newtab-name,
+.aside-newtab-desc { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.aside-newtab-desc { font-size: 11.5px; color: var(--color-text-tertiary); }
+.aside-newtab-empty { font-size: 12.5px; color: var(--color-text-tertiary); }
 
 .aside-bodies { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
 .aside-panel { flex: 1; min-height: 0; overflow: auto; display: none; flex-direction: column; }

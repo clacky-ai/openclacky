@@ -8,6 +8,7 @@ const vm = require("node:vm");
 class Style {
   constructor() { this.transition = ""; this.values = {}; }
   setProperty(name, value) { this.values[name] = value; }
+  removeProperty(name) { delete this.values[name]; }
 }
 
 class Element {
