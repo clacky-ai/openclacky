@@ -70,7 +70,8 @@ module Clacky
               # retaining the rest of the user message or any assistant text.
               visible, events = extract_ext_events_from_text(text)
               visible, files = extract_display_files_from_text(visible)
-              next if visible.empty? && events.empty? && files.empty?
+              visible, references = extract_display_references_from_text(visible)
+              next if visible.empty? && events.empty? && files.empty? && references.empty?
 
               rounds.last[:length] = user_start - rounds.last[:start] if rounds.any?
               rounds << { start: user_start, task_id: user_task_id }
