@@ -27,8 +27,8 @@ RSpec.describe Clacky::Agent::MemoryInjector do
     allow(Clacky::Client).to receive(:new).and_return(picker)
   end
 
-  def build_agent
-    agent = Clacky::Agent.new(main_client, config, working_dir: working_dir, ui: nil,
+  def build_agent(agent_config = config)
+    agent = Clacky::Agent.new(main_client, agent_config, working_dir: working_dir, ui: nil,
                               profile: "general", session_id: Clacky::SessionManager.generate_id,
                               source: :manual)
     allow(agent).to receive(:think).and_return({ finish_reason: "stop", content: "Done", tool_calls: [] })
@@ -58,6 +58,17 @@ RSpec.describe Clacky::Agent::MemoryInjector do
     write_memory("prefs.md", "Reply in Chinese.")
     agent = build_agent
 
+    agent.run("hello")
+
+    expect(Clacky::Client).not_to have_received(:new)
+    expect(recall_messages(agent)).to be_empty
+  end
+
+  it "stops calling the picker in a live session once the global setting is turned off" do
+    write_memory("prefs.md", "Reply in Chinese.")
+    agent = build_agent(config.deep_copy)
+
+    config.memory_inject_enabled = false
     agent.run("hello")
 
     expect(Clacky::Client).not_to have_received(:new)
