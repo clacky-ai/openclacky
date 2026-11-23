@@ -162,7 +162,7 @@ module Clacky
                   :enable_compression, :enable_idle_compression, :enable_prompt_caching,
                   :compression_threshold, :message_count_threshold,
                   :models, :current_model_index, :current_model_id,
-                  :memory_update_enabled, :memory_inject_enabled, :skill_evolution,
+                  :memory_update_enabled, :skill_evolution,
                   :max_running_agents, :max_idle_agents,
                   :default_working_dir, :pid_dir,
                   :proxy_url,
@@ -208,7 +208,7 @@ module Clacky
 
       # Memory and skill evolution configuration
       @memory_update_enabled = options[:memory_update_enabled].nil? ? true : options[:memory_update_enabled]
-      @memory_inject_enabled = options[:memory_inject_enabled] == true
+      @shared_settings = { "memory_inject_enabled" => options[:memory_inject_enabled] == true }
       # Agent used when a session is created without an explicit profile
       # (New Session page, sidebar quick-create, channel and cron sessions).
       self.default_agent = options[:default_agent]
@@ -396,7 +396,7 @@ module Clacky
 
     def deep_copy
       # dup gives us a new AgentConfig with independent scalar ivars but
-      # the same @models reference — exactly what we want.
+      # the same @models and @shared_settings references — exactly what we want.
       copy = dup
       # But @virtual_model_overlay must be independent: a forked subagent
       # setting/clearing its own overlay must NOT leak into the parent.
@@ -477,6 +477,16 @@ module Clacky
       proxy_url clacky_license_server
     ].freeze
 
+    # Settings every live session must observe at once. A session config is a
+    # deep_copy snapshot, so these live in @shared_settings, which dup shares by
+    # reference like @models.
+    SHARED_SETTINGS_KEYS = %w[memory_inject_enabled].freeze
+
+    SHARED_SETTINGS_KEYS.each do |key|
+      define_method(key) { @shared_settings[key] }
+      define_method("#{key}=") { |value| @shared_settings[key] = value }
+    end
+
     # Serialize the current agent configuration to YAML.
     # Outputs a hash with "settings" and "models" keys (new format).
     # Backward compatibility: old flat-array format is still readable by .load.
@@ -493,7 +503,7 @@ module Clacky
         "compression_threshold" => @compression_threshold,
         "message_count_threshold" => @message_count_threshold,
         "memory_update_enabled" => @memory_update_enabled,
-        "memory_inject_enabled" => @memory_inject_enabled,
+        "memory_inject_enabled" => memory_inject_enabled,
         "default_agent" => @default_agent,
         "skill_evolution" => @skill_evolution,
         "max_running_agents" => @max_running_agents,

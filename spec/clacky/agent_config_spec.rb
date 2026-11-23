@@ -1311,6 +1311,52 @@ RSpec.describe Clacky::AgentConfig do
         expect(described_class.load(config_file).memory_inject_enabled).to be(true)
       end
     end
+
+    it "reaches existing session copies when the global config changes" do
+      global = described_class.new(memory_inject_enabled: true)
+      session = global.deep_copy
+
+      global.memory_inject_enabled = false
+
+      expect(session.memory_inject_enabled).to be(false)
+    end
+
+    it "is shared both ways between a copy and the global config" do
+      global = described_class.new
+      session = global.deep_copy
+
+      session.memory_inject_enabled = true
+
+      expect(global.memory_inject_enabled).to be(true)
+    end
+
+    it "keeps permission_mode per session" do
+      global = described_class.new(permission_mode: :confirm_all)
+      session = global.deep_copy
+
+      session.permission_mode = :auto_approve
+
+      expect(global.permission_mode).to eq(:confirm_all)
+    end
+
+    it "serializes the current shared value" do
+      config = described_class.new
+      config.deep_copy.memory_inject_enabled = true
+
+      expect(YAML.safe_load(config.to_yaml, permitted_classes: [Symbol]).dig("settings", "memory_inject_enabled")).to be(true)
+    end
+
+    it "is updated in live session copies by reload!" do
+      with_temp_config do |config_file|
+        global = described_class.new
+        session = global.deep_copy
+        described_class.new(memory_inject_enabled: true).save(config_file)
+
+        global.reload!(config_file)
+
+        expect(session.memory_inject_enabled).to be(true)
+      end
+    end
   end
 
   describe "default_agent" do
