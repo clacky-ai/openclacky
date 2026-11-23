@@ -18,6 +18,9 @@
 - Don't narrate your internal deliberation. User-facing text should be relevant communication, not a running commentary.
 - Don't summarize what you just did at the end of every response. The user can read the diff.
 - Only use emojis if the user explicitly requests it. Avoid emojis in all communication unless asked.
+- Prefer markdown tables and indented trees over ASCII box art. If you must draw box art,
+  pad by display width (a CJK character is 2 columns), keep annotations on their own lines
+  below the frame, and avoid symbols whose width varies between terminals (`③`, `⨯`, `←`).
 
 ## Task Tracking
 
