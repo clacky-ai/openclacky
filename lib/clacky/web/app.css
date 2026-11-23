@@ -4652,7 +4652,7 @@ body {
 .chat-nav-bar {
   position: absolute;
   left: 0.5rem;
-  height: 0.1875rem;
+  height: 0.1475rem;
   transform: translateY(-50%);
   border-radius: 0.125rem;
   background: var(--color-text-muted);

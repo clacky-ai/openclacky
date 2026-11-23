@@ -150,8 +150,8 @@ async function navigatorTests() {
   nodes.track.clientHeight = 360;
   api.configure(entries.slice(0, 13), nodes);
   api._renderTicks();
-  assert.equal(api._tickY(0), 108, "short histories are centered in the available track");
-  assert.equal(api._tickY(12), 252, "short histories keep equal top and bottom insets");
+  assert.equal(api._tickY(0), 120, "short histories are centered in the available track");
+  assert.equal(api._tickY(12), 240, "short histories keep equal top and bottom insets");
   api.configure(entries, nodes);
   api._renderTicks();
 
@@ -287,7 +287,7 @@ async function navigatorTests() {
   assert.match(css, /\.chat-nav-bar\.nearby/, "neighbor-wave styling is present");
   assert.match(source, /distance <= LENS_RADIUS/, "neighbor bars change width without changing position");
   assert.doesNotMatch(source, /chat-nav-frame|chat-nav-viewport|classList.*expanded/, "the dense navigator has no wide panel state");
-  assert.equal(api._tickY(index + 1) - api._tickY(index), 12, "ticks keep dense fixed spacing");
+  assert.equal(api._tickY(index + 1) - api._tickY(index), 10, "ticks keep dense fixed spacing");
   const neighborY = api._tickY(index + 1);
   api._hover(neighborY);
   api._hover(neighborY);
