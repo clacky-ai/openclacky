@@ -132,6 +132,11 @@ function boot() {
     },
     getComputedStyle: () => ({ paddingRight: "108px" }),
     requestAnimationFrame: (fn) => { fn(); return 1; },
+    // Runs synchronously: the menu defers binding its dismiss handlers by one
+    // tick so the opening right-click cannot immediately close it, and a test
+    // has no event loop to wait for.
+    setTimeout: (fn) => { fn(); return 1; },
+    clearTimeout: () => {},
     ResizeObserver: class { observe() {} disconnect() {} },
     MutationObserver: class { observe() {} disconnect() {} },
     URLSearchParams,
@@ -142,6 +147,10 @@ function boot() {
       t: (key) => ({
         "aside.newTab": "新标签页",
         "aside.closeTab": "关闭标签页",
+        "aside.close": "关闭",
+        "aside.closeOthers": "关闭其他",
+        "aside.closeRight": "关闭右侧",
+        "aside.closeAll": "关闭全部",
         "aside.group.official": "官方工具",
         "aside.group.mine": "我的工具",
         "aside.allOpen": "所有面板都已打开",
@@ -161,7 +170,16 @@ function boot() {
   context.Clacky.Aside = { close: () => { asideCloseCalls.count += 1; } };
   // The host exposes i18n as Clacky.I18n (not window.I18n); mirror that here.
   context.Clacky.I18n = context.I18n;
-  return { ext: context.Clacky.ext, container, storage, document, asideCloseCalls };
+  return {
+    ext: context.Clacky.ext,
+    container,
+    storage,
+    document,
+    asideCloseCalls,
+    fireDocument(type, event) {
+      (documentListeners[type] || []).slice().forEach((fn) => fn(event));
+    },
+  };
 }
 
 function mountPanel(ext, { extId, layer, tabId, label, order, agents }) {
@@ -199,6 +217,29 @@ const tabIds = (env) => byAttr(env.container, "data-tab").map((el) => el.attribu
 const activeTab = (env) => byAttr(env.container, "data-tab").filter((el) => el._classes.has("active")).map((el) => el.attributes["data-tab"]);
 const cardIds = (env) => byAttr(env.container, "data-panel-id").map((el) => el.attributes["data-panel-id"]);
 const groupTitles = (env) => byClass(env.container, "aside-newtab-title").map((el) => el.textContent);
+
+const openTabMenu = (env, id) => {
+  const btn = byAttr(env.container, "data-tab").find((el) => el.attributes["data-tab"] === id);
+  assert.ok(btn, `tab ${id} is on screen`);
+  btn.fire("contextmenu", { clientX: 40, clientY: 40, preventDefault() {} });
+  return env.document.body.children.find((el) => el._classes.has("aside-tab-menu")) || null;
+};
+
+const menuActions = (menu) =>
+  Array.from(menu.innerHTML.matchAll(/data-action="([^"]+)"/g)).map((m) => m[1]);
+
+// The harness does not parse innerHTML, so a row click is simulated by handing
+// the handler the row it would have found through closest().
+const clickMenuItem = (menu, action, opts = {}) => {
+  const item = {
+    dataset: { action },
+    classList: {
+      contains: (name) =>
+        !!opts.disabled && name === "session-actions-menu-item--disabled",
+    },
+  };
+  menu.fire("click", { target: { closest: () => item } });
+};
 
 // 1. A fresh session opens nothing: the strip holds only the "+" page.
 {
@@ -446,6 +487,112 @@ const groupTitles = (env) => byClass(env.container, "aside-newtab-title").map((e
   env.ext.activateTab("session.aside", "__new__");
   assert.equal(byClass(env.container, "aside-newtab").length, 1,
     "reopening after that shows a single picker page");
+}
+
+// 14. Right-click opens the same four close entries the file viewer's tab strip
+//     offers, in the same order, with "Close to the Right" live when there is
+//     something to its right.
+{
+  const env = setup();
+  env.ext.setContext({ agentProfile: "general", sessionId: "m14" });
+  env.ext.activateTab("session.aside", "files");
+  env.ext.activateTab("session.aside", "tm");
+  env.ext.activateTab("session.aside", "clock");
+
+  const menu = openTabMenu(env, "tm");
+  assert.ok(menu, "right-clicking a tab opens a menu");
+  assert.deepEqual(menuActions(menu), ["close", "closeOthers", "closeRight", "closeAll"],
+    "closing entries come first, in the file viewer's order");
+  ["关闭", "关闭其他", "关闭右侧", "关闭全部"].forEach((label) => {
+    assert.ok(menu.innerHTML.includes(label), `menu shows "${label}"`);
+  });
+  assert.ok(!menu.innerHTML.includes("session-actions-menu-item--disabled"),
+    "Close to the Right is live while a tab sits to its right");
+
+  env.fireDocument("click", {});
+  assert.equal(env.document.body.children.includes(menu), false,
+    "a click anywhere else dismisses the menu");
+}
+
+// 15. On the rightmost tab "Close to the Right" has nothing to do: it stays in
+//     place, greyed out, so the menu does not change shape between tabs.
+{
+  const env = setup();
+  env.ext.setContext({ agentProfile: "general", sessionId: "m15" });
+  env.ext.activateTab("session.aside", "files");
+  env.ext.activateTab("session.aside", "tm");
+
+  const menu = openTabMenu(env, "tm");
+  assert.ok(menu.innerHTML.includes('session-actions-menu-item--disabled" data-action="closeRight"'),
+    "the rightmost tab greys out the entry instead of dropping it");
+
+  clickMenuItem(menu, "closeRight", { disabled: true });
+  assert.deepEqual(tabIds(env), ["files", "tm"], "a greyed-out entry does nothing");
+  assert.equal(env.document.body.children.includes(menu), false, "but the menu still closes");
+}
+
+// 16. The batch entries close in one pass: the column does not collapse between
+//     tabs, and the selection lands on the neighbour of the closed active tab.
+{
+  const env = setup();
+  env.ext.setContext({ agentProfile: "general", sessionId: "m16" });
+  env.ext.activateTab("session.aside", "files");
+  env.ext.activateTab("session.aside", "tm");
+  env.ext.activateTab("session.aside", "clock");
+  assert.deepEqual(activeTab(env), ["clock"]);
+
+  clickMenuItem(openTabMenu(env, "tm"), "closeRight");
+  assert.deepEqual(tabIds(env), ["files", "tm"], "everything right of the target goes");
+  assert.deepEqual(activeTab(env), ["tm"], "the active tab was in the batch, so the view moves left");
+  assert.equal(env.asideCloseCalls.count, 0, "the column stays open while a tab remains");
+}
+
+// 17. "Close Others" keeps the tab that was right-clicked; "Close All" empties
+//     the strip and collapses the column, exactly like closing the last tab.
+{
+  const env = setup();
+  env.ext.setContext({ agentProfile: "general", sessionId: "m17" });
+  env.ext.activateTab("session.aside", "files");
+  env.ext.activateTab("session.aside", "tm");
+  env.ext.activateTab("session.aside", "clock");
+
+  clickMenuItem(openTabMenu(env, "tm"), "closeOthers");
+  assert.deepEqual(tabIds(env), ["tm"], "only the target survives");
+  assert.deepEqual(activeTab(env), ["tm"], "and it takes the view even if it was not active");
+
+  clickMenuItem(openTabMenu(env, "tm"), "closeAll");
+  assert.equal(env.asideCloseCalls.count, 1, "closing every tab collapses the column");
+  assert.deepEqual(JSON.parse(env.storage.get("clacky.aside.tabs.m17")).open, [],
+    "and the session remembers that nothing is open");
+}
+
+// 18. The picker is a tab too: right-clicking it offers the same entries, and
+//     when it is the only page "Close All" collapses the column.
+{
+  const env = setup();
+  env.ext.setContext({ agentProfile: "general", sessionId: "m18" });
+  const menu = openTabMenu(env, "__new__");
+  assert.ok(menu, "the picker answers the same gesture");
+  assert.deepEqual(menuActions(menu), ["close", "closeOthers", "closeRight", "closeAll"]);
+  assert.ok(menu.innerHTML.includes('session-actions-menu-item--disabled" data-action="closeRight"'),
+    "nothing sits to the right of the only page");
+
+  clickMenuItem(menu, "closeAll");
+  assert.equal(env.asideCloseCalls.count, 1, "closing the only page collapses the side panel");
+}
+
+// 19. A menu left open while the slot re-renders (session switch) goes away with
+//     the strip it belonged to, instead of acting on a dead set of callbacks.
+{
+  const env = setup();
+  env.ext.setContext({ agentProfile: "general", sessionId: "m19" });
+  env.ext.activateTab("session.aside", "files");
+  const menu = openTabMenu(env, "files");
+  assert.ok(menu);
+
+  env.ext.setContext({ agentProfile: "general", sessionId: "m19b" });
+  assert.equal(env.document.body.children.includes(menu), false,
+    "re-rendering the strip dismisses its menu");
 }
 
 console.log("aside tabs tests passed");
