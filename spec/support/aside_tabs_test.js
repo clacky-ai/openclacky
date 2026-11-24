@@ -155,9 +155,13 @@ function boot() {
     fs.readFileSync(path.resolve(__dirname, "../../lib/clacky/web/core/ext.js"), "utf8"),
     context
   );
+  // The host column module is not loaded in this harness; the strip only calls
+  // into it when the picker was the last page left.
+  const asideCloseCalls = { count: 0 };
+  context.Clacky.Aside = { close: () => { asideCloseCalls.count += 1; } };
   // The host exposes i18n as Clacky.I18n (not window.I18n); mirror that here.
   context.Clacky.I18n = context.I18n;
-  return { ext: context.Clacky.ext, container, storage, document };
+  return { ext: context.Clacky.ext, container, storage, document, asideCloseCalls };
 }
 
 function mountPanel(ext, { extId, layer, tabId, label, order, agents }) {
@@ -209,7 +213,8 @@ const groupTitles = (env) => byClass(env.container, "aside-newtab-title").map((e
     .map((g) => byAttr(g, "data-panel-id").map((el) => el.attributes["data-panel-id"]));
   assert.deepEqual(groupedCards, [["files", "changes", "tm"], ["clock"]],
     "host and built-in panels are official, installed ones are mine");
-  assert.equal(byClass(env.container, "aside-tab-close").length, 0, "the picker tab itself is not closable");
+  assert.equal(byClass(env.container, "aside-tab-close").length, 1,
+    "the picker tab closes like any other tab");
   const pickerIcon = byClass(env.container, "aside-tabs")[0].children[0];
   assert.equal(byClass(pickerIcon, "aside-tab-icon").length, 1, "the picker tab carries its own icon");
   const cardOf = (id) => byAttr(env.container, "data-panel-id")
@@ -389,6 +394,58 @@ const groupTitles = (env) => byClass(env.container, "aside-newtab-title").map((e
   pickerClose.fire("click", { stopPropagation() {} });
   assert.deepEqual(tabIds(env), ["files", "changes"], "closing it leaves the panels alone");
   assert.deepEqual(activeTab(env), ["changes"], "and hands the view to the neighbour");
+  assert.equal(env.asideCloseCalls.count, 0,
+    "the column stays open while other pages are still in the strip");
+}
+
+// 12. The picker on its own is the last page: closing it closes the column.
+{
+  const env = setup();
+  env.ext.setContext({ agentProfile: "general", sessionId: "s12" });
+  const pickerClose = byClass(env.container, "aside-tab-close")
+    .find((el) => el.parentNode.attributes["data-tab"] === "__new__");
+  assert.ok(pickerClose, "the picker tab carries its own close control");
+  pickerClose.fire("click", { stopPropagation() {} });
+  assert.equal(env.asideCloseCalls.count, 1,
+    "closing the only page collapses the side panel instead of leaving an empty strip");
+  assert.deepEqual(JSON.parse(env.storage.get("clacky.aside.tabs.s12")).open, [],
+    "and the session remembers that nothing is open");
+
+  // Reopening must rebuild the picker page once. The old body used to stay in
+  // the DOM, so the second open painted a duplicate copy of every card group.
+  env.ext.activateTab("session.aside", "__new__");
+  assert.equal(byClass(env.container, "aside-newtab").length, 1,
+    "reopening the picker leaves a single page body behind");
+  assert.deepEqual(groupTitles(env), ["官方工具", "我的工具"],
+    "and each group comes back once");
+}
+
+// 13. The last real panel behaves like the picker: once its × empties the
+//     strip, the column goes away instead of leaving the picker behind. The
+//     user closed a tab to get rid of the panel, not to be handed a menu.
+{
+  const env = setup();
+  env.ext.setContext({ agentProfile: "general", sessionId: "s13" });
+  const cardOf = (id) => byAttr(env.container, "data-panel-id")
+    .find((el) => el.attributes["data-panel-id"] === id);
+
+  cardOf("files").fire("click");
+  assert.deepEqual(tabIds(env), ["files"]);
+
+  const filesClose = byClass(env.container, "aside-tab-close")
+    .find((el) => el.parentNode.attributes["data-tab"] === "files");
+  assert.ok(filesClose, "a real panel tab carries its own close control");
+  filesClose.fire("click", { stopPropagation() {} });
+
+  assert.equal(env.asideCloseCalls.count, 1,
+    "closing the last real panel collapses the side panel");
+  assert.deepEqual(JSON.parse(env.storage.get("clacky.aside.tabs.s13")).open, [],
+    "and the session remembers that nothing is open");
+
+  // Reopening starts on the picker, since there is no panel to restore.
+  env.ext.activateTab("session.aside", "__new__");
+  assert.equal(byClass(env.container, "aside-newtab").length, 1,
+    "reopening after that shows a single picker page");
 }
 
 console.log("aside tabs tests passed");
