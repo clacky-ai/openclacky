@@ -82,9 +82,9 @@ module Clacky
       # `context` overrides the default three lines of surrounding code; the
       # changes panel passes a huge value to reveal the whole file behind a
       # collapsed "N unmodified lines" gap.
-      def diff(dir, file: nil, context: nil, scope: "worktree", base: nil)
+      def diff(dir, file: nil, context: nil, scope: "worktree", base: nil, target: nil)
         extra = context ? ["-U#{context.to_i.clamp(0, 1_000_000).to_s}"] : []
-        range = diff_range(dir, scope, base)
+        range = diff_range(dir, scope, base, target)
         if file && !file.empty?
           others, _e, _ok = git(dir, "ls-files", "--others", "--exclude-standard", "--", file)
           if others.strip.empty?
@@ -102,9 +102,12 @@ module Clacky
 
       # Baseline args for `git diff` in the given scope. `worktree` keeps the
       # historical behaviour (HEAD); `committed` reviews a single commit the
-      # user picked (or the whole unpushed range); `branch` compares the merge
-      # base of the chosen branch so unrelated commits on it do not leak in.
-      def diff_range(dir, scope, base)
+      # user picked (or the whole unpushed range); `branch` reviews the branch
+      # the user picked, from the shared root up to that branch. A branch that
+      # already landed has no work of its own left on top of the default
+      # branch, so diffing it against HEAD would answer "what did main grow
+      # since the fork" - thousands of lines that say nothing about the pick.
+      def diff_range(dir, scope, base, target = nil)
         case scope.to_s
         when "unstaged" then []
         when "staged" then ["--cached", "HEAD"]
@@ -117,9 +120,14 @@ module Clacky
             commit_range(dir, base_ref)
           end
         when "branch"
-          base_ref = base.to_s.strip
-          base_ref = default_base(dir) if base_ref.empty?
-          ref?(dir, base_ref) ? ["#{base_ref}...HEAD"] : []
+          base_ref = default_branch(dir)
+          target_ref = target.to_s.strip
+          target_ref = "HEAD" if target_ref.empty?
+          if base_ref.empty? || !ref?(dir, base_ref) || !ref?(dir, target_ref)
+            []
+          else
+            ["#{base_ref}...#{target_ref}"]
+          end
         else ["HEAD"]
         end
       end
@@ -141,7 +149,8 @@ module Clacky
       #   unstaged  - index vs working tree
       #   staged    - HEAD vs index
       #   committed - the branch's commits on top of its base (upstream)
-      #   branch    - the same comparison against a branch the user picked
+      #   branch    - what one branch the user picked contributed, measured from
+      #               its shared root with the default branch
       #   lastTurn  - what the previous agent turn touched (served from the
       #               Time Machine snapshots by `last_turn_review`, not git)
       SCOPES = %w[worktree unstaged staged committed branch lastTurn].freeze
@@ -155,7 +164,7 @@ module Clacky
       # `max_lines` caps each file's diff so a minified bundle cannot stall the
       # browser; `truncated` tells the UI to say so instead of rendering half a
       # hunk silently.
-      def review(dir, max_lines: 4000, max_total_lines: DEFAULT_MAX_TOTAL_LINES, scope: nil, base: nil)
+      def review(dir, max_lines: 4000, max_total_lines: DEFAULT_MAX_TOTAL_LINES, scope: nil, base: nil, target: nil)
         return { repo: false } unless repo?(dir)
 
         scope = SCOPES.include?(scope.to_s) ? scope.to_s : "worktree"
@@ -191,13 +200,17 @@ module Clacky
             end
           end
         when "branch"
-          base_ref = base.to_s.strip
-          base_ref = default_base(dir) if base_ref.empty?
+          base_ref = default_branch(dir)
+          target_ref = target.to_s.strip
+          target_ref = "HEAD" if target_ref.empty?
           if base_ref.empty? || !ref?(dir, base_ref)
             payload.merge!(files: [], add: 0, del: 0, note: "noBase")
+          elsif !ref?(dir, target_ref)
+            payload.merge!(files: [], add: 0, del: 0, note: "noTarget")
           else
             payload[:base] = base_ref
-            payload.merge!(range_review(dir, ["#{base_ref}...HEAD"], max_lines: max_lines,
+            payload[:target] = target_ref == "HEAD" ? st[:branch].to_s : target_ref
+            payload.merge!(range_review(dir, ["#{base_ref}...#{target_ref}"], max_lines: max_lines,
                                         max_total_lines: max_total_lines))
           end
         else
@@ -282,13 +295,19 @@ module Clacky
       end
 
       # Upstream of the current branch is the natural base for "committed":
-      # it is exactly the commits that have not been pushed yet. Falling back
-      # to origin/HEAD and then a local main/master covers fresh clones and
-      # branches without an upstream.
+      # it is exactly the commits that have not been pushed yet. Branches
+      # without one fall back to the repository's mainline.
       def default_base(dir)
         out, _err, ok = git(dir, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}")
         return out.strip if ok && !out.strip.empty?
 
+        default_branch(dir)
+      end
+
+      # The repository's mainline, ignoring the current branch's upstream: a
+      # pushed feature branch tracks itself, which would leave "branch" with
+      # nothing but its unpushed commits.
+      def default_branch(dir)
         out, _err, ok = git(dir, "symbolic-ref", "--short", "refs/remotes/origin/HEAD")
         return out.strip if ok && !out.strip.empty?
 
