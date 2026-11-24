@@ -4,64 +4,16 @@
 # mistaken for extension edit targets.
 name: ext-develop
 name_zh: 扩展开发
-description_zh: 开发、调试和发布扩展：从想法搭出新扩展，修复加载失败或不显示的问题，或发布到扩展市场。
-description: Build, debug, or publish an OpenClacky extension — scaffold a new one from an idea, fix a broken/invisible panel/api/skill/agent, or ship it to the marketplace. Trigger on create/start extension, plugin, panel, ext verify error, "won't load", "not showing up", publish/ship/unpublish an extension.
+description_zh: 开发、调试和发布扩展。
+description: Build, debug, or publish an OpenClacky extension.
 agent: ext-developer
 ---
 
 # Extension Development
 
-Use this skill to guide the workflow, not as a second API manual. The online
-references below own the detailed contracts, examples, and reload behavior. The local
-engineering checks below remain mandatory even when those references cannot be fetched.
-
 ## Before designing or editing
 
-1. Identify what the user wants and the smallest capability set that can provide it.
-   Check existing host services and shared panels before building a replacement.
-2. For behavior-only discussion, apply **Engineering checks** without enumerating APIs.
-   Before specifying or implementing an interface, choose its one matching capability
-   reference below; read the overview when container/scaffold/reload behavior is relevant.
-   Reuse verified text still in context. For a named interface, obey the system prompt's
-   strict lookup budget and stop as unverified when it is exhausted. Use the article's
-   contract/examples, not the documentation site's navigation, styles, or scripts. If the
-   user declined a fallback, request only the missing source and never ask again.
-3. Confirm the proposed behavior, affected files, and visible result with the user
-   before scaffolding or editing. Do not publish, restart, or add privileged behavior
-   merely because implementation was approved.
-
-### Documentation fallback
-
-1. Fetch the relevant official URL directly; a web search is not required. For truncated
-   output, read the returned `temp_file` for the needed section. For HTML pages, `web_fetch`
-   saves extracted text with whitespace collapsed, not original HTML: line-based reading
-   may still return one long line. One targeted text extraction is enough to check a
-   detail. Do not write helper scripts or try to reconstruct code formatting from that
-   text; lost newlines can change the meaning of code comments and examples.
-   A no-file-change task includes temporary files such as `/tmp/*.py`: only read the
-   tool-returned cache, do not create a script or reformatted copy elsewhere.
-2. If the needed contract is still missing, truncated, or ambiguous, stop this lookup.
-   Report it as unverified; no match on a page does not prove the method or its namespace
-   absent, private, or unsupported. Do not inventory other APIs to infer an answer.
-   Do not retry extraction or probe other extensions/the running host to fill the gap.
-   Ask permission to open the official documentation in a new browser tab. If already
-   authorized for this task's documentation lookup, do not ask again for each page.
-3. After consent, use the available `browser` tool to read only the relevant official
-   documentation. Do not navigate, inspect, or close unrelated tabs. Read beyond truncated
-   snapshots as needed; opening a page alone does not verify its contents. If browser setup
-   is required, ask whether the user wants to use `browser-setup`; never enable it silently
-   or bypass a disabled browser. If the tool is unavailable, do not invent another browser
-   control mechanism or install one without approval.
-4. If the user declines or the browser cannot retrieve the reference, ask the user to
-   supply the documentation or designate a separate source checkout matching the running
-   version and permit read-only inspection. Do not search installed OpenClacky gem source.
-   Reading a checkout does not authorize modifying it to make an extension work.
-5. If still blocked, end with only **Unverified detail**, **Reference checked**, and
-   **Evidence or permission needed next**. For example: "I could not verify this method
-   from this page; please provide its source." Do not turn that into "the object does
-   not exist" followed by a disclaimer. Clarifying the user's goal may continue, but
-   implementation against that contract must wait. Resolve version differences before
-   relying on a contract; version metadata is allowed, installed implementation source is not.
+Identify what the user wants and Confirm the proposed behavior, affected files, and visible result with the user before scaffolding or editing.
 
 ## Capability → reference
 
@@ -84,54 +36,13 @@ routes lookups; field lists, signatures, and code examples belong in those pages
 ## Working boundaries
 
 - Develop in `~/.clacky/ext/local/<id>/`. Never edit installed/builtin packages or
-  gem source to customize a user's extension. Do not search or read installed OpenClacky
-  gem implementation source, even to resolve missing documentation; version metadata is
-  allowed. Confirm intentional id overrides.
-- Do not add hooks or patches without an explicit request; they execute arbitrary Ruby.
-- Reuse the documented host APIs and theme conventions. Do not guess methods from
-  similarly named libraries or manipulate host internals.
+  gem source to customize a user's extension. 
+- Reuse the documented host APIs and theme conventions. 
 - Keep data outside the extension package using the documented persistence facility.
   Validate input and get consent for destructive or paid operations.
-- Choose the reload procedure from the overview's contribution-specific table.
-  Do not claim that every change hot-reloads, or restart the server without consent.
 - Verification is evidence, not a prediction: distinguish manifest checks, tests,
   actual UI/API behavior, and anything still awaiting user verification.
 - Local development does not imply marketplace publication.
-
-## Engineering checks
-
-Apply these when proposing the design and again against the actual code before handoff.
-Do not count a promise to follow a rule as evidence that the implementation follows it.
-
-1. **Access and side effects:** identify files, sessions, credentials, and external
-   destinations involved. Refuse unauthorized access or disclosure; never bypass host
-   authentication. Keep secrets out of frontend code and logs. Validate inputs and paths,
-   keep persistent data outside the package, and ensure destructive changes or private-data
-   transfers require specific approval rather than general permission to build.
-2. **Request budget:** check every fetch, loop, timer, retry, and worker. Prefer events and
-   cached reads; do not repeatedly fetch full histories. Default to no added threads;
-   necessary concurrency must be bounded. No tight loops or sub-second polling. Necessary
-   polling must use a coarse interval, prevent overlap, pause when hidden or finished, and
-   have bounded retries and request duration. Check the failure path as well as success.
-3. **Lifecycle and cost:** verify rerenders and session switches do not multiply listeners,
-   timers, or requests; disposal releases them and stale responses cannot affect a new
-   session. Hidden cached panels must pause unnecessary work without waiting for disposal.
-   A tab/session switch does not prove disposal occurred; verify unsubscribe/visibility
-   contracts instead of using assumed disposal as a substitute for cleanup.
-   Model/media calls need explicit approval, including recurring scope; mounting, refresh,
-   and history replay must not initiate paid or destructive actions or external sends.
-   Read-only billing queries are not model invocations, but still need request limits.
-4. **Host reuse and evidence:** reuse host capabilities and `btn-*` / `form-*`,
-   `Clacky.Modal`, and `var(--color-*)`; use scoped, prefixed custom styles where needed.
-   For basic inputs use `form-input` / `form-textarea`. Confirm custom property names in
-   the relevant reference or generated scaffold, not by their plausible spelling; do not
-   invent fallback token names. If a token is unverified, omit the color override and
-   inherit host styling, rather than adding a guessed token with hardcoded fallback colors.
-   Prefix tab ids with the extension id to avoid collisions.
-   Check light/dark appearance for UI work. Do not add unrequested hooks or patches or
-   modify installed packages. Test the applicable boundaries above with controlled data;
-   do not use real destructive, disclosure, or paid operations just to prove a safeguard.
-   Report which checks were exercised, which were code review only, and which remain open.
 
 ## Scaffold
 
@@ -183,8 +94,11 @@ Do not count a promise to follow a rule as evidence that the implementation foll
 
 - State what changed, what passed, and what the user still needs to check.
 - After extension edits, use the development UI helpers documented in **Calling Host
-  APIs** to show the refresh button once; also open the aside for a session-aside panel.
-  Use the injected service/session context, not a guessed host, port, or session id.
+  APIs** to send the reload hint once, and to open the aside when the extension ships
+  a panel there. Use the injected service/session context, not a guessed host, port,
+  or session id.
+- A new panel does not appear on screen after the reload: it waits in the aside's
+  "New tab" list. Name the panel and tell the user they need to pick it there.
 - These HTTP helpers are not browser control. If the user will test the browser, keep
   that boundary and report UI checks as pending; do not treat it as permission to inspect
   their tabs. Honor a separate request not to send UI-helper broadcasts.
