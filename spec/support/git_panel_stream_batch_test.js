@@ -127,6 +127,7 @@ const ctx = vm.createContext({
   loadFileDiff: () => {},
   scheduleSpan: () => {},
   EMPTY_BY_SCOPE: { branch: () => "empty" },
+  NOTE_BY_SCOPE: {},
   setTimeout: (fn) => { fn(); return 1; },
   clearTimeout: () => {},
 });
