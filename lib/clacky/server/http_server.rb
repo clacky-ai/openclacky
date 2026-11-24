@@ -7015,7 +7015,10 @@ module Clacky
             # endpoint belongs to (same rule the session status bar uses), so
             # the picker can offer the switcher on every row and not only on
             # the session's current one.
-            sub_models:        provider_id ? Clacky::Providers.models(provider_id) : []
+            sub_models:        provider_id ? Clacky::Providers.models(provider_id) : [],
+            # Stops this model can actually distinguish. The picker hides its
+            # reasoning control when the list is empty.
+            reasoning_levels:   Clacky::ReasoningLevels.for_model(m["model"])
           }
         end
         # Sidecar capability configs (media/ocr) and auto-injected entries are
@@ -8069,6 +8072,10 @@ module Clacky
           unless agent.switch_model_by_id(model_id)
             return json_response(res, 500, { error: "Failed to switch model" })
           end
+          # Coarser models collapse several stops onto one value, so carry the
+          # session's intent across to a stop the new model can actually reach.
+          carried = Clacky::ReasoningLevels.clamp(target_model["model"], agent.reasoning_effort)
+          agent.reasoning_effort = carried if carried
         end
         return json_response(res, 404, { error: "Session not found" }) unless agent
 
@@ -8095,6 +8102,10 @@ module Clacky
         return json_response(res, 404, { error: "Session not found" }) unless agent
 
         agent.reasoning_effort = raw
+        # A stop the current model cannot express would silently send the same
+        # request as its neighbour, so store the reachable stop instead.
+        carried = Clacky::ReasoningLevels.clamp(agent.current_model_info&.dig(:model), agent.reasoning_effort)
+        agent.reasoning_effort = carried if carried
         @session_manager.save(agent.to_session_data(updated_at: Time.now))
         broadcast_session_update(session_id)
 
@@ -8142,6 +8153,8 @@ module Clacky
           end
 
           agent.set_session_sub_model(model_name)
+          carried = Clacky::ReasoningLevels.clamp(agent.current_model_info&.dig(:model), agent.reasoning_effort)
+          agent.reasoning_effort = carried if carried
         end
         return json_response(res, 404, { error: "Session not found" }) unless agent
         @session_manager.save(agent.to_session_data(updated_at: Time.now))

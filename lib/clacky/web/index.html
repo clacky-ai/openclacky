@@ -521,7 +521,7 @@
       <div id="input-queue" aria-live="polite" hidden></div>
       <!-- Session info bar — mirrors CLI bottom status bar -->
       <div id="session-info-bar" style="display:none">
-        <!-- Order: status | dir | model | reasoning | mode | todo | signal | cost | id -->
+        <!-- Order: status | dir | model | mode | todo | signal | cost | id -->
         <!-- Pattern: element + separator-after-element (except last) -->
         <span id="sib-status"></span>
         <span class="sib-sep sib-sep-after-status">│</span>
@@ -533,10 +533,6 @@
           <div id="sib-submodel-panel" class="clacky-popover sib-submodel-panel" style="display:none"></div>
         </span>
         <span class="sib-sep sib-sep-after-model">│</span>
-        <span id="sib-reasoning-wrap">
-          <span id="sib-reasoning" class="sib-reasoning-clickable" data-tooltip="Click to change reasoning effort" data-i18n-tooltip="sib.reasoning.tooltip"><span class="sib-pill-label" data-i18n="sib.reasoning.label">Reasoning</span><span id="sib-reasoning-text"></span><span class="sib-caret" aria-hidden="true"><svg viewBox="0 0 16 16" width="9" height="9" aria-hidden="true"><path d="M4 6.5L8 10.5L12 6.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span></span>
-          <div id="sib-reasoning-dropdown" class="clacky-popover sib-reasoning-dropdown" style="display:none" role="menu"></div>
-        </span>
         <span id="sib-mode-wrap">
           <button id="sib-mode" class="sib-mode-clickable" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="sib-mode-menu" data-tooltip="Click to change permission mode" data-i18n-tooltip="sib.mode.tooltip"><span class="sib-pill-label" data-i18n="sib.mode.pill">Mode</span><span id="sib-mode-text"></span><span class="sib-caret" aria-hidden="true"><svg viewBox="0 0 16 16" width="9" height="9" aria-hidden="true"><path d="M4 6.5L8 10.5L12 6.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span></button>
           <div id="sib-mode-menu" class="clacky-popover" role="menu" hidden>

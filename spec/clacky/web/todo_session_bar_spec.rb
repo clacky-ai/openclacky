@@ -15,19 +15,19 @@ RSpec.describe "Session-bar task list" do
     expect(styles).to match(/\.todo-panel\.has-todos \.todo-trigger-detail \{/)
   end
 
-  it "runs reasoning, permission mode, task list, then latency" do
+  it "runs model, permission mode, task list, then latency" do
     expect(html).to match(
-      /id="sib-reasoning-wrap".*?id="sib-mode-wrap".*?sib-sep-after-mode.*?id="todo-panel".*?sib-sep-after-todo.*?id="sib-signal-wrap"/m
+      /id="sib-model-wrap".*?id="sib-mode-wrap".*?sib-sep-after-mode.*?id="todo-panel".*?sib-sep-after-todo.*?id="sib-signal-wrap"/m
     )
-    expect(html).not_to include("sib-sep-after-reasoning")
+    expect(html).not_to include("sib-reasoning-wrap")
   end
 
-  it "draws the permission mode as the same pill the reasoning picker uses" do
+  it "draws the permission mode as the same pill the model picker uses" do
     expect(html).to include('id="sib-mode" class="sib-mode-clickable"')
     expect(html).to include('<span class="sib-pill-label" data-i18n="sib.mode.pill">')
     expect(html).to include('id="sib-mode-text"')
     expect(styles).to match(/#session-info-bar \.sib-mode-clickable \{.*?border-radius: 999px;/m)
-    expect(styles).to match(/#sib-model-wrap,\n#sib-reasoning-wrap,\n#sib-mode-wrap \{/)
+    expect(styles).to match(/#sib-model-wrap,\n#sib-mode-wrap \{/)
     expect(i18n).to include('"sib.mode.pill":  "权限"')
     expect(i18n).to include('"sib.mode.pill":  "Mode"')
   end

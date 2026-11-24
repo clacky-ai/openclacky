@@ -3884,7 +3884,7 @@ body {
   gap: 2px;
   padding-right: 6px;
   background: var(--color-bg-secondary);
-  border-bottom: 1px solid var(--color-border-primary);
+  border-bottom: 1px solid var(--color-border-secondary);
 }
 .session-aside-collapse,
 .session-aside-fullscreen {
@@ -3931,7 +3931,7 @@ body {
   gap: 0.25rem;
   height: 40px;
   padding-right: calc(var(--aside-tabbar-actions-width) + 2px);
-  border-bottom: 1px solid var(--color-border-primary);
+  border-bottom: 1px solid var(--color-border-secondary);
   /* Lets the tabs size themselves against the strip's real width (100cqw). */
   container-type: inline-size;
 }
@@ -6713,8 +6713,7 @@ body {
    line-height is pinned so the wrapper's height stays driven by the text and
    the bar keeps its height (an unconstrained flex item would grow to its line
    box, ~3px taller). */
-#sib-dir-text,
-#sib-reasoning-text {
+#sib-dir-text {
   min-width: 0;
   line-height: 1.2;
   overflow: hidden;
@@ -6861,10 +6860,9 @@ body {
 #sib-model.sib-model-no-subs .sib-caret {
   display: none;
 }
-/* The dir/reasoning/mode carets are hints only: clicking them must reach the
+/* The dir/mode carets are hints only: clicking them must reach the
    row, and the row hover already provides the feedback. */
 #sib-dir .sib-caret,
-.sib-reasoning-clickable .sib-caret,
 .sib-mode-clickable .sib-caret {
   pointer-events: none;
 }
@@ -6872,8 +6870,6 @@ body {
 .sib-model-clickable.is-open .sib-caret,
 #sib-dir:hover .sib-caret,
 #sib-dir.is-open .sib-caret,
-.sib-reasoning-clickable:hover .sib-caret,
-.sib-reasoning-clickable.is-open .sib-caret,
 .sib-mode-clickable:hover .sib-caret,
 .sib-mode-clickable.is-open .sib-caret {
   opacity: 1;
@@ -6887,7 +6883,6 @@ body {
 }
 .sib-model-clickable.is-open .sib-caret,
 #sib-dir.is-open .sib-caret,
-.sib-reasoning-clickable.is-open .sib-caret,
 .sib-mode-clickable.is-open .sib-caret {
   transform: rotate(180deg);
 }
@@ -6903,27 +6898,9 @@ body {
   color: inherit !important;
 }
 
-/* Reasoning effort switcher — same dropdown pattern as model switcher */
-.sib-reasoning-clickable {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.3125rem;
-  cursor: pointer;
-  border-radius: 3px;
-  padding: 0.2rem;
-  transition: all 0.15s ease;
-  font-variant-numeric: tabular-nums;
-}
-.sib-reasoning-clickable:hover {
-  background: var(--color-bg-hover);
-  opacity: 1 !important;
-  color: var(--color-accent-primary);
-}
-
 /* Pickers render as outlined pills so they read as controls, not status text. */
 #session-info-bar #sib-dir,
 #session-info-bar .sib-model-clickable,
-#session-info-bar .sib-reasoning-clickable,
 #session-info-bar .sib-mode-clickable {
   height: 1.375rem;
   padding: 0 0.4375rem 0 0.5rem;
@@ -6935,11 +6912,9 @@ body {
 }
 #session-info-bar #sib-dir:hover,
 #session-info-bar .sib-model-clickable:hover,
-#session-info-bar .sib-reasoning-clickable:hover,
 #session-info-bar .sib-mode-clickable:hover,
 #session-info-bar #sib-dir.is-open,
 #session-info-bar .sib-model-clickable.is-open,
-#session-info-bar .sib-reasoning-clickable.is-open,
 #session-info-bar .sib-mode-clickable.is-open {
   background: var(--color-bg-secondary);
   border-color: var(--color-text-tertiary);
@@ -6957,64 +6932,350 @@ body {
   display: none;
 }
 #sib-model-wrap,
-#sib-reasoning-wrap,
 #sib-mode-wrap {
   margin-left: 0.1875rem;
-}
-.sib-reasoning-dropdown {
-  position: fixed;
-  min-width: 11rem;
-  z-index: 1000;
-  overflow: hidden;
-}
-.sib-reasoning-header {
-  padding: 0.5rem 0.875rem;
-  border-bottom: 1px solid var(--color-border-primary);
-}
-.sib-reasoning-heading {
-  font-size: 0.75rem;
-  font-weight: 500;
-  color: var(--color-text-primary);
-}
-.sib-reasoning-hint {
-  margin-top: 0.1875rem;
-  font-size: 0.6875rem;
-  color: var(--color-text-secondary);
-  line-height: 1.35;
-}
-.sib-reasoning-header + .sib-reasoning-option {
-  margin-top: 0.25rem;
-}
-.sib-reasoning-option {
-  margin: 2px 0.3125rem;
-  padding: 0.5rem 0.5625rem;
-  border-radius: 6px;
-  font-size: 0.75rem;
-  color: var(--color-text-primary);
-  cursor: pointer;
-  transition: background-color 0.15s ease;
-  font-family: var(--font-mono, monospace);
-}
-.sib-reasoning-option:last-child {
-  margin-bottom: 0.3125rem;
-}
-.sib-reasoning-option:hover {
-  background: var(--color-bg-hover);
-  color: var(--color-accent-primary);
-}
-.sib-reasoning-option.current {
-  background: var(--color-bg-hover);
-  font-weight: 500;
 }
 .sib-model-dropdown {
   position: fixed;
   /* Position will be calculated dynamically via JavaScript */
-  min-width: 12.5rem;
-  max-width: min(20rem, calc(100vw - 1.5rem));
+  min-width: 15rem;
+  max-width: min(22rem, calc(100vw - 1.5rem));
   z-index: 1000;
-  max-height: 18.75rem;
+  max-height: calc(100vh - 6rem);
+  overflow: hidden;
+  padding: 0.5rem;
+  background: var(--color-bg-secondary);
+  border: 0;
+  border-radius: 14px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.12);
+}
+.sib-model-list {
+  max-height: 11rem;
   overflow-y: auto;
   overflow-x: hidden;
+  padding: 0.25rem 0;
+  border-top: 1px solid var(--color-border-secondary);
+}
+
+/* Reasoning tag inside the model pill: a dot whose strength follows --p. */
+.sib-rsn-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  margin-left: 0.375rem;
+  height: 1rem;
+  border-radius: 999px;
+  background: var(--color-bg-secondary);
+  color: var(--color-text-secondary);
+  font-size: 0.6875rem;
+  line-height: 1;
+  white-space: nowrap;
+}
+.sib-rsn-chip-dot {
+  width: 0.375rem;
+  height: 0.375rem;
+  border-radius: 50%;
+  background: var(--color-accent-primary);
+  opacity: calc(0.45 + var(--p, 0) * 0.55);
+  box-shadow: 0 0 calc(var(--p, 0) * 6px) var(--color-accent-primary);
+}
+.sib-rsn-chip.is-off .sib-rsn-chip-dot {
+  background: var(--color-text-tertiary);
+  box-shadow: none;
+  opacity: 0.6;
+}
+
+/* Reasoning card at the bottom of the model dropdown. */
+.sib-rsn {
+  --h: 2.5rem;
+  --rsn-a: #7c5cff;
+  --rsn-b: #3ad0ff;
+  --rsn-bg1: #0b0720;
+  --rsn-bg2: #1a0f45;
+  margin: 0.375rem 0.3125rem 0.3125rem;
+  padding: 0.625rem 0.75rem 0.5rem;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--color-text-primary) 4%, var(--color-bg-secondary));
+  font-size: 0.75rem;
+  user-select: none;
+}
+.sib-rsn[data-theme="c1"] { --rsn-a: #8f6bff; --rsn-b: #ffd98a; --rsn-bg1: #0a0618; --rsn-bg2: #2a1a66; }
+.sib-rsn[data-theme="c2"] { --rsn-a: #9a7bff; --rsn-b: #e9e4ff; --rsn-bg1: #07051a; --rsn-bg2: #1b1040; }
+.sib-rsn[data-theme="c3"] { --rsn-a: #ffe9a8; --rsn-b: #fff3c4; --rsn-bg1: #0d0820; --rsn-bg2: #1d1240; }
+.sib-rsn[data-theme="c4"] { --rsn-a: #ff6a3d; --rsn-b: #ffc08a; --rsn-bg1: #1a0a24; --rsn-bg2: #3a0f2e; }
+.sib-rsn-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+.sib-rsn-title {
+  font-weight: 500;
+  color: var(--color-text-primary);
+}
+.sib-rsn-seg {
+  display: inline-flex;
+  padding: 2px;
+  border-radius: 999px;
+  background: var(--color-bg-primary);
+  border: 1px solid var(--color-border-primary);
+}
+.sib-rsn-seg-btn {
+  padding: 0 0.4375rem;
+  height: 1.125rem;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--color-text-tertiary);
+  font-size: 0.625rem;
+  cursor: pointer;
+}
+.sib-rsn-seg-btn.current {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+.sib-rsn-sub {
+  display: flex;
+  justify-content: space-between;
+  margin: 0.25rem 0 0.5rem;
+  color: var(--color-text-tertiary);
+  font-size: 0.6875rem;
+}
+.sib-rsn-track {
+  position: relative;
+  height: var(--h);
+  border-radius: 999px;
+  overflow: hidden;
+  cursor: pointer;
+  touch-action: none;
+  background:
+    radial-gradient(120% 140% at calc(var(--p, 0) * 100%) 50%, color-mix(in srgb, var(--rsn-a) 55%, transparent), transparent 62%),
+    linear-gradient(90deg, var(--rsn-bg1), var(--rsn-bg2));
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+}
+.sib-rsn-track:focus-visible {
+  outline: 2px solid var(--rsn-b);
+  outline-offset: 2px;
+}
+.sib-rsn-field {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.sib-rsn-streak {
+  position: absolute;
+  top: var(--y);
+  right: 0;
+  width: var(--w);
+  height: 1px;
+  border-radius: 1px;
+  background: linear-gradient(90deg, transparent, var(--rsn-b));
+  opacity: calc(0.15 + var(--p, 0) * 0.75);
+  animation: sib-rsn-warp calc((2.4s - var(--s, 0) * 1.9s) / var(--k, 1)) linear infinite;
+  animation-delay: var(--d, 0s);
+}
+@keyframes sib-rsn-warp {
+  from { transform: translateX(0); }
+  to { transform: translateX(calc(-1 * (100cqw + 4rem))); }
+}
+@keyframes sib-rsn-drift {
+  from { transform: translateX(0); }
+  to { transform: translateX(calc(100cqw + 4rem)); }
+}
+.sib-rsn-field::before,
+.sib-rsn-field::after {
+  content: "";
+  position: absolute;
+  pointer-events: none;
+}
+/* C1: short gold streaks racing left, a ringed orb riding the thumb. */
+.sib-rsn[data-theme="c1"] .sib-rsn-streak {
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--rsn-b));
+  box-shadow: 0 0 4px var(--rsn-b);
+}
+.sib-rsn[data-theme="c1"] .sib-rsn-field::before {
+  top: 50%;
+  left: calc(var(--h) / 2 + (100% - var(--h)) * var(--p, 0));
+  width: calc(var(--h) * 1.7);
+  height: calc(var(--h) * 0.62);
+  border: 1px solid color-mix(in srgb, var(--rsn-b) 80%, transparent);
+  border-radius: 50%;
+  transform: translate(-50%, -50%) rotate(-18deg);
+}
+.sib-rsn[data-theme="c1"] .sib-rsn-field::after {
+  inset: 0;
+  background: radial-gradient(60% 120% at calc(var(--p, 0) * 100%) 50%, color-mix(in srgb, var(--rsn-b) 35%, transparent), transparent 70%);
+}
+/* C2: dust drifting left plus a comet tail trailing the thumb. */
+.sib-rsn[data-theme="c2"] .sib-rsn-streak {
+  width: 2px;
+  height: 2px;
+  border-radius: 50%;
+  background: var(--rsn-b);
+  box-shadow: 0 0 3px var(--rsn-a);
+}
+.sib-rsn[data-theme="c2"] .sib-rsn-field::before {
+  top: 50%;
+  right: calc(100% - var(--h) / 2 - (100% - var(--h)) * var(--p, 0));
+  width: calc(var(--p, 0) * 70%);
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--rsn-b));
+  transform: rotate(-6deg);
+  transform-origin: right center;
+  box-shadow: 0 0 6px var(--rsn-a);
+}
+.sib-rsn[data-theme="c2"] .sib-rsn-field::after {
+  inset: 0;
+  background: radial-gradient(50% 130% at calc(var(--p, 0) * 100%) 50%, color-mix(in srgb, var(--rsn-a) 45%, transparent), transparent 70%);
+}
+/* C3: constellation of dots joined by a zigzag line. */
+.sib-rsn[data-theme="c3"] .sib-rsn-streak {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--rsn-b);
+  box-shadow: 0 0 5px var(--rsn-a);
+  right: auto;
+  left: 100%;
+  opacity: calc(0.35 + var(--p, 0) * 0.65);
+  animation: sib-rsn-warp calc((7s - var(--s, 0) * 5.8s) / var(--k, 1)) linear infinite;
+  animation-delay: var(--d, 0s);
+}
+@keyframes sib-rsn-constellation {
+  from { transform: translate3d(0, 0, 0); }
+  to { transform: translate3d(-60px, 0, 0); }
+}
+.sib-rsn[data-theme="c3"] .sib-rsn-field::before {
+  top: 20%;
+  bottom: 20%;
+  left: 0;
+  width: calc(100% + 60px);
+  background:
+    linear-gradient(160deg, transparent 47%, color-mix(in srgb, var(--rsn-b) 55%, transparent) 48% 52%, transparent 53%) 0 0 / 60px 100% repeat-x,
+    linear-gradient(20deg, transparent 47%, color-mix(in srgb, var(--rsn-b) 55%, transparent) 48% 52%, transparent 53%) 30px 0 / 60px 100% repeat-x;
+  opacity: calc(0.25 + var(--p, 0) * 0.6);
+  will-change: transform;
+  animation: sib-rsn-constellation calc(1.2s - var(--s, 0) * 0.9s) linear infinite;
+}
+.sib-rsn[data-theme="c3"] .sib-rsn-streak {
+  will-change: transform;
+}
+.sib-rsn.is-off[data-theme="c3"] .sib-rsn-streak,
+.sib-rsn.is-off[data-theme="c3"] .sib-rsn-field::before {
+  animation-play-state: paused;
+}
+/* C4: red-orange corona on the left, concentric arcs and drifting dust. */
+.sib-rsn[data-theme="c4"] .sib-rsn-streak {
+  right: auto;
+  left: 0;
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: #ffe2c9;
+  box-shadow: 0 0 3px #ffb98a;
+  animation-name: sib-rsn-drift;
+}
+.sib-rsn[data-theme="c4"] .sib-rsn-field::before {
+  inset: 0;
+  background: radial-gradient(70% 160% at 0% 50%, #fff4ea 0%, var(--rsn-a) 18%, color-mix(in srgb, var(--rsn-a) 40%, transparent) 38%, transparent 62%);
+  opacity: calc(1 - var(--p, 0) * 0.35);
+}
+.sib-rsn[data-theme="c4"] .sib-rsn-field::after {
+  inset: -40% auto -40% -30%;
+  width: 90%;
+  border-radius: 50%;
+  background: repeating-radial-gradient(ellipse at 0% 50%, transparent 0 14px, rgba(255, 255, 255, 0.22) 14px 15px);
+}
+.sib-rsn-track { container-type: inline-size; }
+.sib-rsn.is-off .sib-rsn-streak {
+  animation-play-state: paused;
+  opacity: 0.12;
+}
+.sib-rsn-thumb {
+  position: absolute;
+  top: 50%;
+  left: calc(var(--h) / 2 + (100% - var(--h)) * var(--p, 0));
+  width: calc(var(--h) - 0.5rem);
+  height: calc(var(--h) - 0.5rem);
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  background: radial-gradient(circle at 35% 30%, #fff, var(--rsn-b) 55%, var(--rsn-a));
+  box-shadow: 0 0 calc(4px + var(--p, 0) * 14px) var(--rsn-a), 0 0 2px #fff;
+  transition: left 0.18s ease, box-shadow 0.18s ease;
+  pointer-events: none;
+}
+.sib-rsn.is-dragging .sib-rsn-thumb { transition: none; }
+.sib-rsn.is-off .sib-rsn-thumb {
+  background: radial-gradient(circle at 35% 30%, #ffffff, #d9dce6 55%, #aeb3c4);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.35), 0 1px 5px rgba(0, 0, 0, 0.4);
+}
+.sib-rsn-ticks {
+  position: relative;
+  height: 1.125rem;
+  margin-top: 0.375rem;
+}
+.sib-rsn-tick {
+  position: absolute;
+  top: 0;
+  left: calc(var(--h) / 2 + (100% - var(--h)) * var(--i, 0) / var(--m, 1));
+  padding: 0.125rem 0;
+  border: 0;
+  background: transparent;
+  color: var(--color-text-tertiary);
+  font-size: 0.625rem;
+  text-align: center;
+  transform: translateX(-50%);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.sib-rsn-tick:hover { color: var(--color-text-primary); }
+.sib-rsn-tick.current {
+  color: var(--color-text-primary);
+  font-weight: 600;
+}
+@media (prefers-reduced-motion: reduce) {
+  .sib-rsn-streak,
+  .sib-rsn-field::before { animation: none !important; }
+  .sib-rsn-thumb { transition: none; }
+}
+.sib-model-tabs {
+  display: flex;
+  gap: 0.25rem;
+  padding: 0.375rem 0.5rem;
+  overflow-x: auto;
+  scrollbar-width: none;
+  background: var(--color-bg-secondary);
+}
+.sib-model-tabs::-webkit-scrollbar {
+  display: none;
+}
+.sib-model-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  flex: 0 0 auto;
+  height: 1.5rem;
+  padding: 0 0.625rem;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: 0.75rem;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.sib-model-tab:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+.sib-model-tab.current {
+  background: var(--color-brand-blue);
+  color: #fff;
+}
+.sib-model-tab .sib-vendor-badge {
+  width: 0.875rem;
+  height: 0.875rem;
 }
 .sib-model-option {
   margin: 2px 0.3125rem;
@@ -7239,8 +7500,7 @@ body {
   justify-content: space-between;   /* hint on the left, button on the right */
   gap: 0.5rem;
   padding: 0.25rem 0.5rem 0.25rem 0.625rem;         /* compact: tighter top/bottom + tighter right side */
-  border-bottom: 1px solid var(--color-border-primary);
-  background: var(--color-bg-primary);
+  background: var(--color-bg-secondary);
   position: sticky;    /* keep visible while scrolling a long model list */
   top: 0;
   z-index: 1;
@@ -7321,11 +7581,14 @@ body {
   align-items: center;
   gap: 0.375rem;
   padding: 0.375rem 0.5rem;
-  border-top: 1px solid var(--color-border-primary);
-  background: var(--color-bg-primary);
+  border-top: 1px solid var(--color-border-secondary);
+  background: var(--color-bg-secondary);
+}
+.sib-model-dock {
   position: sticky;
   bottom: 0;
   z-index: 1;
+  background: var(--color-bg-secondary);
 }
 .sib-gen-title {
   font-size: 0.625rem;
@@ -17906,7 +18169,6 @@ body.setup-mode {
   .sib-sep-after-cost,
   #sib-dir,
   .sib-sep-after-dir,
-  #sib-reasoning-wrap,
   #sib-signal-wrap,
   .sib-sep-after-signal {
     display: none;

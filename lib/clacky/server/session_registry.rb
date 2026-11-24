@@ -230,6 +230,7 @@ module Clacky
             cost_source: live_cost_source,
             permission_mode: s[:agent]&.permission_mode,
             reasoning_effort: s[:agent]&.reasoning_effort,
+            reasoning_levels: Clacky::ReasoningLevels.for_model(model_info&.dig(:model)),
             latest_latency: s[:agent]&.latest_latency,
             card_model: model_info&.dig(:card_model),
             sub_model: model_info&.dig(:sub_model),
@@ -349,6 +350,7 @@ module Clacky
             total_cost: s[:agent]&.total_cost, cost_source: s[:agent]&.cost_source,
             permission_mode: s[:agent]&.permission_mode,
             reasoning_effort: s[:agent]&.reasoning_effort,
+            reasoning_levels: Clacky::ReasoningLevels.for_model(model_info&.dig(:model)),
             latest_latency: s[:agent]&.latest_latency,
             card_model: model_info&.dig(:card_model),
             sub_model: model_info&.dig(:sub_model),
@@ -400,6 +402,7 @@ module Clacky
           # sessions start with nil and get populated on the next LLM call.
           latest_latency: ls&.dig(:latest_latency),
           reasoning_effort: ls&.dig(:reasoning_effort) || s.dig(:config, :reasoning_effort),
+          reasoning_levels: ls&.dig(:reasoning_levels) || Clacky::ReasoningLevels.for_model(ls&.dig(:model)),
           pinned:        s[:pinned] || false,
           archived_at:   s[:archived_at],
           channel_info:  s[:channel_info],

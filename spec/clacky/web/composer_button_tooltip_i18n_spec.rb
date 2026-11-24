@@ -37,7 +37,6 @@ RSpec.describe "Web tooltip translations" do
     {
       "sib-dir" => "sib.dir.tooltip",
       "sib-model" => "sib.model.tooltip",
-      "sib-reasoning" => "sib.reasoning.tooltip",
       "sib-mode" => "sib.mode.tooltip"
     }.each do |id, key|
       tag = index[/<(?:span|button) id="#{Regexp.escape(id)}"[^>]*>/]
