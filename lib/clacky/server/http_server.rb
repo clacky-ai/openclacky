@@ -6831,20 +6831,9 @@ module Clacky
         description = ""
         updated_at  = stat.mtime.strftime("%Y-%m-%d")
 
-        # Parse YAML frontmatter: --- ... --- at the top of the file.
-        if content.start_with?("---")
-          if (m = content.match(/\A---\s*\n(.*?)\n---\s*\n/m))
-            begin
-              # Legacy files may still carry `updated_at: 2026-05-01`; permit Date so
-              # they parse instead of raising DisallowedClass. The value itself is ignored.
-              fm = YAML.safe_load(m[1], permitted_classes: [Date, Time]) || {}
-              topic       = fm["topic"].to_s       unless fm["topic"].to_s.strip.empty?
-              description = fm["description"].to_s
-            rescue StandardError
-              # Bad frontmatter — fall back to defaults above.
-            end
-          end
-        end
+        fm = Utils::Frontmatter.parse(content)
+        topic       = fm["topic"].to_s       unless fm["topic"].to_s.strip.empty?
+        description = fm["description"].to_s
 
         preview = content.sub(/\A---.*?---\s*\n/m, "").strip[0, 200]
 

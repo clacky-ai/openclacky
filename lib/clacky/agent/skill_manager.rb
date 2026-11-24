@@ -554,14 +554,8 @@ module Clacky
       # @param path [String] Absolute path to the .md file
       # @return [Hash]
       def parse_memory_frontmatter(path)
-        content = File.read(path)
-        return {} unless content.start_with?("---")
-
-        match = content.match(/\A---\n(.*?)\n---/m)
-        return {} unless match
-
-        YAML.safe_load(match[1]) || {}
-      rescue => e
+        Utils::Frontmatter.parse(File.read(path))
+      rescue StandardError
         {}
       end
 
