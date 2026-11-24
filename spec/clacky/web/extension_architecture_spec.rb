@@ -263,11 +263,41 @@ RSpec.describe "WebUI extension architecture" do
       # extension that targets it. Both "new place" and "enhance existing" slots.
       %w[
         header.left header.right sidebar.nav sidebar.footer main.workspace
-        settings.tabs settings.body
+        sidebar.nav.bottom settings.tabs settings.body
       ].each do |slot|
         expect(index).to match(/data-slot=["']#{Regexp.escape(slot)}["']/),
           "index.html must declare the #{slot} extension slot"
       end
+    end
+
+    it "keeps the more-group slot inside that group, after its built-in items" do
+      # The knowledge base entry belongs with profile / data / usage, not in a
+      # separate strip at the end of the sidebar.
+      billing = index.index('id="billing-sidebar-item"')
+      group_slot = index.index('data-slot="sidebar.nav.bottom"')
+      group_end = index.index('id="sidebar-footer"')
+      expect(group_slot).to be > billing
+      expect(group_slot).to be < group_end
+    end
+
+    it "keeps the main nav slot inside the General group, after its built-in items" do
+      # Extension menus used to sit in their own borderless block between
+      # Projects and the config group; they now read as regular General entries.
+      config_body = index.index('id="config-nav-items"')
+      mcp = index.index('id="mcp-sidebar-item"')
+      group_end = index.index('id="data-section"')
+      nav_slot = index.index('data-slot="sidebar.nav"')
+      expect(nav_slot).to be > config_body
+      expect(nav_slot).to be > mcp
+      expect(nav_slot).to be < group_end
+    end
+
+    it "titles that group with the host-owned General label" do
+      expect(index).to include('data-i18n="sidebar.general"')
+      i18n = File.read(File.join(web_dir, "i18n.js"))
+      expect(i18n.scan('"sidebar.general"').size).to eq(2)
+      expect(i18n).to match(/"sidebar\.general":\s*"General",/)
+      expect(i18n).to match(/"sidebar\.general":\s*"常规",/)
     end
 
     it "renders every declared slot generically (no slot left unmounted)" do

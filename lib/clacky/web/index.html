@@ -229,15 +229,13 @@
         <div id="project-list"></div>
       </div>
 
-      <!-- MAIN nav slot: default landing spot for extension menus. Between
-           Sessions and Config so ext entries feel like standard nav items. -->
-      <div id="ext-slot-sidebar-nav" data-slot="sidebar.nav"></div>
-
-      <!-- Config Group -->
+      <!-- General Group: built-in app pages, followed by the entries extensions
+           mount into the main nav slot. No heading of their own — they read as
+           regular entries of this list. -->
       <div id="config-section">
         <div class="sidebar-divider sidebar-section-header" data-collapsible-section="config-nav-items">
           <span class="sidebar-section-title">
-            <span data-i18n="sidebar.config">Config</span>
+            <span data-i18n="sidebar.general">General</span>
             <svg class="sidebar-section-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
               <path d="M6 9l6 6 6-6"/>
             </svg>
@@ -298,14 +296,17 @@
               </div>
             </div>
           </div>
+          <!-- MAIN nav slot: extension menus land here, after the built-in pages. -->
+          <div id="ext-slot-sidebar-nav" data-slot="sidebar.nav"></div>
         </div>
       </div>
 
-      <!-- My Data Group — personal data management (profile, memories, trash) -->
+      <!-- More Group — personal data (profile, trash, billing) plus any
+           extension entry that belongs with them (e.g. the knowledge base). -->
       <div id="data-section">
         <div class="sidebar-divider sidebar-section-header" data-collapsible-section="data-nav-items">
           <span class="sidebar-section-title">
-            <span data-i18n="sidebar.dataSection">My Data</span>
+            <span data-i18n="sidebar.more">More</span>
             <svg class="sidebar-section-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
               <path d="M6 9l6 6 6-6"/>
             </svg>
@@ -355,11 +356,11 @@
               </div>
             </div>
           </div>
+          <!-- Group-end slot: extension entries that belong with these items
+               (e.g. the knowledge base). Rendered after the built-in ones. -->
+          <div id="ext-slot-sidebar-nav-bottom" data-slot="sidebar.nav.bottom"></div>
         </div>
       </div>
-
-      <!-- BOTTOM nav slot: end-of-sidebar spot for secondary ext entries. -->
-      <div id="ext-slot-sidebar-nav-bottom" data-slot="sidebar.nav.bottom"></div>
     </div>
 
     <!-- Bottom Settings -->
