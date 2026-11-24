@@ -5650,6 +5650,10 @@ module Clacky
           # Third-party extension skills (installed/local) are managed from the
           # extension panel, not the skills panel.
           @skill_loader.loaded_from[skill.identifier] == :extension
+        end.reject do |skill|
+          # Agent-internal skills (recall-memory, meeting-summarizer) are never
+          # user-triggered, so this panel has no action to offer for them.
+          !skill.user_invocable?
         end.map do |skill|
           source = @skill_loader.loaded_from[skill.identifier]
           meta   = upload_meta[skill.identifier] || {}
@@ -5665,6 +5669,7 @@ module Clacky
             description_zh:    skill.description_zh,
             source:            source,
             always_show:       skill.always_show,
+            agents:            skill.agents_scope,
             enabled:           !skill.disabled?,
             invalid:           skill.invalid?,
             warnings:          skill.warnings,
