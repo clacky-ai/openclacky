@@ -28,8 +28,8 @@ RSpec.describe "Session-bar task list" do
     expect(html).to include('id="sib-mode-text"')
     expect(styles).to match(/#session-info-bar \.sib-mode-clickable \{.*?border-radius: 999px;/m)
     expect(styles).to match(/#sib-model-wrap,\n#sib-mode-wrap \{/)
-    expect(i18n).to include('"sib.mode.pill":  "权限"')
-    expect(i18n).to include('"sib.mode.pill":  "Mode"')
+    expect(i18n).to include('"sib.mode.pill":  "提问"')
+    expect(i18n).to include('"sib.mode.pill":  "Question"')
   end
 
   it "keeps the pill label when the mode changes" do

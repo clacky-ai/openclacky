@@ -534,15 +534,15 @@
         </span>
         <span class="sib-sep sib-sep-after-model">│</span>
         <span id="sib-mode-wrap">
-          <button id="sib-mode" class="sib-mode-clickable" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="sib-mode-menu" data-tooltip="Click to change permission mode" data-i18n-tooltip="sib.mode.tooltip"><span class="sib-pill-label" data-i18n="sib.mode.pill">Mode</span><span id="sib-mode-text"></span><span class="sib-caret" aria-hidden="true"><svg viewBox="0 0 16 16" width="9" height="9" aria-hidden="true"><path d="M4 6.5L8 10.5L12 6.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span></button>
+          <button id="sib-mode" class="sib-mode-clickable" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="sib-mode-menu" data-tooltip="Click to change how AI questions are answered" data-i18n-tooltip="sib.mode.tooltip"><span class="sib-pill-label" data-i18n="sib.mode.pill">Question</span><span id="sib-mode-text"></span><span class="sib-caret" aria-hidden="true"><svg viewBox="0 0 16 16" width="9" height="9" aria-hidden="true"><path d="M4 6.5L8 10.5L12 6.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span></button>
           <div id="sib-mode-menu" class="clacky-popover" role="menu" hidden>
             <button type="button" role="menuitemradio" data-permission-mode="confirm_all" aria-checked="true">
               <strong data-i18n="sib.mode.confirm_all">Manual</strong>
-              <small data-i18n="sib.mode.manualHelp">Confirm actions; wait for your answer.</small>
+              <small data-i18n="sib.mode.manualHelp">Wait for your answer.</small>
             </button>
             <button type="button" role="menuitemradio" data-permission-mode="auto_approve" aria-checked="false">
               <strong data-i18n="sib.mode.auto_approve">Auto</strong>
-              <small data-i18n="sib.mode.autoHelp">Approve tools automatically; continue after the question countdown.</small>
+              <small data-i18n="sib.mode.autoHelp">If you don’t answer within 20 seconds, AI decides and continues.</small>
             </button>
           </div>
         </span>
