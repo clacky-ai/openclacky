@@ -347,6 +347,143 @@ RSpec.describe Clacky::UI2::MarkdownRenderer do
     end
   end
 
+  describe "box diagrams in fenced code" do
+    before do
+      allow(TTY::Screen).to receive(:width).and_return(120)
+      allow(TTY::Markdown).to receive(:parse).and_wrap_original do |original, *args, **kwargs|
+        original.call(*args, **kwargs, color: :always)
+      end
+    end
+
+    def plain_lines(rendered)
+      rendered.lines.map { |line| Strings::ANSI.sanitize(line.chomp) }
+    end
+
+    def right_edges(lines)
+      lines.select { |l| l.strip.match?(/[│┐┘┤]\z/) }.map { |l| Unicode::DisplayWidth.of(l.rstrip) }
+    end
+
+    it "pads CJK rows that were aligned by character count to the top border width" do
+      markdown = "```\n┌──────────────────┐\n│  接入层   TUI(ui2)  │\n│ 飞书/企微/  │\n│ TG/Discord │\n└──────────────────┘\n```\n"
+
+      rendered = described_class.render(markdown)
+      lines = plain_lines(rendered)
+
+      expect(rendered).to include("\e[")
+      expect(right_edges(lines).uniq.size).to eq(1)
+      expect(lines.join("\n")).to include("接入层")
+      expect(lines.join("\n")).to include("TG/Discord")
+    end
+
+    it "keeps the closing border of rows whose content is wider than the frame" do
+      markdown = "```\n┌────────┐\n│  进程层   Master（持有 listen socket）  │\n└────────┘\n```\n"
+
+      lines = plain_lines(described_class.render(markdown))
+
+      expect(right_edges(lines).uniq.size).to eq(1)
+      expect(lines.join("\n")).to include("listen socket")
+    end
+
+    it "leaves rows inside a nested frame ending in a double bar untouched" do
+      markdown = "```\n┌────────────────┐\n│  ┌─────┬──────┐│\n│  │ 甲  │ 乙   ││\n│  └─────┴──────┘│\n└────────────────┘\n```\n"
+
+      lines = plain_lines(described_class.render(markdown))
+
+      expect(lines.join("\n")).to include("││")
+      expect(right_edges(lines).uniq.size).to eq(1)
+    end
+
+    it "gives every frame in one diagram the same width" do
+      markdown = "```\n┌──────────────┐\n│  接入层   中文   │\n└──────────────────────┬───────────────┘\n┌──────────────────────▼───────────────┐\n│  进程层   短 │\n└──────────────────────┬───────────────┘\n```\n"
+
+      lines = plain_lines(described_class.render(markdown))
+      borders = lines.select { |l| l.strip.match?(/\A[┌└]/) }
+
+      expect(borders.map { |l| Unicode::DisplayWidth.of(l.rstrip) }.uniq.size).to eq(1)
+      expect(right_edges(lines).uniq.size).to eq(1)
+    end
+
+    it "lines cell separators up with the border row above them" do
+      markdown = "```\n" \
+        "┌─────────────────────────────┐\n" \
+        "│  ┌────────────┬────────────┐  │\n" \
+        "│  │ 上下文管理  │ 工具执行    │  │\n" \
+        "│  └────────────┴────────────┘  │\n" \
+        "└─────────────────────────────┘\n" \
+        "```\n"
+
+      lines = plain_lines(described_class.render(markdown))
+      columns = lines.filter_map do |line|
+        next unless line.include?("│") || line.strip.match?(/\A[┌└]/)
+
+        cols = []
+        width = 0
+        line.each_char do |char|
+          cols << width if "│┌┬┐└┴┘".include?(char)
+          width += Unicode::DisplayWidth.of(char)
+        end
+        cols
+      end
+
+      expect(columns.select { |cols| cols.size > 2 }.uniq.size).to eq(1)
+      expect(lines.join("\n")).to include("上下文管理")
+    end
+
+    it "aligns boxes drawn freely inside a frame that has no column separators" do
+      markdown = "```\n" \
+        "┌─────────────────────────────────────────┐\n" \
+        "│ 文件  Git 管理 ③ ⨯ │ 新标签页 ⨯ │   +   │\n" \
+        "├─────────────────────────────────────────┤\n" \
+        "│  工具                                    │\n" \
+        "│  ┌───────────────┐  ┌───────────────┐       │\n" \
+        "│  │ ▤  时光机     │  │ ▤  预览       │       │\n" \
+        "│  └───────────────┘  └───────────────┘       │\n" \
+        "└─────────────────────────────────────────┘\n" \
+        "```\n"
+
+      lines = plain_lines(described_class.render(markdown))
+      columns = lines.filter_map do |line|
+        next unless line.match?(/[│┌┐└┘├┤]/)
+
+        cols = []
+        width = 0
+        line.each_char do |char|
+          cols << width if "│┌┐└┘├┤".include?(char)
+          width += Unicode::DisplayWidth.of(char)
+        end
+        cols
+      end
+
+      expect(right_edges(lines).uniq.size).to eq(1)
+      expect(columns.select { |cols| cols.size == 6 }.uniq.size).to eq(1)
+      expect(lines.join("\n")).to include("时光机")
+    end
+
+    it "keeps a floating label outside the frame instead of padding inside it" do
+      markdown = "```\n" \
+        "┌───────────────────┐\n" \
+        "│ 文件  Git 管理 ③ ⨯ │  ← tab 栏\n" \
+        "│  工具              │\n" \
+        "└───────────────────┘\n" \
+        "```\n"
+
+      lines = plain_lines(described_class.render(markdown))
+      frames = lines.map { |line| line.sub(/\s+← .*\z/, "") }
+
+      expect(frames.map { |line| Unicode::DisplayWidth.of(line) }.uniq.size).to eq(1)
+      expect(lines.find { |line| line.include?("← tab 栏") }).to include("│  ← tab 栏")
+    end
+
+    it "does not touch markdown table rows" do
+      markdown = "| 名称 | 说明 |\n|---|---|\n| 甲 | 短 |\n"
+
+      rows = plain_lines(described_class.render(markdown)).select { |l| l.start_with?("┌", "├", "└", "│") }
+      border = Unicode::DisplayWidth.of(rows.find { |l| l.start_with?("┌") })
+
+      rows.each { |row| expect(Unicode::DisplayWidth.of(row)).to be_between(border, border + 1) }
+    end
+  end
+
   describe ".markdown?" do
     it "detects code blocks" do
       expect(described_class.markdown?("```ruby\nx\n```")).to be true

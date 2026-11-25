@@ -13,6 +13,13 @@ module Clacky
   module UI2
     # MarkdownRenderer handles rendering Markdown content with syntax highlighting
     module MarkdownRenderer
+      BOX_OPEN = /\A\s*┌.*┐\s*\z/.freeze
+      BOX_ROW_END = /[│┐┘┤]\z/.freeze
+      BOX_CHARS = "│┌┐└┘├┤┬┴┼"
+      BOX_CORNERS = "┌┐└┘"
+      # Frame followed by a floating label, e.g. `│ + │  ← tab bar`.
+      BOX_ANNOTATED = /\A(.*│)(\s{2,}[^\s│┌┐└┘├┤┬┴┼][^│┌┐└┘├┤┬┴┼]*)\z/.freeze
+
       class << self
         # Render markdown content with theme-aware colors
         # @param content [String] Markdown content to render
@@ -25,6 +32,8 @@ module Clacky
           require "tty-markdown" unless defined?(TTY::Markdown)
           # Tables need CJK-aware column widths before anything is rendered.
           require_relative "tty_markdown_cjk_table_patch" unless defined?(Clacky::UI2::TTYMarkdownCJKTablePatch)
+
+          content = align_box_diagrams(content)
 
           # Get current theme colors
           theme = ThemeManager.current_theme
@@ -189,6 +198,148 @@ module Clacky
         # escape sequences that follow them.
         def trim_trailing_spaces(text)
           text.sub(/( +)((?:\e\[[0-9;]*m)+)\z/, '\2').sub(/ +\z/, "")
+        end
+
+        # Models pad box rows by character count, so a CJK row comes out wider
+        # than the frame it sits in. Every frame in one diagram is given the
+        # same width, and cell separators follow the border row above them.
+        def align_box_diagrams(content)
+          return content unless content.include?("┌")
+
+          lines = content.lines
+          out = []
+          index = 0
+          while index < lines.size
+            if lines[index].chomp.match?(BOX_OPEN)
+              stop = index
+              stop += 1 while stop + 1 < lines.size && box_block_line?(lines[stop + 1])
+              out.concat(align_box_block(lines[index..stop]))
+              index = stop + 1
+              next
+            end
+            out << lines[index]
+            index += 1
+          end
+          out.join
+        end
+
+        def box_block_line?(line)
+          text = line.chomp
+          return false if text.strip.empty?
+
+          text.match?(BOX_ROW_END) || text.match?(/\A\s*│/)
+        end
+
+        # Frames grow to the widest row instead of cutting content.
+        def align_box_block(rows)
+          aligned = align_box_cells(rows)
+          target = aligned.map { |row| box_width(row.chomp) }.compact.max
+          aligned.map do |row|
+            ending = row.end_with?("\n") ? "\n" : ""
+            body, label = box_split_label(row.chomp)
+            resized = box_resize(body, target)
+            resized = "#{resized}  #{label}" if label
+            resized + ending
+          end
+        end
+
+        def box_split_label(text)
+          match = text.match(BOX_ANNOTATED)
+          return [text, nil] unless match
+
+          [match[1], match[2].strip]
+        end
+
+        def box_width(body)
+          text, = box_split_label(body.rstrip)
+          text.rstrip.match?(BOX_ROW_END) ? Unicode::DisplayWidth.of(text.rstrip) : nil
+        end
+
+        def align_box_cells(rows)
+          ref = nil
+          rows.map do |row|
+            text = row.chomp.rstrip
+            if box_grid_row?(text) || (text.match?(/[┬┼]/) && text.match?(/[┌├]/))
+              ref = box_bar_columns(text, BOX_CHARS)
+              row
+            elsif text.match?(/\A\s*[└┘]/)
+              ref = nil
+              row
+            elsif text.match?(/\A\s*│/) && text.match?(BOX_ROW_END)
+              bars = box_bar_columns(text, "│")
+              target = box_target_bars(ref, bars)
+              rebuilt = target && box_rebuild_row(text, target)
+              ref ||= bars if bars.size > 2
+              rebuilt ? rebuilt + (row.end_with?("\n") ? "\n" : "") : row
+            else
+              row
+            end
+          end
+        end
+
+        # A frame holding free-standing boxes (no ┬/┼ anywhere) is gridded by
+        # those boxes' own corners, e.g. `│  ┌──┐  ┌──┐  │`.
+        def box_grid_row?(text)
+          text.match?(/\A\s*│/) && text.count(BOX_CORNERS) >= 2
+        end
+
+        # A border row is the grid; a frame drawn without one falls back to its
+        # first content row, so the rest of the frame at least agrees with it.
+        def box_target_bars(ref, bars)
+          return nil if ref.nil?
+
+          inner = bars[1..-2] || []
+          target = ref.size == inner.size ? ref : (ref[1..-2] || [])
+          return nil if inner.empty? || target.size != inner.size
+
+          [bars.first] + target + [bars.last]
+        end
+
+        # A cell that cannot fit its column leaves the row alone rather than
+        # half-aligned; an exact fit closes the gap and keeps the bars lined up.
+        def box_rebuild_row(text, target_bars)
+          cells = text.split("│", -1)
+          return nil if cells.size != target_bars.size + 1
+
+          widths = (0...(target_bars.size - 1)).map do |i|
+            target_bars[i + 1] - target_bars[i] - 1
+          end
+          fitted = (0...widths.size).map { |i| box_fit(cells[i + 1], widths[i]) }
+          return nil if fitted.include?(nil)
+
+          out = +cells[0]
+          fitted.each { |cell| out << "│" << cell }
+          out << "│" << cells[-1]
+        end
+
+        def box_bar_columns(text, chars)
+          cols = []
+          width = 0
+          text.each_char do |char|
+            cols << width if chars.include?(char)
+            width += Unicode::DisplayWidth.of(char)
+          end
+          cols
+        end
+
+        def box_fit(cell, width)
+          text = cell.strip
+          pad = width - Unicode::DisplayWidth.of(text)
+          return nil if pad.negative?
+          return text if pad.zero?
+
+          " " + text + " " * (pad - 1)
+        end
+
+        def box_resize(body, target)
+          text = body.rstrip
+          return body unless text.match?(BOX_ROW_END)
+
+          diff = target - Unicode::DisplayWidth.of(text)
+          return text if diff <= 0
+
+          filler = text.lstrip.start_with?("┌", "└", "├") ? "─" : " "
+          text[0...-1] + filler * diff + text[-1]
         end
 
         # Check if content looks like markdown
