@@ -73,6 +73,17 @@ RSpec.describe "Git panel review scope" do
     expect(list).to include("onPick(item.hash);")
   end
 
+  it "splits the branch list into local and remote groups" do
+    list = view[/function renderRefList\(listEl, kind, onPick, sub\) \{.*?\n  \}/m]
+    expect(list).to include('t("changes.scope.localBranches"')
+    expect(list).to include('t("changes.scope.remoteBranches"')
+    expect(list).to include("Boolean(item.remote) === group.remote")
+
+    i18n = File.read(File.expand_path("../../../lib/clacky/web/i18n.js", __dir__))
+    expect(i18n.scan('"changes.scope.localBranches"').size).to eq(2)
+    expect(i18n.scan('"changes.scope.remoteBranches"').size).to eq(2)
+  end
+
   it "drops the search box and group header when the list has nothing to show" do
     list = view[/function renderRefList\(listEl, kind, onPick, sub\) \{.*?\n  \}/m]
     expect(list).to include('sub.classList.toggle("is-bare", !all.length)')
