@@ -1132,6 +1132,9 @@ module Clacky
           return json_response(res, 400, { error: "Model not found in configuration" })
         end
 
+        # Clamped below like the switch endpoint — a draft outlives model changes.
+        reasoning_raw = body["reasoning_effort"].to_s.strip
+
         # Optional project association — validate the project exists if provided
         project_id_override = body["project_id"].to_s.strip
         project_id_override = nil if project_id_override.empty?
@@ -1153,14 +1156,23 @@ module Clacky
 
         session_id = build_session(name: name, working_dir: working_dir, profile: profile, source: source, model_id: model_id_override)
 
-        # Persist project_id into the session file right away if provided
-        if project_id_override
-          agent = nil
-          @registry.with_session(session_id) { |s| agent = s[:agent] }
-          if agent
+        # Apply what build_session doesn't take as keywords, then save once.
+        agent = nil
+        @registry.with_session(session_id) { |s| agent = s[:agent] }
+        if agent
+          dirty = false
+          if project_id_override
             agent.project_id = project_id_override
-            @session_manager.save(agent.to_session_data(updated_at: Time.now))
+            dirty = true
           end
+          unless reasoning_raw.empty?
+            agent.reasoning_effort = reasoning_raw
+            # Unreachable stops collapse to a neighbour; unknown input to the default.
+            carried = Clacky::ReasoningLevels.clamp(agent.current_model_info&.dig(:model), agent.reasoning_effort)
+            agent.reasoning_effort = carried || Clacky::Agent::REASONING_DEFAULT
+            dirty = true
+          end
+          @session_manager.save(agent.to_session_data(updated_at: Time.now)) if dirty
         end
 
         broadcast_session_update(session_id, created: true)

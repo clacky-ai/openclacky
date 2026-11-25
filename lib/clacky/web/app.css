@@ -6935,7 +6935,11 @@ body {
 #sib-mode-wrap {
   margin-left: 0.1875rem;
 }
-.sib-model-dropdown {
+/* Shared skin for every model list: the session info-bar dropdown and the
+   new-session popover are the same control in two places, so they must not
+   drift apart again (this used to be two independent rule sets). */
+.sib-model-dropdown,
+.ns-ctx-popover--model {
   position: fixed;
   /* Position will be calculated dynamically via JavaScript */
   min-width: 15rem;
@@ -6948,6 +6952,19 @@ body {
   border: 0;
   border-radius: 14px;
   box-shadow: 0 8px 28px rgba(0, 0, 0, 0.12);
+}
+/* The context-bar popover keeps its own stacking. It is a column so that a
+   flipped box (capped by the space above its anchor) can take height from the
+   list and still keep the reasoning card in reach. */
+.ns-ctx-popover.ns-ctx-popover--model {
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+.ns-ctx-popover--model .sib-model-list {
+  flex: 1 1 auto;
+  min-height: 0;
 }
 .sib-model-list {
   max-height: 11rem;
