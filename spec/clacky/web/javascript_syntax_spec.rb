@@ -8,7 +8,10 @@ require "open3"
 RSpec.describe "JavaScript sources" do
   web_dir  = File.expand_path("../../../lib/clacky/web", __dir__)
   ext_dir  = File.expand_path("../../../lib/clacky/default_extensions", __dir__)
-  js_files = Dir[File.join(web_dir, "*.js")] + Dir[File.join(ext_dir, "**", "*.js")]
+  js_files = Dir[File.join(web_dir, "*.js")] +
+             Dir[File.join(web_dir, "core", "*.js")] +
+             Dir[File.join(web_dir, "lib", "*.js")] +
+             Dir[File.join(ext_dir, "**", "*.js")]
 
   node = `command -v node 2>/dev/null`.strip
 

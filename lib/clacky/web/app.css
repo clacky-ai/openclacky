@@ -5361,6 +5361,14 @@ body {
 .msg-assistant .code-block pre code {
   padding: 0;
 }
+/* Box-drawing diagrams: every wide glyph is pinned to 2ch so a diagram padded
+   by display cells lines up in a browser monospace font (CJK is 1.66 advances
+   by default, not 2). See lib/box-diagram.js. */
+.bd-c {
+  display: inline-block;
+  width: 2ch;
+  text-align: center;
+}
 .code-block-header {
   display: flex;
   align-items: center;
