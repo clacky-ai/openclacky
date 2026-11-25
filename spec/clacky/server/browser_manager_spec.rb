@@ -565,4 +565,68 @@ RSpec.describe Clacky::BrowserManager do
       expect(manager.send(:load_config)).to eq({})
     end
   end
+
+  # ---------------------------------------------------------------------------
+  # Background page ledger
+  # ---------------------------------------------------------------------------
+  describe "background page ledger" do
+    let(:owner) { Object.new }
+    let(:other) { Object.new }
+
+    before { allow(manager).to receive(:mcp_call) }
+
+    it "hands back the page registered for an owner" do
+      manager.register_page(7, owner)
+      expect(manager.background_page_for(owner)).to eq(7)
+    end
+
+    it "does not hand one owner another's page" do
+      manager.register_page(7, owner)
+      expect(manager.background_page_for(other)).to be_nil
+    end
+
+    it "ignores a nil owner instead of registering a page nobody can release" do
+      manager.register_page(7, nil)
+      expect(manager.background_page_for(nil)).to be_nil
+    end
+
+    it "forgets a page once unregistered" do
+      manager.register_page(7, owner)
+      manager.unregister_page(7)
+      expect(manager.background_page_for(owner)).to be_nil
+    end
+
+    it "closes only the owner's pages on release" do
+      manager.register_page(7, owner)
+      manager.register_page(9, other)
+
+      expect(manager.release(owner)).to eq([7])
+      expect(manager).to have_received(:mcp_call).with("close_page", { pageId: 7 }).once
+      expect(manager).not_to have_received(:mcp_call).with("close_page", { pageId: 9 })
+      expect(manager.background_page_for(other)).to eq(9)
+    end
+
+    it "costs nothing when the owner never opened a background tab" do
+      expect(manager.release(owner)).to eq([])
+      expect(manager).not_to have_received(:mcp_call)
+    end
+
+    it "swallows close failures — the tab may already be gone, or be the last one" do
+      manager.register_page(7, owner)
+      allow(manager).to receive(:mcp_call).with("close_page", anything)
+                                          .and_raise(RuntimeError, "The last open page cannot be closed.")
+
+      expect { manager.release(owner) }.not_to raise_error
+      expect(manager.background_page_for(owner)).to be_nil
+    end
+
+    it "releases the same page only once" do
+      manager.register_page(7, owner)
+
+      manager.release(owner)
+      manager.release(owner)
+
+      expect(manager).to have_received(:mcp_call).with("close_page", { pageId: 7 }).once
+    end
+  end
 end

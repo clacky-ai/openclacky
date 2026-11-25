@@ -33,6 +33,7 @@ module Clacky
         Drive the user's real Chrome for web automation. Prefer web_fetch for read-only pages.
         Actions: open | navigate | snapshot | act | screenshot | tabs | focus | close | status
         Workflow: open → snapshot(interactive:true) → act(ref=...). New tab from `open` is auto-selected; only use `focus` to switch back to a previously-opened tab.
+        open: pass background:true when only you need to read the page — no focus steal, tab closed at task end.
         snapshot: returns hierarchical a11y tree truncated to ~8KB. Use query="text" to seek, or offset=N to page.
         act kinds: click | dblclick | type | fill | fill_form | press | hover | scroll | drag | select | wait | evaluate | click_at
         act auto-waits for network/DOM to settle and returns the post-action page state, so do NOT follow an act with a snapshot — read the result instead. Pass include_snapshot:false to skip it on trivial acts.
@@ -79,6 +80,7 @@ module Clacky
           x:           { type: "number",  description: "click_at x px" },
           y:           { type: "number",  description: "click_at y px" },
           url:         { type: "string",  description: "open/navigate URL" },
+          background:  { type: "boolean", description: "open: background tab, no focus steal, closed at task end" },
           target_id:   { type: "string",  description: "focus/close tab id" },
           interactive: { type: "boolean", description: "snapshot: only interactive elements" },
           compact:     { type: "boolean", description: "snapshot: drop empty containers" },
@@ -300,6 +302,7 @@ module Clacky
         when "open"
           url = require_url(opts)
           return url if url.is_a?(Hash)
+          return open_in_background(url) if background_requested?(opts)
           invalidate_page_cache!
           mcp_call("new_page", { url: url })
           wait_for_page_ready
@@ -319,6 +322,8 @@ module Clacky
           invalidate_page_cache!
           mcp_call("select_page", { pageId: target_id.to_i, bringToFront: true })
           @page_id_cache = target_id.to_i
+          # The user is looking at it now: it is no longer our scratch tab.
+          Clacky::BrowserManager.instance.unregister_page(target_id.to_i)
           { action: "focus", success: true, profile: "user", output: "Focused tab #{target_id}" }
 
         when "close"
@@ -326,6 +331,7 @@ module Clacky
           return { error: "target_id is required for close. Use action=tabs to list open tabs." } if target_id.nil? || target_id.to_s.empty?
           invalidate_page_cache!
           mcp_call("close_page", { pageId: target_id.to_i })
+          Clacky::BrowserManager.instance.unregister_page(target_id.to_i)
           { action: "close", success: true, profile: "user", output: "Closed tab #{target_id}" }
 
         when "act"
@@ -342,6 +348,48 @@ module Clacky
         else
           { error: "Action '#{action}' is not supported." }
         end
+      end
+
+      private def background_requested?(opts)
+        value = opts.key?(:background) ? opts[:background] : opts["background"]
+        value == true || value.to_s.strip.casecmp("true").zero?
+      end
+
+      # Background tabs are the AI's own scratch space: invisible to the user, so
+      # a leaked tab is never noticed. One per agent, reused via navigate, and
+      # registered with BrowserManager so it dies with the run that opened it.
+      # Rebuild only when the tab is gone (user closed it, Chrome reclaimed it).
+      private def open_in_background(url)
+        page_id = Clacky::BrowserManager.instance.background_page_for(@agent)
+
+        if page_id
+          begin
+            mcp_call("navigate_page", { pageId: page_id, type: "url", url: url })
+            @page_id_cache = page_id
+            return { action: "open", success: true, profile: "user", url: url,
+                     output: "Opened in background tab #{page_id}: #{url}" }
+          rescue RuntimeError => e
+            raise unless page_gone?(e.message)
+            Clacky::BrowserManager.instance.unregister_page(page_id)
+          end
+        end
+
+        invalidate_page_cache!
+        pages   = extract_pages(mcp_call("new_page", { url: url, background: true }))
+        created = pages.find { |p| p[:selected] } || pages.last
+        page_id = (created && created[:id]) || current_page_id
+        @page_id_cache = page_id
+        Clacky::BrowserManager.instance.register_page(page_id, @agent)
+        { action: "open", success: true, profile: "user", url: url,
+          output: "Opened in background tab: #{url}" }
+      end
+
+      # True when the MCP error means the page itself is gone rather than the
+      # navigation failing — only then is rebuilding the tab the right move.
+      private def page_gone?(msg)
+        text = msg.to_s
+        RETRYABLE_PAGE_ERRORS.any? { |frag| text.include?(frag) } ||
+          text.include?("no longer available")
       end
 
       private def do_user_act(opts)
