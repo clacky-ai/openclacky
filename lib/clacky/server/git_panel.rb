@@ -366,11 +366,14 @@ module Clacky
         end
       end
 
-      # [{ name:, current: bool, remote: bool }] from `git branch --all`.
+      # [{ name:, current: bool, remote: bool }] from `git branch --all`, most
+      # recently committed first. A branch list is a list of work in flight, so
+      # the branch just pushed belongs at the top rather than wherever its name
+      # falls in the alphabet.
       # Remote HEAD pointers (`origin/HEAD` → `origin/main`) are dropped: they
       # are aliases, not branches the user can compare against.
       def branches(dir)
-        out, _err, ok = git(dir, "branch", "--all",
+        out, _err, ok = git(dir, "branch", "--all", "--sort=-committerdate",
                             "--format=%(refname)%00%(refname:short)%00%(HEAD)")
         return [] unless ok
 

@@ -337,6 +337,59 @@ end
 # One `git diff HEAD` is split into per-file chunks so a tree full of edits
 # costs one subprocess; untracked files have no baseline and are diffed
 # against /dev/null separately. Line counts drive the +/- badges.
+RSpec.describe Clacky::Server::GitPanel, ".branches" do
+  include GitPanelRepo
+
+  around do |ex|
+    dir = Dir.mktmpdir("git_panel_branches_spec")
+    begin
+      init_repo(dir)
+      ex.run
+    ensure
+      remove_repo(dir)
+    end
+  end
+
+  def run(*args)
+    out, _err, _st = Open3.capture3(*args.map(&:to_s), chdir: @dir)
+    out
+  end
+
+  # Dates are pinned so the order cannot come from the wall clock: `alpha` is
+  # the older commit and `zulu` the newer one, which is the reverse of what the
+  # alphabet would produce.
+  def commit(message, date)
+    File.write(File.join(@dir, "a.txt"), "#{message}\n")
+    env = { "GIT_AUTHOR_DATE" => date, "GIT_COMMITTER_DATE" => date }
+    Open3.capture3(env, "git", "add", "-A", chdir: @dir)
+    Open3.capture3(env, "git", "commit", "-q", "-m", message, chdir: @dir)
+  end
+
+  it "lists the most recently committed branch first, not the alphabetically first" do
+    run "git", "checkout", "-q", "-b", "alpha"
+    commit "alpha", "2020-01-01T00:00:00Z"
+    run "git", "checkout", "-q", "-B", "zulu"
+    commit "zulu", "2020-06-01T00:00:00Z"
+
+    names = described_class.branches(@dir).map { |b| b[:name] }
+    expect(names).to eq(%w[zulu alpha])
+  end
+
+  it "marks the checked-out branch and the remote-tracking refs" do
+    run "git", "checkout", "-q", "-b", "alpha"
+    commit "alpha", "2020-01-01T00:00:00Z"
+    sha = run("git", "rev-parse", "HEAD").strip
+    run "git", "update-ref", "refs/remotes/origin/alpha", sha
+    run "git", "update-ref", "refs/remotes/origin/HEAD", sha
+
+    by_name = described_class.branches(@dir).each_with_object({}) { |b, h| h[b[:name]] = b }
+
+    expect(by_name.keys).to contain_exactly("alpha", "origin/alpha")
+    expect(by_name["alpha"]).to include(current: true, remote: false)
+    expect(by_name["origin/alpha"]).to include(current: false, remote: true)
+  end
+end
+
 RSpec.describe Clacky::Server::GitPanel, ".log" do
   include GitPanelRepo
 
