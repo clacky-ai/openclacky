@@ -6715,7 +6715,7 @@ body {
   padding: 0.2rem;
   opacity: 0.75;        /* tier 2 */
   transition: all 0.15s ease;
-  max-width: 17rem;
+  max-width: 14rem;
 }
 /* The path is the only shrinkable part — the caret must stay visible.
    line-height is pinned so the wrapper's height stays driven by the text and
