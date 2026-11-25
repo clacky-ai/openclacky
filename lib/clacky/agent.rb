@@ -1445,7 +1445,7 @@ module Clacky
         # run even when @ui is nil (e.g. in tests), so branch explicitly.
         begin
           if @ui
-            @ui.with_progress(message: "Compressing message history...", style: :quiet) do |handle|
+            @ui.with_progress(message: Clacky::I18n.t("progress.compressing"), style: :quiet) do |handle|
               response = call_llm
               handle_compression_response(response, compression_context, progress: handle)
               compression_handled = true
@@ -1772,7 +1772,7 @@ module Clacky
 
           result = nil
           if @ui
-            progress_message = build_tool_progress_message(call[:name], args)
+            progress_message = build_tool_progress_message(call[:name])
             @ui.with_progress(
               message: progress_message,
               style: :quiet,

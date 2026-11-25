@@ -51,7 +51,7 @@ module Clacky
           rescue Clacky::AgentInterrupted => e
             # User cancelled the idle compression — finish the quiet progress
             # slot in place so the user sees exactly what happened (rather
-            # than the "Idle detected..." line being silently removed).
+            # than the "compressing" line being silently removed).
             final = "Idle compression cancelled: #{e.message}"
             if handle
               handle.finish(final_message: final)
@@ -92,7 +92,7 @@ module Clacky
         if @ui
           result = nil
           @ui.with_progress(
-            message: "Idle detected. Compressing conversation to optimize costs...",
+            message: Clacky::I18n.t("progress.compressing_idle"),
             style: :quiet
           ) do |handle|
             result = run_compression.call(handle)

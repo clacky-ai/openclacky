@@ -21,9 +21,6 @@ module Clacky
       BUFFER_FLUSH_SIZE = 5  # flush early when buffer is large
       PROCESS_STATUS_MAX_LENGTH = 240
       TERMINAL_PROGRESS_STATES = %i[waiting success failed interrupted].freeze
-      PROGRESS_TOOLS = %w[
-        browser edit file_reader glob grep invoke_skill terminal todo_manager web_fetch web_search write
-      ].freeze
 
       attr_reader :platform, :chat_id
 
@@ -411,7 +408,11 @@ module Clacky
 
       private def tool_progress_message(name)
         tool = name.to_s.downcase
-        progress_text(PROGRESS_TOOLS.include?(tool) ? "tool.#{tool}" : "working")
+        # Unknown tools (extension tools in particular) must not leak their
+        # name into an IM card, so they share one generic "working" status.
+        return progress_text("working") unless Clacky::I18n::PROGRESS_TOOLS.include?(tool)
+
+        Clacky::I18n.tool_progress_translations(tool)
       end
 
       private def progress_text(key)

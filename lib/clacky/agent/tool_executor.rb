@@ -287,17 +287,8 @@ module Clacky
         end
       end
 
-      private def build_tool_progress_message(tool_name, args)
-        case tool_name.to_s.downcase
-        when 'terminal'
-          "Running command"
-        when 'web_fetch'
-          "Fetching web page"
-        when 'web_search'
-          "Searching web"
-        else
-          "Executing #{tool_name}"
-        end
+      private def build_tool_progress_message(tool_name)
+        Clacky::I18n.tool_progress(tool_name)
       end
 
       # Inject TODO reminder into tool results for non-todo_manager tools

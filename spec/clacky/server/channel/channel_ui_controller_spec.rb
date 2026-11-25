@@ -26,6 +26,10 @@ RSpec.describe Clacky::Channel::ChannelUIController do
     Clacky::I18n.translations("channel.progress.#{key}")
   end
 
+  def tool_progress_text(name)
+    Clacky::I18n.tool_progress_translations(name)
+  end
+
   def complete
     controller.show_complete(iterations: 1, cost: 0.0008, duration: 2.3, cost_source: :pricing)
   end
@@ -100,7 +104,7 @@ RSpec.describe Clacky::Channel::ChannelUIController do
       progress_controller.show_assistant_message("All done", files: [])
 
       expect(progress_updates).to eq([
-        ["chat_1", "card_1", progress_text("tool.terminal"), :working],
+        ["chat_1", "card_1", tool_progress_text("terminal"), :working],
         ["chat_1", "card_1", "All done", :success]
       ])
       expect(sent).to be_empty
@@ -122,8 +126,8 @@ RSpec.describe Clacky::Channel::ChannelUIController do
       progress_controller.show_complete(iterations: 2, cost: nil, duration: 1.2, cost_source: nil)
 
       expect(progress_updates).to eq([
-        ["chat_1", "card_1", progress_text("tool.terminal"), :working],
-        ["chat_1", "card_1", progress_text("tool.write"), :working],
+        ["chat_1", "card_1", tool_progress_text("terminal"), :working],
+        ["chat_1", "card_1", tool_progress_text("write"), :working],
         ["chat_1", "card_1", "All done", :success]
       ])
       expect(sent).to be_empty
@@ -277,7 +281,7 @@ RSpec.describe Clacky::Channel::ChannelUIController do
       progress_controller.show_assistant_message("Final result", files: [])
 
       expect(progress_updates).to eq([
-        ["chat_1", "card_1", progress_text("tool.terminal"), :working],
+        ["chat_1", "card_1", tool_progress_text("terminal"), :working],
         ["chat_1", "card_1", "Final result", :success]
       ])
       expect(sent).to be_empty

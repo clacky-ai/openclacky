@@ -11,9 +11,34 @@ module Clacky
     }.freeze
     DEFAULT_LOCALE = "en"
 
+    # Tools that have a dedicated progress phrase. Anything else falls back to
+    # "Executing <tool>..." so a newly added tool still says something sensible.
+    PROGRESS_TOOLS = %w[
+      browser edit file_reader glob grep invoke_skill terminal todo_manager
+      web_fetch web_search write
+    ].freeze
+
     def self.t(key, **vars)
       translate(locale, key, **vars)
     end
+
+    # Progress line shown while a tool runs (TUI spinner, Web UI status pill,
+    # IM channel card), localized to the active thread locale.
+    def self.tool_progress(tool)
+      translate(locale, tool_progress_key(tool), name: tool.to_s)
+    end
+
+    # Same phrase in every locale, for surfaces that render all translations
+    # at once (IM cards).
+    def self.tool_progress_translations(tool)
+      translations(tool_progress_key(tool), name: tool.to_s)
+    end
+
+    def self.tool_progress_key(tool)
+      name = tool.to_s.downcase
+      PROGRESS_TOOLS.include?(name) ? "progress.tool.#{name}" : "progress.tool.generic"
+    end
+    private_class_method :tool_progress_key
 
     def self.translate(code, key, **vars)
       table = LOCALES[code] || LOCALES[DEFAULT_LOCALE]

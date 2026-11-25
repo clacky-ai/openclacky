@@ -19,6 +19,48 @@ RSpec.describe Clacky::I18n do
     end
   end
 
+  describe ".tool_progress" do
+    it "uses the Chinese phrase under the zh locale" do
+      Thread.current[:lang] = "zh"
+
+      expect(described_class.tool_progress("terminal")).to eq("正在执行命令...")
+    end
+
+    it "uses the English phrase under the en locale" do
+      Thread.current[:lang] = "en"
+
+      expect(described_class.tool_progress("terminal")).to eq("Running command...")
+    end
+
+    it "matches tool names case-insensitively" do
+      Thread.current[:lang] = "zh"
+
+      expect(described_class.tool_progress("Web_Search")).to eq("正在联网搜索...")
+    end
+
+    it "falls back to a generic phrase naming the tool" do
+      Thread.current[:lang] = "zh"
+
+      expect(described_class.tool_progress("some_new_tool")).to eq("正在执行 some_new_tool...")
+    end
+
+    it "has a translated phrase for every tool in PROGRESS_TOOLS" do
+      described_class::PROGRESS_TOOLS.each do |tool|
+        key = "progress.tool.#{tool}"
+
+        expect(Clacky::Locales::EN).to have_key(key), "missing #{key} in EN table"
+        expect(Clacky::Locales::ZH).to have_key(key), "missing #{key} in ZH table"
+      end
+    end
+
+    it "translates into every locale at once for IM cards" do
+      expect(described_class.tool_progress_translations("terminal")).to eq(
+        "en" => "Running command...",
+        "zh" => "正在执行命令..."
+      )
+    end
+  end
+
   describe ".locale" do
     it "prefers the thread locale over the environment" do
       Thread.current[:lang] = "zh"
