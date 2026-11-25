@@ -237,7 +237,9 @@ module Clacky
           aligned.map do |row|
             ending = row.end_with?("\n") ? "\n" : ""
             body, label = box_split_label(row.chomp)
-            resized = box_resize(body, target)
+            # A connector carrying a label is not a frame row; padding it would
+            # shove the label past the frame it annotates.
+            resized = label && body.count(BOX_CHARS) < 2 ? body : box_resize(body, target)
             resized = "#{resized}  #{label}" if label
             resized + ending
           end
