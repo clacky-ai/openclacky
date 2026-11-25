@@ -5,6 +5,7 @@ class Element {
   constructor(tag) { this.tag = tag; this.children = []; this.style = {}; this.value = ''; this.open = false; }
   append(...children) { this.children.push(...children); }
   replaceChildren(...children) { this.children = children; }
+  setAttribute(name, value) { this.attrs = Object.assign(this.attrs || {}, { [name]: value }); }
 }
 (async () => {
   const mounts = {}, handlers = {}, requests = [], badges = [];
@@ -14,7 +15,7 @@ class Element {
     created_at: '2026-11-04T01:30:00Z', revision: 2, progress: '张三周五有空，是否安排晚上七点？', instruction: '约饭的详细原始要求', constraints: '不预订', updates: [] };
   const context = {
     I18n: { lang: () => lang },
-    document: { addEventListener: (name, fn) => { handlers[name] = fn; }, createElement: tag => new Element(tag), getElementById: id => id === 'user-input' ? input : null },
+    document: { addEventListener: (name, fn) => { handlers[name] = fn; }, createElement: tag => new Element(tag), createElementNS: (_ns, tag) => new Element(tag), getElementById: id => id === 'user-input' ? input : null },
     Clacky: {
       ext: { context: { sessionId: 'owner' }, ui: { mount: (slot, definition) => { mounts[slot] = definition; } },
         subscribe: (event, fn) => { handlers[event] = fn; } },
@@ -46,7 +47,12 @@ class Element {
   assert(has(visible(aside.root), card.progress));
   const createdTime = visible(aside.root).find(n => n.tag === 'time');
   assert.equal(createdTime.dateTime, card.created_at);
-  assert(createdTime.textContent.startsWith('创建于：'));
+  assert(createdTime.title.startsWith('创建于：'));
+  assert(/^\d\d-\d\d \d\d:\d\d$/.test(createdTime.textContent), 'footer keeps the time compact');
+  const label = visible(aside.root).find(n => n.className && n.className.startsWith('secretary-work-label'));
+  assert.equal(label.textContent, '待协助', 'status badge uses the short label');
+  assert(label.className.includes('is-loud'), 'states asking for action are emphasised');
+  assert(walk(aside.root).some(n => n.tag === 'svg' && n.attrs.class === 'secretary-work-chevron'), 'details toggle has a chevron');
   assert(!has(visible(aside.root), card.instruction));
   assert(visible(aside.root).some(n => n.tag === 'a'), 'history is directly accessible');
   assert(has(visible(banner.root), '1 件需要协助'));
