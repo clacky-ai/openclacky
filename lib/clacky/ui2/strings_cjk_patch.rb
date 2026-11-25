@@ -2,21 +2,23 @@
 
 require "strings"
 
-# strings 0.2.1 (latest release, 2021) tracks ANSI reinsertion offsets in
-# display width (CJK chars count as 2) but applies them as String character
-# indexes via String#insert, so any colored CJK content that needs wrapping
-# raises IndexError. These methods mirror upstream with offsets tracked in
-# character count instead of display width.
+# strings 0.2.1 (latest release, 2021) re-wraps coloured text by remembering
+# where every escape sequence started and inserting it back with
+# String#insert. Three things go wrong with that:
 #
-# Two more places count the wrong thing once CJK is involved:
+# - Offsets are tracked in display width (CJK counts as 2) but applied as
+#   character indexes, so coloured CJK content raises IndexError.
+# - The offset stack is shared across lines, so a position recorded on one
+#   line lands inside another line's characters. "\e[38;5;230m" came out as
+#   "\e[38;5" plus a literal "230m" printed to the user.
+# - The early bail-out compares the printable *character* count with wrap_at.
+#   Forty Chinese characters are eighty columns, so such a line is returned
+#   unwrapped and overflows the pane.
 #
-# - Upstream bails out early when the printable *character* count is below
-#   wrap_at. Forty Chinese characters are eighty terminal columns, so such a
-#   line is returned unwrapped and overflows the pane.
-# - Insertion offsets recorded on one line are meaningless on the next one,
-#   yet they were kept in the stack and reused verbatim. A stale offset can
-#   land inside an escape sequence, splitting "\e[38;5;230m" into "\e[38;5"
-#   plus a literal ";230m" printed to the user.
+# The wrapper below is token based instead: an escape sequence is a
+# zero-width token that is always copied whole, and the colours still open at
+# a break are replayed on the continuation line. Output offsets cannot drift
+# because nothing is ever inserted at a remembered position.
 module Strings
   # Upstream ANSI_MATCHER ends with an optional `([\];])?` group, so a literal
   # ";" right after a color code is swallowed along with it: the text
@@ -25,7 +27,8 @@ module Strings
   # Strip well-formed CSI sequences first and only fall back to the loose
   # matcher for genuinely broken leftovers.
   module ANSI
-    CSI_SEQUENCE = /\e\[[0-9:;<=>?]*[ -\/]*[@-~]/
+    CSI_SEQUENCE = /\e\[[0-9:;<=>?]*[ -\/]*[@-~]/.freeze
+    CSI_TOKEN = /\A\e\[[0-9:;<=>?]*[ -\/]*[@-~]\z/.freeze
     module_function
 
     def sanitize(string)
@@ -38,139 +41,146 @@ module Strings
   end
 
   module Wrap
+    # Codes that end whatever colour was open before them.
+    RESET_TOKENS = "\e[0m\e[m\e[39m\e[49m"
+    # A line with more open colours than this is replayed from the most
+    # recent ones only; keeps the prefix bounded on pathological input.
+    MAX_ACTIVE = 8
+
     module_function
 
     def wrap(text, wrap_at = DEFAULT_WIDTH, separator: NEWLINE)
       width = wrap_at.to_i
       return text if width.zero?
-      return text if text.lines.all? { |line| display_width(line.chomp) <= width }
+      return text if text.lines.all? { |line| visible_width(line.chomp) <= width }
 
-      ansi_stack = []
-      text.lines.map do |line|
-        format_line(line, width, ansi_stack).join(separator)
-      end.join
+      text.lines.map { |line| wrap_line(line, width).join(separator) }.join
     end
 
-    def format_line(text_line, wrap_at, ansi_stack)
-      lines = []
-      line  = []
-      word  = []
-      ansi  = []
-      ansi_matched = false
-      word_length = 0
-      line_length = 0
-      word_chars = 0
-      line_chars = 0
-      char_length = 0
-      text_length = display_width(text_line)
-      total_length = 0
+    # Split one line (which may carry colour) into chunks of at most `width`
+    # display columns. Word boundaries are respected; a single word wider
+    # than the line – the normal case for Chinese, which has no spaces – is
+    # broken between graphemes instead of being emitted oversized.
+    def wrap_line(line, width)
+      ending = line.end_with?(NEWLINE) ? NEWLINE : ""
+      tokens = tokenize(ending.empty? ? line : line.chomp)
 
-      UnicodeUtils.each_grapheme(text_line) do |char|
-        if char == Strings::ANSI::CSI || ansi.length > 0
-          ansi << char
-          if Strings::ANSI.only_ansi?(ansi.join)
-            ansi_matched = true
-          elsif ansi_matched
-            ansi_stack << [ansi[0...-1].join, line_chars + word_chars]
-            ansi_matched = false
+      chunks = []
+      current = []
+      current_width = 0
 
-            if ansi.last == Strings::ANSI::CSI
-              ansi = [ansi.last]
-            else
-              ansi = []
-            end
-          end
-          next if ansi.length > 0
+      words(tokens).each do |word|
+        word_width = word.sum { |token| token[1] }
+
+        if current_width + word_width <= width
+          current.concat(word)
+          current_width += word_width
+          next
         end
 
-        char_length = display_width(char)
-        total_length += char_length
-        if line_length + word_length + char_length <= wrap_at
-          if char == SPACE || total_length == text_length
-            line << word.join + char
-            line_length += word_length + char_length
-            line_chars += word_chars + char.size
-            word = []
-            word_length = 0
-            word_chars = 0
-          else
-            word << char
-            word_length += char_length
-            word_chars += char.size
+        unless current.empty?
+          chunks << current
+          current = []
+          current_width = 0
+        end
+
+        if word_width <= width
+          current = word.dup
+          current_width = word_width
+          next
+        end
+
+        word.each do |token|
+          if current_width.positive? && current_width + token[1] > width
+            chunks << current
+            current = []
+            current_width = 0
+            next if token[0] == SPACE
+          end
+          current << token
+          current_width += token[1]
+        end
+      end
+      chunks << current unless current.empty?
+
+      render_chunks(chunks, ending)
+    end
+
+    # @return [Array<Array(String, Integer)>] graphemes paired with their
+    #   display width, plus whole escape sequences paired with 0.
+    def tokenize(text)
+      tokens = []
+      escape = nil
+
+      UnicodeUtils.each_grapheme(text) do |char|
+        if escape
+          escape << char
+          if escape.match?(ANSI::CSI_TOKEN) || escape.size > 16
+            tokens << [escape, 0]
+            escape = nil
           end
           next
         end
 
-        if char == SPACE
-          lines << insert_ansi(line.join, ansi_stack)
-          line = []
-          line_length = 0
-          line_chars = 0
-          word << char
-          word_length += char_length
-          word_chars += char.size
-        elsif word_length + char_length <= wrap_at
-          lines << insert_ansi(line.join, ansi_stack)
-          line = [word.join + char]
-          line_length = word_length + char_length
-          line_chars = word_chars + char.size
-          word = []
-          word_length = 0
-          word_chars = 0
-        else # hyphenate word - too long to fit a line
-          lines << insert_ansi(word.join, ansi_stack)
-          line_length = 0
-          line_chars = 0
-          word = [char]
-          word_length = char_length
-          word_chars = char.size
+        if char == "\e"
+          escape = +"\e"
+          next
         end
+
+        tokens << [char, Unicode::DisplayWidth.of(char)]
       end
-      lines << insert_ansi(line.join, ansi_stack) unless line.empty?
-      lines << insert_ansi(word.join, ansi_stack) unless word.empty?
-      lines
+      tokens << [escape, 0] if escape
+
+      tokens
     end
 
-    def insert_ansi(string, ansi_stack = [])
-      return string if ansi_stack.empty?
-      return string if string.empty?
+    # Group tokens into words. A word keeps its trailing space, which is what
+    # makes the chunks add up to the original text.
+    def words(tokens)
+      result = []
+      word = []
+      tokens.each do |token|
+        word << token
+        next unless token[0] == SPACE
 
-      new_stack = []
-      output          = string.dup
-      length          = string.size
-      matched_reset   = false
-      ansi_reset      = Strings::ANSI::RESET
+        result << word
+        word = []
+      end
+      result << word unless word.empty?
 
-      ansi_stack.reverse_each do |ansi|
-        pos = ansi[1]
-        # Offsets carried over from a previous (longer) line can exceed this
-        # line; such codes belong before the wrapped content.
-        pos = 0 if pos > length
-        if ansi[0] =~ /#{Regexp.quote(ansi_reset)}/
-          matched_reset = true
-          output.insert(pos, ansi_reset)
-          next
-        elsif !matched_reset # ansi without reset
-          matched_reset = false
-          new_stack << ansi # keep the ansi
-          next if pos == length
-          if output.end_with?(NEWLINE)
-            output.insert(-2, ansi_reset)
-          else
-            output.insert(-1, ansi_reset)
-          end
-        end
+      result
+    end
 
-        output.insert(pos, ansi[0])
+    # Turn token chunks into strings, replaying the colour that is still open
+    # at the start of each chunk and closing every chunk that leaves one open.
+    def render_chunks(chunks, ending)
+      active = []
+      rendered = chunks.each_with_index.map do |chunk, index|
+        text = chunk.map { |token| token[0] }.join
+        body = active.empty? ? text : active.join + text
+        chunk.each { |token| track(active, token[0]) }
+        body += Strings::ANSI::RESET unless active.empty?
+        index == chunks.size - 1 ? body + ending : body
       end
 
-      ansi_stack.replace(new_stack)
-      # Nothing recorded above survives this line: offsets are character
-      # positions inside the line we just emitted. Whatever is still open has
-      # to be reopened at the very start of the next line.
-      ansi_stack.each { |ansi| ansi[1] = 0 }
+      rendered.empty? ? [ending] : rendered
+    end
 
-      output
+    def track(active, text)
+      return unless text.getbyte(0) == 27
+
+      if RESET_TOKENS.include?(text)
+        active.clear
+      else
+        active << text
+        active.shift while active.size > MAX_ACTIVE
+      end
+    end
+
+    def visible_width(text)
+      return 0 if text.empty?
+
+      Unicode::DisplayWidth.of(Strings::ANSI.sanitize(text))
     end
   end
 end

@@ -271,7 +271,83 @@ RSpec.describe Clacky::UI2::MarkdownRenderer do
     end
   end
 
+  # Regression: the wrapper reinserted colour codes at offsets it remembered
+  # per line, so on some widths a code landed in the middle of an inline-code
+  # run and another one was cut in half. The row came out four columns wider
+  # than its borders, the terminal hard-wrapped it, and the visible leftovers
+  # were the tail of a colour sequence plus a borderless row.
+  describe "coloured table rows at awkward widths" do
+    let(:markdown) do
+      <<~MD
+        | 需求 | 现状 |
+        |---|---|
+        | 双向 WS | 已有：客户端发 `{type:...}`（`http_server.rb:8549-8663` 一堆 case），服务端从任意线程推送，`WebSocketConnection#send_json` 带 `send_mutex` + 5s 写超时（`http_server.rb:9518`），所以 PTY reader 线程可以直接把输出推给该连接 |
+        | PTY | `tools/terminal.rb` 已经 `require "pty"`，会话注册表 `terminal/session_manager.rb` 可参考 |
+      MD
+    end
+
+    def render_with_colour(columns)
+      allow(TTY::Screen).to receive(:width).and_return(columns + 4)
+      allow(TTY::Markdown).to receive(:parse).and_wrap_original do |original, *args, **kwargs|
+        original.call(*args, **kwargs, color: :always)
+      end
+
+      described_class.render(markdown)
+    end
+
+    [94, 95, 134, 184].each do |columns|
+      it "keeps every colour sequence whole and every row the same width at #{columns} columns" do
+        rendered = render_with_colour(columns)
+
+        expect(rendered).to include("\e[")
+        rendered.each_line do |line|
+          expect(line.scan("\e").size).to eq(line.scan(/\e\[[0-9;]*m/).size)
+        end
+        expect(Strings::ANSI.sanitize(rendered)).not_to match(/(?<![0-9;])\d{1,3}m/)
+        # The inline code run keeps its colour attached to the whole token.
+        expect(rendered).to include("\e[33mWebSocketConnection#send_json\e[0m")
+
+        rows = Strings::ANSI.sanitize(rendered).lines.map(&:rstrip).select do |line|
+          line.strip.start_with?("│", "┌", "├", "└")
+        end
+
+        expect(rows.size).to be > 4
+        expect(rows.map { |row| Unicode::DisplayWidth.of(row) }.uniq.size).to eq(1)
+        expect(Unicode::DisplayWidth.of(rows.first)).to be <= columns
+      end
+    end
+  end
+
   describe "Strings.wrap CJK patch" do
+    # Regression: a colour code was inserted at a remembered offset, which put
+    # it inside a word: "WebSocketConnection#\e[0msen\e[33md_json". A code cut
+    # in half ("\e[33" + "\e[33mm") printed its tail as text.
+    it "keeps colour codes on word boundaries instead of inside a word" do
+      colored = "已有：客户端发 \e[33m{type:...}\e[0m（\e[33mhttp_server.rb:8549-8663\e[0m 一堆 case），" \
+        "服务端从任意线程推送，\e[33mWebSocketConnection#send_json\e[0m 带 \e[33msend_mutex\e[0m + 5s 写超时，" \
+        "所以 PTY reader 线程可以直接把输出推给该连接"
+
+      result = Strings.wrap(colored, 46)
+
+      expect(result.lines.size).to be > 1
+      expect(result).not_to match(/[\w#.]\e\[[0-9;]*m[\w#.]/)
+      result.each_line do |line|
+        expect(line.scan("\e").size).to eq(line.scan(/\e\[[0-9;]*m/).size)
+      end
+      # No character is lost or duplicated on the way through.
+      expect(Strings::ANSI.sanitize(result).delete("\n")).to eq(Strings::ANSI.sanitize(colored))
+      expect(Strings::ANSI.sanitize(result)).not_to match(/(?<![0-9;])\d{1,3}m/)
+    end
+
+    it "breaks a word with no spaces at a grapheme boundary instead of overflowing" do
+      result = Strings.wrap("中文" * 10, 12)
+
+      result.each_line do |line|
+        expect(Unicode::DisplayWidth.of(line.chomp)).to be <= 12
+      end
+      expect(Strings::ANSI.sanitize(result).delete("\n")).to eq("中文" * 10)
+    end
+
     # Regression: reinsertion offsets recorded on one line were reused on the
     # next one, landing inside an escape sequence and printing its tail
     # (";230m") as literal text.
