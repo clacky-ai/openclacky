@@ -1,0 +1,16 @@
+id: terminal
+name: Terminal
+display_name: Terminal
+display_name_zh: 终端
+description: Interactive shell in the session's working directory, in the right panel
+description_zh: 在当前会话的工作目录打开交互式终端（右侧面板）
+version: "0.1.0"
+icon: icon.svg
+author: OpenClacky
+license: MIT
+enabled_by_default: false
+contributes:
+  api: api/handler.rb
+  panels:
+    - id: terminal
+      view: panels/terminal/view.js
