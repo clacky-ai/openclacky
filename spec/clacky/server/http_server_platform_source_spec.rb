@@ -215,7 +215,6 @@ RSpec.describe Clacky::Server::HttpServer, "platform source settings" do
       allow(Clacky::PlatformHttpClient).to receive(:new).and_return(fake_client)
 
       brand = Clacky::BrandConfig.new({})
-      allow(brand).to receive(:sync_free_skills_async!)
       allow(Clacky::BrandConfig).to receive(:load).and_return(brand)
 
       ClimateControl.modify(
@@ -242,7 +241,6 @@ RSpec.describe Clacky::Server::HttpServer, "platform source settings" do
 
       expect(brand.product_name).to be_nil
       expect(File).not_to exist(brand_file)
-      expect(brand).not_to have_received(:sync_free_skills_async!)
     end
   end
 end

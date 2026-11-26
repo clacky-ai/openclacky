@@ -109,36 +109,4 @@ RSpec.describe Clacky::BrandConfig do
       end
     end
   end
-
-  describe "#sync_free_skills_async!" do
-    it "skips when already activated" do
-      with_temp_brand_file do
-        config = described_class.new(
-          "product_name" => "JohnAI",
-          "package_name" => "johnai",
-          "license_key"  => "AAAAAAAA-AAAAAAAA-AAAAAAAA-AAAAAAAA-AAAAAAAA"
-        )
-        expect(config.sync_free_skills_async!).to be_nil
-      end
-    end
-
-    it "skips when not branded" do
-      with_temp_brand_file do
-        config = described_class.new({})
-        expect(config.sync_free_skills_async!).to be_nil
-      end
-    end
-
-    it "skips in CLACKY_TEST mode" do
-      with_temp_brand_file do
-        config = described_class.new(
-          "product_name" => "JohnAI",
-          "package_name" => "johnai"
-        )
-        # CLACKY_TEST is set by spec_helper, so this is the default path.
-        expect(ENV["CLACKY_TEST"]).to eq("1")
-        expect(config.sync_free_skills_async!).to be_nil
-      end
-    end
-  end
 end

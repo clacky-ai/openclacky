@@ -38,13 +38,6 @@ RSpec.configure do |config|
   # Disable RSpec exposing methods globally on `Module` and `main`
   config.disable_monkey_patching!
 
-  # Prevent background brand-skill sync threads from making real network calls
-  # during tests. BrandConfig#sync_brand_skills_async! launches a Thread that
-  # hits the remote API; stub it out globally so every Agent.new is fast.
-  config.before(:each) do
-    allow_any_instance_of(Clacky::BrandConfig).to receive(:sync_brand_skills_async!)
-  end
-
   # Last-resort guard: a spec that builds a ProjectManager without injecting a
   # path would otherwise write into the developer's real ~/.clacky/projects.json.
   config.before(:suite) do

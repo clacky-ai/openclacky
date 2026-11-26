@@ -506,41 +506,6 @@ module Clacky
       install_brand_skill!(skill_info, encrypted: false)
     end
 
-    # Synchronise free skills in the background for unactivated branded installs.
-    #
-    # Mirrors sync_brand_skills_async! but uses the public free_skills endpoint
-    # so no license is required. Only runs when the install is branded and NOT
-    # activated — once a license is activated the regular brand-skill sync
-    # takes over (and may include additional encrypted skills).
-    #
-    # @return [Thread, nil]
-    def sync_free_skills_async!(on_complete: nil)
-      return nil unless branded?
-      return nil if activated?
-      return nil if ENV["CLACKY_TEST"] == "1"
-
-      Clacky::ThreadRegistry.spawn(name: "brand-fetch-free-skills") do
-        Thread.current.abort_on_exception = false
-
-        begin
-          result = fetch_free_skills!
-          next unless result[:success]
-
-          remote_skill_names = result[:skills].map { |s| s["name"] }
-          installed_brand_skills.each_key do |local_name|
-            send(:delete_brand_skill!, local_name) unless remote_skill_names.include?(local_name)
-          end
-
-          installed = installed_brand_skills
-          to_install = result[:skills].select { |s| installed[s["name"]].nil? || s["needs_update"] }
-          results    = to_install.map { |skill_info| install_free_skill!(skill_info) }
-
-          on_complete&.call(results)
-        rescue StandardError
-          # Background sync failures are intentionally swallowed.
-        end
-      end
-    end
 
     # Upload (publish) a custom skill ZIP to the OpenClacky Cloud API.
     # Calls POST /api/v1/client/skills (system-license endpoint).
@@ -1242,81 +1207,6 @@ module Clacky
       { success: false, error: e.message }
     end
 
-    # Synchronise brand skills in the background.
-    #
-    # Fetches the remote skills list and installs every skill that is missing
-    # locally or has a newer remote version — skills the brand publishes after
-    # this install was activated therefore arrive without user action.  The work
-    # runs in a daemon Thread so it never blocks the caller (typically Agent
-    # startup).
-    #
-    # If the license is not activated the method returns immediately without
-    # spawning a thread.
-    #
-    # @param on_complete [Proc, nil] Optional callback called with the sync
-    #   results array once all downloads finish (useful for tests / UI feedback).
-    # @return [Thread, nil] The background thread, or nil if skipped.
-    def sync_brand_skills_async!(on_complete: nil)
-      return nil unless activated?
-      return nil if ENV["CLACKY_TEST"] == "1"
-
-      Clacky::ThreadRegistry.spawn(name: "brand-fetch-skills") do
-        Thread.current.abort_on_exception = false
-
-        begin
-          result = fetch_brand_skills!
-          next unless result[:success]
-
-          # Remove locally installed skills that have been deleted on the remote.
-          # Compare the set of remote skill names against what is installed locally
-          # and delete any skill that no longer exists in the remote catalogue.
-          remote_skill_names = result[:skills].map { |s| s["name"] }
-          installed_brand_skills.each_key do |local_name|
-            delete_brand_skill!(local_name) unless remote_skill_names.include?(local_name)
-          end
-
-          # Install every remote skill that is missing locally or has a newer
-          # version available, so the local catalogue converges on the brand's
-          # without the user clicking Install in the Brand Skills panel.
-          installed = installed_brand_skills
-          skills_to_install = result[:skills].select do |s|
-            s["needs_update"] || !installed.key?(s["name"])
-          end
-          results = skills_to_install.map do |skill_info|
-            install_brand_skill!(skill_info)
-          end
-
-          # Even when the version hasn't changed, display metadata (name_zh,
-          # description_zh, description) may have been updated on the platform.
-          # Patch brand_skills.json in-place without re-downloading the ZIP.
-          result[:skills].each do |skill_info|
-            name = skill_info["name"]
-            next unless installed.key?(name)
-            next if skill_info["needs_update"] # already being reinstalled above
-
-            local = installed[name]
-            next if local["name_zh"]        == skill_info["name_zh"].to_s &&
-                    local["description_zh"] == skill_info["description_zh"].to_s &&
-                    local["description"]    == skill_info["description"].to_s
-
-            # Metadata changed — update brand_skills.json without reinstalling.
-            record_installed_skill(
-              name,
-              local["version"],
-              skill_info["description"].to_s,
-              encrypted:      local["encrypted"] != false,
-              description_zh: skill_info["description_zh"].to_s,
-              name_zh:        skill_info["name_zh"].to_s
-            )
-          end
-
-          on_complete&.call(results)
-        rescue StandardError
-          # Background sync failures are intentionally swallowed — the agent
-          # continues to work with whatever skills are already installed.
-        end
-      end
-    end
 
     # Path to the directory where brand skills are installed.
     def brand_skills_dir

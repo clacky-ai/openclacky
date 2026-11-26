@@ -2729,9 +2729,8 @@ module Clacky
             else
               Clacky::Logger.debug("[Brand] async distribution refresh skipped/failed — #{result[:message]}")
             end
-            # Free-mode skill sync: branded + unactivated installs need their
-            # creator's free skills auto-installed for the "no serial number" UX.
-            brand.sync_free_skills_async! if source_current.call
+            # Brand skills are installed on demand from the skills panel — no
+            # background sync here.
           rescue StandardError => e
             Clacky::Logger.warn("[Brand] async distribution refresh raised: #{e.class}: #{e.message}")
           ensure
@@ -2862,12 +2861,9 @@ module Clacky
         result = @brand_test ? brand.activate_mock!(key) : brand.activate!(key)
 
         if result[:success]
-          # Refresh skill_loader with the now-activated brand config so brand
-          # skills are loadable from this point forward (e.g. after sync).
+          # Refresh skill_loader so brand skills installed from the panel become
+          # loadable. Installation itself is user-driven.
           @skill_loader = Clacky::SkillLoader.new(working_dir: nil, brand_config: brand)
-          # Sync brand skills in the background so they are available without
-          # manual user action.
-          brand.sync_brand_skills_async!
           json_response(res, 200, {
             ok:            true,
             product_name:  result[:product_name] || brand.product_name,
