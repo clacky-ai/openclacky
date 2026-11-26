@@ -50,17 +50,20 @@ RSpec.describe "Git panel toolbar" do
 
     bar = view[/const bar = el\("div", \{ class: "cg-bar" \},.*?\);/m]
     expect(bar).to include("stats")
-    expect(bar).to include("cg-bar-spacer")
     expect(bar).to include("tools")
+    expect(bar).not_to include("cg-bar-spacer")
   end
 
   it "drops the tool row to the left edge when the bar wraps" do
-    # Narrow sessions wrap the tools onto their own line. Pushing them right
-    # there left a gap under the scope pills, so the spacer stays in the flow
-    # and the wrapped row starts flush left.
+    # Narrow sessions wrap the tools onto their own line. A flexible spacer
+    # rides along with them, so the push to the right edge comes from
+    # space-between instead: a lone item sits at the start of its line.
+    expect(view[/\.cg-bar \{[^}]*\}/]).to include("justify-content: space-between")
+    expect(view).not_to include("cg-bar-spacer")
+    expect(view[/\.cg-tools \{[^}]*\}/]).not_to include("margin-left: auto")
+
     narrow = view[/@container \(max-width: 460px\) \{.*?\n      \}\n/m]
     expect(narrow).to include("flex-wrap: wrap")
-    expect(narrow).not_to include("cg-bar-spacer { display: none")
     expect(narrow).not_to include("margin-left: auto")
     expect(view[/\.cg-tools \{[^}]*\}/]).to include("flex: none")
   end
