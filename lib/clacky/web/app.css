@@ -3824,7 +3824,7 @@ body {
    the slot has no panels for the current agent it stays empty and the whole
    column collapses to zero width. */
 #session-aside {
-  --session-aside-width: 16rem;
+  --session-aside-width: 18.5rem;
   --aside-tabbar-actions-width: 78px;
   /* A warm wash one step lighter than the theme's hover fill, so cards and
      resting pills stay quiet while still matching the palette. */
@@ -4104,7 +4104,7 @@ body {
 /* The "+" page: pick an unopened panel. Two groups — tools that ship with the
    app, and panels contributed by installed / self-made extensions. Cards stay
    at two per row and stretch, however wide the column gets; only a squeezed
-   column (the 256px minimum, ~14rem of usable width) falls back to one per
+   column (the 296px minimum, ~15.5rem of usable width) falls back to one per
    row so labels keep breathing. */
 .aside-newtab {
   padding: 1.5rem 1rem 1.5rem;

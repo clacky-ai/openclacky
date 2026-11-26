@@ -90,7 +90,7 @@ function boot() {
     matchMedia: () => ({ matches: false }),
     getComputedStyle: element => ({
       fontSize: "16px",
-      getPropertyValue: name => element.style.values[name] || (name === "--session-aside-width" ? "256px" : ""),
+      getPropertyValue: name => element.style.values[name] || (name === "--session-aside-width" ? "296px" : ""),
     }),
     MutationObserver: class MutationObserver { observe() {} },
     requestAnimationFrame: fn => { fn(); return 1; },
@@ -122,7 +122,7 @@ function boot() {
   };
   messages.appendChild(anchor);
   Object.defineProperty(nodes["session-aside"], "offsetWidth", {
-    get() { layoutTop = 145; return 256; },
+    get() { layoutTop = 145; return 296; },
   });
 
   context.Clacky.Aside.fullscreen(true);

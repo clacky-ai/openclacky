@@ -78,7 +78,7 @@ function boot(platform = "MacIntel") {
     matchMedia: () => ({ matches: false }),
     getComputedStyle: element => ({
       fontSize: "16px",
-      getPropertyValue: name => element.style.values[name] || (name === "--session-aside-width" ? "256px" : ""),
+      getPropertyValue: name => element.style.values[name] || (name === "--session-aside-width" ? "296px" : ""),
     }),
     MutationObserver: class MutationObserver { observe() {} },
     requestAnimationFrame: fn => { fn(); return 1; },

@@ -82,7 +82,7 @@ function boot(options = {}) {
     getComputedStyle: element => ({
       fontSize: "16px",
       getPropertyValue: name => element.style.values[name] ||
-        (name === "--session-aside-width" ? "256px" : ""),
+        (name === "--session-aside-width" ? "296px" : ""),
     }),
     MutationObserver: class MutationObserver {
       constructor(callback) { this.callback = callback; observers.push(this); }
@@ -115,7 +115,7 @@ function boot(options = {}) {
     nodes, storage, fire, onHandle, context, observers,
     triggerMutation: () => observers.forEach(observer => observer.callback()),
     fullscreen: () => nodes["chat-panel"].classes.has("aside-fullscreen"),
-    width: () => parseInt(nodes["session-aside"].style.values["--session-aside-width"] || "256", 10),
+    width: () => parseInt(nodes["session-aside"].style.values["--session-aside-width"] || "296", 10),
   };
 }
 
@@ -127,8 +127,8 @@ function boot(options = {}) {
 
   ui.onHandle("mousedown", 1000);
   ui.fire("mousemove", { clientX: 544 });
-  assert.equal(ui.width(), 712);
-  assert.equal(ui.fullscreen(), false, "488px of chat is still a split");
+  assert.equal(ui.width(), 752);
+  assert.equal(ui.fullscreen(), false, "448px of chat is still a split");
 
   ui.fire("mousemove", { clientX: 200 });
   assert.equal(ui.width(), 900, "the split drops back to the largest legal width");
@@ -176,10 +176,10 @@ function boot(options = {}) {
   ui.onHandle("mousedown", 1000);
   ui.fire("mousemove", { clientX: 556 });
   ui.fire("mouseup", { clientX: 556 });
-  assert.equal(ui.storage.get("clacky.aside.width.s1"), "700");
+  assert.equal(ui.storage.get("clacky.aside.width.s1"), "740");
 
   const reloaded = boot({ storage: ui.storage });
-  assert.equal(reloaded.width(), 700);
+  assert.equal(reloaded.width(), 740);
   assert.equal(reloaded.fullscreen(), false);
 }
 
@@ -275,23 +275,23 @@ console.log("chat column collapse tests passed");
   ui.onHandle("mousedown", 1000);
   ui.fire("mousemove", { clientX: 556 });
   ui.fire("mouseup", { clientX: 556 });
-  assert.equal(ui.width(), 700);
-  assert.equal(ui.storage.get("clacky.aside.width.sA"), "700");
+  assert.equal(ui.width(), 740);
+  assert.equal(ui.storage.get("clacky.aside.width.sA"), "740");
 
   ui.context.Clacky.Aside.onSession("sB");
-  assert.equal(ui.width(), 256,
+  assert.equal(ui.width(), 296,
     "a session that was never dragged starts at the default, not at sA's width");
 
   ui.onHandle("mousedown", 1000);
   ui.fire("mousemove", { clientX: 756 });
   ui.fire("mouseup", { clientX: 756 });
-  assert.equal(ui.width(), 500);
-  assert.equal(ui.storage.get("clacky.aside.width.sB"), "500");
-  assert.equal(ui.storage.get("clacky.aside.width.sA"), "700",
+  assert.equal(ui.width(), 540);
+  assert.equal(ui.storage.get("clacky.aside.width.sB"), "540");
+  assert.equal(ui.storage.get("clacky.aside.width.sA"), "740",
     "and dragging sB leaves sA untouched");
 
   ui.context.Clacky.Aside.onSession("sA");
-  assert.equal(ui.width(), 700, "coming back restores the width this session was left at");
+  assert.equal(ui.width(), 740, "coming back restores the width this session was left at");
 }
 
 // A switch leaves fullscreen behind, but it must not re-clamp the width that
@@ -307,7 +307,7 @@ console.log("chat column collapse tests passed");
 
   ui.context.Clacky.Aside.onSession("sB");
   assert.equal(ui.fullscreen(), false, "a switch leaves fullscreen behind");
-  assert.equal(ui.width(), 256,
+  assert.equal(ui.width(), 296,
     "the incoming session starts at the default instead of inheriting a width it never chose");
   assert.equal(ui.storage.get("clacky.aside.width.sA"), "900",
     "the hidden width is still the width that session owns");
