@@ -12035,17 +12035,17 @@ button:focus-visible { outline: 2px solid var(--color-accent-primary); outline-o
 .brand-skills-activate-btn {
   font-size: 0.8125rem;
   font-weight: 500;
-  padding: 0.375rem 1rem;
-  border-radius: 6px;
-  border: 1px solid var(--color-accent, #6366f1);
-  color: var(--color-accent, #6366f1);
-  background: transparent;
+  padding: 0.4375rem 0.875rem;
+  border-radius: 8px;
+  border: none;
+  color: var(--color-button-primary-text);
+  background: var(--color-button-primary);
   cursor: pointer;
-  transition: background .15s, color .15s;
+  transition: background-color .2s ease, transform .15s ease;
 }
 .brand-skills-activate-btn:hover {
-  background: var(--color-accent, #6366f1);
-  color: #fff;
+  background: var(--color-button-primary-hover);
+  transform: translateY(-1px);
 }
 
 /* Inline notice bar — shared by the skills and extensions panels. Remote
@@ -12064,6 +12064,47 @@ button:focus-visible { outline: 2px solid var(--color-accent-primary); outline-o
   color: var(--color-error);
   background: var(--color-error-bg);
   border-color: var(--color-error-border);
+}
+.inline-notice--warning {
+  color: var(--color-warning-text);
+  background: var(--color-warning-bg);
+  border-color: var(--color-warning-border);
+}
+.inline-notice-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+.inline-notice-action {
+  flex-shrink: 0;
+  font-family: inherit;
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1.5;
+  padding: 0 0.375rem;
+  margin-left: -0.125rem;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, currentColor 45%, transparent);
+  text-underline-offset: 2.5px;
+  transition: background 0.15s ease, text-decoration-color 0.15s ease;
+}
+.inline-notice-action:hover {
+  background: color-mix(in srgb, currentColor 14%, transparent);
+  text-decoration-color: currentColor;
+}
+.inline-notice-action:active {
+  background: color-mix(in srgb, currentColor 22%, transparent);
+}
+.inline-notice-action:disabled {
+  opacity: 0.5;
+  cursor: default;
+  background: transparent;
 }
 
 /* ── Extension Market ─────────────────────────────────────────────────── */
@@ -14192,103 +14233,6 @@ body.setup-mode {
   color: var(--color-accent-hover);
 }
 
-
-/* ── Brand warning bar ───────────────────────────────────────────────────── */
-.brand-warning-bar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
-  padding: 0.5rem 1rem;
-  background: var(--color-warning-bg);
-  border-bottom: 1px solid var(--color-warning-border);
-  color: var(--color-warning);
-  font-size: 0.8125rem;
-  flex-shrink: 0;
-}
-
-.brand-warning-bar > span { flex: 1; }
-
-.brand-warning-bar button {
-  background: transparent;
-  border: none;
-  color: var(--color-warning);
-  cursor: pointer;
-  font-size: 0.875rem;
-  padding: 0 0.25rem;
-  opacity: 0.7;
-}
-
-.brand-warning-bar .brand-warning-renew-btn {
-  background: transparent;
-  border: 1px solid currentColor;
-  border-radius: var(--radius-sm, 4px);
-  color: var(--color-warning);
-  cursor: pointer;
-  font-size: 0.75rem;
-  font-weight: 500;
-  padding: 0.2rem 0.6rem;
-  opacity: 0.9;
-  flex-shrink: 0;
-  white-space: nowrap;
-}
-
-.brand-warning-bar button:hover { opacity: 1; }
-
-/* ── Brand activation banner (top info bar, replaces full-screen panel) ──── */
-.brand-activation-banner {
-  display: flex;
-  align-items: center;
-  gap: 0.625rem;
-  padding: 0.5625rem 1rem;
-  background: color-mix(in srgb, var(--color-accent-primary) 7%, var(--color-bg-primary));
-  border-bottom: 1px solid color-mix(in srgb, var(--color-accent-primary) 18%, var(--color-border-primary));
-  color: var(--color-text-primary);
-  font-size: 0.8125rem;
-  flex-shrink: 0;
-}
-
-.brand-activation-banner > span {
-  flex: 1;
-  color: var(--color-text-primary);
-}
-
-.brand-activation-banner-link {
-  background: var(--color-button-primary);
-  border: none;
-  border-radius: 6px;
-  color: var(--color-button-primary-text);
-  cursor: pointer;
-  font-size: 0.75rem;
-  font-weight: 500;
-  padding: 0.25rem 0.75rem;
-  white-space: nowrap;
-  transition: background 0.15s;
-}
-
-.brand-activation-banner-link:hover { background: var(--color-button-primary-hover); }
-
-.brand-activation-banner-close {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 1.5rem;
-  height: 1.5rem;
-  background: transparent;
-  border: none;
-  border-radius: 6px;
-  color: var(--color-text-secondary);
-  cursor: pointer;
-  font-size: 0.875rem;
-  padding: 0;
-  flex-shrink: 0;
-  transition: color 0.15s, background 0.15s;
-}
-
-.brand-activation-banner-close:hover {
-  color: var(--color-text-primary);
-  background: color-mix(in srgb, var(--color-accent-primary) 12%, transparent);
-}
 
 /* ── Scrollbar ───────────────────────────────────────────────────────────── */
 ::-webkit-scrollbar       { width: 0.375rem; }
