@@ -2,11 +2,11 @@
 
 require "spec_helper"
 
-# Tests for the brand-extension download/consume methods on BrandConfig:
-#   #fetch_brand_extensions! / #install_brand_extension! / #installed_brand_extensions
-#   #delete_brand_extension!
-# These parallel the brand-skill download path and use the license-HMAC scheme
-# against POST /api/v1/licenses/extensions.
+# Tests for the brand-extension catalog consumed by the extension panel:
+#   #fetch_brand_extensions!
+# Brand extensions are never installed automatically, so nothing here covers
+# install/update/delete — only the license-HMAC fetch against
+# POST /api/v1/licenses/extensions and the local install-state annotation.
 
 RSpec.describe Clacky::BrandConfig, "brand extensions" do
   BRAND_EXT_KEY = "0000002A-00000007-DEADBEEF-CAFEBABE-A1B2C3D4"
@@ -19,30 +19,12 @@ RSpec.describe Clacky::BrandConfig, "brand extensions" do
     )
   end
 
-  def consumer_config
-    described_class.new(
-      "brand_name"  => "X",
-      "license_key" => BRAND_EXT_KEY
-    )
-  end
-
-  def without_clacky_test
-    previous = ENV.delete("CLACKY_TEST")
-    yield
-  ensure
-    ENV["CLACKY_TEST"] = previous
-  end
-
   let(:fake_client) { instance_double(Clacky::PlatformHttpClient) }
-  let(:tmp_installed) { Dir.mktmpdir("clacky-brand-ext") }
 
   before do
     allow_any_instance_of(described_class).to receive(:platform_client).and_return(fake_client)
-    stub_const("Clacky::ExtensionLoader::INSTALLED_DIR", tmp_installed)
-  end
-
-  after do
-    FileUtils.rm_rf(tmp_installed)
+    allow(Clacky::ExtensionLoader).to receive(:load_all)
+      .and_return(Clacky::ExtensionLoader::Result.new(containers: {}))
   end
 
   describe "#fetch_brand_extensions!" do
@@ -74,74 +56,36 @@ RSpec.describe Clacky::BrandConfig, "brand extensions" do
       expect(ext["installed_version"]).to be_nil
       expect(ext["needs_update"]).to be true
     end
-  end
 
-  describe "#install_brand_extension! + #installed_brand_extensions" do
-    it "installs via the packager and records the version" do
-      config   = admin_config
-      ext_info = { "name" => "meeting", "latest_version" => { "version" => "1.2.0", "download_url" => "https://x/meeting.zip" } }
-
-      expect(Clacky::ExtensionPackager).to receive(:install).with("https://x/meeting.zip", force: true)
-      # Simulate the container the packager would have written.
-      FileUtils.mkdir_p(File.join(tmp_installed, "meeting"))
-
-      result = config.install_brand_extension!(ext_info)
-      expect(result[:success]).to be true
-      expect(result[:version]).to eq("1.2.0")
-
-      installed = config.installed_brand_extensions
-      expect(installed["meeting"]["version"]).to eq("1.2.0")
-    end
-
-    it "fails cleanly when no download URL is present" do
+    it "reads installed versions from the installed layer on disk" do
       config = admin_config
-      result = config.install_brand_extension!("name" => "meeting", "latest_version" => {})
-      expect(result[:success]).to be false
-      expect(result[:error]).to match(/download URL/i)
-    end
-  end
+      containers = {
+        "meeting" => { layer: :installed, version: "1.0.0" },
+        "local-one" => { layer: :local, version: "9.9.9" }
+      }
+      allow(Clacky::ExtensionLoader).to receive(:load_all)
+        .and_return(Clacky::ExtensionLoader::Result.new(containers: containers))
 
-  describe "#delete_brand_extension!" do
-    it "removes the container and the registry entry" do
-      config = admin_config
-      FileUtils.mkdir_p(File.join(tmp_installed, "meeting"))
-      File.write(config.brand_extensions_registry_path, JSON.generate("meeting" => { "version" => "1.0.0" }))
+      allow(fake_client).to receive(:post).and_return(
+        success: true,
+        data: {
+          "extensions" => [
+            { "name" => "meeting", "latest_version" => { "version" => "1.2.0" } },
+            { "name" => "local-one", "latest_version" => { "version" => "1.0.0" } }
+          ]
+        }
+      )
 
-      config.delete_brand_extension!("meeting")
+      extensions = config.fetch_brand_extensions![:extensions]
+      meeting = extensions.find { |e| e["name"] == "meeting" }
+      local   = extensions.find { |e| e["name"] == "local-one" }
 
-      expect(Dir.exist?(File.join(tmp_installed, "meeting"))).to be false
-      expect(config.installed_brand_extensions).not_to have_key("meeting")
-    end
-  end
-
-  describe "#installed_brand_extensions" do
-    it "prunes entries whose container is gone" do
-      config = admin_config
-      File.write(config.brand_extensions_registry_path, JSON.generate("gone" => { "version" => "1.0.0" }))
-      expect(config.installed_brand_extensions).to eq({})
-    end
-  end
-
-  describe "#sync_brand_extensions_async!" do
-    it "skips automatic sync for brand administrators" do
-      config = admin_config
-
-      without_clacky_test do
-        expect(Clacky::ThreadRegistry).not_to receive(:spawn)
-        expect(config.sync_brand_extensions_async!).to be_nil
-      end
-    end
-
-    it "keeps automatic sync enabled for consumer licenses" do
-      config = consumer_config
-      thread = instance_double(Thread)
-
-      without_clacky_test do
-        expect(Clacky::ThreadRegistry).to receive(:spawn)
-          .with(name: "brand-fetch-extensions")
-          .and_return(thread)
-        expect(config.sync_brand_extensions_async!).to be(thread)
-      end
+      expect(meeting["installed_version"]).to eq("1.0.0")
+      expect(meeting["needs_update"]).to be true
+      # Only the `installed` layer counts; a local/self-authored container is
+      # not an installed brand extension.
+      expect(local["installed_version"]).to be_nil
+      expect(local["needs_update"]).to be true
     end
   end
 end

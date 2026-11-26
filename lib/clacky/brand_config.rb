@@ -893,12 +893,13 @@ module Clacky
 
     # Extensions bundled into the activated license's distribution are free and
     # unencrypted. They are fetched over the same license-HMAC scheme as brand
-    # skills and installed into the ExtensionLoader `installed` layer.
+    # skills, but are never installed automatically — the user picks them from
+    # the extension panel.
 
     # Fetch the extensions bundled into the activated license's distribution.
     # Requires an activated license. Returns { success:, extensions: [], error: }.
-    # Each extension carries name + latest_version.download_url so
-    # install_brand_extension! can consume it directly.
+    # Each extension carries name + latest_version.download_url so the panel can
+    # install it on demand.
     def fetch_brand_extensions!(sort: nil)
       return { success: false, error: "License not activated", extensions: [] } unless activated?
 
@@ -921,14 +922,14 @@ module Clacky
 
       if response[:success]
         body       = response[:data]
-        installed  = installed_brand_extensions
+        installed  = installed_extension_versions
         extensions = (body["extensions"] || []).map do |ext|
           slug       = ext["name"].to_s
-          local      = installed[slug]
+          local_ver  = installed[slug]
           latest_ver = (ext["latest_version"] || {})["version"] || ext["version"]
           ext.merge(
-            "installed_version" => local ? local["version"] : nil,
-            "needs_update"      => local ? version_older?(local["version"], latest_ver) : true
+            "installed_version" => local_ver,
+            "needs_update"      => local_ver ? version_older?(local_ver, latest_ver) : true
           )
         end
         { success: true, extensions: extensions, expires_at: body["expires_at"] }
@@ -937,108 +938,18 @@ module Clacky
       end
     end
 
-    # Install (or update) a single brand extension by downloading its zip into
-    # the ExtensionLoader `installed` layer.
-    # ext_info: a hash from fetch_brand_extensions! with at least
-    #           name + latest_version.download_url + version.
-    def install_brand_extension!(ext_info)
-      slug    = ext_info["name"].to_s.strip
-      version = (ext_info["latest_version"] || {})["version"] || ext_info["version"]
-      url     = (ext_info["latest_version"] || {})["download_url"]
+    # Versions of the extensions present in the on-disk `installed` layer, keyed
+    # by ext_id. Read from disk rather than a side registry so a manual install
+    # is reflected immediately.
+    private def installed_extension_versions
+      result = Clacky::ExtensionLoader.load_all
+      Array(result&.containers).each_with_object({}) do |(id, container), acc|
+        next unless container[:layer] == :installed
 
-      return { success: false, error: "Missing extension name" } if slug.empty?
-      return { success: false, error: "No download URL" } if url.nil? || url.strip.empty?
-
-      Clacky::ExtensionPackager.install(url, force: true)
-      record_installed_extension(slug, version)
-      { success: true, name: slug, version: version }
-    rescue StandardError => e
-      { success: false, error: e.message }
-    end
-
-    # Synchronise brand extensions in the background for activated consumer
-    # installs. Brand administrators manage extensions through ext-studio and
-    # must not auto-install the extensions they publish for consumers.
-    # Mirrors sync_brand_skills_async! but installs into the extension layer.
-    #
-    # @return [Thread, nil]
-    def sync_brand_extensions_async!(on_complete: nil)
-      return nil unless activated?
-      return nil if user_licensed?
-      return nil if ENV["CLACKY_TEST"] == "1"
-
-      Clacky::ThreadRegistry.spawn(name: "brand-fetch-extensions") do
-        Thread.current.abort_on_exception = false
-
-        begin
-          result = fetch_brand_extensions!
-          next unless result[:success]
-
-          remote_names = result[:extensions].map { |e| e["name"] }
-          installed_brand_extensions.each_key do |local_name|
-            delete_brand_extension!(local_name) unless remote_names.include?(local_name)
-          end
-
-          to_install = result[:extensions].select { |e| e["needs_update"] }
-          results    = to_install.map { |ext_info| install_brand_extension!(ext_info) }
-
-          Clacky::ExtensionLoader.invalidate_cache! unless results.empty?
-          on_complete&.call(results)
-        rescue StandardError
-          # Background sync failures are intentionally swallowed.
-        end
+        acc[id.to_s] = container[:version].to_s
       end
-    end
-
-    # Path to the JSON registry tracking installed brand extension versions.
-    def brand_extensions_registry_path
-      File.join(File.expand_path(Clacky::ExtensionLoader::INSTALLED_DIR), "brand_extensions.json")
-    end
-
-    # Installed brand extensions keyed by ext_id => { "version" => "..." }.
-    # Entries whose on-disk container no longer exists are pruned.
-    def installed_brand_extensions
-      path = brand_extensions_registry_path
-      return {} unless File.exist?(path)
-
-      raw     = JSON.parse(File.read(path))
-      valid   = {}
-      changed = false
-      raw.each do |name, meta|
-        if Dir.exist?(File.join(File.dirname(path), name))
-          valid[name] = meta
-        else
-          changed = true
-        end
-      end
-      File.write(path, JSON.generate(valid)) if changed
-      valid
     rescue StandardError
       {}
-    end
-
-    # Remove a single installed brand extension by id (files + registry entry).
-    def delete_brand_extension!(ext_id)
-      ext_dir = File.join(File.expand_path(Clacky::ExtensionLoader::INSTALLED_DIR), ext_id)
-      FileUtils.rm_rf(ext_dir) if Dir.exist?(ext_dir)
-
-      path = brand_extensions_registry_path
-      if File.exist?(path)
-        registry = JSON.parse(File.read(path))
-        registry.delete(ext_id)
-        File.write(path, JSON.generate(registry))
-      end
-      Clacky::ExtensionLoader.invalidate_cache!
-    rescue StandardError
-      # Deletion errors are non-fatal.
-    end
-
-    private def record_installed_extension(ext_id, version)
-      path = brand_extensions_registry_path
-      FileUtils.mkdir_p(File.dirname(path))
-      registry = File.exist?(path) ? (JSON.parse(File.read(path)) rescue {}) : {}
-      registry[ext_id] = { "version" => version.to_s }
-      File.write(path, JSON.generate(registry))
     end
 
     public

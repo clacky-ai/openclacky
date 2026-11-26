@@ -183,8 +183,6 @@ module Clacky
       # Free-mode counterpart: branded but not activated → fetch unencrypted skills
       # via the public endpoint so users get a working install with no serial number.
       @brand_config.sync_free_skills_async!
-      # Brand extensions bundled into the activated license's distribution.
-      @brand_config.sync_brand_extensions_async!
 
       # Initialize Time Machine
       init_time_machine
