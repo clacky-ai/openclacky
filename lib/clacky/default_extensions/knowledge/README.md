@@ -36,7 +36,7 @@ Switch the session agent to **Knowledge Base** and ask. How it works:
 
 ### Titles and sources
 
-Uploaded md files may start with a small block that sets the title and source shown with the passage; without it the file name is used and the source stays empty:
+Uploaded md / txt files may start with a small block that sets the title and source shown with the passage; without it the file name is used for both:
 
 ```markdown
 ---

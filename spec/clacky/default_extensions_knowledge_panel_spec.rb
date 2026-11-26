@@ -213,6 +213,16 @@ RSpec.describe "Knowledge management (store writes + API)" do
       expect(store.entries).to be_empty
     end
 
+    it "falls back to the file name as the source when a text file has no frontmatter" do
+      status, data = preview("须知.txt", "开放时间")
+      expect(status).to eq(200)
+      expect(data).to include("title" => "须知", "source" => "须知.txt", "parsed" => false)
+
+      status, data = preview("manual.md", "正文")
+      expect(status).to eq(200)
+      expect(data).to include("title" => "manual", "source" => "manual.md", "parsed" => false)
+    end
+
     it "previews parsed PDF / Word text with the file name as source" do
       allow(Clacky::Utils::ParserManager).to receive(:setup!)
       allow(Clacky::Utils::ParserManager).to receive(:parse)
@@ -247,7 +257,7 @@ RSpec.describe "Knowledge management (store writes + API)" do
       status, data = upload("须知.txt", "开放时间", folder: "")
       expect(status).to eq(200)
       expect(data["path"]).to eq("须知.md")
-      expect(store.load(data["path"]).folder).to eq("")
+      expect(store.load(data["path"]).to_h).to include(title: "须知", source: "须知.txt", folder: "")
     end
 
     it "rejects unsupported and empty folder-import uploads" do
