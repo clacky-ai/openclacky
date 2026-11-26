@@ -512,7 +512,10 @@ module Clacky
           # Balanced parentheses belong to the path, so a file named
           # 备份(旧).pdf is removed whole instead of leaving "(旧).pdf)" behind;
           # angle brackets are CommonMark's quoting for paths with spaces.
-          sanitized = sanitized.gsub(/!?\[[^\]]*\]\((?:<[^<>\n]+>|file:\/\/(?:[^()\n]|\([^()\n]*\))+)\)/, "")
+          # Both forms must still carry the scheme: normalization leaves every
+          # other link untouched, so [site](<https://example.com>) is ordinary
+          # text here rather than a file to strip.
+          sanitized = sanitized.gsub(/!?\[[^\]]*\]\((?:<file:\/\/[^<>\n]+>|file:\/\/(?:[^()\n]|\([^()\n]*\))+)\)/, "")
         end
         sanitized.strip
       end

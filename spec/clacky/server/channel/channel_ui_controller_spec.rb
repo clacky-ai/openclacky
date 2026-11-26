@@ -430,6 +430,23 @@ RSpec.describe Clacky::Channel::ChannelUIController do
       controller.show_assistant_message("done", files: [])
       expect(sent).to eq(["done"])
     end
+
+    it "removes file links while keeping ordinary angle-bracket links" do
+      controller.show_assistant_message(
+        "看 [报告](file:///tmp/a/备份(旧).pdf) 和 [官网](<https://example.com>)", files: []
+      )
+      expect(sent.first).to eq("看  和 [官网](<https://example.com>)")
+    end
+
+    it "keeps angle-bracket links that are not files" do
+      controller.show_assistant_message("[锚](<#top>) [文档](<docs/a.md>)", files: [])
+      expect(sent.first).to eq("[锚](<#top>) [文档](<docs/a.md>)")
+    end
+
+    it "removes an angle-bracket file link in full" do
+      controller.show_assistant_message("见 [备份(旧) 副本.pdf](<file:///tmp/a/备份(旧) 副本.pdf>)", files: [])
+      expect(sent.first).to eq("见")
+    end
   end
 
   describe "#show_warning" do
