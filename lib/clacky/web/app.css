@@ -7907,7 +7907,8 @@ body {
 
 /* Attachment strip — top part of the composer card, above the input row */
 #image-preview-strip,
-#ns-image-preview-strip {
+#ns-image-preview-strip,
+.composer-strip {
   display: flex;
   flex-wrap: wrap;
   gap: 0.5rem;
@@ -8274,20 +8275,23 @@ body {
 /* ── Composer card ───────────────────────────────────────────────────────── */
 /* Attachment chips and the input row live inside one card, so the accent border
    on focus wraps the whole composer instead of only the text row. */
-#input-card {
+#input-card,
+.composer-card {
   border: 1px solid var(--color-border-primary);
   border-radius: 13px;
   background: var(--color-bg-primary);
   box-shadow: var(--shadow-card);
   transition: border-color .14s;
 }
-#input-card:focus-within {
+#input-card:focus-within,
+.composer-card:focus-within {
   border-color: color-mix(in srgb, var(--color-accent-primary) 50%, var(--color-border-primary));
 }
 
 /* ── Input bar ───────────────────────────────────────────────────────────── */
 /* Layout only — the card above draws the frame. */
-#input-bar {
+#input-bar,
+.composer-bar {
   margin: 0;
   padding: 10px 12px;
   display: flex;
@@ -8296,7 +8300,8 @@ body {
 }
 
 /* Attach button — left of textarea, vertically centered */
-#btn-attach {
+#btn-attach,
+.composer-attach {
   border: none;
   background: transparent;
   color: var(--color-text-tertiary);
@@ -8311,16 +8316,19 @@ body {
   border-radius: 8px;
   transition: background .12s, color .12s;
 }
-#btn-attach:hover {
+#btn-attach:hover,
+.composer-attach:hover {
   color: var(--color-text-primary);
   background: var(--color-bg-hover);
 }
-#btn-attach svg {
+#btn-attach svg,
+.composer-attach svg {
   width: 18px;
   height: 18px;
 }
 
-#btn-slash {
+#btn-slash,
+.composer-slash {
   border: none;
   background: transparent;
   color: var(--color-text-tertiary);
@@ -8334,15 +8342,18 @@ body {
   border-radius: 8px;
   transition: background .12s, color .12s;
 }
-#btn-slash svg {
+#btn-slash svg,
+.composer-slash svg {
   width: 1.125rem;
   height: 1.125rem;
 }
-#btn-slash:hover {
+#btn-slash:hover,
+.composer-slash:hover {
   color: var(--color-text-primary);
   background: var(--color-bg-hover);
 }
-#btn-slash.active {
+#btn-slash.active,
+.composer-slash.active {
   color: var(--color-accent-primary);
   background: var(--color-accent-soft);
 }
@@ -8501,7 +8512,9 @@ body {
   display: inline-flex;
   align-items: center;
   gap: 0.25rem;
-  padding: 0 0.375rem;
+  /* Half the leading of the composer's 1.55 line box, so the chip's box fills
+     the line instead of sitting on its baseline with the slack below. */
+  padding: 0.09375rem 0.375rem;
   margin: 0 0.125rem;
   background: var(--color-bg-hover);
   color: var(--color-text-primary);
@@ -8514,7 +8527,14 @@ body {
 .mention-chip-icon {
   display: inline-flex;
   align-items: center;
+  flex: none;
   color: var(--color-text-secondary);
+}
+.mention-chip svg {
+  flex: none;
+}
+.mention-chip-label {
+  min-width: 0;
 }
 .reference-drag-preview {
   position: fixed;
@@ -8572,7 +8592,8 @@ a.msg-mention-badge:hover { text-decoration: underline; }
   white-space: nowrap;
 }
 
-#user-input {
+#user-input,
+.composer-input {
   flex: 1;
   background: transparent !important;
   border: none !important;
@@ -8592,8 +8613,10 @@ a.msg-mention-badge:hover { text-decoration: underline; }
   word-break: break-word;
   min-height: calc(1.55em + 8px);
 }
-#user-input::-webkit-scrollbar { display: none; }
-#user-input:empty::before {
+#user-input::-webkit-scrollbar,
+.composer-input::-webkit-scrollbar { display: none; }
+#user-input:empty::before,
+.composer-input:empty::before {
   content: attr(data-placeholder);
   color: var(--color-text-tertiary);
   pointer-events: none;
@@ -8603,7 +8626,8 @@ a.msg-mention-badge:hover { text-decoration: underline; }
   text-overflow: ellipsis;
 }
 
-#btn-send, #btn-interrupt {
+#btn-send, #btn-interrupt,
+.composer-send, .composer-stop {
   border: none;
   border-radius: 9px;
   width: 34px;
@@ -8615,34 +8639,45 @@ a.msg-mention-badge:hover { text-decoration: underline; }
   place-items: center;
   transition: background .12s, opacity .12s;
 }
-#btn-send {
+#btn-send,
+.composer-send {
   background: var(--color-accent-primary);
   color: #fff;
 }
-#btn-send svg {
+#btn-send svg,
+.composer-send svg {
   width: 15px;
   height: 15px;
 }
-#btn-send:hover {
+#btn-send:hover,
+.composer-send:hover {
   background: color-mix(in srgb, var(--color-accent-primary) 85%, #fff);
 }
-#btn-send:disabled {
+#btn-send:disabled,
+.composer-send:disabled {
   background: var(--color-border-primary);
   color: var(--color-text-tertiary);
   cursor: not-allowed;
   opacity: 0.6;
 }
-#btn-interrupt {
+#btn-interrupt,
+.composer-stop {
   background: var(--color-error);
   color: #fff;
 }
-#btn-interrupt svg {
+#btn-interrupt svg,
+.composer-stop svg {
   width: 14px;
   height: 14px;
 }
-#btn-interrupt:hover {
+#btn-interrupt:hover,
+.composer-stop:hover {
   background: color-mix(in srgb, var(--color-error) 85%, #fff);
 }
+/* `hidden` must beat the display values declared above (flex / grid). */
+.composer-strip[hidden],
+.composer-send[hidden],
+.composer-stop[hidden] { display: none; }
 
 /* ── Sidebar footer ──────────────────────────────────────────────────────── */
 #sidebar-footer {
@@ -18217,27 +18252,32 @@ body.setup-mode {
   }
 
   /* Input bar: proportional spacing, touch-friendly */
-  #input-bar {
+  #input-bar,
+  .composer-bar {
     padding: 0.375rem 0.5rem;
     gap: 0.25rem;
   }
 
   /* Attach & slash buttons: slightly smaller touch target */
-  #btn-attach {
+  #btn-attach,
+  .composer-attach {
     padding: 0.25rem;
   }
-  #btn-slash {
+  #btn-slash,
+  .composer-slash {
     padding: 0.25rem 0.375rem;
   }
 
   /* Textarea: prevent iOS auto-zoom (must be ≥1rem) */
-  #user-input {
+  #user-input,
+  .composer-input {
     font-size: 1rem;
     padding: 0.1875rem 0.375rem;
   }
 
   /* Send button: bigger tap target */
-  #btn-send, #btn-interrupt {
+  #btn-send, #btn-interrupt,
+  .composer-send, .composer-stop {
     padding: 0.3125rem 0.75rem;
     font-size: 0.875rem;
   }
@@ -19325,15 +19365,29 @@ body.setup-mode {
 .project-picker-done-btn:hover {
   background: var(--color-bg-hover);
 }
-/* ═══ Quote-on-selection floating button (quote-select.js) ═══
+/* ═══ Quote-on-selection floating bar (quote-select.js) ═══
    Appears above a text selection inside a user/assistant message.
    Neutral dark pill — deliberately brand-color independent so it stays
-   legible in both light and dark themes. */
-.quote-select-btn {
+   legible in both light and dark themes. Two actions share the bar: quote into
+   the composer, or ask about the selection in the side chat. */
+.quote-select-bar {
   position: fixed;
   z-index: 3000;
   transform: translateX(-50%);
   display: none;
+  align-items: stretch;
+  overflow: hidden;
+  background: rgba(24, 26, 32, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 6px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.22);
+  transition: opacity var(--transition-fast, 120ms);
+}
+.quote-select-bar.visible {
+  display: inline-flex;
+}
+.quote-select-btn {
+  display: inline-flex;
   align-items: center;
   gap: 5px;
   padding: 5px 11px;
@@ -19341,26 +19395,24 @@ body.setup-mode {
   font-weight: 500;
   line-height: 1.5;
   color: #fff;
-  background: rgba(24, 26, 32, 0.92);
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  border-radius: 6px;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.22);
+  background: transparent;
+  border: 0;
   cursor: pointer;
   user-select: none;
-  transition: opacity var(--transition-fast, 120ms);
 }
-.quote-select-btn.visible {
-  display: inline-flex;
+.quote-select-btn + .quote-select-btn {
+  border-left: 1px solid rgba(255, 255, 255, 0.14);
 }
+.quote-select-btn[hidden] { display: none; }
 .quote-select-btn svg {
   flex: none;
   pointer-events: none;
 }
 .quote-select-btn:hover {
-  background: rgba(24, 26, 32, 1);
+  background: rgba(255, 255, 255, 0.12);
 }
 .quote-select-btn:active {
-  background: #000;
+  background: rgba(255, 255, 255, 0.2);
 }
 
 /* ═══ Staged quote chip (quote-select.js) ═══
@@ -19369,7 +19421,12 @@ body.setup-mode {
    by Composer.text(). It only adds the single-line truncation — a quote can be
    paragraphs long, the chip must stay one line. */
 .quote-chip {
-  max-width: 100%;
+  /* The label is capped at 46ch, which can still be wider than a narrow
+     composer. Capping the chip at 100% leaves no room for its own 0.125rem
+     side margins, so the zero-width guard quote-select.js puts in front of
+     every chip becomes the break point: the chip drops to a second line and
+     the input grows an empty first row that reads as a chip sitting too low. */
+  max-width: calc(100% - 0.25rem);
 }
 .quote-chip .mention-chip-label {
   max-width: 46ch;

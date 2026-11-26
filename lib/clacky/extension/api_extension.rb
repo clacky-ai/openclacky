@@ -69,6 +69,18 @@ module Clacky
         registry[ext_id] = klass
       end
 
+      # `ext.<name>.<event>` frames resolve back to the extension that owns them.
+      # `<name>` is free-form, so a client commonly writes an id with underscores
+      # while ext.yml declares it with hyphens (`side-chat` vs `ext.side_chat.send`);
+      # accept both spellings instead of dropping the frame as unknown.
+      def ws_extension_for(type)
+        match = /\Aext\.([^.]+)\..+\z/.match(type.to_s)
+        return nil unless match
+
+        name = match[1]
+        registry[name] || registry[name.tr("_", "-")] || registry[name.tr("-", "_")]
+      end
+
       def reset_registry!
         @registry = {}
         @pending_subclasses = []

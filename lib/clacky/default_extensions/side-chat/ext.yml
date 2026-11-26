@@ -1,0 +1,16 @@
+id: side-chat
+name: Side chat
+display_name: Side chat
+display_name_zh: 侧边聊天
+description: Ask about this conversation in the right panel, without leaving your place in it
+description_zh: 在当前会话右侧追问，不用滚到底部打断主对话（只读分支）
+version: "0.1.0"
+icon: icon.svg
+author: OpenClacky
+license: MIT
+enabled_by_default: true
+contributes:
+  api: api/handler.rb
+  panels:
+    - id: side-chat
+      view: panels/side-chat/view.js

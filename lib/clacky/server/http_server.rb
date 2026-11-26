@@ -8664,8 +8664,7 @@ module Clacky
           conn.send_json(type: "pong")
 
         else
-          namespace = /\Aext\.([^.]+)\..+\z/.match(type.to_s)
-          extension = namespace && Clacky::ApiExtension.registry[namespace[1]]
+          extension = Clacky::ApiExtension.ws_extension_for(type)
           unless extension && extension.on_ws_event(conn, msg)
             conn.send_json(type: "error", message: "Unknown message type: #{type}")
           end
