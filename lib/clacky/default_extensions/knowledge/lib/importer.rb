@@ -35,7 +35,7 @@ module Clacky
         title = File.basename(filename, File.extname(filename))
         if TEXT_EXTS.include?(ext)
           meta, body = @store.parse_markdown(File.read(path, encoding: "UTF-8").scrub(""))
-          { title: (meta["title"] || title).to_s, source: meta["source"], body: body, parsed: false }
+          { title: (meta["title"] || title).to_s, source: meta["source"] || filename, body: body, parsed: false }
         else
           { title: title, source: filename, body: parse_document(path), parsed: true }
         end
