@@ -509,7 +509,10 @@ module Clacky
       private def sanitize_outbound_text(text, remove_file_links: false)
         sanitized = text.to_s.gsub(/<think>[\s\S]*?<\/think>\n*/i, "")
         if remove_file_links
-          sanitized = sanitized.gsub(/!?\[[^\]]*\]\(file:\/\/[^)]+\)/, "")
+          # Balanced parentheses belong to the path, so a file named
+          # 备份(旧).pdf is removed whole instead of leaving "(旧).pdf)" behind;
+          # angle brackets are CommonMark's quoting for paths with spaces.
+          sanitized = sanitized.gsub(/!?\[[^\]]*\]\((?:<[^<>\n]+>|file:\/\/(?:[^()\n]|\([^()\n]*\))+)\)/, "")
         end
         sanitized.strip
       end
