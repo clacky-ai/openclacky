@@ -63,5 +63,85 @@ RSpec.describe Clacky::Utils::FileLinkNormalizer do
       expect(described_class.normalize(nil)).to be_nil
       expect(described_class.normalize("")).to eq("")
     end
+
+    it "prefixes a bare absolute path containing spaces with file://" do
+      with_tmp_file("with space.pdf") do |path|
+        expect(described_class.normalize("[报告](#{path})")).to eq("[报告](file://#{path})")
+      end
+    end
+
+    it "prefixes a bare absolute path containing paired parentheses with file://" do
+      with_tmp_file("备份(旧).pdf") do |path|
+        expect(described_class.normalize("[报告](#{path})")).to eq("[报告](file://#{path})")
+      end
+    end
+
+    it "handles a path with both spaces and parentheses" do
+      with_tmp_file("备份(旧) 副本.pdf") do |path|
+        expect(described_class.normalize("[报告](#{path})")).to eq("[报告](file://#{path})")
+      end
+    end
+
+    it "handles several links with parentheses on one line" do
+      with_tmp_file("a(1) b(2).pdf") do |first|
+        with_tmp_file("c(3).pdf") do |second|
+          content = "[一](#{first}) [二](#{second})"
+          expect(described_class.normalize(content))
+            .to eq("[一](file://#{first}) [二](file://#{second})")
+        end
+      end
+    end
+
+    it "stops at the closing parenthesis so following text is left alone" do
+      with_tmp_file("report.pdf") do |path|
+        expect(described_class.normalize("[report](#{path})(见附件)"))
+          .to eq("[report](file://#{path})(见附件)")
+      end
+    end
+
+    it "leaves a path with an unbalanced parenthesis untouched" do
+      with_tmp_file("foo(1.pdf") do |path|
+        content = "[x](#{path})"
+        expect(described_class.normalize(content)).to eq(content)
+      end
+    end
+
+    it "adds the scheme but keeps angle brackets used for a path with spaces" do
+      with_tmp_file("with space.pdf") do |path|
+        expect(described_class.normalize("[报告](<#{path}>)")).to eq("[报告](<file://#{path}>)")
+      end
+    end
+
+    it "keeps angle brackets around a path with parentheses and spaces" do
+      with_tmp_file("备份(旧) 副本.pdf") do |path|
+        expect(described_class.normalize("[报告](<#{path}>)")).to eq("[报告](<file://#{path}>)")
+      end
+    end
+
+    it "still normalizes an existing file:// link inside angle brackets" do
+      with_tmp_file("with space.pdf") do |path|
+        expect(described_class.normalize("[报告](<file://#{path}>)")).to eq("[报告](<file://#{path}>)")
+      end
+    end
+  end
+
+  describe ".extract_file_links" do
+    it "returns bare and angle-bracket file links in order with their inline flag" do
+      content = "![图](<file:///tmp/a/x y.png>) 和 [文](file:///tmp/a/备份(旧) 副本.pdf)"
+      expect(described_class.extract_file_links(content)).to eq([
+        { inline: true,  path: "/tmp/a/x y.png" },
+        { inline: false, path: "/tmp/a/备份(旧) 副本.pdf" }
+      ])
+    end
+
+    it "ignores links that are not file://" do
+      content = "[站点](https://example.com/a(b)) [路由](/docs/start) [锚](<#top>)"
+      expect(described_class.extract_file_links(content)).to eq([])
+    end
+
+    it "returns an empty list for nil and empty content" do
+      expect(described_class.extract_file_links(nil)).to eq([])
+      expect(described_class.extract_file_links("")).to eq([])
+    end
   end
 end

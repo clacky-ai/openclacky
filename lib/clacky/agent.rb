@@ -3041,14 +3041,12 @@ module Clacky
     private def parse_file_links(content)
       return { text: content, files: [] } if content.nil? || content.empty?
 
-      files = []
-      content.scan(/(!?)\[([^\]]*)\]\(file:\/\/([^)]+)\)/) do
-        inline = $1 == "!"
+      files = Utils::FileLinkNormalizer.extract_file_links(content).map do |link|
+        raw = link[:path]
         # Resolve the AI-emitted path: decode, WSL drive-letter normalize, expand.
-        path   = Clacky::Utils::EnvironmentDetector.resolve_local_path($3)
-        name   = File.basename(path)
-        Clacky::Logger.info("[parse_file_links] raw=#{$3.inspect} resolved=#{path.inspect} exist=#{File.exist?(path)}")
-        files << { name: name, path: path, inline: inline }
+        path = Clacky::Utils::EnvironmentDetector.resolve_local_path(raw)
+        Clacky::Logger.info("[parse_file_links] raw=#{raw.inspect} resolved=#{path.inspect} exist=#{File.exist?(path)}")
+        { name: File.basename(path), path: path, inline: link[:inline] }
       end
       { text: content, files: files }
     end
@@ -3066,8 +3064,12 @@ module Clacky
       # Prepend reasoning/thinking content (from thinking-mode providers like
       # DeepSeek V4, Kimi K2) wrapped in <think> tags so the Web UI renders it
       # as a collapsible thinking block (see sessions.js _renderMarkdown).
+      # Reasoning is markdown-rendered too, so its file links get the same
+      # rewrite; only the answer feeds parse_file_links below, so a path the
+      # model merely mentions while thinking is never attached as a file.
       if reasoning_content && !reasoning_content.to_s.strip.empty?
-        full_content = "<think>\n#{reasoning_content}\n</think>\n#{content}"
+        reasoning    = Utils::FileLinkNormalizer.normalize(reasoning_content)
+        full_content = "<think>\n#{reasoning}\n</think>\n#{content}"
       else
         full_content = content
       end

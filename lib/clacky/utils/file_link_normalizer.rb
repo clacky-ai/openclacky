@@ -8,6 +8,15 @@ module Clacky
     module FileLinkNormalizer
       SKIP_PREFIXES = %w[/api/ /preview/ /ext_ui/ /agent_ui/ http:// https:// mailto: #].freeze
 
+      # Link destination grammar, the single source for every Ruby-side matcher.
+      # Angle brackets are CommonMark's way of writing a path with spaces:
+      # `[x](</a b.pdf>)`. Unbracketed, the destination runs to the first
+      # unbalanced ")", so a paired "()" in a file name (备份(旧).pdf) belongs to
+      # the path rather than ending it.
+      DESTINATION = /<([^<>\n]+)>|((?:[^()\n]|\([^()\n]*\))+)/.freeze
+      LINK_TARGET = /\]\((?:#{DESTINATION})\)/.freeze
+      FILE_LINK   = /(!?)\[[^\]]*\]\((?:#{DESTINATION})\)/.freeze
+
       # Models can emit local files as hosted-platform references
       # (`/workspace/projects/<base64url>` decoding to `cch1:file:///abs/path`) or
       # as bare absolute paths. Neither matches the `file://` handler in the Web UI
@@ -16,10 +25,28 @@ module Clacky
       def self.normalize(content)
         return content if content.nil? || content.empty?
 
-        content.gsub(/\]\(([^)\s]+)\)/) do |match|
-          path = local_file_path($1)
-          path ? "](file://#{path})" : match
+        # Angle brackets are kept in the output (marked understands them) so only
+        # the scheme is added. Bare spaces are fine too: the Web UI percent-encodes
+        # them before marked parses the message, and IM clients keep the raw path.
+        content.gsub(LINK_TARGET) do |match|
+          path = local_file_path($1 || $2)
+          next match unless path
+
+          $1 ? "](<file://#{path}>)" : "](file://#{path})"
         end
+      end
+
+      # Returns [{ inline:, path: }] for every `file://` link in content, in order;
+      # path is the raw text after the scheme, still percent-encoded if it was.
+      def self.extract_file_links(content)
+        return [] if content.nil? || content.empty?
+
+        links = []
+        content.scan(FILE_LINK) do
+          href = $2 || $3
+          links << { inline: $1 == "!", path: href.delete_prefix("file://") } if href.start_with?("file://")
+        end
+        links
       end
 
       def self.local_file_path(href)

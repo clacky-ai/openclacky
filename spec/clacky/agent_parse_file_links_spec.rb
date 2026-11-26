@@ -49,6 +49,43 @@ RSpec.describe Clacky::Agent, "#parse_file_links" do
   it "returns text unchanged and empty files for content without links" do
     expect(parse("no links here")).to eq(text: "no links here", files: [])
   end
+
+  it "keeps a path with spaces whole" do
+    result = parse("[with space.pdf](file:///tmp/a/with space.pdf)")
+    expect(result[:files]).to eq([
+      { name: "with space.pdf", path: "/tmp/a/with space.pdf", inline: false }
+    ])
+  end
+
+  it "keeps paired parentheses in the path instead of stopping at the first one" do
+    result = parse("![图](file:///tmp/a/%E5%A4%87%E4%BB%BD(%E6%97%A7).png)")
+    expect(result[:files]).to eq([
+      { name: "备份(旧).png", path: "/tmp/a/备份(旧).png", inline: true }
+    ])
+  end
+
+  it "handles a path with both spaces and parentheses" do
+    result = parse("[备份(旧) 副本.pdf](file:///tmp/a/备份(旧) 副本.pdf)")
+    expect(result[:files].first[:path]).to eq("/tmp/a/备份(旧) 副本.pdf")
+  end
+
+  it "ignores a link whose path has an unbalanced parenthesis" do
+    expect(parse("[x](file:///tmp/a/foo(1.pdf)")[:files]).to eq([])
+  end
+
+  it "extracts a link wrapped in angle brackets for a path with spaces" do
+    result = parse("[with space.pdf](<file:///tmp/a/with space.pdf>)")
+    expect(result[:files]).to eq([
+      { name: "with space.pdf", path: "/tmp/a/with space.pdf", inline: false }
+    ])
+  end
+
+  it "extracts an inline image wrapped in angle brackets" do
+    result = parse("![备份(旧) 副本.png](<file:///tmp/a/备份(旧) 副本.png>)")
+    expect(result[:files]).to eq([
+      { name: "备份(旧) 副本.png", path: "/tmp/a/备份(旧) 副本.png", inline: true }
+    ])
+  end
 end
 
 RSpec.describe Clacky::Agent, "#emit_assistant_message file link rewriting" do
@@ -87,6 +124,26 @@ RSpec.describe Clacky::Agent, "#emit_assistant_message file link rewriting" do
       agent.send(:emit_assistant_message, "[report](#{project_ref("cch1:file://#{path}")})")
 
       expect(received).to eq("[report](file://#{path})")
+    end
+  end
+
+  it "normalizes file links inside the thinking block too" do
+    with_tmp_file("备份(旧).pdf") do |path|
+      received = nil
+      attached = nil
+      ui = double("ui")
+      allow(ui).to receive(:show_assistant_message) do |content, files: [], **_kw|
+        received = content
+        attached = files
+      end
+      agent.instance_variable_set(:@ui, ui)
+
+      agent.send(:emit_assistant_message, "答案",
+                 reasoning_content: "考虑 [f](#{path}) 这个文件")
+
+      expect(received).to start_with("<think>\n考虑 [f](file://#{path}) 这个文件\n</think>\n")
+      expect(received).to end_with("答案")
+      expect(attached).to be_empty
     end
   end
 end
