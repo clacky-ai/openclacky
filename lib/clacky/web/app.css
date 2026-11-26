@@ -3884,7 +3884,6 @@ body {
   gap: 2px;
   padding-right: 6px;
   background: var(--color-bg-secondary);
-  border-bottom: 1px solid var(--color-border-secondary);
 }
 .session-aside-collapse,
 .session-aside-fullscreen {
@@ -3929,7 +3928,7 @@ body {
   display: flex;
   align-items: center;
   gap: 0.25rem;
-  height: 40px;
+  height: 42px;
   padding-right: calc(var(--aside-tabbar-actions-width) + 2px);
   border-bottom: 1px solid var(--color-border-secondary);
   /* Lets the tabs size themselves against the strip's real width (100cqw). */
