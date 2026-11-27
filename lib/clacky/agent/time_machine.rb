@@ -108,8 +108,14 @@ module Clacky
       def record_file_before_change(file_path)
         return if @current_task_id.to_i <= 0
 
+        # Only the working dir is restorable. A file outside it has no relative
+        # path to key a snapshot, and its basename alone would alias it onto an
+        # unrelated file at the working-dir root when the snapshot is replayed.
+        root = File.expand_path(@working_dir)
         full_path = File.expand_path(file_path.to_s, @working_dir)
-        rel = snapshot_relative_path(full_path)
+        return unless full_path.start_with?(root + "/")
+
+        rel = full_path.sub(root + "/", "")
         before_dir = File.join(TimeMachine.session_dir(@session_id), "task-#{@current_task_id}", "before")
         snapshot_file = File.join(before_dir, rel)
         marker_file   = "#{snapshot_file}.#{ABSENT_MARKER}"
@@ -170,18 +176,11 @@ module Clacky
 
       # Restore files to the on-disk state at the END of the given task.
       #
-      # History is a TREE (undo + a new message forks a sibling branch), so a
-      # linear "replay every task after T" model is wrong: a sibling branch's
-      # files would leak in or get wrongly deleted. Instead we reconstruct T's
-      # end state from the task tree:
-      #
-      #   * Each task owns an AFTER snapshot = the content of the files it
-      #     touched, as they looked when that task finished.
-      #   * To rebuild "end of task T", walk T's ancestor chain (T -> root).
-      #     For every file ever touched in the whole session, the winning
-      #     content is the closest ancestor (starting at T) whose AFTER holds
-      #     that file. If no ancestor on the chain ever touched it, the file
-      #     did not exist at T and is removed.
+      # History is a TREE (undo + a new message forks a sibling branch), so the
+      # move goes through the common ancestor of the active task and T: the
+      # active branch's tasks are unwound and T's branch is replayed. Only the
+      # files those tasks touched are rewritten; everything else on disk may
+      # have changed outside the Time Machine since and is left alone.
       #
       # @param task_id [Integer] Target task ID
       # Made public for testing
@@ -203,65 +202,78 @@ module Clacky
         raise
       end
 
-      # Decide, for every file the session has ever touched, whether restoring
-      # to `task_id` should overwrite it with a snapshot or delete it. Pure
-      # function over the snapshot tree — does not touch the working dir.
+      # Decide, for every file touched between the active task and `task_id`,
+      # whether restoring should overwrite it with a snapshot or delete it.
+      # Pure function over the snapshot tree — does not touch the working dir.
       # @return [Hash{String => Hash}] rel_path => { action: :delete | :restore, source: String|nil }
       private def build_restore_plan(task_id)
         session_root = TimeMachine.session_dir(@session_id)
-
-        ancestors = []
-        tid = task_id
-        until tid.nil? || tid <= 0 || ancestors.include?(tid)
-          ancestors << tid
-          tid = @task_parents[tid]
-        end
-
-        all_rels = Set.new
-        Dir.glob(File.join(session_root, "task-*", "before", "**", "*"), File::FNM_DOTMATCH).each do |path|
-          next if File.directory?(path)
-          rel = path.sub(%r{\A.*/before/}, "")
-          rel = rel.sub(/\.#{Regexp.escape(ABSENT_MARKER)}\z/, "")
-          all_rels << rel
-        end
+        from_chain   = task_ancestors(@active_task_id)
+        target_chain = task_ancestors(task_id)
+        from_set     = from_chain.to_set
+        target_set   = target_chain.to_set
+        replay = target_chain.take_while { |tid| !from_set.include?(tid) }
+        unwind = from_chain.take_while { |tid| !target_set.include?(tid) }
 
         plan = {}
-        all_rels.each do |rel|
-          action = :delete
-          source = nil
-          matched = false
+        decided = Set.new
 
-          ancestors.each do |aid|
-            after_dir = File.join(session_root, "task-#{aid}", "after")
-            content_path = File.join(after_dir, rel)
-            absent_path  = "#{content_path}.#{ABSENT_MARKER}"
+        # A file the target branch touched ends as its nearest toucher left it.
+        # Without that AFTER there is no evidence, so the file is left alone.
+        replay.each do |tid|
+          before_dir = File.join(session_root, "task-#{tid}", "before")
+          after_dir  = File.join(session_root, "task-#{tid}", "after")
+          snapshot_rels(before_dir).each do |rel|
+            next unless decided.add?(rel)
 
-            if File.exist?(content_path)
-              action = :restore
-              source = content_path
-              matched = true
-              break
-            elsif File.exist?(absent_path)
-              action = :delete
-              matched = true
-              break
+            case file_change_status(before_dir, after_dir, rel)
+            when "deleted"
+              plan[rel] = { action: :delete, source: nil }
+            when "added", "modified"
+              content, = snapshot_paths(after_dir, rel)
+              plan[rel] = { action: :restore, source: content } if content
             end
           end
+        end
 
-          unless matched
-            initial = earliest_before_snapshot(session_root, rel)
-            if initial
-              action = :restore
-              source = initial
-            else
-              action = :delete
+        # Otherwise it is back to the common ancestor's end state, which is the
+        # BEFORE of the unwound task closest to that ancestor.
+        unwind.reverse_each do |tid|
+          before_dir = File.join(session_root, "task-#{tid}", "before")
+          snapshot_rels(before_dir).each do |rel|
+            next unless decided.add?(rel)
+
+            content, absent = snapshot_paths(before_dir, rel)
+            if content
+              plan[rel] = { action: :restore, source: content }
+            elsif absent
+              plan[rel] = { action: :delete, source: nil }
             end
           end
-
-          plan[rel] = { action: action, source: source }
         end
 
         plan
+      end
+
+      # Task IDs from `task_id` up to (excluding) the root task 0.
+      private def task_ancestors(task_id)
+        chain = []
+        tid = task_id
+        until tid.nil? || tid <= 0 || chain.include?(tid)
+          chain << tid
+          tid = @task_parents[tid]
+        end
+        chain
+      end
+
+      private def snapshot_rels(dir)
+        return [] unless Dir.exist?(dir)
+
+        Dir.glob(File.join(dir, "**", "*"), File::FNM_DOTMATCH).filter_map do |path|
+          next if File.directory?(path)
+
+          path.sub(dir + "/", "").sub(/\.#{Regexp.escape(ABSENT_MARKER)}\z/, "")
+        end
       end
 
       # Preview the file-level effect of restore_to_task_state(task_id) without
@@ -303,35 +315,8 @@ module Clacky
         false
       end
 
-      # The initial (pre-session) content path for a file, taken from the
-      # earliest BEFORE snapshot any task recorded for it. Returns the snapshot
-      # path to copy back, or nil if the earliest record is an absent marker
-      # (file did not exist at the session start).
-      private def earliest_before_snapshot(session_root, rel)
-        task_ids = Dir.glob(File.join(session_root, "task-*")).filter_map do |dir|
-          m = File.basename(dir).match(/\Atask-(\d+)\z/)
-          m && m[1].to_i
-        end.sort
-
-        task_ids.each do |tid|
-          before_dir = File.join(session_root, "task-#{tid}", "before")
-          content_path = File.join(before_dir, rel)
-          absent_path  = "#{content_path}.#{ABSENT_MARKER}"
-          return content_path if File.exist?(content_path)
-          return nil if File.exist?(absent_path)
-        end
-        nil
-      end
-
-      # Relative path used to key a snapshot. Files inside the working dir keep
-      # their relative path; anything else falls back to its basename.
-      private def snapshot_relative_path(full_path)
-        if full_path.start_with?(@working_dir + "/")
-          full_path.sub(@working_dir + "/", "")
-        else
-          File.basename(full_path)
-        end
-      end
+      # Files inside the working dir keep their relative path; anything else is
+      # not snapshotted at all (see record_file_before_change).
 
       # Filter messages to only the active task's ancestor chain.
       # After an undo (and especially after sending a NEW message post-undo,
@@ -406,9 +391,9 @@ module Clacky
         @task_parents.select { |_, parent| parent == task_id }.keys
       end
 
-      # Cheap version of task_diff_files: just count how many distinct files
-      # this task touched, so the timeline can grey out no-op tasks without
-      # paying for a full diff walk per row.
+      # Cheap version of task_diff_files: just count how many files this task
+      # actually changed, so the timeline can grey out no-op tasks without
+      # paying for a full diff walk (no file content is read) per row.
       def task_change_count(task_id)
         return 0 unless task_id.is_a?(Integer) && task_id > 0
 
@@ -418,16 +403,9 @@ module Clacky
         return 0 unless Dir.exist?(before_dir)
         return 0 if task_id == @current_task_id && @latest_after_dirty == true && !Dir.exist?(after_dir)
 
-        rels = Set.new
-        [before_dir, after_dir].each do |root|
-          next unless Dir.exist?(root)
-          Dir.glob(File.join(root, "**", "*"), File::FNM_DOTMATCH).each do |path|
-            next if File.directory?(path)
-            rel = path.sub(root + "/", "").sub(/\.#{Regexp.escape(ABSENT_MARKER)}\z/, "")
-            rels << rel
-          end
+        task_snapshot_rels(before_dir, after_dir).count do |rel|
+          file_change_status(before_dir, after_dir, rel)
         end
-        rels.size
       end
 
       # File-level summary of changes a task introduced. Diff is task-N/before
@@ -444,36 +422,39 @@ module Clacky
         return [] unless Dir.exist?(before_dir)
         return [] if task_id == @current_task_id && @latest_after_dirty == true && !Dir.exist?(after_dir)
 
-        rels = Set.new
-        [before_dir, after_dir].each do |root|
-          next unless Dir.exist?(root)
-          Dir.glob(File.join(root, "**", "*"), File::FNM_DOTMATCH).each do |path|
-            next if File.directory?(path)
-            rel = path.sub(root + "/", "").sub(/\.#{Regexp.escape(ABSENT_MARKER)}\z/, "")
-            rels << rel
-          end
-        end
+        task_snapshot_rels(before_dir, after_dir).sort.filter_map do |rel|
+          status = file_change_status(before_dir, after_dir, rel)
+          next unless status
 
-        rels.sort.map do |rel|
-          before_file, before_absent = snapshot_paths(before_dir, rel)
-          after_file,  after_absent  = snapshot_paths(after_dir,  rel)
-
-          status = if before_absent && after_file
-            "added"
-          elsif before_file && after_absent
-            "deleted"
-          elsif before_file && after_file
-            "modified"
-          elsif before_file && !File.exist?(after_dir)
-            # No AFTER captured (e.g. the very latest task) — still surface
-            # what was touched as "modified" so the UI can list the file.
-            "modified"
-          else
-            "modified"
-          end
-
+          before_file, = snapshot_paths(before_dir, rel)
+          after_file, = snapshot_paths(after_dir, rel)
           binary = looks_binary?(before_file) || looks_binary?(after_file)
           { path: rel, status: status, binary: binary }
+        end
+      end
+
+      # Every file path mentioned by either side of a task's snapshots.
+      private def task_snapshot_rels(before_dir, after_dir)
+        snapshot_rels(before_dir) | snapshot_rels(after_dir)
+      end
+
+      # Status of one file between its BEFORE and AFTER snapshots, or nil when
+      # the task left no net change — both sides say the file was absent, e.g.
+      # it created a scratch file and removed it within the same task.
+      private def file_change_status(before_dir, after_dir, rel)
+        before_file, before_absent = snapshot_paths(before_dir, rel)
+        after_file,  after_absent  = snapshot_paths(after_dir,  rel)
+
+        if before_absent && after_file
+          "added"
+        elsif before_file && after_absent
+          "deleted"
+        elsif before_file && after_file
+          "modified"
+        elsif before_file
+          # No AFTER captured yet (the task is still the latest) — still
+          # surface what was touched so the UI can list the file.
+          "modified"
         end
       end
 
