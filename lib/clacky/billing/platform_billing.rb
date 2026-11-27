@@ -62,6 +62,9 @@ module Clacky
         "oc-grok-4.7"           => "oc-grok-4.7",
         # gemini chat (or-)
         "or-gemini-4-argon"   => "gemini-4-argon",
+        "or-gemini-4-neon"    => "gemini-4-neon",
+        "or-gemini-4-carbon"  => "gemini-4-carbon",
+        "or-gemini-4-hydrogen" => "gemini-4-hydrogen",
         "or-gemini-3-1-pro"   => "gemini-3.1-pro-preview",
         "or-gemini-3-8-flash" => "gemini-3.8-flash",
         "or-gemini-3-7-flash" => "gemini-3.7-flash",

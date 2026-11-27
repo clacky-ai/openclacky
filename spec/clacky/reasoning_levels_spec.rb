@@ -24,6 +24,8 @@ RSpec.describe Clacky::ReasoningLevels do
     "minimax-m3"         => %w[off medium],
     "mimo-v2"            => %w[off medium],
     "deepseek-v4.1-flash" => %w[off low medium high max],
+    "or-gemini-4-argon"  => %w[low medium high],
+    "or-gemini-4-hydrogen" => %w[low medium high xhigh],
     "abs-claude-sonnet-4-6" => Clacky::ReasoningLevels::ALL
   }.freeze
 
@@ -70,6 +72,14 @@ RSpec.describe Clacky::ReasoningLevels do
       expect(openai_fields("GLM-5.3", "medium")).to eq(openai_fields("GLM-5.3", "low"))
       expect(openai_fields("minimax-m3", "high")).to eq(openai_fields("minimax-m3", "low"))
     end
+
+    it "keeps an unexpressible Gemini 4 level inside the model's ladder" do
+      expect(openai_fields("or-gemini-4-argon", "max")).to eq(openai_fields("or-gemini-4-argon", "high"))
+      expect(openai_fields("or-gemini-4-argon", "xhigh")).to eq(openai_fields("or-gemini-4-argon", "high"))
+      expect(openai_fields("or-gemini-4-argon", "off")).to eq(openai_fields("or-gemini-4-argon", "low"))
+      expect(openai_fields("or-gemini-4-hydrogen", "max")).to eq(openai_fields("or-gemini-4-hydrogen", "xhigh"))
+      expect(openai_fields("or-gemini-4-hydrogen", "off")).to eq(openai_fields("or-gemini-4-hydrogen", "low"))
+    end
   end
 
   describe ".clamp" do
@@ -90,6 +100,13 @@ RSpec.describe Clacky::ReasoningLevels do
     it "snaps a binary model onto one of its two stops" do
       expect(described_class.clamp("minimax-m3", "max")).to eq("medium")
       expect(described_class.clamp("minimax-m3", "off")).to eq("off")
+    end
+
+    it "drops the stops Gemini 4 cannot express" do
+      expect(described_class.clamp("or-gemini-4-argon", "max")).to eq("high")
+      expect(described_class.clamp("or-gemini-4-argon", "off")).to eq("low")
+      expect(described_class.clamp("or-gemini-4-hydrogen", "max")).to eq("xhigh")
+      expect(described_class.clamp("or-gemini-4-hydrogen", "xhigh")).to eq("xhigh")
     end
 
     it "returns nil when the model has no reasoning control" do

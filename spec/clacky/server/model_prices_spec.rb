@@ -164,8 +164,8 @@ RSpec.describe Clacky::Server::ModelPrices do
         result = described_class.build("or-gemini-4-argon,or-gemini-3-1-pro")
 
         expect(result[:prices]["or-gemini-4-argon"]).to eq(
-          in: 1.6, out: 8.0,
-          ratio: (1.6 + 8.0) / base_total, discount: { rate: 0.8, reason: "promo" }
+          in: 3.2, out: 16.0,
+          ratio: (3.2 + 16.0) / base_total, discount: { rate: 0.8, reason: "promo" }
         )
         expect(result[:prices]["or-gemini-3-1-pro"]).to eq(
           in: 1.6, out: 9.6,

@@ -38,7 +38,13 @@ module Clacky
       # MiMo-V2 is also binary ({type: enabled|disabled}).
       [/\Amimo-v2/i, %w[off medium]],
       # DeepSeek merges xhigh into max.
-      [/deepseek/i, %w[off low medium high max]]
+      [/deepseek/i, %w[off low medium high max]],
+      # Gemini 4 always thinks, so there is no "off": Argon offers
+      # low/medium/high (default medium), Hydrogen adds xhigh (default high).
+      # Neither documents minimal, and Argon errors out on it. Matched without
+      # an anchor because platform aliases carry an "or-" prefix.
+      [/gemini-4-argon/i,     %w[low medium high]],
+      [/gemini-4-hydrogen/i,  %w[low medium high xhigh]]
     ].freeze
 
     # Levels for a model, ascending. An empty array means the model has no

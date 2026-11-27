@@ -679,22 +679,74 @@ module Clacky
       },
 
       # Google Gemini 4 Argon (GA 2026-10-13, via Vertex AI). Flat pricing,
-      # 1M context, 1M output ceiling. Price shown is the current official
-      # rate, which doubles on 2026-12-01 ($4.00/$20.00) — update both this
-      # table and vertexChatRoutes then. Cache write bills at the input rate:
+      # 1M context, 1M output ceiling. Registered at the post-launch rate
+      # ($4.00/$20.00) rather than the introductory half price, so the 12-01
+      # increase needs no fire drill. Cache write bills at the input rate:
       # Vertex's OpenAI shim only exposes cache-hit (read) tokens.
       "gemini-4-argon" => {
         input: {
-          default: 2.00,
-          over_200k: 2.00
+          default: 4.00,
+          over_200k: 4.00
         },
         output: {
-          default: 10.00,
-          over_200k: 10.00
+          default: 20.00,
+          over_200k: 20.00
         },
         cache: {
-          write: 2.00,
-          read: 0.10
+          write: 4.00,
+          read: 0.20
+        }
+      },
+
+      # Gemini 4 Neon (GA 2026-11-18). $3.00/$15.00 with no promotional rate,
+      # matching the Vertex list price for the global region.
+      "gemini-4-neon" => {
+        input: {
+          default: 3.00,
+          over_200k: 3.00
+        },
+        output: {
+          default: 15.00,
+          over_200k: 15.00
+        },
+        cache: {
+          write: 3.00,
+          read: 0.15
+        }
+      },
+
+      # Gemini 4 Carbon. Registered at the post-launch rate ($4.00/$20.00,
+      # cache read $0.20) rather than the introductory half price that ends
+      # on 2026-11-30.
+      "gemini-4-carbon" => {
+        input: {
+          default: 4.00,
+          over_200k: 4.00
+        },
+        output: {
+          default: 20.00,
+          over_200k: 20.00
+        },
+        cache: {
+          write: 4.00,
+          read: 0.20
+        }
+      },
+
+      # Gemini 4 Hydrogen (GA 2026-11-12), the cheap tier for everyday agent
+      # work. Implicit caching only — explicit cache writes are unavailable.
+      "gemini-4-hydrogen" => {
+        input: {
+          default: 1.50,
+          over_200k: 1.50
+        },
+        output: {
+          default: 7.50,
+          over_200k: 7.50
+        },
+        cache: {
+          write: 1.50,
+          read: 0.075
         }
       },
 
@@ -1647,6 +1699,12 @@ module Clacky
         # and the bare upstream ids returned by Vertex.
         when /^or-gemini-4-argon$/i, /^gemini-4-argon$/i
           "gemini-4-argon"
+        when /^or-gemini-4-neon$/i, /^gemini-4-neon$/i
+          "gemini-4-neon"
+        when /^or-gemini-4-carbon$/i, /^gemini-4-carbon$/i
+          "gemini-4-carbon"
+        when /^or-gemini-4-hydrogen$/i, /^gemini-4-hydrogen$/i
+          "gemini-4-hydrogen"
         when /^or-gemini-3-1-pro$/i, /^gemini-3\.1-pro(-preview)?$/i
           "gemini-3.1-pro"
         when /^or-gemini-3-5-flash$/i, /^gemini-3\.5-flash$/i, /^gemini-3-flash(-preview)?$/i

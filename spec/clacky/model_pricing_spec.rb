@@ -1543,11 +1543,77 @@ RSpec.describe Clacky::ModelPricing do
         cache_read_input_tokens: 200_000
       }
       result = described_class.calculate_cost(model: "or-gemini-4-argon", usage: usage)
-      # Regular input: (1_000_000 - 200_000)/1M * $2.00 = $1.60
-      # Cache read:     200_000 / 1M * $0.10            = $0.02
-      # Output:       1_000_000 / 1M * $10.00           = $10.00
-      # Total: $11.62, minus the Vertex launch promo (8折) → $9.296
-      expect(result[:cost]).to be_within(0.0001).of(9.296)
+      # Regular input: (1_000_000 - 200_000)/1M * $4.00 = $3.20
+      # Cache read:     200_000 / 1M * $0.20            = $0.04
+      # Output:       1_000_000 / 1M * $20.00           = $20.00
+      # Total: $23.24, minus the Vertex promo (8折) → $18.592
+      expect(result[:cost]).to be_within(0.0001).of(18.592)
+      expect(result[:source]).to eq(:price)
+    end
+  end
+
+  describe "Gemini 4 Neon pricing" do
+    it "normalizes both the platform alias and the bare upstream id" do
+      expect(described_class.normalize_model_name("or-gemini-4-neon")).to eq("gemini-4-neon")
+      expect(described_class.normalize_model_name("gemini-4-neon")).to eq("gemini-4-neon")
+    end
+
+    it "bills at the flat Vertex AI rates" do
+      usage = {
+        prompt_tokens: 1_000_000,
+        completion_tokens: 1_000_000,
+        cache_read_input_tokens: 200_000
+      }
+      result = described_class.calculate_cost(model: "or-gemini-4-neon", usage: usage)
+      # Regular input: (1_000_000 - 200_000)/1M * $3.00 = $2.40
+      # Cache read:     200_000 / 1M * $0.15            = $0.03
+      # Output:       1_000_000 / 1M * $15.00           = $15.00
+      # Total: $17.43, minus the Vertex launch promo (8折) → $13.944
+      expect(result[:cost]).to be_within(0.0001).of(13.944)
+      expect(result[:source]).to eq(:price)
+    end
+  end
+
+  describe "Gemini 4 Carbon pricing" do
+    it "normalizes both the platform alias and the bare upstream id" do
+      expect(described_class.normalize_model_name("or-gemini-4-carbon")).to eq("gemini-4-carbon")
+      expect(described_class.normalize_model_name("gemini-4-carbon")).to eq("gemini-4-carbon")
+    end
+
+    it "bills at the flat Vertex AI rates" do
+      usage = {
+        prompt_tokens: 1_000_000,
+        completion_tokens: 1_000_000,
+        cache_read_input_tokens: 200_000
+      }
+      result = described_class.calculate_cost(model: "or-gemini-4-carbon", usage: usage)
+      # Regular input: (1_000_000 - 200_000)/1M * $4.00 = $3.20
+      # Cache read:     200_000 / 1M * $0.20            = $0.04
+      # Output:       1_000_000 / 1M * $20.00           = $20.00
+      # Total: $23.24, minus the Vertex promo (8折) → $18.592
+      expect(result[:cost]).to be_within(0.0001).of(18.592)
+      expect(result[:source]).to eq(:price)
+    end
+  end
+
+  describe "Gemini 4 Hydrogen pricing" do
+    it "normalizes both the platform alias and the bare upstream id" do
+      expect(described_class.normalize_model_name("or-gemini-4-hydrogen")).to eq("gemini-4-hydrogen")
+      expect(described_class.normalize_model_name("gemini-4-hydrogen")).to eq("gemini-4-hydrogen")
+    end
+
+    it "bills at the flat Vertex AI rates" do
+      usage = {
+        prompt_tokens: 1_000_000,
+        completion_tokens: 1_000_000,
+        cache_read_input_tokens: 200_000
+      }
+      result = described_class.calculate_cost(model: "or-gemini-4-hydrogen", usage: usage)
+      # Regular input: (1_000_000 - 200_000)/1M * $1.50 = $1.20
+      # Cache read:     200_000 / 1M * $0.075           = $0.015
+      # Output:       1_000_000 / 1M * $7.50            = $7.50
+      # Total: $8.715, minus the Vertex launch promo (8折) → $6.972
+      expect(result[:cost]).to be_within(0.0001).of(6.972)
       expect(result[:source]).to eq(:price)
     end
   end

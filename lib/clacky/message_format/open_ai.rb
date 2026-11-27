@@ -345,6 +345,23 @@ module Clacky
           elsif !effort_str.empty?
             body[:thinking] = { type: "adaptive" }
           end
+        elsif model.to_s.match?(/gemini-4-/i)
+          # Gemini 4 always thinks — there is no off switch — and Google's
+          # OpenAI shim maps reasoning_effort onto thinkingLevel verbatim
+          # (minimal/low→low, medium, high, xhigh on Hydrogen only). Argon
+          # caps at high, so anything above is clamped there rather than sent
+          # upstream and rejected.
+          ceiling = model.to_s.match?(/gemini-4-hydrogen/i) ? "xhigh" : "high"
+          effort =
+            if OFF_EFFORT_VALUES.include?(effort_str)
+              "low"
+            else
+              case effort_str
+              when "max", "xhigh" then ceiling
+              else                     effort_str
+              end
+            end
+          assign_effort(body, effort, responses_api) if %w[low medium high xhigh].include?(effort)
         elsif model.to_s.match?(/deepseek/i)
           # DeepSeek V4 reasoning_effort only accepts low/high/max.
           # xhigh is not recognized — map it to max. Off-like values are not
