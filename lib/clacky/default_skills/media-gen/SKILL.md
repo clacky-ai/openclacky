@@ -537,13 +537,19 @@ configure a `type=audio` model in settings:
 
 | Model | Voices | Limits | Notes |
 |-------|--------|--------|-------|
-| `dsk-deepseek-tts` (default) | `stella` (female), `tide` (male) only | ~1,000 CJK chars per request | Fastest (~6x realtime). Priced per character: ~$0.088 for 1,000 CJK chars, about 1.5x Gemini Flash. No style cues; unknown voices fall back to `stella` |
+| `dsk-deepseek-tts` (default) | `stella` (female), `tide` (male) only | ~5,000 CJK chars (see below) | Fastest (~6x realtime). Priced per character: ~$0.088 for 1,000 CJK chars, about 1.5x Gemini Flash. No style cues; unknown voices fall back to `stella` |
 | `or-tts-gemini-2-5-flash` | ~40, e.g. `Kore`, `Puck`, `Charon`, `Fenrir`, `Aoede` | none in practice | Cheapest per minute (~$0.058 for the same 1,000 CJK chars), but much slower. Style cues work: "Say cheerfully: …" |
 | `or-tts-gemini-2-5-pro` | same as Flash | none | Best quality, costs more |
 
-Check which one is active with `GET /api/media/types` (`audio.model`). For a
-long script on `dsk-deepseek-tts`, synthesize paragraph by paragraph and
-concatenate — a single request over the cap is rejected with a 400.
+Check which one is active with `GET /api/media/types` (`audio.model`). The
+per-request cap on `dsk-deepseek-tts` depends on the route: through the
+openclacky gateway it relays up to 10,000 billing characters (~5,000 hanzi,
+about 15 minutes of audio), while an audio model pointed straight at
+`api.deepseek.com` stops at 2,000 (~1,000 hanzi, about 3 minutes). A CJK
+character bills as two. Going over rejects the request with
+`invalid_argument` — for a longer script, synthesize paragraph by paragraph
+and concatenate. Do that well before the cap anyway: the clip comes back
+base64-wrapped, so a full 15-minute request is already a ~12 MB response.
 
 ### Endpoint
 
@@ -589,14 +595,15 @@ blocks until the WAV is ready.
   "voice": "stella",
   "mime_type": "audio/wav",
   "usage": { "characters": 135, "audio_seconds": 12.4 },
-  "cost_usd": 0.000056,
-  "cost_source": "estimated"
+  "cost_usd": 0.000056
 }
 ```
 
-`cost_source: "estimated"` means the provider returns no usage block, so the
-gateway priced the request from the text length. Gemini models report real
-token usage instead (`prompt_tokens` / `completion_tokens`).
+Both engines report what they bill on: DeepSeek returns `characters` (a CJK
+character counts as two) plus `audio_seconds`, Gemini returns token counts
+(`prompt_tokens` / `completion_tokens`). If the audio model points straight
+at `api.deepseek.com` rather than at the gateway, the response also carries
+`"cost_source": "estimated"`, because DeepSeek itself reports no usage block.
 
 The `audio` field is an absolute path on disk. Output is mono 16-bit PCM at
 24 kHz wrapped in a standard WAV container — playable by any browser, OS

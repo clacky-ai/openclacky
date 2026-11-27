@@ -115,7 +115,8 @@ module Clacky
         # ~40 voices, no length cap); dsk-deepseek-tts answers from DeepSeek's
         # own endpoint, which is ~6x realtime but bills per character — about
         # 1.5x Gemini Flash for the same Chinese script — and offers two
-        # voices, no style cues, ~1,000 CJK characters per request.
+        # voices, no style cues, and a 10,000 billing-character cap per
+        # request (~5,000 hanzi, since a CJK character bills as two).
         # DeepSeek is the default for latency: a short clip returns in a second
         # or two, where Gemini TTS can take minutes.
         "audio_models" => [
