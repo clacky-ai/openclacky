@@ -138,7 +138,12 @@ class MeetingExt < Clacky::ApiExtension
       transcript_path = File.join(dir, "transcript.jsonl")
       if !text.empty? && !hallucinated_transcript?(text, vocabulary, transcript_path)
         entry = { ts: Time.now.utc.iso8601, text: text }
-        File.open(transcript_path, "a") { |f| f.puts(JSON.generate(entry)) }
+        begin
+          File.open(transcript_path, "a") { |f| f.puts(JSON.generate(entry)) }
+        rescue Errno::ENOENT
+          # /cancel can move the meeting into .trash while STT is still running.
+          error!("meeting not found", status: 404)
+        end
         json(text: text)
       else
         json(text: "")
