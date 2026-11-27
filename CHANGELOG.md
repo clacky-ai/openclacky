@@ -4,6 +4,67 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
+## [1.5.26] - 2026-11-27
+
+### Added
+- Add a read-only side chat to the session side panel for quick questions that stay out of the main thread
+- Add a terminal panel to the session side panel
+- Turn the side panel into a per-session tab strip with a picker, so a closed panel stops fetching
+- Open a context menu from a side panel tab
+- Synthesize speech through DeepSeek's own endpoint, about six times faster than Gemini
+- Default transcription to DeepSeek ASR and bill every transcription path by usage
+- Tell you when no speech-to-text model is configured, with a link straight to the settings row
+- Add Gemini 4 Hydrogen and retire Neon and Carbon
+- Regroup the sidebar navigation into General and More
+- Offer only the reasoning stops a model actually supports
+- Offer reasoning stops when starting a session from the new-session page
+- Localize tool progress phrases for the terminal, the web UI and IM cards
+- Add status badges and a card layout to the secretary work panel
+- Prefer tables over ASCII box art when the model answers
+
+### Improved
+- Let each promo surface be dismissed on its own, and outline the media settings row when the meeting panel links to it
+- Show one separator line under the side tab strip
+- Drop the brand licence banners and soften the skills degradation notice
+- Stop auto-syncing brand skills
+- Stop auto-installing brand extensions
+- Widen the side panel minimum from 256px to 296px
+- Narrow the working-directory pill
+- Loosen chat message font size and line height
+- Rename the permission pill to question mode
+- Tighten the chat navigator ticks
+
+### Fixed
+- Keep a Time Machine restore inside the active-to-target path and the working directory (#757)
+- Keep switched-off extensions reachable in the installed tab
+- Ignore stale transcription results after a meeting is cancelled (#755)
+- Make meeting voice detection work across microphone gains and hidden tabs
+- Keep the git scope pills whole when the tool bar wraps (#756)
+- Fall back to the file name as a knowledge entry source (#754)
+- Keep non-file angle-bracket links intact in outbound IM text
+- Turn bare paths containing spaces or parentheses into clickable file links (#753)
+- Reset the files panel when the working directory changes (#752)
+- Keep the git panel tool row flush left when the bar wraps (#751)
+- Order git branches by their most recent commit (#747)
+- Use neutral copy for unloaded diff placeholders (#749)
+- Review the picked branch instead of everything since its fork (#745)
+- Mount git file sections in batches so large reviews stay responsive (#744)
+- Keep memory frontmatter when a value parses as a date
+- Share the memory-inject toggle across live sessions (#742)
+- Keep reference chips after a conversation is compressed (#743)
+- Launch agent-pinned skills under their agent
+- Collapse the side column when its last tab closes
+- Align box-drawing diagrams by display width in chat code blocks and the terminal
+- Wrap coloured terminal text by tokens instead of character offsets
+- Keep terminal connector labels out of the frame padding
+- Show the changelog link in the upgrade popover of branded builds
+- Clarify the GPT Image 2 model hint (#746)
+
+### More
+- Trim the extension developer prompt and skill to one source of truth
+- Shorten the side picker group titles to Official and Mine
+- Weight the side panel group titles at 500
+
 ## [1.5.25] - 2026-11-20
 
 ### Added
