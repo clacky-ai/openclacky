@@ -186,6 +186,185 @@ RSpec.describe "Clacky::Agent TimeMachine" do
     end
   end
 
+  describe "restore scope" do
+    def after_dir(task_id)
+      File.join(Dir.home, ".clacky", "snapshots", agent.session_id, "task-#{task_id}", "after")
+    end
+
+    def active_task_id
+      agent.instance_variable_get(:@active_task_id)
+    end
+
+    it "leaves the working dir untouched when restoring to the active task" do
+      create_file("old.txt", "v0")
+
+      agent.start_new_task   # Task 1: edits old.txt, creates legacy.txt
+      task_write("old.txt", "v1")
+      task_write("legacy.txt", "legacy v1")
+
+      agent.start_new_task   # Task 2: records ghost.txt while it does not exist
+      agent.record_file_before_change(File.join(working_dir, "ghost.txt"))
+
+      agent.start_new_task   # Task 3
+      task_write("other.txt", "other")
+
+      # Sessions written before AFTER checkpoints survived a reload lack them.
+      FileUtils.rm_rf(after_dir(1))
+      # Changes made outside the Time Machine after those tasks ended.
+      create_file("old.txt", "edited outside")
+      create_file("ghost.txt", "created outside")
+
+      expect(agent.preview_restore_to_task(active_task_id)).to eq([])
+      agent.restore_to_task_state(active_task_id)
+
+      expect(read_file("old.txt")).to eq("edited outside")
+      expect(read_file("legacy.txt")).to eq("legacy v1")
+      expect(read_file("ghost.txt")).to eq("created outside")
+      expect(read_file("other.txt")).to eq("other")
+    end
+
+    it "undo only touches the files of the undone task" do
+      agent.start_new_task   # Task 1
+      task_write("a.txt", "a1")
+
+      agent.start_new_task   # Task 2
+      task_write("b.txt", "b2")
+
+      create_file("a.txt", "edited outside")
+
+      agent.undo_last_task
+
+      expect(read_file("a.txt")).to eq("edited outside")
+      expect(read_file("b.txt")).to be_nil
+    end
+
+    it "rebuilds the target state from BEFORE snapshots when its AFTER is missing" do
+      create_file("file.txt", "v0")
+
+      agent.start_new_task   # Task 1
+      task_write("file.txt", "v1")
+
+      agent.start_new_task   # Task 2
+      task_write("file.txt", "v2")
+
+      FileUtils.rm_rf(after_dir(1))
+
+      agent.restore_to_task_state(1)
+      expect(read_file("file.txt")).to eq("v1")
+    end
+
+    it "switches between sibling branches through their common ancestor" do
+      create_file("shared.txt", "v0")
+
+      agent.start_new_task   # Task 1
+      task_write("shared.txt", "v1")
+
+      agent.start_new_task   # Task 2
+      task_write("shared.txt", "v2")
+
+      agent.undo_last_task   # back to task 1
+      agent.start_new_task   # Task 3, sibling of task 2
+      task_write("shared.txt", "v3")
+      task_write("only3.txt", "three")
+
+      agent.switch_to_task(2)
+      expect(read_file("shared.txt")).to eq("v2")
+      expect(read_file("only3.txt")).to be_nil
+
+      agent.switch_to_task(3)
+      expect(read_file("shared.txt")).to eq("v3")
+      expect(read_file("only3.txt")).to eq("three")
+    end
+  end
+
+  describe "files outside the working dir" do
+    let(:outside_dir) { Dir.mktmpdir("clacky_time_machine_outside") }
+
+    after { FileUtils.rm_rf(outside_dir) }
+
+    it "does not snapshot them, so a task that only wrote there shows no change" do
+      agent.start_new_task
+      outside = File.join(outside_dir, "caps.txt")
+      agent.record_file_before_change(outside)
+      File.write(outside, "scratch")
+      agent.start_new_task
+
+      entries = Dir.glob(File.join(snapshot_dir(1), "**", "*"), File::FNM_DOTMATCH).reject { |p| File.directory?(p) }
+      expect(entries).to be_empty
+      expect(agent.task_change_count(1)).to eq(0)
+      expect(agent.task_diff_files(1)).to eq([])
+    end
+
+    it "does not mistake an outside path for a same-named working dir file" do
+      create_file("caps.txt", "mine")
+
+      agent.start_new_task
+      outside = File.join(outside_dir, "caps.txt")
+      agent.record_file_before_change(outside)
+      File.write(outside, "scratch")
+      agent.start_new_task
+
+      expect(agent.task_change_count(1)).to eq(0)
+      expect(agent.task_diff_files(1)).to eq([])
+      expect(agent.preview_restore_to_task(1)).to eq([])
+
+      agent.restore_to_task_state(1)
+      expect(read_file("caps.txt")).to eq("mine")
+      expect(File.read(outside)).to eq("scratch")
+    end
+  end
+
+  describe "files a task created and removed again" do
+    it "shows no change for that task" do
+      agent.start_new_task
+      task_write("scratch.txt", "temp")
+      FileUtils.rm_f(File.join(working_dir, "scratch.txt"))
+      agent.start_new_task
+
+      expect(agent.task_change_count(1)).to eq(0)
+      expect(agent.task_diff_files(1)).to eq([])
+      expect(agent.get_task_history(limit: 5).find { |t| t[:task_id] == 1 }[:change_count]).to eq(0)
+    end
+
+    it "does not delete it when another branch is restored past that task" do
+      agent.start_new_task            # Task 1
+      agent.start_new_task            # Task 2: creates and removes scratch.txt
+      task_write("scratch.txt", "temp")
+      FileUtils.rm_f(File.join(working_dir, "scratch.txt"))
+      agent.start_new_task            # Task 3
+      task_write("other.txt", "o")
+
+      agent.switch_to_task(1)
+      agent.start_new_task            # Task 4, sibling of task 2
+      task_write("branch.txt", "b")
+
+      create_file("scratch.txt", "created outside")
+
+      changes = agent.preview_restore_to_task(3)
+      expect(changes.map { |c| c[:path] }).not_to include("scratch.txt")
+
+      agent.switch_to_task(3)
+      expect(read_file("other.txt")).to eq("o")
+      expect(read_file("scratch.txt")).to eq("created outside")
+    end
+
+    it "still reports the files the task kept, added and deleted" do
+      create_file("mod.txt", "v0")
+      create_file("del.txt", "v0")
+
+      agent.start_new_task
+      task_write("mod.txt", "v1")
+      task_write("new.txt", "v1")
+      agent.record_file_before_change(File.join(working_dir, "del.txt"))
+      FileUtils.rm_f(File.join(working_dir, "del.txt"))
+      agent.start_new_task
+
+      statuses = agent.task_diff_files(1).map { |f| [f[:path], f[:status]] }.to_h
+      expect(statuses).to eq("del.txt" => "deleted", "mod.txt" => "modified", "new.txt" => "added")
+      expect(agent.task_change_count(1)).to eq(3)
+    end
+  end
+
   describe "#undo_last_task" do
     before do
       create_file("file.txt", "v0")
