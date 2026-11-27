@@ -69,4 +69,100 @@ RSpec.describe "Meeting extension API" do
       expect(data["error"]).to eq("meeting not found")
     end
   end
+
+  describe "POST /transcribe billing" do
+    let(:billing_dir) { Dir.mktmpdir }
+
+    around do |example|
+      original = ENV["CLACKY_BILLING_DIR"]
+      ENV["CLACKY_BILLING_DIR"] = billing_dir
+      example.run
+    ensure
+      ENV["CLACKY_BILLING_DIR"] = original
+      FileUtils.remove_entry(billing_dir) if Dir.exist?(billing_dir)
+    end
+
+    def billing_rows
+      Dir.glob(File.join(billing_dir, "*.jsonl")).flat_map do |file|
+        File.readlines(file).map { |line| JSON.parse(line) }
+      end
+    end
+
+    it "books the upstream cost of the chunk" do
+      allow_any_instance_of(MeetingExt).to receive(:call_stt).and_return(
+        "success" => true,
+        "text" => spoken,
+        "model" => "dsk-deepseek-asr",
+        "provider" => "openclacky",
+        "usage" => { "audio_seconds" => 12.5, "duration_ms" => 12_500 },
+        "cost_usd" => 0.000395
+      )
+
+      transcribe
+
+      expect(billing_rows.size).to eq(1)
+      row = billing_rows.first
+      expect(row["model"]).to eq("dsk-deepseek-asr")
+      expect(row["provider"]).to eq("openclacky")
+      expect(row["session_id"]).to eq(sid)
+      expect(row["cost_usd"]).to be_within(1e-9).of(0.000395)
+      expect(row["cost_source"]).to eq("api")
+    end
+
+    it "still books the cost when the text is dropped as a hallucination" do
+      allow_any_instance_of(MeetingExt).to receive(:call_stt).and_return(
+        "success" => true,
+        "text" => "谢谢观看",
+        "model" => "dsk-deepseek-asr",
+        "provider" => "openclacky",
+        "usage" => { "audio_seconds" => 2.0 },
+        "cost_usd" => 0.0000632
+      )
+
+      status, data = transcribe
+
+      expect(status).to eq(200)
+      expect(data["text"]).to eq("")
+      expect(transcript_lines).to be_empty
+      expect(billing_rows.size).to eq(1)
+    end
+
+    it "writes no row when the provider reports no usage or cost" do
+      allow_any_instance_of(MeetingExt).to receive(:call_stt).and_return(
+        "success" => true, "text" => spoken
+      )
+
+      transcribe
+
+      expect(billing_rows).to be_empty
+    end
+  end
+
+  describe "POST /transcribe without a speech-to-text model" do
+    it "reports a settings gap the panel can link to" do
+      allow_any_instance_of(MeetingExt).to receive(:call_stt).and_return(
+        "success" => false,
+        "text" => nil,
+        "error" => "No STT model configured. Add a model with type=stt in settings.",
+        "error_type" => "not_configured"
+      )
+
+      status, data = transcribe
+      expect(status).to eq(422)
+      expect(data["error_type"]).to eq("stt_not_configured")
+      expect(data["error"]).not_to include("type=stt")
+      expect(transcript_lines).to be_empty
+    end
+
+    it "keeps real STT failures as upstream errors" do
+      allow_any_instance_of(MeetingExt).to receive(:call_stt).and_return(
+        "success" => false, "text" => nil, "error" => "upstream 503", "error_type" => "http_error"
+      )
+
+      status, data = transcribe
+      expect(status).to eq(502)
+      expect(data).not_to have_key("error_type")
+      expect(data["error"]).to eq("upstream 503")
+    end
+  end
 end

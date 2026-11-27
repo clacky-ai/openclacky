@@ -259,7 +259,7 @@ RSpec.describe Clacky::Media::Generator do
 
       fake_provider = instance_double(Clacky::Media::OpenAICompat)
       expect(Clacky::Media::OpenAICompat).to receive(:new) do |entry|
-        expect(entry["model"]).to eq("or-stt-gemini-3-8-flash")
+        expect(entry["model"]).to eq("dsk-deepseek-asr")
         fake_provider
       end
       expect(fake_provider).to receive(:generate_transcription)

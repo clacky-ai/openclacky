@@ -4,6 +4,7 @@ require "faraday"
 require "json"
 require "base64"
 require "securerandom"
+require "uri"
 require_relative "base"
 
 module Clacky
@@ -29,6 +30,19 @@ module Clacky
       # normalises to Veo's "16:9" / "9:16" internally.
       VIDEO_ASPECTS = %w[landscape portrait].freeze
       DEFAULT_VIDEO_DURATION = 8
+
+      # DeepSeek's standalone ASR endpoint lives at /v1/tools/asr, bills by
+      # audio duration, and decodes only 16 kHz PCM WAV and Ogg Opus. Browsers
+      # record webm/opus (Chrome) or mp4/aac (Safari), so callers either
+      # transcode first or fall back to a Gemini STT alias.
+      DEEPSEEK_ASR_ALIASES = %w[dsk-deepseek-asr deepseek-asr].freeze
+      # List price, not the running 50% promo: the discount has no published
+      # end date, so booking it would silently understate cost once withdrawn.
+      DEEPSEEK_ASR_RMB_PER_AUDIO_HOUR = 0.78
+      RMB_PER_USD = 7.2
+      DEEPSEEK_ASR_MIME_TYPES = %w[
+        audio/wav audio/x-wav audio/wave audio/ogg audio/opus application/ogg
+      ].freeze
 
       def generate_image(prompt:, aspect_ratio: DEFAULT_ASPECT, output_dir: nil, n: 1, image: nil, images: nil, **_kwargs)
         provider_id = Clacky::Providers.find_by_base_url(@base_url) || "custom"
@@ -344,7 +358,25 @@ module Clacky
           )
         end
 
-        ext = mime_type.split(";").first.split("/").last.then { |e| e == "mpeg" ? "mp3" : e }
+        base_mime = mime_type.to_s.split(";").first.to_s.strip.downcase
+        ext = base_mime.split("/").last.to_s.then { |e| e == "mpeg" ? "mp3" : e }
+
+        return deepseek_transcription(audio_base64: audio_base64, mime_type: base_mime, provider_id: provider_id) if deepseek_direct?
+
+        model = @model.to_s
+        if deepseek_asr_model?(model) && !DEEPSEEK_ASR_MIME_TYPES.include?(base_mime)
+          # The gateway answers dsk- aliases from the mainland, and DeepSeek
+          # rejects every container the browser records natively. Prefer a
+          # slower success over a hard failure.
+          fallback = Clacky::Providers.stt_models(provider_id).find { |m| !deepseek_asr_model?(m) }
+          if fallback.nil?
+            return transcription_error_response(
+              error: "DeepSeek ASR accepts only 16 kHz PCM WAV or Ogg Opus audio (got #{base_mime})",
+              error_type: "unsupported_audio_format", provider: provider_id
+            )
+          end
+          model = fallback
+        end
 
         # OpenRouter caps multipart uploads at 25 MB and redirects larger files
         # to base64 JSON via input_audio. Plain OpenAI-compatible providers keep
@@ -354,7 +386,7 @@ module Clacky
         if provider_id == Clacky::Providers::OPENROUTER_ID
           ext = "m4a" if ext == "mp4" # OpenRouter wants the audio format, not the container
           payload = {
-            model: @model,
+            model: model,
             input_audio: {
               data:   audio_base64, # raw base64 bytes, NOT a data URI
               format: ext
@@ -388,7 +420,7 @@ module Clacky
           body << audio_data.b
           body << "\r\n--#{boundary}\r\n".b
           body << "Content-Disposition: form-data; name=\"model\"\r\n\r\n".b
-          body << @model.to_s.b
+          body << model.b
           unless prompt.to_s.strip.empty?
             body << "\r\n--#{boundary}\r\n".b
             body << "Content-Disposition: form-data; name=\"prompt\"\r\n\r\n".b
@@ -429,10 +461,98 @@ module Clacky
           text: parsed["text"].to_s.strip,
           provider: provider_id,
           extra: {
+            "model"    => model,
             "usage"    => parsed["usage"],
             "cost_usd" => parsed["cost_usd"]
           }.compact
         )
+      end
+
+      # DeepSeek's standalone speech endpoint is not OpenAI-shaped: it lives on
+      # /v1/tools/asr, takes only the file part, and bills by audio duration.
+      private def deepseek_transcription(audio_base64:, mime_type:, provider_id:)
+        unless DEEPSEEK_ASR_MIME_TYPES.include?(mime_type)
+          return transcription_error_response(
+            error: "DeepSeek ASR accepts only 16 kHz PCM WAV or Ogg Opus audio (got #{mime_type})",
+            error_type: "unsupported_audio_format", provider: provider_id
+          )
+        end
+
+        ext = mime_type.include?("ogg") ? "ogg" : "wav"
+        audio_data = Base64.decode64(audio_base64)
+        boundary = "----FormBoundary#{SecureRandom.hex(8)}"
+        body = "".b
+        body << "--#{boundary}\r\n".b
+        body << "Content-Disposition: form-data; name=\"file\"; filename=\"chunk.#{ext}\"\r\n".b
+        body << "Content-Type: #{mime_type}\r\n\r\n".b
+        body << audio_data.b
+        body << "\r\n--#{boundary}--\r\n".b
+
+        begin
+          response = stt_connection.post(deepseek_asr_path) do |req|
+            req.headers["Content-Type"]  = "multipart/form-data; boundary=#{boundary}"
+            req.headers["Authorization"] = "Bearer #{@api_key}"
+            req.body = body
+          end
+        rescue Faraday::Error => e
+          return transcription_error_response(
+            error: "HTTP request failed: #{e.message}",
+            error_type: "network_error", provider: provider_id
+          )
+        end
+
+        unless response.success?
+          return transcription_error_response(
+            error: "Upstream #{response.status}: #{truncate(response.body, 500)}",
+            error_type: "api_error", provider: provider_id
+          )
+        end
+
+        parsed = parse_json(response.body)
+        unless parsed.is_a?(Hash)
+          return transcription_error_response(
+            error: "Invalid JSON response from upstream",
+            error_type: "invalid_response", provider: provider_id
+          )
+        end
+
+        transcription_success_response(
+          text: parsed["text"].to_s.strip,
+          provider: provider_id,
+          extra: deepseek_transcription_billing(@model, parsed["duration_ms"])
+        )
+      end
+
+      # A BYO DeepSeek key is billed by audio duration, and the upstream body
+      # carries only duration_ms — nothing to read a cost from, so it is
+      # estimated locally from the list price. Callers keep the row as
+      # :estimated instead of pretending it is an API-confirmed amount.
+      private def deepseek_transcription_billing(model, duration_ms)
+        duration = duration_ms.to_i
+        extra = { "model" => model, "duration_ms" => duration_ms }.compact
+        return extra unless duration > 0
+
+        extra.merge(
+          "usage" => { "audio_seconds" => duration / 1000.0, "duration_ms" => duration },
+          "cost_usd" => duration / 3_600_000.0 * DEEPSEEK_ASR_RMB_PER_AUDIO_HOUR / RMB_PER_USD,
+          "cost_source" => "estimated"
+        )
+      end
+
+      private def deepseek_direct?
+        URI.parse(@base_url.to_s).host.to_s.end_with?("deepseek.com")
+      rescue URI::InvalidURIError
+        false
+      end
+
+      private def deepseek_asr_model?(model)
+        DEEPSEEK_ASR_ALIASES.include?(model.to_s)
+      end
+
+      # A custom provider may point at either https://api.deepseek.com or the
+      # /v1 form; only one of them needs the version segment.
+      private def deepseek_asr_path
+        @base_url.to_s.chomp("/").end_with?("/v1") ? "tools/asr" : "v1/tools/asr"
       end
 
       def understand_video(video_base64:, mime_type:, prompt: nil, **_kwargs)

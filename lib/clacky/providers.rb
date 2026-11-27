@@ -122,18 +122,22 @@ module Clacky
           "or-tts-gemini-2-5-pro"   => "Gemini 2.5 Pro TTS"
         },
         "default_audio_model" => "or-tts-gemini-2-5-flash",
-        # Speech-to-text models served by the openclacky gateway, which
-        # routes them to Vertex AI Gemini (generateContent with inline
-        # audio parts). The gateway returns transcription text.
+        # Speech-to-text models served by the openclacky gateway. dsk- aliases
+        # are answered on the mainland gateway straight from DeepSeek's
+        # standalone speech API (~0.1-0.2x realtime, no prompt biasing); the
+        # or-stt- aliases relay to Vertex Gemini, which is slower but accepts
+        # any container and honours a terminology prompt.
         "stt_models" => [
+          "dsk-deepseek-asr",
           "or-stt-gemini-3-8-flash",
           "or-stt-gemini-1-5-pro"
         ],
         "stt_model_aliases" => {
+          "dsk-deepseek-asr"        => "DeepSeek ASR (Fast)",
           "or-stt-gemini-3-8-flash" => "Gemini 3.8 Flash STT",
           "or-stt-gemini-1-5-pro"   => "Gemini 1.5 Pro STT"
         },
-        "default_stt_model" => "or-stt-gemini-3-8-flash",
+        "default_stt_model" => "dsk-deepseek-asr",
         # Video understanding models served by the openclacky gateway, which
         # routes video frames to Gemini (generateContent with inline image
         # parts). The gateway returns analysis text.

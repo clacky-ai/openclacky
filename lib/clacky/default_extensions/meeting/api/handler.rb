@@ -135,6 +135,7 @@ class MeetingExt < Clacky::ApiExtension
 
     if result["success"]
       text = result["text"].to_s.strip
+      record_stt_usage(result, sid)
       transcript_path = File.join(dir, "transcript.jsonl")
       if !text.empty? && !hallucinated_transcript?(text, vocabulary, transcript_path)
         entry = { ts: Time.now.utc.iso8601, text: text }
@@ -149,7 +150,13 @@ class MeetingExt < Clacky::ApiExtension
         json(text: "")
       end
     else
-      error!(result["error"] || "STT failed", status: 502)
+      # Missing STT is a settings gap, not a service failure — the panel turns
+      # this type into a message with a jump to that settings row.
+      if result["error_type"] == "not_configured"
+        error!("No speech-to-text model is configured.", status: 422, error_type: "stt_not_configured")
+      else
+        error!(result["error"] || "STT failed", status: 502)
+      end
     end
   end
 
@@ -407,5 +414,14 @@ class MeetingExt < Clacky::ApiExtension
   rescue StandardError => e
     logger.error("STT call failed: #{e.message}")
     { "success" => false, "text" => nil, "error" => e.message }
+  end
+
+  # Every transcribed chunk costs money upstream, including the ones whose
+  # text is thrown away, so the ledger row is written before that decision.
+  private def record_stt_usage(result, session_id)
+    require_relative "../../../billing/media_usage"
+    Clacky::Billing::MediaUsage.record(result, session_id: session_id, kind: "stt")
+  rescue StandardError => e
+    logger.warn("STT billing record failed: #{e.message}")
   end
 end

@@ -16,6 +16,7 @@ require_relative "agent/message_compressor"
 require_relative "agent/message_compressor_helper"
 require_relative "agent/tool_executor"
 require_relative "agent/cost_tracker"
+require_relative "billing/media_usage"
 require_relative "agent/session_serializer"
 require_relative "agent/skill_manager"
 require_relative "agent/system_prompt_builder"
@@ -2720,6 +2721,8 @@ module Clacky
                             error_type: result["error_type"], error: result["error"])
         return [nil, entry["model"], :stt_call_failed]
       end
+      Clacky::Billing::MediaUsage.record(result, prompt: AUDIO_TRANSCRIPTION_PROMPT,
+                                         session_id: @session_id, kind: "stt")
 
       # Verbatim speech, not a summary — never truncated. The 20 MB input cap
       # is what bounds the transcript length.

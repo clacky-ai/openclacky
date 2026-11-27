@@ -286,6 +286,117 @@ RSpec.describe Clacky::Media::OpenAICompat do
         expect(captured[:body]).to include('name="prompt"')
         expect(captured[:body]).to include("punctuation please")
       end
+
+      it "surfaces the gateway's usage and cost so the chunk can be billed" do
+        conn = instance_double(Faraday::Connection)
+        req_double = double("req")
+        allow(req_double).to receive(:headers).and_return({})
+        allow(req_double).to receive(:body=)
+        response = instance_double(
+          Faraday::Response, success?: true, status: 200,
+          body: JSON.generate({
+            "text" => "hello world",
+            "model" => "dsk-deepseek-asr",
+            "usage" => { "audio_seconds" => 12.5, "duration_ms" => 12_500 },
+            "cost_usd" => 0.000395
+          })
+        )
+        allow(conn).to receive(:post).with("audio/transcriptions").and_yield(req_double).and_return(response)
+        allow(provider).to receive(:stt_connection).and_return(conn)
+
+        result = provider.generate_transcription(
+          audio_base64: Base64.strict_encode64("RIFF....WAVE"),
+          mime_type: "audio/wav"
+        )
+
+        expect(result["usage"]).to eq("audio_seconds" => 12.5, "duration_ms" => 12_500)
+        expect(result["cost_usd"]).to eq(0.000395)
+        expect(result).not_to have_key("cost_source")
+      end
+    end
+
+    context "with a dsk- DeepSeek ASR alias on the gateway" do
+      let(:entry) do
+        { "model" => "dsk-deepseek-asr", "base_url" => "https://api.openclacky.com", "api_key" => "clacky-k" }
+      end
+
+      it "sends a WAV chunk through with the alias untouched" do
+        captured = {}
+        stub_transcription(captured)
+        allow(provider).to receive(:stt_connection).and_return(fake_conn)
+
+        result = provider.generate_transcription(
+          audio_base64: Base64.strict_encode64("RIFF....WAVE"),
+          mime_type: "audio/wav"
+        )
+
+        expect(result["success"]).to be true
+        expect(captured[:body]).to include("dsk-deepseek-asr")
+      end
+
+      it "falls back to a Gemini alias for containers DeepSeek rejects" do
+        captured = {}
+        stub_transcription(captured)
+        allow(provider).to receive(:stt_connection).and_return(fake_conn)
+
+        result = provider.generate_transcription(
+          audio_base64: Base64.strict_encode64("webm"),
+          mime_type: "audio/webm;codecs=opus"
+        )
+
+        expect(result["success"]).to be true
+        expect(result["model"]).to eq("or-stt-gemini-3-8-flash")
+        expect(captured[:body]).to include("or-stt-gemini-3-8-flash")
+        expect(captured[:body]).not_to include("dsk-deepseek-asr")
+      end
+    end
+
+    context "talking to api.deepseek.com directly" do
+      let(:entry) do
+        { "model" => "deepseek-asr", "base_url" => "https://api.deepseek.com", "api_key" => "dsk-k" }
+      end
+
+      it "posts the file part to /v1/tools/asr and surfaces duration_ms" do
+        conn = instance_double(Faraday::Connection)
+        captured = {}
+        req_double = double("req")
+        allow(req_double).to receive(:headers).and_return({})
+        allow(req_double).to receive(:body=) { |b| captured[:body] = b }
+        response = instance_double(
+          Faraday::Response, success?: true, status: 200,
+          body: JSON.generate({ "text" => "hello", "duration_ms" => 12_500 })
+        )
+        allow(conn).to receive(:post).with("v1/tools/asr").and_yield(req_double).and_return(response)
+        allow(provider).to receive(:stt_connection).and_return(conn)
+
+        result = provider.generate_transcription(
+          audio_base64: Base64.strict_encode64("RIFF....WAVE"),
+          mime_type: "audio/wav"
+        )
+
+        expect(result["success"]).to be true
+        expect(result["text"]).to eq("hello")
+        expect(result["duration_ms"]).to eq(12_500)
+        expect(result["provider"]).to eq("deepseekv4")
+        expect(result["usage"]).to eq("audio_seconds" => 12.5, "duration_ms" => 12_500)
+        expect(result["cost_usd"]).to be_within(1e-12).of(12_500 / 3_600_000.0 * 0.78 / 7.2)
+        expect(result["cost_source"]).to eq("estimated")
+        expect(captured[:body]).to include('name="file"; filename="chunk.wav"')
+        expect(captured[:body]).not_to include('name="model"')
+      end
+
+      it "rejects a container DeepSeek cannot decode without calling upstream" do
+        allow(provider).to receive(:stt_connection).and_return(fake_conn)
+
+        result = provider.generate_transcription(
+          audio_base64: Base64.strict_encode64("webm"),
+          mime_type: "audio/webm"
+        )
+
+        expect(result["success"]).to be false
+        expect(result["error_type"]).to eq("unsupported_audio_format")
+        expect(fake_conn).not_to have_received(:post)
+      end
     end
 
     context "on OpenRouter" do

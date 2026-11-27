@@ -2033,12 +2033,15 @@ module Clacky
         mime_type = body["mime_type"].to_s
         mime_type = "audio/webm" if mime_type.empty?
 
+        session_id = body["session_id"].to_s
+        session_id = nil if session_id.empty?
+
         result = Clacky::Media::Generator.new(@agent_config).generate_transcription(
           audio_base64: audio_b64,
           mime_type: mime_type
         )
         if result["success"]
-          Clacky::Logger.info("[Media] stt generated model=#{result["model"]} provider=#{result["provider"]} cost_usd=#{result["cost_usd"].to_f}")
+          log_media_usage(result, prompt: nil, session_id: session_id)
         end
         status = result["success"] ? 200 : 422
         json_response(res, status, result)
@@ -2075,41 +2078,8 @@ module Clacky
       end
 
       private def log_media_usage(result, prompt:, session_id: nil)
-        usage = result["usage"]
-        cost  = result["cost_usd"]
-        return if usage.nil? && cost.nil?
-
-        parts = []
-        parts << "model=#{result["model"]}"
-        parts << "provider=#{result["provider"]}"
-        if usage.is_a?(Hash)
-          parts << "prompt_tokens=#{usage["prompt_tokens"]}"
-          parts << "completion_tokens=#{usage["completion_tokens"]}"
-          parts << "cache_read=#{usage["cache_read_tokens"]}" if usage["cache_read_tokens"].to_i > 0
-          parts << "cache_write=#{usage["cache_write_tokens"]}" if usage["cache_write_tokens"].to_i > 0
-        end
-        parts << format("cost_usd=%.6f", cost.to_f) if cost
-        parts << "prompt=#{prompt[0, 60].inspect}"
-        kind = if result.key?("video") then "video"
-               elsif result.key?("audio") then "audio"
-               else "image"
-               end
-        Clacky::Logger.info("[Media] #{kind} generated #{parts.join(" ")}")
-
-        require_relative "../billing/billing_store"
-        require_relative "../billing/billing_record"
-        record = Clacky::Billing::BillingRecord.new(
-          session_id:        session_id,
-          model:             result["model"].to_s,
-          provider:          result["provider"].to_s,
-          prompt_tokens:     usage.is_a?(Hash) ? usage["prompt_tokens"].to_i : 0,
-          completion_tokens: usage.is_a?(Hash) ? usage["completion_tokens"].to_i : 0,
-          cache_read_tokens: usage.is_a?(Hash) ? usage["cache_read_tokens"].to_i : 0,
-          cache_write_tokens: usage.is_a?(Hash) ? usage["cache_write_tokens"].to_i : 0,
-          cost_usd:          cost.to_f,
-          cost_source:       :api
-        )
-        Clacky::Billing::BillingStore.new.append(record)
+        require_relative "../billing/media_usage"
+        Clacky::Billing::MediaUsage.record(result, prompt: prompt, session_id: session_id)
       end
 
       # GET /api/media/types
