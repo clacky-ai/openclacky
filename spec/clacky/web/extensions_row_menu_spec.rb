@@ -26,8 +26,8 @@ RSpec.describe "Extensions row action menu UI" do
     expect(view).to include("_confirmUninstall(id)")
   end
 
-  it "offers the + affordance for official extensions that are switched off" do
-    expect(view).to include('if (ext.disabled === true && (ext.layer === "builtin" || ext.layer === "local")) {')
+  it "offers the + affordance for any extension that is switched off" do
+    expect(view).to include('if (ext.disabled === true) {')
     expect(view).to include('data-ext-row-enable="${escapeHtml(id)}"')
     expect(view).to include("Extensions.setEnabled(enable.dataset.extRowEnable, true)")
   end
@@ -37,10 +37,10 @@ RSpec.describe "Extensions row action menu UI" do
     expect(view).to include("Extensions.setEnabled(id, false)")
   end
 
-  it "keeps disabled extensions out of the installed tab" do
-    expect(view).to include("const live = st.installed.filter((e) => e.disabled !== true);")
-    expect(view).to include('I18n.t("extensions.group.official"), items: live.filter((e) => e.layer === "builtin")')
-    expect(view).to include('I18n.t("extensions.group.user"),     items: live.filter((e) => e.layer !== "builtin")')
+  it "keeps switched-off extensions in the installed tab so they stay reachable" do
+    expect(view).not_to include("const live = st.installed.filter((e) => e.disabled !== true);")
+    expect(view).to include('I18n.t("extensions.group.official"), items: st.installed.filter((e) => e.layer === "builtin")')
+    expect(view).to include('I18n.t("extensions.group.user"),     items: st.installed.filter((e) => e.layer !== "builtin")')
   end
 
   it "lists the official group above the brand catalog on the brand tab" do

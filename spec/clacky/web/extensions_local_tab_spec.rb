@@ -29,7 +29,7 @@ RSpec.describe "Extensions personal-creation tab UI" do
   end
 
   it "offers enable for a switched-off local extension and disable once it runs" do
-    expect(view).to include('if (ext.disabled === true && (ext.layer === "builtin" || ext.layer === "local")) {')
+    expect(view).to include('if (ext.disabled === true) {')
     expect(view).to include('if (ext.layer === "local")   return ["iterate", "disable", "delete"];')
   end
 

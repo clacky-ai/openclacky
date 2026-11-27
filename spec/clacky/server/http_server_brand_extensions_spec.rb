@@ -75,5 +75,23 @@ RSpec.describe Clacky::Server::HttpServer, "GET /api/store/extensions" do
     expect(row["slug"]).to eq("wsl-picker-utf8-fix")
     expect(row["id"]).to eq(178)
     expect(row["installed"]).to be(false)
+    expect(row["disabled"]).to be(false)
+  end
+
+  it "flags a switched-off install so the catalog row can offer enable" do
+    request = instance_double(WEBrick::HTTPRequest, query: {})
+    allow(server).to receive(:installed_extension_containers)
+      .and_return("wsl-picker-utf8-fix" => { layer: :installed, disabled: true })
+    allow(brand).to receive(:search_extensions!)
+      .and_return(success: true, extensions: [{ "id" => 178, "name" => "wsl-picker-utf8-fix" }], meta: {})
+
+    captured = nil
+    allow(response).to receive(:body=) { |json| captured = JSON.parse(json) }
+
+    server.send(:api_store_extensions, request, response)
+
+    row = captured["extensions"].first
+    expect(row["installed"]).to be(true)
+    expect(row["disabled"]).to be(true)
   end
 end

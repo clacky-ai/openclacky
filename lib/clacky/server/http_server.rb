@@ -2936,7 +2936,11 @@ module Clacky
               # operations (uninstall) need the installed directory name.
               "slug"              => slug,
               "installed"         => !container.nil?,
-              "installed_version" => container&.dig(:version)
+              "installed_version" => container&.dig(:version),
+              # A catalog row still shows the "disabled" badge: switching an
+              # extension off does not remove it from the marketplace, and the
+              # row's "+" (enable) affordance is driven by this flag.
+              "disabled"          => container ? container[:disabled] == true : false
             )
           end
           json_response(res, 200, { ok: true, extensions: extensions, meta: result[:meta] })
@@ -2987,6 +2991,7 @@ module Clacky
               "slug"              => slug,
               "installed"         => !container.nil?,
               "installed_version" => container&.dig(:version) || ext["installed_version"],
+              "disabled"          => container ? container[:disabled] == true : false,
               **local_overrides
             )
           end
