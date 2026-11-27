@@ -1,5 +1,5 @@
 # frozen_string_literal: true
 
 module Clacky
-  VERSION = "1.5.25"
+  VERSION = "1.5.26"
 end
