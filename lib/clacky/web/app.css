@@ -9603,27 +9603,21 @@ a.msg-mention-badge:hover { text-decoration: underline; }
   gap: 0.75rem;
   margin-bottom: 0.25rem;
 }
-.provider-promo-hint .promo-link {
+.provider-promo-hint .promo-actions {
   flex-shrink: 0;
   display: inline-flex;
   align-items: center;
   gap: 0.25rem;
-  font-size: 0.75rem;
-  font-weight: 600;
-  color: var(--color-accent-primary);
-  text-decoration: none;
-  padding: 0.125rem 0.5rem;
-  border-radius: 999px;
-  transition: background 0.15s, color 0.15s;
 }
-.provider-promo-hint .promo-link svg { transition: transform 0.15s; }
-.provider-promo-hint .promo-link:hover {
-  background: color-mix(in srgb, var(--color-accent-primary) 12%, transparent);
-}
-.provider-promo-hint .promo-link:hover svg { transform: translateX(2px); }
-.provider-promo-hint .promo-link:focus-visible {
-  outline: 2px solid var(--color-accent-primary);
-  outline-offset: 2px;
+/* The hint carries its own dismiss button, shown while the hint is hovered.
+   No grey disc here: the provider dropdown above sits in the same column, so a
+   pointer travelling down to the next field crosses this spot and would light
+   the disc up uninvited. Banner's ✕ keeps its disc — it sits in white space. */
+.provider-promo-hint .promo-close { opacity: 0; }
+.provider-promo-hint:hover .promo-close,
+.provider-promo-hint:focus-within .promo-close { opacity: 1; }
+@media (hover: none) {
+  .provider-promo-hint .promo-close { opacity: 1; }
 }
 .provider-promo-hint .promo-title {
   font-size: 0.8125rem;
@@ -17399,6 +17393,17 @@ body.setup-mode {
 }
 .media-row.is-expanded {
   background: var(--color-bg-secondary);
+}
+/* Arriving from a "go fix it" link: outline the row long enough to spot it. */
+.media-row.is-flash {
+  animation: media-row-flash 1.8s ease-out;
+}
+@keyframes media-row-flash {
+  0%, 45% { box-shadow: 0 0 0 2px var(--color-accent-primary); }
+  100% { box-shadow: 0 0 0 2px transparent; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .media-row.is-flash { animation: none; box-shadow: 0 0 0 2px var(--color-accent-primary); }
 }
 .media-row-head {
   display: flex;

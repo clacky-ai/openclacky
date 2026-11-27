@@ -1,14 +1,16 @@
 "use strict";
 
 // The OpenClacky AI Keys promo shows up in two places: the model-edit modal
-// (provider hint) and the Secondary Models section (media banner). Both are the
-// same campaign, so a single dismissal must silence both, permanently.
+// (provider hint) and the Secondary Models section (media banner). Each surface
+// carries its own dismiss button and its own localStorage flag, so closing one
+// never silences the other.
 //
 // This harness pins:
-//   * the visibility truth table (_shouldShowPromo), including "editing a
+//   * the modal hint truth table (_shouldShowPromo), including "editing a
 //     third-party model shows nothing" — the bug that started this;
-//   * that a dismissal is persisted and respected on the next read;
-//   * that both banners route their decision through the shared helpers.
+//   * that the two dismissals are stored under separate keys and only affect
+//     their own surface;
+//   * that both surfaces render their own close button.
 
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
@@ -26,12 +28,15 @@ function load(localStorage) {
   vm.runInContext(source.slice(start, end), context);
   return {
     shouldShow: vm.runInContext("_shouldShowPromo", context),
-    dismissed: vm.runInContext("_aiKeysPromoDismissed", context),
+    bannerDismissed: vm.runInContext("_aiKeysPromoDismissed", context),
+    modalDismissed: vm.runInContext("_modelModalPromoDismissed", context),
   };
 }
 
-function storageWith(initial) {
-  const data = new Map(initial ? [["clacky-ai-keys-promo-dismissed", initial]] : []);
+function storageWith(banner, modal) {
+  const data = new Map();
+  if (banner) data.set("clacky-ai-keys-promo-dismissed", banner);
+  if (modal) data.set("clacky-model-modal-promo-dismissed", modal);
   return {
     getItem: key => (data.has(key) ? data.get(key) : null),
     setItem: (key, value) => data.set(key, String(value)),
@@ -39,7 +44,7 @@ function storageWith(initial) {
 }
 
 {
-  const promo = load(storageWith(null));
+  const promo = load(storageWith(null, null));
   assert.equal(promo.shouldShow(null, false), true, "add flow: nothing picked yet shows the promo");
   assert.equal(promo.shouldShow("openclacky", false), true, "picking OpenClacky keeps the promo");
   assert.equal(promo.shouldShow("deepseek", false), false, "editing a DeepSeek model hides the promo");
@@ -49,10 +54,21 @@ function storageWith(initial) {
 }
 
 {
-  const promo = load(storageWith("1"));
-  assert.equal(promo.dismissed(), true, "the stored flag reads back");
-  assert.equal(promo.shouldShow(null, false), false, "a dismissed promo never comes back, even in the add flow");
-  assert.equal(promo.shouldShow("openclacky", false), false, "dismissal beats an OpenClacky selection");
+  // Closing the banner is a banner-only opt-out.
+  const promo = load(storageWith("1", null));
+  assert.equal(promo.bannerDismissed(), true, "the banner flag reads back");
+  assert.equal(promo.modalDismissed(), false, "the banner flag is not the modal flag");
+  assert.equal(promo.shouldShow(null, false), true, "the banner dismissal leaves the modal hint alone");
+  assert.equal(promo.shouldShow("openclacky", false), true, "banner dismissal does not beat an OpenClacky selection");
+}
+
+{
+  // Closing the hint inside the model editor is a hint-only opt-out.
+  const promo = load(storageWith(null, "1"));
+  assert.equal(promo.modalDismissed(), true, "the modal flag reads back");
+  assert.equal(promo.bannerDismissed(), false, "the modal flag is not the banner flag");
+  assert.equal(promo.shouldShow(null, false), false, "a dismissed hint stays gone in the add flow");
+  assert.equal(promo.shouldShow("openclacky", false), false, "a dismissed hint stays gone for OpenClacky");
 }
 
 {
@@ -62,28 +78,30 @@ function storageWith(initial) {
     getItem() { throw new Error("denied"); },
     setItem() { throw new Error("denied"); },
   });
-  assert.equal(promo.dismissed(), false);
+  assert.equal(promo.bannerDismissed(), false);
+  assert.equal(promo.modalDismissed(), false);
   assert.equal(promo.shouldShow(null, false), true);
 }
 
-// Both surfaces must consult _aiKeysPromoDismissed, otherwise one of them keeps
-// nagging after the other is closed.
-assert.ok(
-  /_aiKeysPromoDismissed\(\)/.test(
-    source.slice(source.indexOf("function _updateMediaPromo("), source.indexOf("function _renderMediaRows("))
-  ),
-  "_updateMediaPromo must honour the dismissal"
-);
-assert.ok(
-  source.slice(source.indexOf("function _shouldShowPromo(")).includes("_aiKeysPromoDismissed()"),
-  "_shouldShowPromo must honour the dismissal"
-);
-assert.ok(
-  !/_promoCloseButton\(\)/.test(
-    source.slice(source.indexOf("function _showPromoHint("), source.indexOf("function _bindCardEvents("))
-  ),
-  "the model-modal promo must not render a dismiss button"
-);
+const mediaBody = source.slice(source.indexOf("function _updateMediaPromo("), source.indexOf("function _renderMediaRows("));
+const hintBody = source.slice(source.indexOf("function _shouldShowPromo("), source.indexOf("function _syncPromoHint("));
+
+assert.ok(/_aiKeysPromoDismissed\(\)/.test(mediaBody), "_updateMediaPromo must honour its own dismissal");
+assert.ok(!/_modelModalPromoDismissed\(\)/.test(mediaBody), "_updateMediaPromo must ignore the modal dismissal");
+// The media banner is the same campaign as the model-modal hint, so white-label
+// builds show it too rather than treating Brand.branded as an extra gate.
+assert.ok(!/Brand\.branded/.test(mediaBody), "_updateMediaPromo must not hide the banner in white-label builds");
+
+assert.ok(/_modelModalPromoDismissed\(\)/.test(hintBody), "_shouldShowPromo must honour the modal dismissal");
+assert.ok(!/_aiKeysPromoDismissed\(\)/.test(hintBody), "_shouldShowPromo must ignore the banner dismissal");
+
+const dismissBody = source.slice(source.indexOf("function _dismissModelModalPromo("), source.indexOf("function _shouldShowPromo("));
+assert.ok(/MODEL_MODAL_PROMO_DISMISSED_KEY/.test(dismissBody), "the hint's close button must write its own key");
+
+const showBody = source.slice(source.indexOf("function _showPromoHint("), source.indexOf("function _bindCardEvents("));
+assert.ok(/class="promo-close"/.test(showBody), "the model-modal promo must render its own dismiss button");
+assert.ok(/_dismissModelModalPromo/.test(showBody), "the model-modal promo close button must be wired");
+
 assert.ok(
   /getElementById\("media-promo-close"\)/.test(source),
   "the media banner close button must be wired"
