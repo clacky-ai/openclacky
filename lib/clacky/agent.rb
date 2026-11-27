@@ -946,6 +946,11 @@ module Clacky
       # Safety net: ensure any lingering progress spinner is stopped.
       @ui&.show_progress(phase: "done")
 
+      # Background browser tabs outlive their purpose the moment the run ends —
+      # they are invisible to the user, so nobody would ever close them. Skipped
+      # when a newer run has taken over this agent, whose tabs are still in use.
+      Clacky::BrowserManager.instance.release(self) if task_id == @current_task_id
+
       # Fire-and-forget telemetry after every agent run.
       # Tracks daily active users (distinct devices per day) and task volume.
       # Guarded by run_turn_started so goal control commands (which return
@@ -2165,7 +2170,11 @@ module Clacky
       register_tool(Tools::TodoManager.new)
       register_tool(Tools::AskUser.new)
       register_tool(Tools::InvokeSkill.new)
-      register_tool(Tools::Browser.new) if Tools::Browser.available?
+      if Tools::Browser.available?
+        browser = Tools::Browser.new
+        browser.agent = self
+        register_tool(browser)
+      end
     end
 
     # Single gate for the profile's tools_allow whitelist: a tool that is not

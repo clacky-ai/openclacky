@@ -14,6 +14,9 @@ module Clacky
   #   - reload  → stop + re-read yml + start (called after browser-setup writes yml)
   #   - status  → { enabled: bool, daemon_running: bool, chrome_version: String|nil }
   #   - toggle  → flip enabled in browser.yml and reload
+  #   - release → close the background tabs an agent opened (see "Background page
+  #               bookkeeping" below); background tabs are invisible to the user,
+  #               so they must not outlive the run that opened them
   #
   # browser.yml schema:
   #   enabled: true/false   — whether the browser tool is active
@@ -44,10 +47,12 @@ module Clacky
     end
 
     def initialize
-      @process = nil   # { stdin:, stdout:, pid:, wait_thr: }
-      @mutex   = Mutex.new
-      @call_id = 2     # 1 reserved for MCP initialize handshake
-      @config  = {}    # last successfully read browser.yml content
+      @process     = nil   # { stdin:, stdout:, pid:, wait_thr: }
+      @mutex       = Mutex.new
+      @pages_mutex = Mutex.new
+      @owned_pages = {}    # pageId => owner object_id (background pages only)
+      @call_id     = 2     # 1 reserved for MCP initialize handshake
+      @config      = {}    # last successfully read browser.yml content
     end
 
     # ---------------------------------------------------------------------------
@@ -178,6 +183,63 @@ module Clacky
       @config = cfg
       reload
       new_enabled
+    end
+
+    # ---------------------------------------------------------------------------
+    # Background page bookkeeping
+    # ---------------------------------------------------------------------------
+    # Pages the AI opened in the background (background: true) are invisible to
+    # the user, so nobody notices when they leak. Each one is tagged with the
+    # owner that opened it (an agent, keyed by object_id) and closed when that
+    # owner's run ends. Foreground pages are never tracked — the user is meant
+    # to keep them.
+    #
+    # The hash has its own mutex: mcp_call holds @mutex for the whole round-trip,
+    # and Ruby mutexes are not reentrant, so the two must never nest.
+
+    # @param page_id [Integer]
+    # @param owner   [Object] anything responding to object_id (agent instance)
+    def register_page(page_id, owner)
+      return if page_id.nil? || owner.nil?
+      @pages_mutex.synchronize { @owned_pages[page_id.to_i] = owner.object_id }
+    end
+
+    # Drop a page from the ledger without closing it — it either became visible
+    # to the user (focus) or was closed explicitly.
+    def unregister_page(page_id)
+      return if page_id.nil?
+      @pages_mutex.synchronize { @owned_pages.delete(page_id.to_i) }
+    end
+
+    # The background page `owner` may still reuse, or nil. The ledger is the
+    # single source of truth, so a page released at teardown is never reused.
+    # @return [Integer, nil]
+    def background_page_for(owner)
+      return nil if owner.nil?
+      owner_id = owner.object_id
+      @pages_mutex.synchronize do
+        @owned_pages.find { |_id, oid| oid == owner_id }&.first
+      end
+    end
+
+    # Close every background page owned by `owner`. Silent about failures: the
+    # user may have closed the tab, or it may be the last remaining page, which
+    # Chrome refuses to close. Neither is worth an error at task teardown.
+    # @return [Array<Integer>] page ids that were released
+    def release(owner)
+      return [] if owner.nil?
+      owner_id = owner.object_id
+      page_ids = @pages_mutex.synchronize do
+        ids = @owned_pages.select { |_id, oid| oid == owner_id }.keys
+        ids.each { |id| @owned_pages.delete(id) }
+        ids
+      end
+      page_ids.each do |id|
+        mcp_call("close_page", { pageId: id })
+      rescue StandardError
+        nil
+      end
+      page_ids
     end
 
     # ---------------------------------------------------------------------------

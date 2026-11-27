@@ -802,4 +802,122 @@ RSpec.describe Clacky::Tools::Browser do
     end
   end
 
+  describe "#execute open with background" do
+    let(:manager) do
+      instance_double(Clacky::BrowserManager,
+                      background_page_for: nil,
+                      register_page: nil,
+                      unregister_page: nil)
+    end
+    let(:pages_result) do
+      {
+        "structuredContent" => {
+          "pages" => [
+            { "id" => 3, "url" => "https://user.example", "selected" => false },
+            { "id" => 7, "url" => "https://ai.example", "selected" => true }
+          ]
+        }
+      }
+    end
+    let(:config_dir)  { Dir.mktmpdir("browser-open") }
+    let(:config_path) { File.join(config_dir, "browser.yml") }
+
+    before do
+      stub_const("Clacky::Tools::Browser::BROWSER_CONFIG_PATH", config_path)
+      File.write(config_path, "enabled: true\n")
+      allow(Clacky::BrowserManager).to receive(:instance).and_return(manager)
+      allow(tool).to receive(:require_url) { |opts| opts[:url] || opts["url"] }
+      allow(tool).to receive(:wait_for_page_ready)
+    end
+
+    after { FileUtils.remove_entry(config_dir) }
+
+    it "opens a background tab and registers it for release" do
+      expect(tool).to receive(:mcp_call).with("new_page", { url: "https://ai.example", background: true })
+                                      .and_return(pages_result)
+
+      result = tool.execute(action: "open", url: "https://ai.example", background: true)
+
+      expect(result).to include(success: true, url: "https://ai.example")
+      expect(result[:output]).to include("background")
+      expect(manager).to have_received(:register_page).with(7, nil)
+    end
+
+    it "reuses the registered background tab instead of opening a new one" do
+      allow(manager).to receive(:background_page_for).and_return(7)
+      expect(tool).to receive(:mcp_call)
+        .with("navigate_page", { pageId: 7, type: "url", url: "https://next.example" })
+        .and_return({})
+      expect(tool).not_to receive(:mcp_call).with("new_page", anything)
+
+      result = tool.execute(action: "open", url: "https://next.example", background: true)
+
+      expect(result[:output]).to include("7")
+      expect(manager).not_to have_received(:register_page)
+    end
+
+    it "rebuilds the tab when the registered one is gone" do
+      allow(manager).to receive(:background_page_for).and_return(7)
+      allow(tool).to receive(:mcp_call) do |name, args|
+        if name == "navigate_page"
+          raise RuntimeError, "No page found"
+        elsif name == "new_page"
+          expect(args).to eq(url: "https://next.example", background: true)
+          pages_result
+        end
+      end
+
+      result = tool.execute(action: "open", url: "https://next.example", background: true)
+
+      expect(result[:success]).to be true
+      expect(manager).to have_received(:unregister_page).with(7)
+      expect(manager).to have_received(:register_page).with(7, nil)
+    end
+
+    it "surfaces a real navigation error instead of silently opening another tab" do
+      allow(manager).to receive(:background_page_for).and_return(7)
+      allow(tool).to receive(:mcp_call) do |name, _args|
+        raise RuntimeError, "net::ERR_NAME_NOT_RESOLVED" if name == "navigate_page"
+        raise "new_page must not be called"
+      end
+
+      result = tool.execute(action: "open", url: "https://typo.example", background: true)
+
+      expect(result[:error]).to include("ERR_NAME_NOT_RESOLVED")
+      expect(manager).not_to have_received(:register_page)
+    end
+
+    it "keeps the foreground behaviour when background is absent" do
+      expect(tool).to receive(:mcp_call).with("new_page", { url: "https://shown.example" })
+                                      .and_return(pages_result)
+
+      tool.execute(action: "open", url: "https://shown.example")
+
+      expect(manager).not_to have_received(:register_page)
+    end
+
+    it "treats the string \"false\" as foreground" do
+      expect(tool).to receive(:mcp_call).with("new_page", { url: "https://shown.example" })
+                                      .and_return(pages_result)
+
+      tool.execute(action: "open", url: "https://shown.example", background: "false")
+    end
+
+    it "drops the tab from the ledger once the user is shown it" do
+      allow(tool).to receive(:mcp_call).and_return({})
+
+      tool.execute(action: "focus", target_id: "7")
+
+      expect(manager).to have_received(:unregister_page).with(7)
+    end
+
+    it "drops the tab from the ledger once it is closed" do
+      allow(tool).to receive(:mcp_call).and_return({})
+
+      tool.execute(action: "close", target_id: "7")
+
+      expect(manager).to have_received(:unregister_page).with(7)
+    end
+  end
+
 end
