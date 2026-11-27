@@ -110,18 +110,25 @@ module Clacky
           "or-veo-3-1-lite"      => "Veo 3.1 Lite"
         },
         "default_video_model" => "or-gemini-omni-flash",
-        # Text-to-speech models served by the openclacky gateway, which
-        # routes them to Vertex AI Gemini 2.5 (responseModalities=["AUDIO"]).
-        # The gateway returns WAV inline as base64.
+        # Text-to-speech models served by the openclacky gateway. or-tts-
+        # aliases relay to Vertex AI Gemini 2.5 (responseModalities=["AUDIO"],
+        # ~40 voices, no length cap); dsk-deepseek-tts answers from DeepSeek's
+        # own endpoint, which is ~6x realtime but bills per character — about
+        # 1.5x Gemini Flash for the same Chinese script — and offers two
+        # voices, no style cues, ~1,000 CJK characters per request.
+        # DeepSeek is the default for latency: a short clip returns in a second
+        # or two, where Gemini TTS can take minutes.
         "audio_models" => [
+          "dsk-deepseek-tts",
           "or-tts-gemini-2-5-flash",
           "or-tts-gemini-2-5-pro"
         ],
         "audio_model_aliases" => {
+          "dsk-deepseek-tts"        => "DeepSeek TTS (Fast)",
           "or-tts-gemini-2-5-flash" => "Gemini 2.5 Flash TTS",
           "or-tts-gemini-2-5-pro"   => "Gemini 2.5 Pro TTS"
         },
-        "default_audio_model" => "or-tts-gemini-2-5-flash",
+        "default_audio_model" => "dsk-deepseek-tts",
         # Speech-to-text models served by the openclacky gateway. dsk- aliases
         # are answered on the mainland gateway straight from DeepSeek's
         # standalone speech API (~0.1-0.2x realtime, no prompt biasing); the

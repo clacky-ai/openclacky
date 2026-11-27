@@ -238,6 +238,147 @@ RSpec.describe Clacky::Media::OpenAICompat do
     end
   end
 
+  describe "#generate_speech" do
+    let(:direct_entry) do
+      { "model" => "dsk-deepseek-tts", "base_url" => "https://api.deepseek.com", "api_key" => "dsk-k" }
+    end
+    let(:direct) { described_class.new(direct_entry) }
+    let(:speech_conn) { instance_double(Faraday::Connection) }
+    let(:output_dir) { Dir.mktmpdir }
+    # The outer before block stubs `connection`, which needs this.
+    let(:response_body) { "" }
+
+    after { FileUtils.remove_entry(output_dir) if File.directory?(output_dir) }
+
+    # DeepSeek streams WAV with both size fields left at 0xFFFFFFFF.
+    def wav_bytes(data_len:, byte_rate: 48_000, placeholder: true)
+      body = +""
+      body.force_encoding(Encoding::BINARY)
+      body << "RIFF" << [0xFFFFFFFF].pack("V") << "WAVE"
+      body << "fmt " << [16].pack("V") << [1, 1, 24_000, byte_rate, 2, 16].pack("vvVVvv")
+      body << "data" << [placeholder ? 0xFFFFFFFF : data_len].pack("V")
+      body << ("\x00".b * data_len)
+      body
+    end
+
+    def stub_speech(conn, captured, response, path:)
+      request = double("req")
+      allow(request).to receive(:headers).and_return({})
+      allow(request).to receive(:body=) { |value| captured[:body] = value }
+      allow(conn).to receive(:post).with(path).and_yield(request).and_return(response)
+    end
+
+    def chunk_size(wav, chunk_id)
+      wav[wav.index(chunk_id) + 4, 4].unpack1("V")
+    end
+
+    context "talking to api.deepseek.com directly" do
+      before do
+        allow(direct).to receive(:audio_connection).and_return(speech_conn)
+        allow(speech_conn).to receive(:post)
+      end
+
+      it "posts to tools/tts, repairs the WAV sizes and prices each billing character" do
+        captured = {}
+        stub_speech(
+          speech_conn, captured,
+          instance_double(Faraday::Response, success?: true, status: 200, body: wav_bytes(data_len: 48_000)),
+          path: "v1/tools/tts"
+        )
+
+        result = direct.generate_speech(input: "你好世界", output_dir: output_dir)
+
+        expect(result["success"]).to be true
+        expect(result["provider"]).to eq("deepseekv4")
+        expect(JSON.parse(captured[:body])).to include(
+          "text" => "你好世界", "voice_id" => "stella", "format" => "wav"
+        )
+
+        bytes = File.binread(result["audio"])
+        expect(bytes[4, 4].unpack1("V")).to eq(bytes.bytesize - 8)
+        expect(chunk_size(bytes, "data")).to eq(48_000)
+
+        expect(result["usage"]).to include("characters" => 8)
+        expect(result["usage"]["audio_seconds"]).to be_within(0.01).of(1.0)
+        expect(result["cost_usd"]).to be_within(1e-9).of(8 / 1000.0 * 0.30 / 7.2)
+        expect(result["cost_source"]).to eq("estimated")
+      end
+
+      it "maps a Gemini voice name onto the default instead of failing" do
+        captured = {}
+        stub_speech(
+          speech_conn, captured,
+          instance_double(Faraday::Response, success?: true, status: 200, body: wav_bytes(data_len: 48_000)),
+          path: "v1/tools/tts"
+        )
+
+        result = direct.generate_speech(input: "hi", voice: "Kore", output_dir: output_dir)
+
+        expect(JSON.parse(captured[:body])["voice_id"]).to eq("stella")
+        expect(result["voice"]).to eq("stella")
+      end
+
+      it "keeps a supported voice, case and blank insensitive" do
+        captured = {}
+        stub_speech(
+          speech_conn, captured,
+          instance_double(Faraday::Response, success?: true, status: 200, body: wav_bytes(data_len: 48_000)),
+          path: "v1/tools/tts"
+        )
+
+        direct.generate_speech(input: "hi", voice: " Tide ", output_dir: output_dir)
+
+        expect(JSON.parse(captured[:body])["voice_id"]).to eq("tide")
+      end
+
+      it "refuses input above the per-request cap without calling upstream" do
+        result = direct.generate_speech(input: "字" * 1_001, output_dir: output_dir)
+
+        expect(result["success"]).to be false
+        expect(result["error_type"]).to eq("invalid_argument")
+        expect(result["error"]).to include("2000")
+        expect(speech_conn).not_to have_received(:post)
+      end
+
+      it "surfaces the upstream status when DeepSeek rejects the request" do
+        stub_speech(
+          speech_conn, {},
+          instance_double(Faraday::Response, success?: false, status: 400, body: "bad voice"),
+          path: "v1/tools/tts"
+        )
+
+        result = direct.generate_speech(input: "hi", output_dir: output_dir)
+
+        expect(result["success"]).to be false
+        expect(result["error_type"]).to eq("api_error")
+        expect(result["error"]).to include("400").and include("bad voice")
+      end
+    end
+
+    context "on the openclacky gateway" do
+      it "posts an OpenAI-shaped payload to audio/speech" do
+        captured = {}
+        stub_speech(
+          fake_conn, captured,
+          instance_double(Faraday::Response, success?: true, status: 200,
+                                             body: JSON.generate(
+                                               "data" => [{ "b64_json" => Base64.strict_encode64("RIFF0000WAVE"),
+                                                            "mime_type" => "audio/wav" }],
+                                               "voice" => "Kore"
+                                             )),
+          path: "audio/speech"
+        )
+        allow(provider).to receive(:audio_connection).and_return(fake_conn)
+
+        result = provider.generate_speech(input: "hello", voice: "Kore", output_dir: output_dir)
+
+        expect(result["success"]).to be true
+        expect(JSON.parse(captured[:body])).to eq("model" => "or-gpt-image-1", "input" => "hello", "voice" => "Kore")
+        expect(File.binread(result["audio"])).to eq("RIFF0000WAVE")
+      end
+    end
+  end
+
   describe "#generate_transcription" do
     let(:response_body) { JSON.generate({ "text" => "hello world", "usage" => { "cost" => 0.0001 } }) }
     let(:fake_conn) { instance_double(Faraday::Connection) }

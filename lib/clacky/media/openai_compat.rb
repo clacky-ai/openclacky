@@ -44,6 +44,17 @@ module Clacky
         audio/wav audio/x-wav audio/wave audio/ogg audio/opus application/ogg
       ].freeze
 
+      # DeepSeek's TTS endpoint (/v1/tools/tts) answers with raw WAV bytes and
+      # no usage block, bills per character (¥3 / 10,000, CJK counts twice),
+      # and offers exactly two voices. A relay of 24 kHz mono audio runs
+      # ~48 KB/s, and the response is base64-wrapped by the caller, so a long
+      # script turns into an unusable payload — hence the cap.
+      DEEPSEEK_TTS_ALIASES = %w[dsk-deepseek-tts deepseek-tts].freeze
+      DEEPSEEK_TTS_RMB_PER_KCHAR = 0.30
+      DEEPSEEK_TTS_VOICES = %w[stella tide].freeze
+      DEEPSEEK_TTS_DEFAULT_VOICE = "stella"
+      DEEPSEEK_TTS_MAX_BILLING_CHARS = 2000
+
       def generate_image(prompt:, aspect_ratio: DEFAULT_ASPECT, output_dir: nil, n: 1, image: nil, images: nil, **_kwargs)
         provider_id = Clacky::Providers.find_by_base_url(@base_url) || "custom"
         aspect      = ASPECT_TO_SIZE.key?(aspect_ratio) ? aspect_ratio : DEFAULT_ASPECT
@@ -294,6 +305,10 @@ module Clacky
           )
         end
 
+        return deepseek_speech(
+          input: input, voice: voice, output_dir: output_dir, provider_id: provider_id
+        ) if deepseek_direct?
+
         payload = { model: @model, input: input }
         payload[:voice] = voice if voice && !voice.to_s.strip.empty?
 
@@ -537,6 +552,139 @@ module Clacky
           "cost_usd" => duration / 3_600_000.0 * DEEPSEEK_ASR_RMB_PER_AUDIO_HOUR / RMB_PER_USD,
           "cost_source" => "estimated"
         )
+      end
+
+      # DeepSeek's TTS endpoint answers with raw WAV bytes instead of a JSON
+      # envelope, reports no usage, and streams a WAV whose two size fields are
+      # 0xFFFFFFFF placeholders. Everything specific to that contract stays
+      # here so the OpenAI-shaped callers never see it.
+      private def deepseek_speech(input:, voice:, output_dir:, provider_id:)
+        billing_chars = deepseek_tts_billing_chars(input)
+        if billing_chars > DEEPSEEK_TTS_MAX_BILLING_CHARS
+          return audio_error_response(
+            error: "input is #{billing_chars} billing characters (a CJK character counts as 2); " \
+                   "DeepSeek TTS accepts up to #{DEEPSEEK_TTS_MAX_BILLING_CHARS} per request — " \
+                   "split the script into paragraphs and synthesize them one at a time",
+            error_type: "invalid_argument", provider: provider_id, input: input, voice: voice.to_s
+          )
+        end
+
+        voice_id = deepseek_tts_voice(voice)
+        payload = {
+          text: input.to_s,
+          voice_id: voice_id,
+          format: "wav",
+          filter_markdown: true
+        }
+
+        begin
+          response = audio_connection.post(deepseek_tts_path) do |req|
+            req.headers["Content-Type"]  = "application/json"
+            req.headers["Authorization"] = "Bearer #{@api_key}"
+            req.body = JSON.generate(payload)
+          end
+        rescue Faraday::Error => e
+          return audio_error_response(
+            error: "HTTP request failed: #{e.message}",
+            error_type: "network_error", provider: provider_id, input: input, voice: voice_id
+          )
+        end
+
+        unless response.success?
+          return audio_error_response(
+            error: "Upstream #{response.status}: #{truncate(response.body, 500)}",
+            error_type: "api_error", provider: provider_id, input: input, voice: voice_id
+          )
+        end
+
+        wav = repair_wav_sizes(response.body)
+        if wav.bytesize < 44
+          return audio_error_response(
+            error: "Upstream returned #{wav.bytesize} bytes, too short to be a WAV file",
+            error_type: "empty_response", provider: provider_id, input: input, voice: voice_id
+          )
+        end
+
+        path = save_audio_bytes(wav, output_dir: output_dir, prefix: "tts", extension: "wav")
+        audio_success_response(
+          audio: path, input: input, voice: voice_id, provider: provider_id,
+          extra: {
+            "mime_type"   => "audio/wav",
+            "usage"       => {
+              "characters"    => billing_chars,
+              "audio_seconds" => wav_duration_seconds(wav)
+            },
+            "cost_usd"    => billing_chars / 1000.0 * DEEPSEEK_TTS_RMB_PER_KCHAR / RMB_PER_USD,
+            "cost_source" => "estimated"
+          }
+        )
+      end
+
+      # DeepSeek ships two voices and ignores unknown names, but the `voice`
+      # field is free-form for OpenAI-shaped callers, so a Gemini voice name
+      # must degrade to the default instead of failing.
+      private def deepseek_tts_voice(voice)
+        candidate = voice.to_s.strip.downcase
+        DEEPSEEK_TTS_VOICES.include?(candidate) ? candidate : DEEPSEEK_TTS_DEFAULT_VOICE
+      end
+
+      # DeepSeek counts a CJK character as two billing characters; every
+      # multi-byte rune is treated the same way so the estimate never
+      # understates a mixed-language script.
+      private def deepseek_tts_billing_chars(text)
+        text.to_s.each_char.sum { |ch| ch.bytesize > 1 ? 2 : 1 }
+      end
+
+      private def deepseek_tts_path
+        @base_url.to_s.chomp("/").end_with?("/v1") ? "tools/tts" : "v1/tools/tts"
+      end
+
+      # Rewrites the two size fields DeepSeek leaves as placeholders. Without
+      # this a browser reports a bogus duration and refuses to seek.
+      private def repair_wav_sizes(wav)
+        data = wav.to_s.dup.force_encoding(Encoding::BINARY)
+        return data if data.bytesize < 44
+        return data unless data.byteslice(0, 4) == "RIFF" && data.byteslice(8, 4) == "WAVE"
+
+        data[4, 4] = [data.bytesize - 8].pack("V")
+        offset = 12
+        while offset + 8 <= data.bytesize
+          chunk_id = data.byteslice(offset, 4)
+          size = data.byteslice(offset + 4, 4).unpack1("V")
+          if chunk_id == "data"
+            data[offset + 4, 4] = [data.bytesize - (offset + 8)].pack("V")
+            break
+          end
+          break if size <= 0 || size > data.bytesize - (offset + 8)
+
+          offset += 8 + size + (size % 2)
+        end
+        data
+      end
+
+      private def wav_duration_seconds(wav)
+        byte_rate = 0
+        data_len = 0
+        offset = 12
+        while offset + 8 <= wav.bytesize
+          chunk_id = wav.byteslice(offset, 4)
+          size = wav.byteslice(offset + 4, 4).unpack1("V")
+          case chunk_id
+          when "fmt "
+            byte_rate = wav.byteslice(offset + 16, 4).unpack1("V") if size >= 12
+          when "data"
+            data_len = size
+            available = wav.bytesize - (offset + 8)
+            data_len = available if data_len > available
+            break
+          end
+          break if size <= 0 || size > wav.bytesize - (offset + 8)
+
+          offset += 8 + size + (size % 2)
+        end
+        return 0.0 if byte_rate <= 0 || data_len <= 0
+
+        data_len.to_f / byte_rate
       end
 
       private def deepseek_direct?

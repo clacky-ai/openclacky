@@ -530,11 +530,20 @@ Ambient audio includes rain, ocean waves, wind, and café background
 sounds. Generate it programmatically, verify the audio, and provide
 it for playback or download.
 
-## Generating speech (Gemini TTS)
+## Generating speech
 
 The same `/api/media/` namespace serves text-to-speech. The user must
-configure a `type=audio` model in settings (recommended:
-`or-tts-gemini-2-5-flash`, the cheap+fast default).
+configure a `type=audio` model in settings:
+
+| Model | Voices | Limits | Notes |
+|-------|--------|--------|-------|
+| `dsk-deepseek-tts` (default) | `stella` (female), `tide` (male) only | ~1,000 CJK chars per request | Fastest (~6x realtime). Priced per character: ~$0.088 for 1,000 CJK chars, about 1.5x Gemini Flash. No style cues; unknown voices fall back to `stella` |
+| `or-tts-gemini-2-5-flash` | ~40, e.g. `Kore`, `Puck`, `Charon`, `Fenrir`, `Aoede` | none in practice | Cheapest per minute (~$0.058 for the same 1,000 CJK chars), but much slower. Style cues work: "Say cheerfully: …" |
+| `or-tts-gemini-2-5-pro` | same as Flash | none | Best quality, costs more |
+
+Check which one is active with `GET /api/media/types` (`audio.model`). For a
+long script on `dsk-deepseek-tts`, synthesize paragraph by paragraph and
+concatenate — a single request over the cap is rejected with a 400.
 
 ### Endpoint
 
@@ -552,7 +561,7 @@ curl -s -X POST http://${CLACKY_SERVER_HOST}:${CLACKY_SERVER_PORT}/api/media/aud
   -H "Content-Type: application/json" \
   -d '{
     "input": "Hello and welcome to openclacky. Today we will explore...",
-    "voice": "Kore",
+    "voice": "stella",
     "output_dir": "'"$(pwd)"'/assets/generated",
     "session_id": "<%= session_id %>"
   }'
@@ -561,7 +570,7 @@ curl -s -X POST http://${CLACKY_SERVER_HOST}:${CLACKY_SERVER_PORT}/api/media/aud
 | Field        | Required | Values                          | Notes |
 |--------------|----------|---------------------------------|-------|
 | `input`      | yes      | string                          | The text to speak. Plain prose works best; you can prefix with style cues like "Say cheerfully:" or "In a calm tone:". |
-| `voice`      | no       | string voice name               | Defaults to `Kore`. Common Gemini voices: `Kore`, `Puck`, `Charon`, `Fenrir`, `Aoede`. |
+| `voice`      | no       | string voice name               | Defaults to `Kore` on Gemini, `stella` on DeepSeek. See the model table above; a voice the active model doesn't know is mapped to its default rather than rejected. |
 | `output_dir` | no       | absolute path                   | The exact directory the file is written to — nothing is appended. Use the directory the user asked for; otherwise `$(pwd)/assets/generated` as shown in the example. |
 | `session_id` | yes      | string                          | Current Clacky session ID. Always pass the rendered value shown in the request example. |
 
@@ -574,15 +583,20 @@ blocks until the WAV is ready.
 {
   "success": true,
   "audio": "/abs/path/to/working_dir/assets/generated/tts_20260615_233522_4ff02705.wav",
-  "model": "or-tts-gemini-2-5-flash",
+  "model": "dsk-deepseek-tts",
   "provider": "openclacky",
   "input": "Hello and welcome to openclacky...",
-  "voice": "Kore",
+  "voice": "stella",
   "mime_type": "audio/wav",
-  "usage": { "prompt_tokens": 13, "completion_tokens": 122, "total_tokens": 135 },
-  "cost_usd": 0.000259
+  "usage": { "characters": 135, "audio_seconds": 12.4 },
+  "cost_usd": 0.000056,
+  "cost_source": "estimated"
 }
 ```
+
+`cost_source: "estimated"` means the provider returns no usage block, so the
+gateway priced the request from the text length. Gemini models report real
+token usage instead (`prompt_tokens` / `completion_tokens`).
 
 The `audio` field is an absolute path on disk. Output is mono 16-bit PCM at
 24 kHz wrapped in a standard WAV container — playable by any browser, OS

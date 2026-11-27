@@ -88,6 +88,7 @@ module Clacky
         # text-to-speech (or-)
         "or-tts-gemini-2-5-flash" => "gemini-2.5-flash-tts",
         "or-tts-gemini-2-5-pro"   => "gemini-2.5-pro-tts",
+        "dsk-deepseek-tts"        => "deepseek-tts",
         # speech-to-text (or-)
         "dsk-deepseek-asr"        => "deepseek-asr",
         "or-stt-gemini-3-8-flash" => "gemini-3.8-flash",

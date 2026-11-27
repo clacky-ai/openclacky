@@ -44,7 +44,7 @@ module Clacky
       # @return [Hash] either audio_success_response(...) or audio_error_response(...)
       def generate_speech(input:, voice: nil, output_dir: nil, **_kwargs)
         audio_error_response(
-          error: "Speech synthesis is not supported by #{self.class.name.split("::").last}. Use the openclacky gateway with a TTS model such as or-tts-gemini-2-5-flash.",
+          error: "Speech synthesis is not supported by #{self.class.name.split("::").last}. Use the openclacky gateway with a TTS model such as dsk-deepseek-tts.",
           error_type: "not_implemented",
           provider: "",
           input: input
@@ -101,6 +101,16 @@ module Clacky
         short = SecureRandom.hex(4)
         path  = File.join(target_dir, "#{prefix}_#{ts}_#{short}.#{extension}")
         File.binwrite(path, Base64.decode64(b64_data))
+        path
+      end
+
+      private def save_audio_bytes(bytes, output_dir:, prefix: "tts", extension: "wav")
+        target_dir = media_output_dir(output_dir)
+        FileUtils.mkdir_p(target_dir)
+        ts    = Time.now.strftime("%Y%m%d_%H%M%S")
+        short = SecureRandom.hex(4)
+        path  = File.join(target_dir, "#{prefix}_#{ts}_#{short}.#{extension}")
+        File.binwrite(path, bytes)
         path
       end
 
